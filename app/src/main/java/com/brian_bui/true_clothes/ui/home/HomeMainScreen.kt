@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -25,15 +26,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.dp
 import com.brian_bui.true_clothes.R
 import com.brian_bui.true_clothes.shared.theme.LocalResponsiveScale
 import com.brian_bui.true_clothes.shared.theme.ResponsiveScale
 import com.brian_bui.true_clothes.shared.theme.MainBackground
 import com.brian_bui.true_clothes.shared.theme.TrueclothesTheme
+import com.brian_bui.true_clothes.shared.components.OutfitCompositionCardPlaceholder
+import com.brian_bui.true_clothes.shared.components.OutfitCompositionSources
 import androidx.compose.ui.tooling.preview.Preview
 
 private enum class HomeTab(val title: String) {
@@ -47,6 +52,8 @@ fun HomeMainScreen(
     modifier: Modifier = Modifier,
 ) {
     val scale = LocalResponsiveScale.current
+    val config = LocalConfiguration.current
+    val outfitCardMaxHeight = (config.screenHeightDp.dp - scale.scaleDp(250f)).coerceAtLeast(scale.scaleDp(320f))
 
     val playfairBold = FontFamily(
         Font(R.font.playfairdisplay_bold, FontWeight.Bold),
@@ -62,6 +69,17 @@ fun HomeMainScreen(
             Color(0xFF4D5051).copy(alpha = 0.35f),
             Color(0xFFDCDCDC),
         ),
+    )
+
+    // Placeholder image sources for the 5-slot outfit composition.
+    // Replace these values later with URLs or local file/content URIs.
+    val outfitPlaceholderSources = OutfitCompositionSources(
+        pants = "asset:images/jeans.png",
+        // Keep the rest empty for now; you can paste other sources later.
+        jacket = null,
+        shirt = null,
+        bag = null,
+        shoes = null,
     )
 
     Surface(
@@ -98,14 +116,41 @@ fun HomeMainScreen(
                         .padding(horizontal = scale.scaleDp(24f)),
                     verticalArrangement = Arrangement.spacedBy(scale.scaleDp(12f)),
                 ) {
-                    val items = when (selectedTab) {
-                        HomeTab.Outfit -> listOf("Suggested outfit #1", "Suggested outfit #2")
-                        HomeTab.Favourite -> listOf("Favourite outfit #1", "Favourite outfit #2")
-                        HomeTab.Closet -> listOf("Closet outfit #1", "Closet outfit #2")
+                when (selectedTab) {
+                    HomeTab.Outfit -> {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(outfitCardMaxHeight)
+                                    .background(
+                                        Color.White.copy(alpha = 0.10f),
+                                        RoundedCornerShape(scale.scaleDp(16f)),
+                                    )
+                                    .padding(vertical = scale.scaleDp(16f), horizontal = scale.scaleDp(8f)),
+                            ) {
+                                OutfitCompositionCardPlaceholder(
+                                    sources = outfitPlaceholderSources,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
                     }
-                    items(items) { label ->
-                        OutfitCardPlaceholder(label = label, scale = scale)
+
+                    HomeTab.Favourite -> {
+                        val items = listOf("Favourite outfit #1", "Favourite outfit #2")
+                        items(items) { label ->
+                            OutfitCardPlaceholder(label = label, scale = scale)
+                        }
                     }
+
+                    HomeTab.Closet -> {
+                        val items = listOf("Closet outfit #1", "Closet outfit #2")
+                        items(items) { label ->
+                            OutfitCardPlaceholder(label = label, scale = scale)
+                        }
+                    }
+                }
                 }
             }
         }
@@ -152,7 +197,7 @@ private fun TabsRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = scale.scaleDp(40f), vertical = scale.scaleDp(70f)),
+            .padding(horizontal = scale.scaleDp(24f), vertical = scale.scaleDp(8f)),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -165,7 +210,7 @@ private fun TabsRow(
                 fontWeight = FontWeight.Thin,
                 color = Color(0xFFFFFFFF).copy(alpha = alpha),
                 fontSize = scale.scaleSp(14f),
-                    letterSpacing = (0.05f).em,
+                letterSpacing = (0.10f).em,
                 modifier = Modifier
                     .clickable { onTabSelected(tab) }
                     .padding(vertical = scale.scaleDp(8f)),

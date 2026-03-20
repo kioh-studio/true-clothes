@@ -24,6 +24,44 @@ SCREEN_SPEC:
         visual:
           background: "Fixed cloud background + linear colour treatment (from main.svg)."
           assets: "PNG items placed on the fixed cloud background."
+          composition_placeholder:
+            slot_reference_canvas_px:
+              width: 500
+              height: 570
+            scaling_behavior:
+              - "The outfit composition canvas scales uniformly to fit within the visible card/container area (both width and height), so the whole 5-slot outfit is visible without needing to scroll to see the bottom part."
+            slots:
+              - id: 1
+                role: "pants"
+                label: "1 Pants"
+                size_px: { w: 350, h: 468 }
+                position_px: { x: 0, y: 0 }
+              - id: 2
+                role: "jacket"
+                label: "2 Jacket"
+                size_px: { w: 150, h: 206 }
+                position_px: { x: 350, y: 0 }
+              - id: 3
+                role: "shirt"
+                label: "3 Shirt"
+                size_px: { w: 150, h: 206 }
+                position_px: { x: 350, y: 206 }
+              - id: 4
+                role: "bag"
+                label: "4 Bag"
+                size_px: { w: 102, h: 140 }
+                position_px: { x: 350, y: 412 }
+              - id: 5
+                role: "shoes"
+                label: "5 Shoes"
+                size_px: { w: 102, h: 102 }
+                position_px: { x: 0, y: 468 }
+            debug_labels:
+              enabled: true
+              show_text_inside_each_slot: true
+            image_source_support:
+              - "URL (http/https) / local file path / file:// URI / content:// URI"
+              - "`asset:` scheme for app bundled assets (example: `asset:jeans.png` or `asset:images/jeans.png`)"
         content:
           - "Render each suggested outfit as a card/row of item images."
           - "For MVP: show only closet-based outfits."
@@ -87,6 +125,7 @@ SCREEN_SPEC:
   behavior:
     - "The 3 buttons represent 3 different menus: Outfit, Favourite, Closet."
     - "Tapping a menu button switches the content below to the corresponding section."
+    - "Tapping an outfit card/button in the Outfit section navigates to the outfit detail screen (`/home/outfit/{outfitId}`)."
     - "Tab button color base: `#FFFFFF`."
     - "Active tab: `#FFFFFF` at full opacity (100%)."
     - "Inactive tabs: `#FFFFFF` at `70%` opacity."
