@@ -1,9 +1,6 @@
 package com.brian_bui.true_clothes.shared.components
 
-import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -26,10 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.net.URL
+import com.brian_bui.true_clothes.shared.media.loadBitmapFromSource
 
 data class OutfitCompositionSources(
     val pants: String? = null,
@@ -176,47 +170,5 @@ private fun OutfitSlot(
             )
         }
     }
-}
-
-private suspend fun loadBitmapFromSource(
-    context: Context,
-    source: String,
-): Bitmap? = withContext(Dispatchers.IO) {
-    runCatching {
-        when {
-            source.startsWith("asset:") -> {
-                // Example: asset:jeans.png or asset:images/jeans.png
-                val assetPath = source.removePrefix("asset:")
-                context.assets.open(assetPath).use { stream ->
-                    // Decode from bytes for better reliability.
-                    val bytes = stream.readBytes()
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                }
-            }
-
-            source.startsWith("http://") || source.startsWith("https://") -> {
-                URL(source).openStream().use { BitmapFactory.decodeStream(it) }
-            }
-
-            source.startsWith("content://") -> {
-                val uri = Uri.parse(source)
-                context.contentResolver.openInputStream(uri).use { stream ->
-                    stream?.let { BitmapFactory.decodeStream(it) }
-                }
-            }
-
-            source.startsWith("file://") -> {
-                val filePath = source.removePrefix("file://")
-                val file = File(filePath)
-                if (!file.exists()) null else BitmapFactory.decodeFile(file.absolutePath)
-            }
-
-            // Treat plain paths like `/sdcard/...` or `C:\...`.
-            else -> {
-                val file = File(source)
-                if (!file.exists()) null else BitmapFactory.decodeFile(file.absolutePath)
-            }
-        }
-    }.getOrNull()
 }
 

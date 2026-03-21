@@ -3,7 +3,35 @@ SCREEN_SPEC:
   route: "/home/outfit/{outfitId}"
   design_path: "app/design/screen/home/outfit/"
 
-  # Layout: Outfit detail screen. Implement responsively; keep spacing proportional using scaled dimensions.
+  # Editorial outfit detail: calm hierarchy, serif identity, generous rhythm, hairline structure.
+  screen:
+    background_color: "#F5F5F5"
+    # Luxury variant (warmer gallery wall): prefer for high-end fashion tone when app-wide tokens allow.
+    background_color_alt_luxury: "#F7F6F4"
+    notes:
+      - "Avoid gradients on this screen; a single quiet neutral keeps focus on photography and typography."
+      - "Optional future: very subtle noise texture at ≤2% opacity—only if it stays invisible at a glance."
+
+  # Direction for polish, luxury, high-end fashion (maps to UI skill: consistency, contrast, restraint).
+  aesthetic_direction:
+    intent: "Polished, luxury, high-end fashion—editorial lookbook, not retail flyer."
+    principles:
+      - "Restraint: fewer borders, lighter dividers, no drop shadows on list rows; let images and type carry the mood."
+      - "Hierarchy: one strong serif moment (outfit title); everything else supports it with Poppins at calmer weights."
+      - "Whitespace: prefer slightly wider gaps between blocks than a utility app; overcrowding reads mass-market."
+      - "Photography: frames are gallery-like (thin stroke, neutral fill); product images feel intentional, not thumbnails in a grid ad."
+      - "Copy tone: short labels; tags read as curated descriptors, not hashtags."
+      - "Color: black + warm/off-white + one optional accent later (e.g. deep espresso link)—no rainbow chips."
+    typography:
+      outfit_title:
+        - "Playfair Display Bold; allow comfortable line height (~1.45–1.55) when the system name wraps."
+        - "Optional subtle negative letter-spacing (-0.02em) only if titles look loose at large sizes—test per locale."
+      supporting_body:
+        - "13sp meta lines (form, aesthetic, material): keep muted but verify contrast on chosen background (see ux_skill_reference)."
+        - "Item color line: Poppins Light 20sp @ 50% black—hero secondary, matches item detail screen."
+    structure:
+      - "Hairline dividers between items (low opacity); spacing between rows carries separation as much as the line."
+      - "Action links: underlined, confident weight; touch target larger than the visible text (luxury UX still obeys thumb ergonomics)."
 
   purpose:
     short: "Display the details of a selected outfit (name, tag, and item actions)."
@@ -19,16 +47,64 @@ SCREEN_SPEC:
           font:
             family: "Playfair Display"
             weight: "Bold"
+          color: "#000000"
+          size_sp: 25
+          line_height_multiplier: 1.48
       outfit_tag:
+        status: "Implement when data provides a single secondary label (e.g. season, capsule)."
         style:
           type: "badge/pill"
-          emphasis: "secondary label next to the name"
+          emphasis: "secondary label next to the name on the same row as Back + title"
+          visual_luxury:
+            - "Prefer outline or soft fill (white pill, hairline border #000000 @ 15–25% opacity) over loud filled badges."
+            - "Typography: Poppins Medium 12–13sp, increased letter-spacing +0.06em if label is uppercase."
+      tags_section:
+        purpose: "Display tags assigned by system and/or user (aesthetic, weather, time to wear, style, etc.)."
+        position:
+          between: "Header and item list"
+          title_padding_left_dp: 28
+          from_header_dp: 43
+        title_style:
+          text: "Tags"
+          font_family: "Poppins"
+          font_weight: "Medium"
+          size_sp: 15
+          color: "#000000"
+        tags_row:
+          starts_on_same_row_as_title: true
+          wrap_next_rows_start_at_title_x: true
+          # Do not fix to a wide dp that overflows narrow phones; cap to parent width minus horizontal padding.
+          width: "fill_max_width_with_horizontal_inset"
+          max_width_notes:
+            - "Avoid a fixed ~380dp row on small devices; use full width with same horizontal padding as list body (e.g. 24dp)."
+          height: "unlimited (wrap content)"
+          padding_left_dp: 17
+          row_gap_vertical_dp: 17
+          horizontal_gap_dp: 17
+          bottom_to_item_list_dp: 67
+        tag_chip:
+          min_size_dp: { w: 99, h: 25 }
+          corner_radius_dp: 30
+          background: "#FFFFFF"
+          text_padding_dp: { horizontal: 10, vertical: 2 }
+          text_style:
+            font_family: "Poppins"
+            font_weight: "Medium"
+            size_sp: 13
+            color: "#000000"
+          behavior:
+            - "Chip width can extend beyond 99dp to satisfy text + horizontal padding."
+            - "When chips overflow one row, continue on next row with 17dp vertical gap."
+            - "If tags become tappable filters, increase min touch height to 48dp and keep pill proportions."
 
     body:
       type: "item_list"
       item_row:
+        interaction:
+          - "Tapping image + text block opens item detail; expose a single merged semantics action (e.g. 'View {item name}, details')."
+          - "Keep action link separate; do not nest competing click targets without clear hit areas."
         left:
-          - "Item name (and optionally a thumbnail/image placeholder later)."z
+          - "Text block rendered to the RIGHT of the 140x200 image wrapper."
           - item_image_block:
               image_size_dp: { w: 150, h: 205 }
               wrapper_size_dp: { w: 140, h: 200 }
@@ -37,21 +113,77 @@ SCREEN_SPEC:
                 thickness_dp: 0.5
                 color: "#000000"
               image_fit: "contain/fit (no cropping for demo)"
+              alignment:
+                - "Center the image both horizontally and vertically inside the 140x200 wrapper."
+              loading_luxury:
+                - "Reserve wrapper size while decoding remote images; optional soft shimmer same hue as #DCDCDC (respect reduced motion)."
+          - item_text_block:
+              positioning:
+                # Slightly wider than legacy 9dp for luxury rhythm; implementation must match this spec.
+                padding_left_from_wrapper_dp: 12
+                padding_top_from_wrapper_dp: 10
+              typography_and_spacing:
+                overview_name:
+                  font: "Poppins"
+                  weight: "Medium"
+                  size_sp: 16
+                  color: "#000000"
+                  margin_bottom_to_item_color_dp: 24
+                  notes:
+                    - "Mandatory vertical gap between overview name and item color (Spacer 24dp)—do not collapse."
+                item_color:
+                  font: "Poppins"
+                  weight: "Light"
+                  size_sp: 20
+                  color: "rgba(0,0,0,0.5)"
+                  padding_top_between_lines_dp: 11
+                form:
+                  font: "Poppins"
+                  weight: "Medium"
+                  size_sp: 13
+                  # Slightly stronger than 0.5 for small text contrast (luxury + a11y).
+                  color: "rgba(0,0,0,0.58)"
+                  padding_top_between_lines_dp: 2
+                aesthetic:
+                  font: "Poppins"
+                  weight: "Medium"
+                  size_sp: 13
+                  color: "rgba(0,0,0,0.58)"
+                  padding_top_between_lines_dp: 2
+                material_description:
+                  font: "Poppins"
+                  weight: "Medium"
+                  size_sp: 13
+                  color: "rgba(0,0,0,0.58)"
         right:
           - action_link:
               text:
                 closet_exists: "Go to closet"
                 closet_missing: "Go to shop"
               style:
-                font_weight: "Bold"
+                font_family: "Poppins"
+                font_weight: "SemiBold"
+                size_sp: 20
+                color: "#000000"
                 underline: true
                 decoration: "underline"
+              positioning:
+                aligned_to: "bottom of wrapper (same row as the 140x200 image container)"
+                padding_right_dp: 29
+              touch_and_overflow:
+                min_touch_target_height_dp: 48
+                min_touch_target_width_dp: 48
+                notes:
+                  - "Visual underline can sit in a smaller box; expand hit area with horizontal/vertical padding."
+                  - "Prefer maxLines=1 with TextOverflow.Ellipsis if copy grows (localization); avoid hard clip."
+              visual_reference_size_dp: { w: 120, h: 30 }
 
       separators:
         divider_line:
           thickness_dp: 0.3
           color: "#000000"
-          opacity: 0.3
+          # Slightly softer than 0.3 opacity for luxury separation without heaviness.
+          opacity: 0.22
         item_spacing:
           padding_vertical_each_row_dp: 40
           notes:
@@ -59,6 +191,8 @@ SCREEN_SPEC:
             - "Use `padding_vertical_each_row_dp: 40` so the 'top item' and 'bottom item' around each divider feel evenly spaced."
 
   behavior:
+    header_alignment:
+      - "Keep Back button on the same header row and align it to the top of the outfit title (same vertical position)."
     navigation:
       from_home:
         trigger: "User taps an Outfit card/button on the Home screen."
@@ -77,7 +211,26 @@ SCREEN_SPEC:
 
   responsive_layout:
     - "Use scaled dimensions for padding and typography so the list spacing stays consistent across phone sizes."
+    - "Verify narrowest target width (~320dp): tags wrap, item row does not force horizontal scroll; link column may shrink with ellipsis."
+    - "For long outfits (many items), prefer LazyColumn with stable keys for performance."
+
+  # Alignment with `.agents/skills/ui-ux-advicer/SKILL.md` (Compose translation).
+  ux_skill_reference:
+    accessibility:
+      - "Verify 4.5:1 contrast for 13sp meta lines on chosen background; use rgba(0,0,0,0.58) minimum or bump size if needed."
+      - "Meaningful thumbnails: contentDescription should name the item, not generic 'image'."
+      - "Focus order: Back → scroll content top-to-bottom; row primary action and link remain logically separated for keyboard."
+    touch_and_interaction:
+      - "Action links: minimum 48x48dp touch target; ripple or opacity feedback on press."
+      - "Loading/async: disable or show in-progress on link when navigation is not immediate."
+    performance:
+      - "Lazy lists when item count can grow; decode images off main thread (already) and reserve frame size to avoid jump."
+    typography:
+      - "Body/meta line height ~1.5 where multiple lines occur; outfit title multi-line uses explicit line height as above."
+    motion:
+      - "Respect prefers-reduced-motion for any future row/chip motion; default to subtle or none on this screen."
 
   notes:
     - "Item image loading can be added later; keep the action-link behavior consistent."
-    - "If an item has no applicable action (missing shop suggestion), hide the link or disable it (TBD)."
+    - "If an item has no applicable action (missing shop suggestion), hide the link or disable it with a short explanation (TBD)."
+    - "Luxury is largely negative space + type + image quality—resist adding icons, badges, or promo chrome without a spec update."

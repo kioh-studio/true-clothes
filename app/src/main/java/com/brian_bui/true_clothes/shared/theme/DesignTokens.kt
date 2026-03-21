@@ -23,3 +23,7 @@ val DefaultHeaderFontFamily: FontFamily = FontFamily(
     Font(R.font.playfairdisplay_bold, FontWeight.Bold),
 )
 
+val OutfitDetailFont : FontFamily = FontFamily(
+    Font(R.font.playfairdisplay_medium, FontWeight.Medium)
+)
+
