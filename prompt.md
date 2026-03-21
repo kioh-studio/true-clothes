@@ -1,1 +1,0 @@
-ok i will discuss with you about the modal, and remember write it conclude, briefly and easy to understand for the when we get back in the totally new session, you can understand the context quickly and token-context optimize
