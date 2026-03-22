@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- google_fonts fetches font files once and caches them; required for first launch. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <application
-        android:label="true_clothes_app"
+        android:label="True Clothes"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
