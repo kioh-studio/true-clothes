@@ -28,14 +28,6 @@ class ColourOnboardingScreen extends StatefulWidget {
 }
 
 class _ColourOnboardingScreenState extends State<ColourOnboardingScreen> {
-  bool _hasTriedSubmit = false;
-
-  void _handleNext() {
-    setState(() => _hasTriedSubmit = true);
-    if (widget.state.colourPreference == null) return;
-    widget.onNext();
-  }
-
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -154,18 +146,6 @@ class _ColourOnboardingScreenState extends State<ColourOnboardingScreen> {
                     ),
                   ],
                 ),
-                if (_hasTriedSubmit && s.colourPreference == null)
-                  Padding(
-                    padding: EdgeInsets.only(top: scaleDp(context, 12)),
-                    child: Text(
-                      'Please choose a colour preference.',
-                      style: AppFonts.poppins(
-                        context,
-                        fontSize: scaleSp(context, 12),
-                        color: scheme.error,
-                      ),
-                    ),
-                  ),
               ],
             ),
           ),
@@ -174,7 +154,7 @@ class _ColourOnboardingScreenState extends State<ColourOnboardingScreen> {
           activeIndices: const [3],
           footerVerticalDesignDp: 33.5,
           onBack: widget.onBack,
-          onNext: _handleNext,
+          onNext: widget.onNext,
         ),
       ],
     );

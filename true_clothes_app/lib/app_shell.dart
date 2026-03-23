@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/widget_previews.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import 'features/home/home_main_screen.dart';
+import 'main_nav_shell.dart';
 import 'features/onboarding/adding_wardrobe_form.dart';
 import 'features/onboarding/adding_wardrobe_onboarding_screen.dart';
 import 'features/onboarding/body_measurement_form.dart';
@@ -40,7 +41,11 @@ enum _Flow {
 }
 
 class _AppShellState extends State<AppShell> {
+  static const _onboardingCompleteKey = 'onboarding_complete';
+
   _Flow _flow = _Flow.gender;
+  bool _loaded = false;
+
   GenderFormState _gender = const GenderFormState();
   CountryFormState _country = const CountryFormState();
   BodyMeasurementFormState _body = const BodyMeasurementFormState();
@@ -49,12 +54,42 @@ class _AppShellState extends State<AppShell> {
   ColourFormState _colour = const ColourFormState();
   final AddingWardrobeFormState _wardrobe = const AddingWardrobeFormState();
 
+  @override
+  void initState() {
+    super.initState();
+    _loadOnboardingState();
+  }
+
+  Future<void> _loadOnboardingState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final done = prefs.getBool(_onboardingCompleteKey) ?? false;
+    if (mounted) {
+      setState(() {
+        _flow = done ? _Flow.home : _Flow.gender;
+        _loaded = true;
+      });
+    }
+  }
+
+  Future<void> _completeOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_onboardingCompleteKey, true);
+    if (mounted) setState(() => _flow = _Flow.home);
+  }
+
   void _go(_Flow f) => setState(() => _flow = f);
 
   @override
   Widget build(BuildContext context) {
+    if (!_loaded) {
+      return Scaffold(
+        backgroundColor: AppColors.mainBackground,
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
     if (_flow == _Flow.home) {
-      return const HomeMainScreen();
+      return const MainNavShell();
     }
 
     Widget body;
@@ -112,7 +147,7 @@ class _AppShellState extends State<AppShell> {
         body = AddingWardrobeOnboardingScreen(
           state: _wardrobe,
           onBack: () => _go(_Flow.colour),
-          onNext: () => _go(_Flow.home),
+          onNext: _completeOnboarding,
         );
         break;
       case _Flow.home:

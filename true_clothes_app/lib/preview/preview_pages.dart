@@ -4,6 +4,13 @@ import 'package:flutter/widget_previews.dart';
 import '../app_shell.dart';
 import '../theme/widget_preview_theme.dart';
 import '../features/home/home_main_screen.dart';
+import '../features/home/item_detail_screen.dart';
+import '../features/home/outfit_detail_screen.dart';
+import '../features/profile/user_profile_screen.dart';
+import '../features/wardrobe/complete_item_screen.dart';
+import '../features/wardrobe/my_wardrobe_screen.dart';
+import '../features/wardrobe/new_item_screen.dart';
+import '../features/wardrobe/wardrobe_menu_screen.dart';
 import '../features/onboarding/adding_wardrobe_onboarding_screen.dart';
 import '../features/onboarding/body_measurement_onboarding_screen.dart';
 import '../features/onboarding/bottom_body_measurement_onboarding_screen.dart';
@@ -52,7 +59,7 @@ Widget previewAddingWardrobeOnboarding(BuildContext context) {
 }
 
 Widget previewHomeMain(BuildContext context) {
-  return const HomeMainScreenPreview();
+  return const HomeMainScreen();
 }
 
 Widget previewTrueProgressBarGallery(BuildContext context) {
@@ -76,30 +83,36 @@ Widget previewTrueModalSamples(BuildContext context) {
   );
 }
 
-Widget previewOutfitDetailStub(BuildContext context) {
-  return Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Text(
-        'Outfit detail — preview stub.\nPort from OutfitDetailScreen.kt + design/screen/home/outfit/design.md',
-        textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.bodyLarge,
-      ),
-    ),
-  );
+Widget previewOutfitDetail(BuildContext context) {
+  return const OutfitDetailScreenPreview();
 }
 
-Widget previewItemDetailStub(BuildContext context) {
-  return Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Text(
-        'Item detail — preview stub.\nPort from ItemDetailScreen.kt + design/screen/home/item/design.md',
-        textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.bodyLarge,
-      ),
-    ),
-  );
+Widget previewItemDetail(BuildContext context) {
+  return const ItemDetailScreenPreview();
+}
+
+Widget previewMyWardrobe(BuildContext context) {
+  return const MyWardrobeScreenPreview();
+}
+
+Widget previewCollections(BuildContext context) {
+  return const CollectionsPreview();
+}
+
+Widget previewNewItem(BuildContext context) {
+  return const NewItemScreenPreview();
+}
+
+Widget previewCompleteItem(BuildContext context) {
+  return const CompleteItemScreenPreview();
+}
+
+Widget previewWardrobeMenu(BuildContext context) {
+  return const WardrobeMenuScreenPreview();
+}
+
+Widget previewUserProfile(BuildContext context) {
+  return const UserProfileScreenPreview();
 }
 
 @Preview(
@@ -110,26 +123,6 @@ Widget previewItemDetailStub(BuildContext context) {
 )
 Widget previewTrueModalWidgetPreview() {
   return Builder(builder: previewTrueModalSamples);
-}
-
-@Preview(
-  name: 'Outfit detail (stub)',
-  group: 'Home',
-  size: Size(402, 874),
-  theme: trueClothesPreviewTheme,
-)
-Widget previewOutfitDetailWidgetPreview() {
-  return Builder(builder: previewOutfitDetailStub);
-}
-
-@Preview(
-  name: 'Item detail (stub)',
-  group: 'Home',
-  size: Size(402, 874),
-  theme: trueClothesPreviewTheme,
-)
-Widget previewItemDetailWidgetPreview() {
-  return Builder(builder: previewItemDetailStub);
 }
 
 @Preview(

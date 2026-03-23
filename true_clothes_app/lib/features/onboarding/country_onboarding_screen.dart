@@ -35,15 +35,16 @@ class _CountryOnboardingScreenState extends State<CountryOnboardingScreen> {
   String? _locationError;
   String? _detectedLocationLabel;
   late final TextEditingController _displayCtrl;
+  bool _didAttemptInitialLocate = false;
 
   @override
   void initState() {
     super.initState();
     _displayCtrl = TextEditingController(text: _fieldDisplay);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (widget.state.selectedCountry == null) {
-        _requestOrDetectCountry();
-      }
+      if (_didAttemptInitialLocate || kIsWeb) return;
+      _didAttemptInitialLocate = true;
+      _requestOrDetectCountry();
     });
   }
 
@@ -56,6 +57,10 @@ class _CountryOnboardingScreenState extends State<CountryOnboardingScreen> {
   @override
   void didUpdateWidget(covariant CountryOnboardingScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _syncDisplayController();
+  }
+
+  void _syncDisplayController() {
     final t = _fieldDisplay;
     if (_displayCtrl.text != t) {
       _displayCtrl.value = TextEditingValue(
@@ -69,6 +74,15 @@ class _CountryOnboardingScreenState extends State<CountryOnboardingScreen> {
     if (kIsWeb) return;
 
     setState(() => _locationError = null);
+
+    final serviceOn = await Geolocator.isLocationServiceEnabled();
+    if (!serviceOn) {
+      setState(() {
+        _locationError =
+            'Location services are off. Turn them on or choose country manually.';
+      });
+      return;
+    }
 
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
@@ -84,7 +98,11 @@ class _CountryOnboardingScreenState extends State<CountryOnboardingScreen> {
     }
 
     try {
-      final pos = await Geolocator.getCurrentPosition();
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+        ),
+      );
       final marks = await placemarkFromCoordinates(
         pos.latitude,
         pos.longitude,
@@ -111,14 +129,19 @@ class _CountryOnboardingScreenState extends State<CountryOnboardingScreen> {
             id: code,
             label: (p.country ?? '').trim().isEmpty ? code : p.country!.trim(),
           );
+      final label = _formatCityCountry(
+        city: p.locality ?? p.subAdministrativeArea ?? p.administrativeArea,
+        country: option.label,
+      );
       widget.onStateChange(CountryFormState(selectedCountry: option));
       setState(() {
-        _detectedLocationLabel = _formatCityCountry(
-          city: p.locality ?? p.subAdministrativeArea ?? p.administrativeArea,
-          country: option.label,
-        );
+        _detectedLocationLabel = label;
         _locationError = null;
       });
+      _displayCtrl.value = TextEditingValue(
+        text: label,
+        selection: TextSelection.collapsed(offset: label.length),
+      );
     } catch (_) {
       setState(() {
         _locationError =
@@ -175,10 +198,7 @@ class _CountryOnboardingScreenState extends State<CountryOnboardingScreen> {
                   readOnly: true,
                   onTap: () =>
                       setState(() => _listExpanded = !_listExpanded),
-                  controller: TextEditingController(text: _fieldDisplay)
-                    ..selection = TextSelection.collapsed(
-                      offset: _fieldDisplay.length,
-                    ),
+                  controller: _displayCtrl,
                   style: AppFonts.poppins(
                     context,
                     fontSize: scaleSp(context, 16),
@@ -186,7 +206,7 @@ class _CountryOnboardingScreenState extends State<CountryOnboardingScreen> {
                   ),
                   decoration: const InputDecoration(
                     labelText: 'Country',
-                    hintText: 'Select country',
+                    hintText: 'Detecting location…',
                   ),
                 ),
                 SizedBox(height: scaleDp(context, 8)),

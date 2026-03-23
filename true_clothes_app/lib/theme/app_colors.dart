@@ -7,7 +7,8 @@ abstract final class AppColors {
 
   /// Home gradient (matches `HomeMainScreen.kt` implementation).
   static const Color homeGradientTop = Color(0xFF4D5051);
-  static const double homeGradientTopAlpha = 0.5;
+  /// Design `home/main/design.md`: `#4D5051` @ 35% at gradient stop 0.
+  static const double homeGradientTopAlpha = 0.35;
   static const Color homeGradientBottom = Color(0xFFDCDCDC);
 
   static const Color homeLogotype = Color(0xFFFFFAFA);

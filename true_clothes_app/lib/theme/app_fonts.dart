@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Poppins + Playfair Display via [google_fonts] (Android `res/font` had XML only; TTFs were not in repo).
-/// To bundle offline fonts instead, add `.ttf` under `fonts/` and declare them in `pubspec.yaml`.
+/// Poppins + Playfair Display via [google_fonts] (fetched from Google Fonts, cached on device).
 abstract final class AppFonts {
   static TextStyle poppins(
     BuildContext context, {
