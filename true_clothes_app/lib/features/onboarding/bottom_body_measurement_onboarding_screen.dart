@@ -17,12 +17,14 @@ class BottomBodyMeasurementOnboardingScreen extends StatefulWidget {
     required this.onStateChange,
     required this.onBack,
     required this.onNext,
+    this.showAiReviewHint = false,
   });
 
   final BottomMeasurementFormState state;
   final ValueChanged<BottomMeasurementFormState> onStateChange;
   final VoidCallback onBack;
   final VoidCallback onNext;
+  final bool showAiReviewHint;
 
   @override
   State<BottomBodyMeasurementOnboardingScreen> createState() =>
@@ -87,6 +89,18 @@ class _BottomBodyMeasurementOnboardingScreenState
                     color: kOnboardingSubtitleGrey,
                   ),
                 ),
+                if (widget.showAiReviewHint) ...[
+                  SizedBox(height: scaleDp(context, 16)),
+                  Text(
+                    'Review and edit these values if needed.',
+                    style: AppFonts.poppins(
+                      context,
+                      fontSize: scaleSp(context, 14),
+                      fontWeight: FontWeight.w500,
+                      color: scheme.primary,
+                    ),
+                  ),
+                ],
                 SizedBox(height: headerToFirst),
                 TopBottomMeasurementRow(
                   label: 'Waist',

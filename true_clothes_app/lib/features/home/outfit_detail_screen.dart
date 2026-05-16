@@ -6,7 +6,6 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_fonts.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/widget_preview_theme.dart';
-import '../../widgets/outfit_composition_card_placeholder.dart';
 import 'home_outfit_models.dart';
 import 'item_detail_screen.dart';
 
@@ -406,11 +405,12 @@ class _OutfitItemImageCard extends StatelessWidget {
             child: imagePath != null && imagePath!.isNotEmpty
                 ? Image.asset(
                     imagePath!,
-                    package: kPreviewImagePackage,
                     width: itemW,
                     height: itemH,
                     fit: BoxFit.contain,
-                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                    errorBuilder: (_, _, _) => const Center(
+                      child: Icon(Icons.broken_image_outlined),
+                    ),
                   )
                 : const SizedBox.shrink(),
           ),

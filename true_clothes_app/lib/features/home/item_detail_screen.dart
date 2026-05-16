@@ -7,7 +7,6 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_fonts.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/widget_preview_theme.dart';
-import '../../widgets/outfit_composition_card_placeholder.dart';
 import 'home_outfit_models.dart';
 
 // ---------------------------------------------------------------------------
@@ -117,11 +116,12 @@ class ItemDetailScreen extends StatelessWidget {
                   if (item.imageSource != null && item.imageSource!.isNotEmpty)
                     Image.asset(
                       item.imageSource!,
-                      package: kPreviewImagePackage,
                       fit: BoxFit.cover,
                       width: double.infinity,
                       height: heroHeight,
-                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      errorBuilder: (_, _, _) => const Center(
+                        child: Icon(Icons.broken_image_outlined, size: 48),
+                      ),
                     ),
 
                   // Gradient scrim: top 140dp, black 55% → transparent.

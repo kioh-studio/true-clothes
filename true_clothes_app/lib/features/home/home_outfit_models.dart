@@ -65,32 +65,37 @@ class OutfitCompositionSources {
   final String? shirt;
   final String? bag;
   final String? shoes;
+
+  /// Main items (top, bottom, outwear) — participate in dynamic scaling.
+  /// Ordered by anchor priority: bottom > outwear > top.
+  List<String> get mainImages => [?pants, ?jacket, ?shirt];
+
+  /// Accent items (shoes, accessories) — always rendered at fixed small size.
+  List<String> get accentImages => [?shoes, ?bag];
 }
 
 extension OutfitDetailPayloadComposition on OutfitDetailPayload {
+  /// Maps each composition slot only from items of that [ItemCategory].
+  /// No positional fallback: optional outer / accessory / bag stay empty when absent
+  /// (never reuse another piece’s image, e.g. shoes in the bag slot).
   OutfitCompositionSources toCompositionSources() {
     final byCategory = <ItemCategory, List<OutfitItemInfo>>{};
     for (final item in items) {
       byCategory.putIfAbsent(item.category, () => []).add(item);
     }
 
-    String? firstImage(ItemCategory cat, int indexFallback) {
+    String? firstImage(ItemCategory cat) {
       final list = byCategory[cat];
-      if (list != null && list.isNotEmpty) {
-        return list.first.imageSource;
-      }
-      if (indexFallback >= 0 && indexFallback < items.length) {
-        return items[indexFallback].imageSource;
-      }
-      return null;
+      if (list == null || list.isEmpty) return null;
+      return list.first.imageSource;
     }
 
     return OutfitCompositionSources(
-      pants: firstImage(ItemCategory.bottom, 0),
-      jacket: firstImage(ItemCategory.outwear, 1),
-      shirt: firstImage(ItemCategory.top, 2),
-      bag: firstImage(ItemCategory.accessory, 3),
-      shoes: firstImage(ItemCategory.shoes, 4),
+      pants: firstImage(ItemCategory.bottom),
+      jacket: firstImage(ItemCategory.outwear),
+      shirt: firstImage(ItemCategory.top),
+      bag: firstImage(ItemCategory.accessory),
+      shoes: firstImage(ItemCategory.shoes),
     );
   }
 }

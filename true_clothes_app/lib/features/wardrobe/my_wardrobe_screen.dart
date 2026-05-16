@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/widget_previews.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/responsive.dart';
+import '../../fit/my_body_measurements.dart';
+import '../../outfit/outfit.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_fonts.dart';
 import '../../theme/app_theme.dart';
@@ -48,8 +51,43 @@ class _MyWardrobeScreenState extends State<MyWardrobeScreen> {
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
 
+  final Map<String, List<WardrobeItem>> _itemsByCategory = {
+    for (final c in _categories) c: <WardrobeItem>[],
+  };
+  bool _loadingWardrobe = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWardrobeFromStore();
+  }
+
+  Future<void> _loadWardrobeFromStore() async {
+    final prefs = await SharedPreferences.getInstance();
+    await ensureDefaultCatalogWardrobe(prefs);
+    final repo = LocalWardrobeRepository(prefs);
+    final stored = await repo.listWardrobeItems();
+    final body = kMyBodyMeasurementsCm;
+    if (!mounted) return;
+    for (final c in _categories) {
+      _itemsByCategory[c]!.clear();
+    }
+    for (final s in stored) {
+      final label = shelfCategoryForItemType(s.type);
+      _itemsByCategory[label]?.add(
+        WardrobeItem(
+          id: s.id,
+          name: s.name,
+          imageUrl: s.imagePath,
+          detailInfo: outfitItemInfoFromStored(s, body),
+        ),
+      );
+    }
+    setState(() => _loadingWardrobe = false);
+  }
+
   List<WardrobeItem> get _filteredItems {
-    final items = demoWardrobeItems[_selectedCategory] ?? [];
+    final items = _itemsByCategory[_selectedCategory] ?? [];
     if (_searchQuery.isEmpty) return items;
     final query = _searchQuery.toLowerCase();
     return items.where((i) => i.name.toLowerCase().contains(query)).toList();
@@ -71,6 +109,9 @@ class _MyWardrobeScreenState extends State<MyWardrobeScreen> {
   }
 
   Widget _buildTabContent(BuildContext context, List<WardrobeItem> items) {
+    if (_loadingWardrobe) {
+      return const Center(child: CircularProgressIndicator());
+    }
     switch (_tabIndex) {
       case 0:
         return TrueItemSlider(
@@ -162,12 +203,13 @@ class _MyWardrobeScreenState extends State<MyWardrobeScreen> {
                 Expanded(child: _buildTabContent(context, items)),
               ],
             ),
-            _Fab(onTap: () {
-              Navigator.of(context).push<void>(
+            _Fab(onTap: () async {
+              await Navigator.of(context).push<void>(
                 MaterialPageRoute<void>(
                   builder: (_) => const NewItemScreen(),
                 ),
               );
+              if (mounted) await _loadWardrobeFromStore();
             }),
           ],
         ),

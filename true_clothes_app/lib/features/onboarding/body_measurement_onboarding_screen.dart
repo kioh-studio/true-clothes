@@ -7,9 +7,13 @@ import '../../theme/app_fonts.dart';
 import '../../theme/widget_preview_theme.dart';
 import '../../widgets/onboarding_nav_bar.dart';
 import '../../widgets/true_modal.dart';
+import 'ai_pose_measurement_screen.dart';
+import 'bottom_measurement_form.dart';
 import 'body_measurement_form.dart';
 import 'onboarding_measurement_widgets.dart';
 import 'onboarding_units.dart';
+import 'pose_body_measurement_mapper.dart';
+import 'top_measurement_form.dart';
 
 /// Kotlin `BodyMeasurementOnboardingScreen.kt`.
 class BodyMeasurementOnboardingScreen extends StatefulWidget {
@@ -21,6 +25,7 @@ class BodyMeasurementOnboardingScreen extends StatefulWidget {
     required this.onNext,
     required this.onTopBody,
     required this.onBottomBody,
+    this.onAiMeasurements,
   });
 
   final BodyMeasurementFormState state;
@@ -29,6 +34,11 @@ class BodyMeasurementOnboardingScreen extends StatefulWidget {
   final VoidCallback onNext;
   final VoidCallback onTopBody;
   final VoidCallback onBottomBody;
+  final void Function(
+    TopMeasurementFormState top,
+    BottomMeasurementFormState bottom,
+  )?
+  onAiMeasurements;
 
   @override
   State<BodyMeasurementOnboardingScreen> createState() =>
@@ -76,6 +86,38 @@ class _BodyMeasurementOnboardingScreenState
 
   Future<void> _showInfo(String msg) =>
       showTrueInfoModal(context, message: msg);
+
+  Future<void> _openAiMeasurement() async {
+    final s = widget.state;
+    final errs = validateBodyMeasurementFormFields(s);
+    if (errs.height != null || errs.weight != null) {
+      await _showInfo(
+        'Enter your height and weight first. We use them to scale measurements from your photo.',
+      );
+      return;
+    }
+    final heightCm = parseHeightCm(s);
+    final weightKg = parseWeightKg(s);
+    if (heightCm == null || weightKg == null) return;
+
+    final result = await Navigator.of(context).push<PoseBodyMeasurementResult>(
+      MaterialPageRoute<PoseBodyMeasurementResult>(
+        fullscreenDialog: true,
+        builder: (ctx) => AiPoseMeasurementScreen(
+          body: s,
+          heightCm: heightCm,
+          weightKg: weightKg,
+        ),
+      ),
+    );
+
+    if (!mounted || result == null) return;
+
+    _setState(s.copyWith(measurementMethod: MeasurementMethod.aiGuess));
+    await _showInfo(result.summary);
+    if (!mounted) return;
+    widget.onAiMeasurements?.call(result.top, result.bottom);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -318,14 +360,7 @@ class _BodyMeasurementOnboardingScreenState
                         children: [
                           CameraUploadTile(
                             size: scaleDp(context, 104),
-                            onTap: () {
-                              _setState(
-                                s.copyWith(
-                                  measurementMethod: MeasurementMethod.aiGuess,
-                                ),
-                              );
-                              _showInfo('AI guess is coming soon.');
-                            },
+                            onTap: _openAiMeasurement,
                           ),
                           SizedBox(height: scaleDp(context, 14)),
                           Text(

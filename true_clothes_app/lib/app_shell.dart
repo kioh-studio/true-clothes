@@ -3,6 +3,8 @@ import 'package:flutter/widget_previews.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'main_nav_shell.dart';
+import 'outfit/onboarding_body_mapper.dart';
+import 'outfit/local_wardrobe_repository.dart';
 import 'features/onboarding/adding_wardrobe_form.dart';
 import 'features/onboarding/adding_wardrobe_onboarding_screen.dart';
 import 'features/onboarding/body_measurement_form.dart';
@@ -45,6 +47,8 @@ class _AppShellState extends State<AppShell> {
 
   _Flow _flow = _Flow.gender;
   bool _loaded = false;
+  /// After AI pose fill, [onNext] on top/bottom routes through both review screens.
+  bool _aiReviewChain = false;
 
   GenderFormState _gender = const GenderFormState();
   CountryFormState _country = const CountryFormState();
@@ -75,6 +79,25 @@ class _AppShellState extends State<AppShell> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_onboardingCompleteKey, true);
     if (mounted) setState(() => _flow = _Flow.home);
+  }
+
+  Future<void> _persistBodyAndGoColour() async {
+    final prefs = await SharedPreferences.getInstance();
+    final repo = LocalWardrobeRepository(prefs);
+    final body = bodyMeasurementsFromOnboarding(
+      body: _body,
+      top: _top,
+      bottom: _bottom,
+    );
+    await repo.saveBodyProfile(body);
+    if (mounted) _go(_Flow.colour);
+  }
+
+  Future<void> _persistColourAndGoWardrobe() async {
+    final prefs = await SharedPreferences.getInstance();
+    final repo = LocalWardrobeRepository(prefs);
+    await repo.saveColourPreference(_colour.colourPreference);
+    if (mounted) _go(_Flow.wardrobe);
   }
 
   void _go(_Flow f) => setState(() => _flow = f);
@@ -114,25 +137,53 @@ class _AppShellState extends State<AppShell> {
           state: _body,
           onStateChange: (b) => setState(() => _body = b),
           onBack: () => _go(_Flow.country),
-          onNext: () => _go(_Flow.colour),
+          onNext: () {
+            _persistBodyAndGoColour();
+          },
           onTopBody: () => _go(_Flow.topBody),
           onBottomBody: () => _go(_Flow.bottomBody),
+          onAiMeasurements: (top, bottom) => setState(() {
+            _top = top;
+            _bottom = bottom;
+            _aiReviewChain = true;
+            _flow = _Flow.topBody;
+          }),
         );
         break;
       case _Flow.topBody:
         body = TopBodyMeasurementOnboardingScreen(
           state: _top,
+          showAiReviewHint: _aiReviewChain,
           onStateChange: (t) => setState(() => _top = t),
-          onBack: () => _go(_Flow.body),
-          onNext: () => _go(_Flow.body),
+          onBack: () => setState(() {
+            _aiReviewChain = false;
+            _flow = _Flow.body;
+          }),
+          onNext: () {
+            if (_aiReviewChain) {
+              _go(_Flow.bottomBody);
+            } else {
+              _go(_Flow.body);
+            }
+          },
         );
         break;
       case _Flow.bottomBody:
         body = BottomBodyMeasurementOnboardingScreen(
           state: _bottom,
+          showAiReviewHint: _aiReviewChain,
           onStateChange: (b) => setState(() => _bottom = b),
-          onBack: () => _go(_Flow.body),
-          onNext: () => _go(_Flow.body),
+          onBack: () {
+            if (_aiReviewChain) {
+              _go(_Flow.topBody);
+            } else {
+              _go(_Flow.body);
+            }
+          },
+          onNext: () => setState(() {
+            _aiReviewChain = false;
+            _flow = _Flow.body;
+          }),
         );
         break;
       case _Flow.colour:
@@ -140,7 +191,9 @@ class _AppShellState extends State<AppShell> {
           state: _colour,
           onStateChange: (c) => setState(() => _colour = c),
           onBack: () => _go(_Flow.body),
-          onNext: () => _go(_Flow.wardrobe),
+          onNext: () {
+            _persistColourAndGoWardrobe();
+          },
         );
         break;
       case _Flow.wardrobe:

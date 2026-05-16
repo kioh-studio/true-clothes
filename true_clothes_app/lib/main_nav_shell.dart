@@ -30,10 +30,13 @@ class MainNavShell extends StatefulWidget {
 class _MainNavShellState extends State<MainNavShell> {
   late int _navIndex = widget.initialIndex;
 
-  static const _pages = <Widget>[
-    HomeMainContent(),
-    WardrobeMenuContent(),
-    UserProfileContent(),
+  final GlobalKey<HomeMainContentState> _homeContentKey =
+      GlobalKey<HomeMainContentState>();
+
+  late final List<Widget> _pages = <Widget>[
+    HomeMainContent(key: _homeContentKey),
+    const WardrobeMenuContent(),
+    const UserProfileContent(),
   ];
 
   @override
@@ -66,7 +69,12 @@ class _MainNavShellState extends State<MainNavShell> {
                 padding: EdgeInsets.only(bottom: scaleDp(context, 21)),
                 child: _FloatingNavCircles(
                   currentIndex: _navIndex,
-                  onSelected: (i) => setState(() => _navIndex = i),
+                  onSelected: (i) {
+                    setState(() => _navIndex = i);
+                    if (i == 0) {
+                      _homeContentKey.currentState?.refreshOutfit();
+                    }
+                  },
                 ),
               ),
             ),

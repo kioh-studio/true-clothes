@@ -59,3 +59,21 @@ BodyMeasurementFieldErrors validateBodyMeasurementFormFields(
 
   return BodyMeasurementFieldErrors(height: heightError, weight: weightError);
 }
+
+/// Parsed height in centimetres when [BodyMeasurementFormState] fields are valid.
+double? parseHeightCm(BodyMeasurementFormState state) {
+  final raw = state.heightRaw.trim();
+  if (raw.isEmpty) return null;
+  final v = double.tryParse(raw);
+  if (v == null || v <= 0) return null;
+  return state.heightUnit == HeightUnit.cm ? v : v * 2.54;
+}
+
+/// Parsed weight in kilograms when valid.
+double? parseWeightKg(BodyMeasurementFormState state) {
+  final raw = state.weightRaw.trim();
+  if (raw.isEmpty) return null;
+  final v = double.tryParse(raw);
+  if (v == null || v <= 0) return null;
+  return state.weightUnit == WeightUnit.kg ? v : v * 0.45359237;
+}

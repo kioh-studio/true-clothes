@@ -11,10 +11,13 @@
 import 'package:flutter/material.dart';
 
 import 'app_shell.dart';
+import 'outfit/style/bundled_style_configs.dart';
+import 'outfit/style/style_registry.dart';
 import 'theme/app_theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  StyleRegistry.instance.registerAll(kBundledStyleConfigs);
   runApp(const TrueClothesApp());
 }
 

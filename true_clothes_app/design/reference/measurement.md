@@ -159,8 +159,9 @@ The system uses body and garment measurements together to evaluate fit:
 | `body_foot_length` | Shoes `shoe_size` | Shoe size accuracy. |
 
 The **ease** (garment dimension minus body dimension) determines the fit
-category. Typical ease ranges will be defined in a separate `fit-engine.md`
-once we build the recommendation engine.
+category. Thresholds, pairing, and aggregation are defined in
+[`docs/fit-ease-thresholds.md`](../../docs/fit-ease-thresholds.md); the Dart
+implementation lives under `lib/fit/`.
 
 ---
 

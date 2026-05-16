@@ -20,18 +20,82 @@ class CompleteItemScreen extends StatefulWidget {
   });
 
   final NewItemData data;
-  final VoidCallback onComplete;
+  final Future<void> Function() onComplete;
 
   @override
   State<CompleteItemScreen> createState() => _CompleteItemScreenState();
 }
 
 class _CompleteItemScreenState extends State<CompleteItemScreen> {
+  static const _primaryColorChoices = <(ClothingColor, String)>[
+    (ClothingColor.neutral, 'Neutral / not sure'),
+    (ClothingColor.black, 'Black'),
+    (ClothingColor.white, 'White'),
+    (ClothingColor.ivory, 'Ivory'),
+    (ClothingColor.cream, 'Cream'),
+    (ClothingColor.beige, 'Beige'),
+    (ClothingColor.camel, 'Camel'),
+    (ClothingColor.tan, 'Tan'),
+    (ClothingColor.natural, 'Natural (undyed)'),
+    (ClothingColor.navy, 'Navy'),
+    (ClothingColor.gray, 'Gray'),
+    (ClothingColor.charcoal, 'Charcoal'),
+    (ClothingColor.brown, 'Brown'),
+    (ClothingColor.taupe, 'Taupe'),
+    (ClothingColor.khaki, 'Khaki'),
+    (ClothingColor.olive, 'Olive'),
+    (ClothingColor.burgundy, 'Burgundy / wine'),
+    (ClothingColor.red, 'Red'),
+    (ClothingColor.orange, 'Orange'),
+    (ClothingColor.yellow, 'Yellow'),
+    (ClothingColor.pink, 'Pink'),
+    (ClothingColor.purple, 'Purple'),
+    (ClothingColor.green, 'Green'),
+    (ClothingColor.teal, 'Teal'),
+    (ClothingColor.blue, 'Blue'),
+    (ClothingColor.metallic, 'Metallic (gold, silver, …)'),
+    (ClothingColor.multicolor, 'Multicolor / print'),
+  ];
+
+  static const _lightnessChoices = <(ColorLightness, String)>[
+    (ColorLightness.light, 'Light (pastel / airy)'),
+    (ColorLightness.medium, 'Medium'),
+    (ColorLightness.dark, 'Dark / deep'),
+  ];
+
+  static const _saturationChoices = <(ColorSaturation, String)>[
+    (ColorSaturation.muted, 'Muted / soft'),
+    (ColorSaturation.balanced, 'Balanced'),
+    (ColorSaturation.vivid, 'Vivid / bold'),
+  ];
+
+  static const _artworkTypeChoices = <(ArtworkType, String)>[
+    (ArtworkType.none, 'None'),
+    (ArtworkType.brandLogo, 'Brand logo'),
+    (ArtworkType.sloganText, 'Slogan / text'),
+    (ArtworkType.graphicIllustration, 'Graphic / illustration'),
+    (ArtworkType.allOverPrint, 'All-over print'),
+  ];
+
+  static const _graphicWeightTiles = <(GraphicWeight, String)>[
+    (GraphicWeight.none, 'None'),
+    (GraphicWeight.smallLogo, 'Small\nlogo'),
+    (GraphicWeight.mediumLogo, 'Medium\nlogo'),
+    (GraphicWeight.largeGraphic, 'Large\ngraphic'),
+    (GraphicWeight.fullPrint, 'Full\nprint'),
+  ];
+
   late final TextEditingController _brandController;
   late final TextEditingController _linkController;
   late final TextEditingController _tagInputController;
   late final List<MeasurementDef> _measurementDefs;
-  late final Map<String, _MeasurementControllers> _measurementCtrls;
+  late final Map<MeasurementKey, _MeasurementControllers> _measurementCtrls;
+  late ClothingColor _primaryColor;
+  late ColorLightness _colorLightness;
+  late ColorSaturation _colorSaturation;
+  late GraphicWeight _graphicWeight;
+  late ArtworkType _artworkType;
+  late bool _graphicAutoDetected;
 
   @override
   void initState() {
@@ -48,6 +112,12 @@ class _CompleteItemScreenState extends State<CompleteItemScreen> {
           unit: MeasurementUnit.cm,
         ),
     };
+    _primaryColor = widget.data.primaryColor;
+    _colorLightness = widget.data.colorLightness;
+    _colorSaturation = widget.data.colorSaturation;
+    _graphicWeight = widget.data.graphicWeight;
+    _artworkType = widget.data.artworkType;
+    _graphicAutoDetected = widget.data.graphicAutoDetected;
   }
 
   @override
@@ -61,11 +131,17 @@ class _CompleteItemScreenState extends State<CompleteItemScreen> {
     super.dispose();
   }
 
-  void _handleComplete() {
+  Future<void> _handleComplete() async {
     widget.data.brand = _brandController.text.trim();
     widget.data.productUrl = _linkController.text.trim();
+    widget.data.primaryColor = _primaryColor;
+    widget.data.colorLightness = _colorLightness;
+    widget.data.colorSaturation = _colorSaturation;
+    widget.data.graphicWeight = _graphicWeight;
+    widget.data.artworkType = _artworkType;
+    widget.data.graphicAutoDetected = false; // user has confirmed by saving
 
-    final measurements = <String, MeasurementValue>{};
+    final measurements = <MeasurementKey, MeasurementValue>{};
     for (final entry in _measurementCtrls.entries) {
       final text = entry.value.controller.text.trim();
       if (text.isNotEmpty) {
@@ -80,7 +156,7 @@ class _CompleteItemScreenState extends State<CompleteItemScreen> {
     }
     widget.data.measurements = measurements;
 
-    widget.onComplete();
+    await widget.onComplete();
   }
 
   void _addTag() {
@@ -117,6 +193,12 @@ class _CompleteItemScreenState extends State<CompleteItemScreen> {
                     _buildBrandField(context),
                     SizedBox(height: scaleDp(context, 20)),
                     _buildLinkField(context),
+                    SizedBox(height: scaleDp(context, 20)),
+                    _buildColorAttributesSection(context),
+                    SizedBox(height: scaleDp(context, 28)),
+                    _Separator(),
+                    SizedBox(height: scaleDp(context, 20)),
+                    _buildGraphicSection(context),
                     SizedBox(height: scaleDp(context, 24)),
                     if (_measurementDefs.isNotEmpty) ...[
                       _Separator(),
@@ -154,6 +236,118 @@ class _CompleteItemScreenState extends State<CompleteItemScreen> {
       controller: _linkController,
       placeholder: 'shopee.com',
       keyboardType: TextInputType.url,
+    );
+  }
+
+  Widget _buildColorAttributesSection(BuildContext context) {
+    final labelStyle = AppFonts.poppins(
+      context,
+      fontSize: scaleSp(context, 14),
+      fontWeight: FontWeight.w600,
+      color: Colors.black,
+    );
+    final dropdownStyle = AppFonts.poppins(
+      context,
+      fontSize: scaleSp(context, 13),
+      color: Colors.black,
+    );
+    final icon = Icon(
+      Icons.arrow_drop_down,
+      color: const Color(0xFF1D1B20),
+      size: scaleDp(context, 20),
+    );
+
+    Widget paletteDropdown<T extends Object>({
+      required String label,
+      required T value,
+      required List<(T, String)> choices,
+      required ValueChanged<T?> onChanged,
+    }) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: labelStyle),
+          SizedBox(height: scaleDp(context, 8)),
+          Container(
+            height: scaleDp(context, 39.5),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.black, width: 0.5),
+            ),
+            padding: EdgeInsets.symmetric(horizontal: scaleDp(context, 12)),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<T>(
+                value: value,
+                isExpanded: true,
+                icon: icon,
+                style: dropdownStyle,
+                items: choices
+                    .map(
+                      (e) => DropdownMenuItem<T>(
+                        value: e.$1,
+                        child: Text(e.$2),
+                      ),
+                    )
+                    .toList(),
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Color',
+          style: AppFonts.poppins(
+            context,
+            fontSize: scaleSp(context, 16),
+            fontWeight: FontWeight.w600,
+            color: Colors.black,
+          ),
+        ),
+        SizedBox(height: scaleDp(context, 6)),
+        Text(
+          'Hue, lightness, and saturation help match outfits.',
+          style: AppFonts.poppins(
+            context,
+            fontSize: scaleSp(context, 12),
+            fontWeight: FontWeight.w400,
+            color: Colors.black.withValues(alpha: 0.65),
+          ),
+        ),
+        SizedBox(height: scaleDp(context, 16)),
+        paletteDropdown<ClothingColor>(
+          label: 'Hue (color family)',
+          value: _primaryColor,
+          choices: _primaryColorChoices,
+          onChanged: (v) {
+            if (v != null) setState(() => _primaryColor = v);
+          },
+        ),
+        SizedBox(height: scaleDp(context, 16)),
+        paletteDropdown<ColorLightness>(
+          label: 'Lightness',
+          value: _colorLightness,
+          choices: _lightnessChoices,
+          onChanged: (v) {
+            if (v != null) setState(() => _colorLightness = v);
+          },
+        ),
+        SizedBox(height: scaleDp(context, 16)),
+        paletteDropdown<ColorSaturation>(
+          label: 'Saturation',
+          value: _colorSaturation,
+          choices: _saturationChoices,
+          onChanged: (v) {
+            if (v != null) setState(() => _colorSaturation = v);
+          },
+        ),
+      ],
     );
   }
 
@@ -517,41 +711,39 @@ class _MeasurementRow extends StatelessWidget {
     );
   }
 
-  IconData _iconForMeasurement(String key) {
+  IconData _iconForMeasurement(MeasurementKey key) {
     switch (key) {
-      case 'shoulder_width':
+      case MeasurementKey.shoulderWidth:
         return Icons.accessibility_new;
-      case 'chest':
+      case MeasurementKey.chest:
         return Icons.checkroom;
-      case 'upper_arm':
-      case 'thigh':
+      case MeasurementKey.upperArm:
+      case MeasurementKey.thigh:
         return Icons.fitness_center;
-      case 'sleeves':
+      case MeasurementKey.sleeves:
         return Icons.straighten;
-      case 'body_length':
-      case 'inseam':
-      case 'skirt_length':
+      case MeasurementKey.bodyLength:
+      case MeasurementKey.inseam:
+      case MeasurementKey.skirtLength:
         return Icons.height;
-      case 'waist':
-      case 'waist_top':
-      case 'waist_outer':
+      case MeasurementKey.waist:
+      case MeasurementKey.waistTop:
+      case MeasurementKey.waistOuter:
         return Icons.horizontal_rule;
-      case 'hip':
-      case 'rise':
+      case MeasurementKey.hip:
+      case MeasurementKey.rise:
         return Icons.expand;
-      case 'shoe_size':
+      case MeasurementKey.shoeSize:
         return Icons.directions_walk;
-      case 'shoe_width':
-      case 'width':
-      case 'bag_width':
+      case MeasurementKey.shoeWidth:
+      case MeasurementKey.width:
+      case MeasurementKey.bagWidth:
         return Icons.swap_horiz;
-      case 'length':
-      case 'bag_height':
+      case MeasurementKey.length:
+      case MeasurementKey.bagHeight:
         return Icons.swap_vert;
-      case 'bag_depth':
+      case MeasurementKey.bagDepth:
         return Icons.open_in_full;
-      default:
-        return Icons.straighten;
     }
   }
 
@@ -653,7 +845,7 @@ class _TagChip extends StatelessWidget {
 
 class _CompleteButton extends StatelessWidget {
   const _CompleteButton({required this.onTap});
-  final VoidCallback onTap;
+  final Future<void> Function() onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -662,7 +854,9 @@ class _CompleteButton extends StatelessWidget {
         button: true,
         label: 'Complete and save item',
         child: GestureDetector(
-          onTap: onTap,
+          onTap: () async {
+            await onTap();
+          },
           child: Container(
             width: scaleDp(context, 200),
             height: scaleDp(context, 50),
@@ -717,7 +911,7 @@ class CompleteItemScreenPreview extends StatelessWidget {
       theme: buildAppTheme(),
       home: CompleteItemScreen(
         data: data,
-        onComplete: () {},
+        onComplete: () async {},
       ),
     );
   }

@@ -17,12 +17,15 @@ class TopBodyMeasurementOnboardingScreen extends StatefulWidget {
     required this.onStateChange,
     required this.onBack,
     required this.onNext,
+    this.showAiReviewHint = false,
   });
 
   final TopMeasurementFormState state;
   final ValueChanged<TopMeasurementFormState> onStateChange;
   final VoidCallback onBack;
   final VoidCallback onNext;
+  /// When true (e.g. after AI pose fill), shows a short prompt to review values.
+  final bool showAiReviewHint;
 
   @override
   State<TopBodyMeasurementOnboardingScreen> createState() =>
@@ -87,6 +90,18 @@ class _TopBodyMeasurementOnboardingScreenState
                     color: kOnboardingSubtitleGrey,
                   ),
                 ),
+                if (widget.showAiReviewHint) ...[
+                  SizedBox(height: scaleDp(context, 16)),
+                  Text(
+                    'Review and edit these values if needed.',
+                    style: AppFonts.poppins(
+                      context,
+                      fontSize: scaleSp(context, 14),
+                      fontWeight: FontWeight.w500,
+                      color: scheme.primary,
+                    ),
+                  ),
+                ],
                 SizedBox(height: headerToFirst),
                 TopBottomMeasurementRow(
                   label: 'Shoulder width',

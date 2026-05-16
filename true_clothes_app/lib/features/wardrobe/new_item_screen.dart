@@ -1,7 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/widget_previews.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/color_detector.dart' show analyzeClothingImage;
 import '../../core/responsive.dart';
+import '../../outfit/local_wardrobe_repository.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_fonts.dart';
 import '../../theme/app_theme.dart';
@@ -27,8 +33,10 @@ class _NewItemScreenState extends State<NewItemScreen> {
   final _descController = TextEditingController();
   final _nameFocusNode = FocusNode();
   final _descFocusNode = FocusNode();
+  final _picker = ImagePicker();
 
   bool _nameError = false;
+  bool _detectingColor = false;
 
   @override
   void dispose() {
@@ -55,7 +63,12 @@ class _NewItemScreenState extends State<NewItemScreen> {
       MaterialPageRoute<void>(
         builder: (ctx) => CompleteItemScreen(
           data: _data,
-          onComplete: () {
+          onComplete: () async {
+            final prefs = await SharedPreferences.getInstance();
+            await LocalWardrobeRepository(prefs).saveWardrobeItemFromNewData(
+              _data,
+            );
+            if (!ctx.mounted) return;
             Navigator.of(ctx).popUntil((route) => route.isFirst);
           },
         ),
@@ -72,7 +85,79 @@ class _NewItemScreenState extends State<NewItemScreen> {
   }
 
   void _handleImageTap() {
-    // Future: open camera/gallery picker
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(scaleDp(context, 16)),
+        ),
+      ),
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(height: scaleDp(sheetCtx, 8)),
+            Container(
+              width: scaleDp(sheetCtx, 40),
+              height: scaleDp(sheetCtx, 4),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            SizedBox(height: scaleDp(sheetCtx, 16)),
+            _SheetOption(
+              icon: Icons.camera_alt_outlined,
+              label: 'Take a photo',
+              onTap: () {
+                Navigator.of(sheetCtx).pop();
+                _pickImage(ImageSource.camera);
+              },
+            ),
+            _SheetOption(
+              icon: Icons.photo_library_outlined,
+              label: 'Choose from gallery',
+              onTap: () {
+                Navigator.of(sheetCtx).pop();
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+            SizedBox(height: scaleDp(sheetCtx, 16)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final XFile? picked = await _picker.pickImage(
+      source: source,
+      imageQuality: 85,
+      maxWidth: 1200,
+      maxHeight: 1200,
+    );
+    if (picked == null) return;
+
+    setState(() {
+      _data.imagePath = picked.path;
+      _detectingColor = true;
+    });
+
+    final result = await analyzeClothingImage(File(picked.path));
+
+    if (!mounted) return;
+    setState(() {
+      _detectingColor = false;
+      if (result != null) {
+        _data.primaryColor = result.color.primaryColor;
+        _data.colorLightness = result.color.lightness;
+        _data.colorSaturation = result.color.saturation;
+        _data.graphicWeight = result.graphicWeight;
+        _data.artworkType = result.artworkType;
+        _data.graphicAutoDetected = true;
+      }
+    });
   }
 
   @override
@@ -89,7 +174,11 @@ class _NewItemScreenState extends State<NewItemScreen> {
             children: [
               _Header(onBack: _handleBack),
               SizedBox(height: scaleDp(context, 24)),
-              _ImageCapture(onTap: _handleImageTap, imagePath: _data.imagePath),
+              _ImageCapture(
+                onTap: _detectingColor ? null : _handleImageTap,
+                imagePath: _data.imagePath,
+                detectingColor: _detectingColor,
+              ),
               SizedBox(height: scaleDp(context, 32)),
               Padding(
                 padding: EdgeInsets.symmetric(horizontal: padH),
@@ -200,32 +289,91 @@ class _Header extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ImageCapture extends StatelessWidget {
-  const _ImageCapture({required this.onTap, this.imagePath});
-  final VoidCallback onTap;
+  const _ImageCapture({
+    required this.onTap,
+    this.imagePath,
+    this.detectingColor = false,
+  });
+  final VoidCallback? onTap;
   final String? imagePath;
+  final bool detectingColor;
 
   @override
   Widget build(BuildContext context) {
     final w = scaleDp(context, 250);
     final h = scaleDp(context, 250);
+    final radius = scaleDp(context, 8);
+    final hasImage = imagePath != null && imagePath!.isNotEmpty;
+
+    Widget imageContent;
+    if (hasImage) {
+      // imagePath is a file path from image_picker (not an asset).
+      imageContent = Image.file(
+        File(imagePath!),
+        fit: BoxFit.cover,
+        width: w,
+        height: h,
+        errorBuilder: (_, _, _) => Icon(
+          Icons.camera_alt_outlined,
+          size: scaleDp(context, 48),
+          color: Colors.black.withValues(alpha: 0.5),
+        ),
+      );
+    } else {
+      imageContent = Icon(
+        Icons.camera_alt_outlined,
+        size: scaleDp(context, 48),
+        color: Colors.black.withValues(alpha: 0.5),
+      );
+    }
+
     return Center(
       child: Semantics(
         button: true,
-        label: 'Take item photo',
+        label: hasImage ? 'Change item photo' : 'Take item photo',
         child: GestureDetector(
           onTap: onTap,
-          child: Container(
-            width: w,
-            height: h,
-            decoration: BoxDecoration(
-              color: const Color(0xFFD9D9D9),
-              borderRadius: BorderRadius.circular(scaleDp(context, 8)),
-            ),
-            child: Icon(
-              Icons.camera_alt_outlined,
-              size: scaleDp(context, 48),
-              color: Colors.black.withValues(alpha: 0.5),
-            ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: w,
+                height: h,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD9D9D9),
+                  borderRadius: BorderRadius.circular(radius),
+                ),
+                child: imageContent,
+              ),
+              if (detectingColor)
+                Container(
+                  width: w,
+                  height: h,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(radius),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2.5,
+                      ),
+                      SizedBox(height: scaleDp(context, 10)),
+                      Text(
+                        'Detecting color…',
+                        style: AppFonts.poppins(
+                          context,
+                          fontSize: scaleSp(context, 12),
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
         ),
       ),
@@ -428,6 +576,48 @@ class _NextButton extends StatelessWidget {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bottom sheet option row
+// ---------------------------------------------------------------------------
+
+class _SheetOption extends StatelessWidget {
+  const _SheetOption({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: scaleDp(context, 24),
+          vertical: scaleDp(context, 14),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: scaleDp(context, 24), color: Colors.black87),
+            SizedBox(width: scaleDp(context, 16)),
+            Text(
+              label,
+              style: AppFonts.poppins(
+                context,
+                fontSize: scaleSp(context, 15),
+                color: Colors.black87,
+              ),
+            ),
+          ],
         ),
       ),
     );
