@@ -1,5 +1,5 @@
 // Home — Outfit Feed (TikTok-style vertical pager)
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useState, useMemo, useEffect } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Dimensions, Pressable, Image, ScrollView,
 } from 'react-native';
@@ -9,8 +9,9 @@ import { T, type } from '../../src/design/tokens';
 import { OUTFITS, itemById, Outfit } from '../../src/data';
 import { OutfitCollage } from '../../src/components/outfit/Collage';
 import { BottomNav } from '../../src/components/ui/BottomNav';
-import { BottomSheet, PrimaryButton, SecondaryButton, TextLink, Tag } from '../../src/components/ui';
+import { BottomSheet, TextLink, Tag } from '../../src/components/ui';
 import { useAppStore } from '../../src/stores/appStore';
+import { useFitEngineStore } from '../../src/stores/fitEngineStore';
 import { useFitFeed } from '../../src/features/feed/useFitFeed';
 import {
   IconBell, IconHeart, IconBookmark, IconCalendar, IconSparkle, IconShare, IconThermometer,
@@ -18,8 +19,13 @@ import {
 
 const { width: W, height: H } = Dimensions.get('window');
 
-// Mock weather — simulates current conditions for filtering
-const MOCK_WEATHER = { temp: 26, label: '26°C', condition: 'Partly cloudy', city: 'Ho Chi Minh City' };
+// T021: Map temperature band → filter label
+const BAND_TO_FILTER: Record<string, string> = {
+  hot:  'HOT 28°+',
+  warm: 'WARM 22–27°',
+  mild: 'COOL 16–21°',
+  cold: 'COLD –15°',
+};
 
 const WEATHER_FILTERS = [
   { label: 'ALL', min: -Infinity, max: Infinity },
@@ -28,6 +34,9 @@ const WEATHER_FILTERS = [
   { label: 'COOL 16–21°', min: 16, max: 21 },
   { label: 'COLD –15°', min: -Infinity, max: 15 },
 ];
+
+// T022: 2 curated demo outfits for empty wardrobe state
+const DEMO_OUTFITS = OUTFITS.slice(0, 2);
 
 function parseTemp(weather: string): number {
   const match = weather.match(/(\d+)/);
@@ -39,10 +48,28 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [activeIdx, setActiveIdx] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [weatherFilter, setWeatherFilter] = useState('ALL');
-  const { savedSet, scheduledSet, toggleSave, toggleSchedule, items } = useAppStore();
+
+  const { savedSet, scheduledSet, toggleSave, toggleSchedule, items, wardrobeItems, weatherContext } = useAppStore();
+  const { feedError, fetchOutfits } = useFitEngineStore();
   const { outfits: generatedOutfits, isGenerated } = useFitFeed();
-  const allOutfits: Outfit[] = isGenerated ? generatedOutfits : OUTFITS;
+
+  // T021: Default filter to live weather band
+  const defaultFilter = weatherContext ? (BAND_TO_FILTER[weatherContext.temperatureBand] ?? 'ALL') : 'ALL';
+  const [weatherFilter, setWeatherFilter] = useState(defaultFilter);
+
+  // Keep filter in sync when weather loads after mount
+  useEffect(() => {
+    if (weatherContext && weatherFilter === 'ALL') {
+      const band = BAND_TO_FILTER[weatherContext.temperatureBand];
+      if (band) setWeatherFilter(band);
+    }
+  }, [weatherContext]);
+
+  // T022: Empty wardrobe → show 2 curated demo outfits
+  const isDemo = wardrobeItems.length === 0;
+  const allOutfits: Outfit[] = isDemo
+    ? DEMO_OUTFITS
+    : isGenerated ? generatedOutfits : OUTFITS;
 
   const feed = useMemo(() => {
     if (weatherFilter === 'ALL') return allOutfits;
@@ -54,11 +81,18 @@ export default function HomeScreen() {
     });
   }, [allOutfits, weatherFilter]);
 
-  const CARD_H = H - insets.bottom - 64; // subtract bottom nav
+  const CARD_H = H - insets.bottom - 64;
 
   const openOutfit = (outfit: Outfit) => {
     router.push({ pathname: '/outfit/[id]', params: { id: outfit.id, data: JSON.stringify(outfit) } });
   };
+
+  // T023: retry handler
+  const handleRetry = () => { fetchOutfits(); };
+
+  const weatherLabel = weatherContext
+    ? `${Math.round(weatherContext.temperatureCelsius)}°C`
+    : '–';
 
   const renderCard = ({ item: outfit, index }: { item: Outfit; index: number }) => {
     const saved = savedSet.has(outfit.id);
@@ -67,7 +101,6 @@ export default function HomeScreen() {
 
     return (
       <View style={[styles.card, { height: CARD_H }]}>
-        {/* Collage — top 84% */}
         <Pressable
           onPress={() => openOutfit(outfit)}
           style={[styles.collageArea, { opacity: active ? 1 : 0.7 }]}
@@ -118,6 +151,14 @@ export default function HomeScreen() {
             })}
           </View>
         </View>
+
+        {/* T022: Demo banner — sticky at bottom of card when showing demo outfits */}
+        {isDemo && active && (
+          <Pressable onPress={() => router.replace('/(tabs)/wardrobe')} style={styles.demoBanner}>
+            <Text style={styles.demoBannerText}>Add your wardrobe to personalise your feed</Text>
+            <Text style={styles.demoBannerCta}>ADD ITEMS →</Text>
+          </Pressable>
+        )}
       </View>
     );
   };
@@ -126,11 +167,17 @@ export default function HomeScreen() {
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
       {/* Top overlay */}
       <View style={[styles.topOverlay, { paddingTop: insets.top + 12 }]} pointerEvents="box-none">
+        {/* T023: Error retry banner */}
+        {feedError && (
+          <Pressable onPress={handleRetry} style={styles.errorBanner} pointerEvents="auto">
+            <Text style={styles.errorBannerText}>Couldn't refresh — tap to retry</Text>
+          </Pressable>
+        )}
         <View style={styles.topRow}>
           <Text style={styles.brand}>TRUE CLOTHES</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <IconThermometer size={13} color={T.color.tertiary} strokeWidth={1.4} />
-            <Text style={styles.weatherLabel}>{MOCK_WEATHER.label}</Text>
+            <Text style={styles.weatherLabel}>{weatherLabel}</Text>
             <Pressable style={styles.bellBtn}>
               <IconBell size={18} color={T.color.tertiary} strokeWidth={1.4} />
             </Pressable>
@@ -237,6 +284,21 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 0, right: 0, top: 0,
     paddingHorizontal: 24, zIndex: 20,
   },
+  // T023: error banner
+  errorBanner: {
+    backgroundColor: T.color.canvas,
+    borderBottomWidth: 0.5,
+    borderBottomColor: T.color.hairline,
+    paddingVertical: 8,
+    alignItems: 'center',
+    marginHorizontal: -24,
+    paddingHorizontal: 24,
+  },
+  errorBannerText: {
+    ...type.caption,
+    fontSize: 11,
+    color: T.color.warning,
+  },
   topRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
@@ -270,4 +332,28 @@ const styles = StyleSheet.create({
   emptyFeed: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 48 },
   emptyTitle: { ...type.h2, color: T.color.primary, textAlign: 'center' },
   emptyCaption: { ...type.caption, marginTop: 12, textAlign: 'center' },
+  // T022: demo banner
+  demoBanner: {
+    position: 'absolute',
+    bottom: 0, left: 0, right: 0,
+    backgroundColor: T.color.canvas,
+    borderTopWidth: 0.5,
+    borderTopColor: T.color.hairline,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    gap: 4,
+  },
+  demoBannerText: {
+    fontFamily: T.font.serifLight,
+    fontSize: 15,
+    fontWeight: '300',
+    color: T.color.primary,
+    textAlign: 'center',
+  },
+  demoBannerCta: {
+    ...type.ui,
+    fontSize: 10,
+    color: T.color.primary,
+  },
 });

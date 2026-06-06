@@ -11,9 +11,9 @@ import {
   Inter_500Medium,
 } from '@expo-google-fonts/inter';
 import * as SplashScreen from 'expo-splash-screen';
-import { View } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { T } from '../src/design/tokens';
+import { T, type } from '../src/design/tokens';
 import { useAuthStore } from '../src/stores/authStore';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { useAppStore } from '../src/stores/appStore';
@@ -30,7 +30,7 @@ export default function RootLayout() {
 
   const { isLoggedIn, onboardingComplete, hydrated, hydrate } = useAuthStore();
   const { hydrate: hydrateFitEngine } = useFitEngineStore();
-  const { hydrated: appHydrated, hydrate: hydrateApp } = useAppStore();
+  const { hydrated: appHydrated, hydrate: hydrateApp, migrationProgress, refreshWeather } = useAppStore();
   const router = useRouter();
   const didNavigate = useRef(false);
 
@@ -39,6 +39,13 @@ export default function RootLayout() {
     hydrateFitEngine();
     hydrateApp();
   }, []);
+
+  // T020: Fire-and-forget weather refresh after auth hydration
+  useEffect(() => {
+    if (hydrated && isLoggedIn) {
+      refreshWeather();
+    }
+  }, [hydrated, isLoggedIn]);
 
   useEffect(() => {
     if (!fontsLoaded || !hydrated || !appHydrated) return;
@@ -76,8 +83,43 @@ export default function RootLayout() {
         <Stack.Screen name="measurements-edit" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="add-item" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="history" options={{ animation: 'slide_from_right' }} />
+        {/* T030: Settings and Help routes */}
+        <Stack.Screen name="settings" options={{ title: 'Settings', animation: 'slide_from_right' }} />
+        <Stack.Screen name="help" options={{ title: 'Help & Feedback', animation: 'slide_from_right' }} />
         <Stack.Screen name="+not-found" />
       </Stack>
+
+      {/* T017: Migration progress overlay — blocks navigation until complete */}
+      {migrationProgress !== null && (
+        <View style={styles.migrationOverlay}>
+          <Text style={styles.migrationText}>Syncing your wardrobe…</Text>
+          <Text style={styles.migrationCount}>
+            {migrationProgress.done} / {migrationProgress.total}
+          </Text>
+        </View>
+      )}
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  migrationOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: T.color.canvas,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+  },
+  migrationText: {
+    ...type.h2,
+    color: T.color.primary,
+    fontFamily: T.font.serifLight,
+    fontWeight: '300',
+  },
+  migrationCount: {
+    ...type.caption,
+    marginTop: 12,
+    color: T.color.tertiary,
+    letterSpacing: 1,
+  },
+});

@@ -99,31 +99,39 @@ implementation (`/speckit-tasks` → implementation phase).
 
 ---
 
-## Scenario 3: Live Weather Integration
+## Scenario 3: Empty Wardrobe — Demo Feed State
 
-**Validates**: FR-014, SC-009
+**Validates**: FR-042 (empty wardrobe demo), FR-014 (weather integration)
 
 ### Steps
 
-1. Log in and navigate to the **Home** feed.
-2. Allow location permissions when prompted (or confirm location was set during onboarding).
-3. Observe the temperature indicator on the feed card.
+1. Log in with the demo account (fresh state — no items in Supabase `clothing_items`).
+2. Navigate to the **Home** feed.
+3. Observe the feed and any banners.
 
 ### Expected outcomes
 
-- The temperature shown on the feed card matches (approximately) the current temperature
-  for the user's stored city.
-- After 30 minutes, refreshing the feed triggers a new Open-Meteo API call (confirm in
-  network logs or by checking `appStore.weatherContext.fetchedAt`).
-- Within 30 minutes, the weather is served from cache (no new API call).
-- If location is unavailable, feed loads without a temperature indicator (no crash).
+**Empty wardrobe:**
+- Feed displays exactly 2 curated demo outfits (not a blank screen).
+- A sticky banner at the bottom of each active feed card reads:
+  "Add your wardrobe to personalise your feed" with an "ADD ITEMS →" CTA.
+- Tapping the banner navigates to the Wardrobe screen.
+- After adding at least 1 item (Scenario 1), the demo outfits are replaced by the
+  personalised feed. The demo banner disappears. No manual refresh required.
+
+**Weather filter:**
+- If location was set during onboarding, the temperature indicator in the top-right
+  shows the live temperature (from Open-Meteo — no API key required).
+- The weather filter bar pre-selects the band matching the live temperature
+  (e.g., `WARM 22–27°` for 25°C).
+- After 30 minutes without a refresh, the next boot fetches fresh weather (TTL cache).
+- If location is unavailable, temperature shows `–` and filter defaults to `ALL`.
 
 ### Failure indicators
 
-- Temperature always shows the same static value → weather not integrated; check
-  `appStore.refreshWeather()` is called on boot.
-- App crashes on Home tab → `weatherService` throwing; check network call and error
-  handling in `appStore`.
+- Empty feed instead of 2 demo outfits → `isDemo` flag not set when `wardrobeItems.length === 0`.
+- Demo banner persists after adding items → `wardrobeItems` not updating in store.
+- Temperature always shows `–` → `refreshWeather()` skipping silently (no coords available).
 
 ---
 
@@ -162,15 +170,22 @@ implementation (`/speckit-tasks` → implementation phase).
 ### Expected outcomes
 
 - Settings screen opens with:
-  - Unit preference toggle (Metric / Imperial)
-  - App version displayed
-  - Sign Out button
+  - **Preferences**: Unit preference toggle (Metric / Imperial)
+  - **Account**: Sign Out button
+  - **Danger Zone**: Delete Account button (red text, hairline border)
+  - **App**: Version string (e.g., `1.0.0`)
 - Toggling unit preference persists after navigating away and returning.
+- Tapping **Delete Account** → `Alert.alert` confirmation with "Cancel" and "Delete" buttons.
+  - Cancel → dismisses, returns to Settings.
+  - Delete → loading indicator while `delete-user` Edge Function runs →
+    all Supabase data purged → signed out → redirected to onboarding.
 
 ### Failure indicators
 
 - Menu item taps but nothing happens → Navigation route not registered; check
   `app/settings.tsx` exists and route is added to `app/(tabs)/menu.tsx`.
+- Delete Account shows no loading state → `deleteLoading` state not wired to `ActivityIndicator`.
+- Delete succeeds but user not signed out → `authStore.logout()` not called after deletion.
 
 ---
 
@@ -237,8 +252,10 @@ implementation (`/speckit-tasks` → implementation phase).
 
 - Profile, Wardrobe (locally cached), Saved Outfits, Schedule, and History all load.
 - Outfit feed shows a loading state or the last cached outfits (no crash).
-- Adding a new wardrobe item while offline fails gracefully with an error message
-  (item is NOT added to local state if sync fails — no false optimism).
+- Attempting to add a wardrobe item while offline shows the error message:
+  **"Adding items requires an internet connection"** (banner at top of Add Item screen).
+  The item is NOT added to `wardrobeItems` state — no false optimism, no partial local state.
+  The error clears when the user attempts another action.
 - Toggling saved/worn/scheduled state while offline stores changes locally; they sync
   on next connection. *(Note: sync-on-reconnect is NOT implemented in MVP — this
   scenario may show unsynced state until next manual refresh.)*

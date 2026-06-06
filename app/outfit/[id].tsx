@@ -1,6 +1,6 @@
 // Outfit Detail screen
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Image, Share } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OUTFITS, itemById } from '../../src/data';
@@ -38,6 +38,13 @@ export default function OutfitDetailScreen() {
 
   const HERO_H = W * (5 / 4);
 
+  // T029: Share outfit via native share sheet
+  const shareOutfit = () => {
+    const itemNames = items.slice(0, 3).map(i => i.name).join(', ');
+    const message = `${outfit.style} look — ${itemNames} | True Clothes`;
+    Share.share({ message });
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView showsVerticalScrollIndicator={false} style={styles.scroll}>
@@ -50,7 +57,7 @@ export default function OutfitDetailScreen() {
             <Pressable onPress={() => toggleSave(outfit.id)} style={styles.iconBtn}>
               <IconHeart filled={saved} size={20} color={T.color.primary} strokeWidth={1.4} />
             </Pressable>
-            <Pressable style={styles.iconBtn}>
+            <Pressable style={styles.iconBtn} onPress={shareOutfit}>
               <IconShare size={20} color={T.color.primary} strokeWidth={1.4} />
             </Pressable>
           </View>

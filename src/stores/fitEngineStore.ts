@@ -21,6 +21,9 @@ interface FitEngineState {
   colorPreferences: string[];
   hydrated: boolean;
 
+  // T023: feed error state — session only, not persisted
+  feedError: boolean;
+
   setBodyMeasurements: (m: Partial<BodyMeasurements>) => Promise<void>;
   setStyleProfile: (p: Partial<UserStyleProfile>) => Promise<void>;
   setColorPreferences: (colors: string[]) => Promise<void>;
@@ -38,6 +41,7 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
   styleProfile: { selectedStyles: [] },
   colorPreferences: [],
   hydrated: false,
+  feedError: false,
 
   setBodyMeasurements: async (m) => {
     const nextBody = { ...get().bodyMeasurements, ...m };
@@ -81,11 +85,13 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
   },
 
   fetchOutfits: async (intent) => {
+    set({ feedError: false });
     const { data, error } = await sb.functions.invoke('generate-outfits', {
       body: intent ? { intent } : {},
     });
     if (error) {
       console.warn('[fitEngineStore] fetchOutfits failed:', error);
+      set({ feedError: true });
       return [];
     }
     return (data as { outfits: ScoredOutfit[] }).outfits ?? [];

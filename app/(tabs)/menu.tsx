@@ -15,7 +15,8 @@ import { useAuthStore } from '../../src/stores/authStore';
 type NavDestination =
   | 'BUILDER' | 'SAVED' | 'COLLECTIONS'
   | 'SCHEDULE' | 'HISTORY' | 'PROFILE'
-  | 'STYLES_EDIT' | 'COLORS_EDIT' | 'MEASUREMENTS_EDIT';
+  | 'STYLES_EDIT' | 'COLORS_EDIT' | 'MEASUREMENTS_EDIT'
+  | 'SETTINGS' | 'HELP';
 
 const SECTIONS: Array<{
   label: string;
@@ -56,8 +57,8 @@ const SECTIONS: Array<{
   {
     label: 'SUPPORT',
     items: [
-      { icon: <IconSettings size={20} strokeWidth={1.4} />, title: 'Settings',       desc: 'Notifications, units, account', soon: true },
-      { icon: <IconChat size={20} strokeWidth={1.4} />,     title: 'Help & feedback', desc: 'Reach the team',               soon: true },
+      { icon: <IconSettings size={20} strokeWidth={1.4} />, title: 'Settings',       desc: 'Notifications, units, account', go: 'SETTINGS' as NavDestination },
+      { icon: <IconChat size={20} strokeWidth={1.4} />,     title: 'Help & feedback', desc: 'Reach the team',               go: 'HELP' as NavDestination },
     ],
   },
 ];
@@ -80,6 +81,8 @@ export default function MenuScreen() {
       case 'STYLES_EDIT':      return push('/styles-edit');
       case 'COLORS_EDIT':      return push('/colors-edit');
       case 'MEASUREMENTS_EDIT':return push('/measurements-edit');
+      case 'SETTINGS':         return push('/settings');
+      case 'HELP':             return push('/help');
     }
   };
 

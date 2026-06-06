@@ -46,6 +46,7 @@ interface AuthState {
   setProfile: (profile: ProfilePatch) => Promise<{ ok: boolean; message?: string }>;
   completeOnboarding: () => Promise<{ ok: boolean; message?: string }>;
   logout: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
   hydrate: () => Promise<void>;
 }
 
@@ -165,6 +166,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    await signOut();
+    set({
+      isLoggedIn: false, onboardingComplete: false,
+      phone: '', email: '', gender: '', dob: '', location: '',
+      pendingPhone: '', pendingEmail: '', pendingAuthMethod: '',
+    });
+  },
+
+  deleteAccount: async () => {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session?.access_token) throw new Error('Not signed in.');
+    const { error } = await sb.functions.invoke('delete-user', {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    if (error) throw new Error(error.message ?? 'Account deletion failed.');
+    // Clear local session after successful deletion
     await signOut();
     set({
       isLoggedIn: false, onboardingComplete: false,
