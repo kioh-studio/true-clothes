@@ -1,0 +1,694 @@
+{
+  "styles": [
+    {
+      "id": "smartcasual",
+      "name": "Smart Casual",
+      "popularity": 0.75,
+      "attributes": {
+        "mood": ["clean", "serious"],
+        "formality": 3,
+        "silhouette": ["structured", "relaxed"],
+        "colorPalette": ["neutral", "earth"],
+        "patternLevel": 1.5,
+        "textureRichness": 2
+      },
+      "neighbors": [
+        { "id": "oldmoney", "weight": 0.6 },
+        { "id": "minimalist", "weight": 0.7 },
+        { "id": "preppy", "weight": 0.8 }
+      ],
+      "niches": ["Business Casual", "Resort Smart", "Denim-Led"],
+      "active": true
+    },
+    {
+      "id": "oldmoney",
+      "name": "Old Money",
+      "popularity": 0.748,
+      "attributes": {
+        "mood": ["serious", "clean"],
+        "formality": 4.5,
+        "silhouette": ["tailored", "structured"],
+        "colorPalette": ["neutral", "earth", "monochrome"],
+        "patternLevel": 1.5,
+        "textureRichness": 3
+      },
+      "neighbors": [
+        { "id": "minimalist", "weight": 0.8 },
+        { "id": "preppy", "weight": 0.8 },
+        { "id": "smartcasual", "weight": 0.6 }
+      ],
+      "niches": ["Ivy League", "European Heritage", "Coastal Preppy", "Quiet Luxury"],
+      "active": true
+    },
+    {
+      "id": "minimalist",
+      "name": "Minimalist",
+      "popularity": 0.568,
+      "attributes": {
+        "mood": ["clean", "serious"],
+        "formality": 3.5,
+        "silhouette": ["tailored", "relaxed"],
+        "colorPalette": ["neutral", "monochrome", "dark"],
+        "patternLevel": 1,
+        "textureRichness": 1.5
+      },
+      "neighbors": [
+        { "id": "oldmoney", "weight": 0.8 },
+        { "id": "smartcasual", "weight": 0.7 }
+      ],
+      "niches": ["Scandinavian", "Margiela/Lemaire", "Japanese Minimal", "Capsule Wardrobe"],
+      "active": true
+    },
+    {
+      "id": "preppy",
+      "name": "Preppy",
+      "popularity": 0.5,
+      "attributes": {
+        "mood": ["clean", "playful"],
+        "formality": 3.5,
+        "silhouette": ["structured", "tailored"],
+        "colorPalette": ["neutral", "pastel"],
+        "patternLevel": 2.5,
+        "textureRichness": 2
+      },
+      "neighbors": [
+        { "id": "oldmoney", "weight": 0.8 },
+        { "id": "smartcasual", "weight": 0.8 }
+      ],
+      "niches": ["Trad/East Coast", "Modern Preppy"],
+      "active": true
+    },
+    {
+      "id": "streetwear",
+      "name": "Streetwear",
+      "popularity": 0.504,
+      "attributes": {
+        "mood": ["playful", "edgy"],
+        "formality": 2,
+        "silhouette": ["oversized", "relaxed"],
+        "colorPalette": ["bold", "dark"],
+        "patternLevel": 2.5,
+        "textureRichness": 1.5
+      },
+      "neighbors": [
+        { "id": "athleisure", "weight": 0.7 },
+        { "id": "y2k", "weight": 0.6 }
+      ],
+      "niches": ["Hype/Drop Culture", "Skate-Influenced", "Workwear/Utility", "Luxury Streetwear"],
+      "active": true
+    },
+    {
+      "id": "athleisure",
+      "name": "Athleisure",
+      "popularity": 0.724,
+      "attributes": {
+        "mood": ["playful"],
+        "formality": 1.5,
+        "silhouette": ["relaxed", "oversized"],
+        "colorPalette": ["bold", "neutral"],
+        "patternLevel": 1.5,
+        "textureRichness": 1
+      },
+      "neighbors": [
+        { "id": "streetwear", "weight": 0.7 },
+        { "id": "y2k", "weight": 0.4 }
+      ],
+      "niches": ["Running Culture", "Gorpcore", "Studio-to-Street"],
+      "active": true
+    },
+    {
+      "id": "bohemian",
+      "name": "Bohemian",
+      "popularity": 0.402,
+      "attributes": {
+        "mood": ["romantic", "artistic"],
+        "formality": 2,
+        "silhouette": ["relaxed", "oversized"],
+        "colorPalette": ["earth", "bold"],
+        "patternLevel": 3.5,
+        "textureRichness": 4
+      },
+      "neighbors": [
+        { "id": "y2k", "weight": 0.3 },
+        { "id": "athleisure", "weight": 0.2 }
+      ],
+      "niches": ["Earthy Boho", "Folk-Inspired"],
+      "active": true
+    },
+    {
+      "id": "y2k",
+      "name": "Y2K",
+      "popularity": 0.4,
+      "attributes": {
+        "mood": ["playful", "edgy"],
+        "formality": 1.5,
+        "silhouette": ["bodycon", "oversized"],
+        "colorPalette": ["bold", "pastel"],
+        "patternLevel": 4,
+        "textureRichness": 2
+      },
+      "neighbors": [
+        { "id": "streetwear", "weight": 0.6 },
+        { "id": "athleisure", "weight": 0.4 }
+      ],
+      "niches": ["Cyber Y2K", "Indie Sleaze"],
+      "active": true
+    }
+  ],
+
+  "style_configs": {
+    "smartcasual": {
+      "palette": {
+        "red": "accent", "tan": "allowed", "blue": "allowed", "gray": "perfect",
+        "navy": "perfect", "pink": "accent", "teal": "allowed", "beige": "perfect",
+        "black": "perfect", "brown": "allowed", "camel": "allowed", "cream": "perfect",
+        "green": "accent", "ivory": "allowed", "khaki": "allowed", "olive": "perfect",
+        "taupe": "allowed", "white": "perfect", "orange": "banned", "purple": "banned",
+        "yellow": "banned", "natural": "allowed", "burgundy": "allowed", "charcoal": "perfect",
+        "metallic": "banned", "multicolor": "banned"
+      },
+      "fabrics_allowed": ["cotton", "wool", "linen", "denim", "leather", "silk", "cashmere", "canvas", "suede", "jersey", "flannel", "corduroy"],
+      "fabrics_banned": ["nylon", "fleece"],
+      "allowed_fits": ["slim", "regular", "relaxed"],
+      "formality_range": [2, 4],
+      "banned_features": ["loud_logo", "full_print", "neon_color", "distressed"],
+      "weight_overrides": { "fit": 0.1, "color": 0.25, "style": 0.25, "season": 0.1, "texture": 0.1, "formality": 0.1, "proportion": 0.1 }
+    },
+    "oldmoney": {
+      "palette": {
+        "red": "banned", "tan": "allowed", "blue": "allowed", "gray": "perfect", "navy": "perfect",
+        "pink": "banned", "teal": "accent", "beige": "perfect", "black": "allowed",
+        "brown": "allowed", "camel": "perfect", "cream": "perfect", "green": "allowed", "ivory": "perfect",
+        "khaki": "allowed", "olive": "accent", "taupe": "perfect", "white": "perfect",
+        "orange": "banned", "purple": "banned", "yellow": "banned", "natural": "allowed",
+        "burgundy": "allowed", "charcoal": "perfect", "metallic": "banned", "multicolor": "banned"
+      },
+      "fabrics_allowed": ["wool", "cashmere", "cotton", "linen", "silk", "suede", "leather", "tweed", "flannel", "corduroy"],
+      "fabrics_banned": ["polyester", "nylon", "fleece"],
+      "allowed_fits": ["regular", "relaxed"],
+      "formality_range": [2.5, 5],
+      "banned_features": ["loud_logo", "macro_print", "full_print", "neon_color", "distressed"],
+      "weight_overrides": { "fit": 0.05, "color": 0.2, "style": 0.25, "season": 0.1, "texture": 0.15, "formality": 0.2, "proportion": 0.05 }
+    },
+    "minimalist": {
+      "palette": {
+        "red": "banned", "tan": "allowed", "blue": "allowed", "gray": "perfect", "navy": "perfect",
+        "pink": "banned", "teal": "accent", "beige": "perfect", "black": "perfect",
+        "brown": "allowed", "camel": "allowed", "cream": "perfect", "green": "allowed", "ivory": "allowed",
+        "khaki": "allowed", "olive": "allowed", "taupe": "allowed", "white": "perfect",
+        "orange": "banned", "purple": "banned", "yellow": "banned", "natural": "allowed",
+        "burgundy": "accent", "charcoal": "perfect", "metallic": "banned", "multicolor": "banned"
+      },
+      "fabrics_allowed": ["cotton", "wool", "linen", "cashmere", "silk", "denim", "leather", "jersey", "canvas"],
+      "fabrics_banned": ["fleece", "velvet"],
+      "allowed_fits": ["slim", "regular", "relaxed"],
+      "formality_range": [2, 4.5],
+      "banned_features": ["loud_logo", "macro_print", "full_print", "neon_color"],
+      "weight_overrides": { "fit": 0.05, "color": 0.3, "style": 0.2, "season": 0.1, "texture": 0.05, "formality": 0.05, "proportion": 0.25 }
+    },
+    "preppy": {
+      "palette": {
+        "red": "allowed", "tan": "allowed", "blue": "perfect", "gray": "allowed",
+        "navy": "perfect", "pink": "allowed", "teal": "accent", "beige": "perfect",
+        "black": "allowed", "brown": "allowed", "camel": "allowed", "cream": "perfect", "green": "perfect",
+        "ivory": "allowed", "khaki": "perfect", "olive": "allowed", "taupe": "allowed", "white": "perfect",
+        "orange": "accent", "purple": "banned", "yellow": "accent", "natural": "allowed",
+        "burgundy": "allowed", "charcoal": "allowed", "metallic": "banned", "multicolor": "banned"
+      },
+      "fabrics_allowed": ["cotton", "wool", "linen", "cashmere", "denim", "leather", "suede", "canvas", "tweed", "flannel", "corduroy"],
+      "fabrics_banned": ["nylon", "polyester", "fleece"],
+      "allowed_fits": ["slim", "regular"],
+      "formality_range": [2.5, 4.5],
+      "banned_features": ["loud_logo", "full_print", "neon_color", "distressed"],
+      "weight_overrides": { "fit": 0.1, "color": 0.2, "style": 0.25, "season": 0.1, "texture": 0.05, "formality": 0.2, "proportion": 0.1 }
+    },
+    "streetwear": {
+      "palette": {
+        "red": "allowed", "tan": "allowed", "blue": "allowed", "gray": "perfect",
+        "navy": "perfect", "pink": "accent", "teal": "allowed", "beige": "allowed",
+        "black": "perfect", "brown": "allowed", "camel": "allowed", "cream": "allowed",
+        "green": "allowed", "ivory": "allowed", "khaki": "allowed", "olive": "allowed", "white": "perfect",
+        "orange": "allowed", "purple": "allowed", "yellow": "accent", "taupe": "allowed",
+        "natural": "allowed", "burgundy": "allowed", "charcoal": "perfect", "metallic": "accent", "multicolor": "accent"
+      },
+      "fabrics_allowed": [],
+      "fabrics_banned": [],
+      "allowed_fits": ["regular", "relaxed", "wide", "oversized"],
+      "formality_range": [1, 3],
+      "banned_features": [],
+      "weight_overrides": { "fit": 0.05, "color": 0.2, "style": 0.3, "season": 0.1, "texture": 0.1, "formality": 0.05, "proportion": 0.2 }
+    },
+    "athleisure": {
+      "palette": {
+        "red": "allowed", "tan": "allowed", "blue": "allowed", "gray": "perfect", "navy": "perfect",
+        "pink": "accent", "teal": "allowed", "beige": "allowed", "black": "perfect",
+        "brown": "allowed", "camel": "allowed", "cream": "allowed", "green": "allowed",
+        "ivory": "allowed", "khaki": "allowed", "olive": "allowed", "taupe": "allowed",
+        "white": "perfect", "natural": "allowed", "orange": "allowed", "purple": "accent", "yellow": "accent",
+        "burgundy": "accent", "charcoal": "perfect", "metallic": "accent", "multicolor": "accent"
+      },
+      "fabrics_allowed": ["cotton", "nylon", "polyester", "jersey", "fleece", "canvas", "denim"],
+      "fabrics_banned": ["wool", "cashmere", "silk", "suede", "tweed", "velvet"],
+      "allowed_fits": ["regular", "relaxed", "oversized"],
+      "formality_range": [1, 2.5],
+      "banned_features": [],
+      "weight_overrides": { "fit": 0.2, "color": 0.15, "style": 0.25, "season": 0.15, "texture": 0.05, "formality": 0.05, "proportion": 0.15 }
+    },
+    "bohemian": {
+      "palette": {
+        "red": "allowed", "tan": "perfect", "blue": "allowed", "pink": "accent",
+        "teal": "allowed", "beige": "perfect", "black": "banned", "brown": "perfect",
+        "camel": "allowed", "cream": "perfect", "green": "allowed", "ivory": "perfect",
+        "khaki": "perfect", "olive": "perfect", "taupe": "perfect", "white": "allowed",
+        "orange": "allowed", "purple": "accent", "yellow": "accent", "natural": "perfect",
+        "burgundy": "allowed", "charcoal": "banned", "metallic": "banned", "multicolor": "accent"
+      },
+      "fabrics_allowed": ["cotton", "linen", "silk", "wool", "denim", "leather", "suede", "canvas", "velvet", "jersey"],
+      "fabrics_banned": ["nylon", "polyester", "fleece"],
+      "allowed_fits": ["regular", "relaxed", "wide", "oversized"],
+      "formality_range": [1, 3],
+      "banned_features": ["loud_logo"],
+      "weight_overrides": { "fit": 0.05, "color": 0.2, "style": 0.2, "season": 0.1, "texture": 0.25, "formality": 0.05, "proportion": 0.15 }
+    },
+    "y2k": {
+      "palette": {
+        "red": "allowed", "tan": "accent", "blue": "perfect", "gray": "allowed", "navy": "accent",
+        "pink": "perfect", "teal": "allowed", "beige": "accent", "black": "perfect",
+        "brown": "accent", "camel": "accent", "cream": "allowed", "green": "allowed",
+        "ivory": "allowed", "khaki": "allowed", "olive": "accent", "taupe": "accent",
+        "white": "perfect", "natural": "allowed", "orange": "allowed", "purple": "perfect", "yellow": "allowed",
+        "burgundy": "accent", "charcoal": "allowed", "metallic": "allowed", "multicolor": "allowed"
+      },
+      "fabrics_allowed": [],
+      "fabrics_banned": ["tweed"],
+      "allowed_fits": ["slim", "regular", "wide", "oversized"],
+      "formality_range": [1, 3],
+      "banned_features": [],
+      "weight_overrides": { "fit": 0.05, "color": 0.25, "style": 0.3, "season": 0.05, "texture": 0.15, "formality": 0.05, "proportion": 0.15 }
+    }
+  },
+
+  "garment_types": [
+    { "type_key": "TEE",         "category": "top",       "base_formality": 1.5, "style_affinities": ["streetwear", "athleisure", "smartcasual", "minimalist"], "default_material": "cotton",   "layer_roles": ["base"] },
+    { "type_key": "POLO",        "category": "top",       "base_formality": 2.5, "style_affinities": ["preppy", "smartcasual", "oldmoney"],                     "default_material": "cotton",   "layer_roles": ["base"] },
+    { "type_key": "HENLEY",      "category": "top",       "base_formality": 2,   "style_affinities": ["smartcasual", "streetwear"],                                                        "default_material": "cotton",   "layer_roles": ["base"] },
+    { "type_key": "SHIRT",       "category": "top",       "base_formality": 3.5, "style_affinities": ["oldmoney", "smartcasual", "preppy", "minimalist"],       "default_material": "cotton",   "layer_roles": ["base", "mid"] },
+    { "type_key": "BLOUSE",      "category": "top",       "base_formality": 3,   "style_affinities": ["bohemian", "minimalist", "smartcasual"],                 "default_material": "silk",     "layer_roles": ["base"] },
+    { "type_key": "KNIT",        "category": "top",       "base_formality": 3,   "style_affinities": ["oldmoney", "minimalist", "smartcasual", "preppy"],       "default_material": "wool",     "layer_roles": ["base", "mid"] },
+    { "type_key": "SWEATER",     "category": "top",       "base_formality": 2.5, "style_affinities": ["oldmoney", "smartcasual", "preppy", "minimalist"],                                                        "default_material": "wool",     "layer_roles": ["base", "mid"] },
+    { "type_key": "CARDIGAN",    "category": "top",       "base_formality": 2.5, "style_affinities": ["oldmoney", "preppy", "minimalist"],                                                        "default_material": "wool",     "layer_roles": ["mid", "outer"] },
+    { "type_key": "VEST",        "category": "top",       "base_formality": 3,   "style_affinities": ["oldmoney", "preppy", "smartcasual"],                                                        "default_material": "wool",     "layer_roles": ["mid", "outer"] },
+    { "type_key": "CAMISOLE",    "category": "top",       "base_formality": 2.5, "style_affinities": ["minimalist", "bohemian", "y2k"],                        "default_material": "silk",     "layer_roles": ["base"] },
+    { "type_key": "TANK",        "category": "top",       "base_formality": 1,   "style_affinities": ["athleisure", "streetwear", "y2k"],                      "default_material": "cotton",   "layer_roles": ["base"] },
+    { "type_key": "JEANS",       "category": "bottom",    "base_formality": 2,   "style_affinities": ["streetwear", "smartcasual", "preppy", "athleisure"],    "default_material": "denim",    "layer_roles": ["base"] },
+    { "type_key": "CHINOS",      "category": "bottom",    "base_formality": 3,   "style_affinities": ["preppy", "smartcasual", "oldmoney"],                    "default_material": "cotton",   "layer_roles": ["base"] },
+    { "type_key": "TROUSERS",    "category": "bottom",    "base_formality": 4,   "style_affinities": ["oldmoney", "smartcasual", "minimalist", "preppy"],      "default_material": "wool",     "layer_roles": ["base"] },
+    { "type_key": "SHORTS",      "category": "bottom",    "base_formality": 1.5, "style_affinities": ["athleisure", "streetwear", "preppy"],                   "default_material": "cotton",   "layer_roles": ["base"] },
+    { "type_key": "SKIRT",       "category": "bottom",    "base_formality": 3,   "style_affinities": ["bohemian", "minimalist", "y2k"],                        "default_material": "cotton",   "layer_roles": ["base"] },
+    { "type_key": "DRESS",       "category": "bottom",    "base_formality": 3.5, "style_affinities": ["bohemian", "minimalist", "y2k", "smartcasual"],         "default_material": "cotton",   "layer_roles": ["base"] },
+    { "type_key": "JOGGERS",     "category": "bottom",    "base_formality": 1.5, "style_affinities": ["athleisure", "streetwear"],                             "default_material": "cotton",   "layer_roles": ["base"] },
+    { "type_key": "LEGGINGS",    "category": "bottom",    "base_formality": 1,   "style_affinities": ["athleisure", "y2k"],                                    "default_material": "nylon",    "layer_roles": ["base"] },
+    { "type_key": "CARGO",       "category": "bottom",    "base_formality": 1.5, "style_affinities": ["streetwear", "athleisure"],                             "default_material": "cotton",   "layer_roles": ["base"] },
+    { "type_key": "JACKET",      "category": "outwear",   "base_formality": 2.5, "style_affinities": ["streetwear", "smartcasual", "oldmoney"],                "default_material": "cotton",   "layer_roles": ["mid", "outer"] },
+    { "type_key": "BLAZER",      "category": "outwear",   "base_formality": 4.5, "style_affinities": ["oldmoney", "smartcasual", "preppy", "minimalist"],      "default_material": "wool",     "layer_roles": ["outer"] },
+    { "type_key": "COAT",        "category": "outwear",   "base_formality": 3.5, "style_affinities": ["oldmoney", "minimalist", "smartcasual"],                "default_material": "wool",     "layer_roles": ["outer"] },
+    { "type_key": "OVERCOAT",    "category": "outwear",   "base_formality": 4,   "style_affinities": ["oldmoney", "minimalist"],                               "default_material": "wool",     "layer_roles": ["outer"] },
+    { "type_key": "HOODIE",      "category": "outwear",   "base_formality": 1.5, "style_affinities": ["streetwear", "athleisure"],                             "default_material": "cotton",   "layer_roles": ["mid", "outer"] },
+    { "type_key": "PARKA",       "category": "outwear",   "base_formality": 2,   "style_affinities": ["streetwear", "athleisure"],                                                        "default_material": "nylon",    "layer_roles": ["outer"] },
+    { "type_key": "WINDBREAKER", "category": "outwear",   "base_formality": 1.5, "style_affinities": ["athleisure", "streetwear"],                             "default_material": "nylon",    "layer_roles": ["mid", "outer"] },
+    { "type_key": "GILET",       "category": "outwear",   "base_formality": 3,   "style_affinities": ["oldmoney", "preppy", "smartcasual"],                    "default_material": "wool",     "layer_roles": ["mid", "outer"] },
+    { "type_key": "SNEAKERS",    "category": "shoes",     "base_formality": 1.5, "style_affinities": ["athleisure", "streetwear", "smartcasual"],              "default_material": "canvas",   "layer_roles": ["base"] },
+    { "type_key": "LOAFERS",     "category": "shoes",     "base_formality": 4,   "style_affinities": ["oldmoney", "minimalist", "smartcasual", "preppy"],      "default_material": "leather",  "layer_roles": ["base"] },
+    { "type_key": "BOOTS",       "category": "shoes",     "base_formality": 3,   "style_affinities": ["streetwear", "bohemian", "oldmoney"],                   "default_material": "leather",  "layer_roles": ["base"] },
+    { "type_key": "OXFORDS",     "category": "shoes",     "base_formality": 4.5, "style_affinities": ["oldmoney", "preppy", "smartcasual"],                                                        "default_material": "leather",  "layer_roles": ["base"] },
+    { "type_key": "DERBY",       "category": "shoes",     "base_formality": 4,   "style_affinities": ["oldmoney", "smartcasual", "preppy"],                    "default_material": "leather",  "layer_roles": ["base"] },
+    { "type_key": "HEELS",       "category": "shoes",     "base_formality": 4.5, "style_affinities": ["oldmoney", "minimalist", "smartcasual"],                                                        "default_material": "leather",  "layer_roles": ["base"] },
+    { "type_key": "MULES",       "category": "shoes",     "base_formality": 3,   "style_affinities": ["minimalist", "bohemian"],                                                        "default_material": "leather",  "layer_roles": ["base"] },
+    { "type_key": "SANDALS",     "category": "shoes",     "base_formality": 1,   "style_affinities": ["bohemian", "athleisure"],                                                        "default_material": "leather",  "layer_roles": ["base"] },
+    { "type_key": "SLIDES",      "category": "shoes",     "base_formality": 1,   "style_affinities": ["athleisure", "streetwear"],                             "default_material": "nylon",    "layer_roles": ["base"] },
+    { "type_key": "BAG",         "category": "accessory", "base_formality": 2.5, "style_affinities": ["minimalist", "oldmoney", "streetwear"],                 "default_material": "leather",  "layer_roles": ["base"] },
+    { "type_key": "BELT",        "category": "accessory", "base_formality": 3.5, "style_affinities": ["oldmoney", "preppy", "smartcasual"],                    "default_material": "leather",  "layer_roles": ["base"] },
+    { "type_key": "WATCH",       "category": "accessory", "base_formality": 3.5, "style_affinities": ["oldmoney", "preppy", "smartcasual", "minimalist"],      "default_material": "steel",    "layer_roles": ["base"] },
+    { "type_key": "CAP",         "category": "accessory", "base_formality": 1.5, "style_affinities": ["streetwear", "athleisure"],                                                        "default_material": "cotton",   "layer_roles": ["base"] },
+    { "type_key": "HAT",         "category": "accessory", "base_formality": 2.5, "style_affinities": ["bohemian", "oldmoney", "preppy"],                                                        "default_material": "cotton",   "layer_roles": ["base"] },
+    { "type_key": "SCARF",       "category": "accessory", "base_formality": 3,   "style_affinities": ["oldmoney", "bohemian", "preppy"],                       "default_material": "wool",     "layer_roles": ["base"] },
+    { "type_key": "SUNGLASSES",  "category": "accessory", "base_formality": 2,   "style_affinities": ["streetwear", "y2k", "minimalist"],                     "default_material": "acetate",  "layer_roles": ["base"] },
+    { "type_key": "NECKLACE",    "category": "accessory", "base_formality": 3,   "style_affinities": ["bohemian", "y2k", "minimalist"],                       "default_material": "plated",   "layer_roles": ["base"] },
+    { "type_key": "BRACELET",    "category": "accessory", "base_formality": 2.5, "style_affinities": ["bohemian", "streetwear"],                                                        "default_material": "plated",   "layer_roles": ["base"] },
+    { "type_key": "RING",        "category": "accessory", "base_formality": 2.5, "style_affinities": ["bohemian", "y2k"],                                                        "default_material": "plated",   "layer_roles": ["base"] },
+    { "type_key": "EARRINGS",    "category": "accessory", "base_formality": 3,   "style_affinities": ["bohemian", "y2k", "minimalist"],                       "default_material": "plated",   "layer_roles": ["base"] },
+    { "type_key": "TIE",         "category": "accessory", "base_formality": 4.5, "style_affinities": ["oldmoney", "preppy", "smartcasual"],                   "default_material": "silk",     "layer_roles": ["base"] },
+    { "type_key": "SOCKS",       "category": "accessory", "base_formality": 2,   "style_affinities": ["preppy", "streetwear", "smartcasual"],                 "default_material": "cotton",   "layer_roles": ["base"] }
+  ],
+
+  "colors": [
+    { "name": "Black",      "hex": "#1A1815", "tag": "DARK NEUTRAL",  "primary_color": "black",     "lightness": "dark",   "saturation": "muted",    "undertone": "neutral", "active": true },
+    { "name": "Charcoal",   "hex": "#3A3631", "tag": "DARK NEUTRAL",  "primary_color": "charcoal",  "lightness": "dark",   "saturation": "muted",    "undertone": "neutral", "active": true },
+    { "name": "Cream",      "hex": "#F2EDE4", "tag": "WARM NEUTRAL",  "primary_color": "cream",     "lightness": "light",  "saturation": "muted",    "undertone": "warm",    "active": true },
+    { "name": "Dove",       "hex": "#C8C5BF", "tag": "NEUTRAL",       "primary_color": "gray",      "lightness": "light",  "saturation": "muted",    "undertone": "neutral", "active": true },
+    { "name": "Navy",       "hex": "#1F2A44", "tag": "COOL",          "primary_color": "navy",      "lightness": "dark",   "saturation": "muted",    "undertone": "cool",    "active": true },
+    { "name": "Slate",      "hex": "#5C6770", "tag": "COOL",          "primary_color": "blue",      "lightness": "medium", "saturation": "muted",    "undertone": "cool",    "active": true },
+    { "name": "Camel",      "hex": "#B89776", "tag": "EARTH",         "primary_color": "camel",     "lightness": "medium", "saturation": "muted",    "undertone": "warm",    "active": true },
+    { "name": "Sand",       "hex": "#D9C9A8", "tag": "EARTH",         "primary_color": "tan",       "lightness": "light",  "saturation": "muted",    "undertone": "warm",    "active": true },
+    { "name": "Terracotta", "hex": "#A0613F", "tag": "EARTH",         "primary_color": "orange",    "lightness": "medium", "saturation": "balanced", "undertone": "warm",    "active": true },
+    { "name": "Rust",       "hex": "#7C3B25", "tag": "EARTH",         "primary_color": "orange",    "lightness": "dark",   "saturation": "balanced", "undertone": "warm",    "active": true },
+    { "name": "Burgundy",   "hex": "#5C2B2E", "tag": "WARM",          "primary_color": "burgundy",  "lightness": "dark",   "saturation": "muted",    "undertone": "warm",    "active": true },
+    { "name": "Mustard",    "hex": "#B58A2D", "tag": "WARM",          "primary_color": "yellow",    "lightness": "medium", "saturation": "vivid",    "undertone": "warm",    "active": true },
+    { "name": "Ochre",      "hex": "#9C6B2F", "tag": "WARM",          "primary_color": "yellow",    "lightness": "medium", "saturation": "balanced", "undertone": "warm",    "active": true },
+    { "name": "Sage",       "hex": "#8B9B7A", "tag": "COOL",          "primary_color": "green",     "lightness": "medium", "saturation": "muted",    "undertone": "cool",    "active": true },
+    { "name": "Forest",     "hex": "#3B4E3B", "tag": "COOL",          "primary_color": "green",     "lightness": "dark",   "saturation": "muted",    "undertone": "cool",    "active": true },
+    { "name": "Emerald",    "hex": "#2F5D4F", "tag": "ACCENT",        "primary_color": "teal",      "lightness": "medium", "saturation": "vivid",    "undertone": "cool",    "active": true }
+  ],
+
+  "color_families": {
+    "blacks":  ["black", "charcoal"],
+    "whites":  ["white", "cream", "ivory"],
+    "grays":   ["gray", "charcoal"],
+    "blues":   ["navy", "blue", "teal"],
+    "greens":  ["olive", "green", "teal"],
+    "reds":    ["red", "burgundy", "pink"],
+    "yellows": ["yellow", "orange"],
+    "earths":  ["beige", "tan", "taupe", "camel", "brown", "khaki", "natural"]
+  },
+
+  "color_style_boosts": {
+    "black":    ["minimalist", "streetwear"],
+    "white":    ["minimalist", "preppy"],
+    "cream":    ["oldmoney", "minimalist"],
+    "beige":    ["oldmoney", "minimalist"],
+    "charcoal": ["minimalist", "smartcasual"],
+    "navy":     ["oldmoney", "preppy"],
+    "olive":    ["smartcasual", "streetwear"],
+    "burgundy": ["oldmoney", "smartcasual"],
+    "brown":    ["oldmoney", "bohemian"],
+    "red":      ["streetwear", "y2k"],
+    "yellow":   ["y2k", "streetwear"],
+    "orange":   ["streetwear", "y2k"],
+    "pink":     ["y2k", "bohemian"]
+  },
+
+  "fabric_types": [
+    { "name": "cotton",    "weight": "light",  "breathability": "high",   "season": "allSeason", "style_boosts": [] },
+    { "name": "linen",     "weight": "light",  "breathability": "high",   "season": "summer",    "style_boosts": ["minimalist", "bohemian"] },
+    { "name": "silk",      "weight": "light",  "breathability": "high",   "season": "summer",    "style_boosts": ["oldmoney", "minimalist"] },
+    { "name": "jersey",    "weight": "light",  "breathability": "high",   "season": "summer",    "style_boosts": [] },
+    { "name": "nylon",     "weight": "light",  "breathability": "low",    "season": "summer",    "style_boosts": ["athleisure", "streetwear"] },
+    { "name": "polyester", "weight": "light",  "breathability": "low",    "season": "summer",    "style_boosts": [] },
+    { "name": "acetate",   "weight": "light",  "breathability": "low",    "season": "summer",    "style_boosts": [] },
+    { "name": "denim",     "weight": "medium", "breathability": "medium", "season": "allSeason", "style_boosts": ["streetwear", "smartcasual"] },
+    { "name": "suede",     "weight": "medium", "breathability": "medium", "season": "allSeason", "style_boosts": [] },
+    { "name": "canvas",    "weight": "medium", "breathability": "medium", "season": "allSeason", "style_boosts": [] },
+    { "name": "flannel",   "weight": "medium", "breathability": "medium", "season": "allSeason", "style_boosts": [] },
+    { "name": "corduroy",  "weight": "medium", "breathability": "medium", "season": "allSeason", "style_boosts": [] },
+    { "name": "wool",      "weight": "heavy",  "breathability": "medium", "season": "winter",    "style_boosts": ["oldmoney", "preppy"] },
+    { "name": "cashmere",  "weight": "heavy",  "breathability": "medium", "season": "winter",    "style_boosts": [] },
+    { "name": "leather",   "weight": "heavy",  "breathability": "low",    "season": "winter",    "style_boosts": ["streetwear", "oldmoney"] },
+    { "name": "tweed",     "weight": "heavy",  "breathability": "low",    "season": "winter",    "style_boosts": [] },
+    { "name": "fleece",    "weight": "heavy",  "breathability": "low",    "season": "winter",    "style_boosts": [] },
+    { "name": "velvet",    "weight": "heavy",  "breathability": "low",    "season": "winter",    "style_boosts": [] }
+  ],
+
+  "occasions": [
+    { "id": "daily",      "name": "Daily",      "formality_range": [1.5, 3],   "preferred_formulas": [] },
+    { "id": "weekend",    "name": "Weekend",    "formality_range": [1,   2.5], "preferred_formulas": [] },
+    { "id": "date_night", "name": "Date Night", "formality_range": [2.5, 4],   "preferred_formulas": ["tonal_gradient", "neutral_pop"] },
+    { "id": "business",   "name": "Business",   "formality_range": [3.5, 5],   "preferred_formulas": ["one_two_three", "tonal_gradient"] },
+    { "id": "event",      "name": "Event",      "formality_range": [3.5, 5],   "preferred_formulas": ["neutral_pop", "one_two_three", "contrast_pairing"] },
+    { "id": "travel",     "name": "Travel",     "formality_range": [1.5, 3],   "preferred_formulas": ["layering_stack", "texture_stack"] }
+  ],
+
+  "formulas": [
+    { "id": "monochrome",      "name": "Monochrome",       "short_desc": "SINGLE TONE",    "description": "One color family across the entire outfit, varied by texture and shade.", "active": true },
+    { "id": "tonal_gradient",  "name": "Tonal Gradient",   "short_desc": "TONAL LAYERS",   "description": "Same hue family arranged from light to dark across layers.", "active": true },
+    { "id": "neutral_pop",     "name": "Neutral + Pop",    "short_desc": "NEUTRAL + ACCENT","description": "Full neutral base with one bold color accent piece.", "active": true },
+    { "id": "one_two_three",   "name": "1-2-3 Rule",       "short_desc": "1-2-3 RULE",     "description": "One statement piece, two neutrals, and a completing shoe.", "active": true },
+    { "id": "rule_of_thirds",  "name": "Rule of Thirds",   "short_desc": "THIRDS",         "description": "Visual weight split at one-third / two-thirds between top and bottom.", "active": true },
+    { "id": "contrast_pairing","name": "Contrast Pairing", "short_desc": "CONTRAST",       "description": "Opposite textures or formality levels create visual tension.", "active": true },
+    { "id": "high_low",        "name": "High-Low Mix",     "short_desc": "HIGH-LOW",       "description": "Deliberate contrast between dressy and casual pieces.", "active": true },
+    { "id": "layering_stack",  "name": "Layering Stack",   "short_desc": "LAYERED",        "description": "Base layer, mid layer, and outer layer building depth and warmth.", "active": true },
+    { "id": "texture_stack",   "name": "Texture Stack",    "short_desc": "TEXTURE PLAY",   "description": "Three or more distinct fabric textures creating tactile depth.", "active": true },
+    { "id": "pattern_solid",   "name": "Pattern + Solid",  "short_desc": "PATTERN + SOLID","description": "One patterned statement piece grounded by solid neutrals.", "active": true }
+  ],
+
+  "_note_clothing_items_seed": "seed data dùng cho demo/testing. source_url = trang product, img_url = ảnh gốc từ brand. Garment measurements (m_chest, m_waist...) chưa có — cần lấy thủ công từ size chart của từng brand.",
+
+  "clothing_items_seed": [
+    {
+      "id": "jacket-ma1-black", "brand": "Uniqlo", "name": "MA-1 Jacket", "color": "Black", "type": "JACKET", "size": "M",
+      "png_path": "assets/items/jacket-ma1-black.png",
+      "source_url": "https://www.uniqlo.com/us/en/products/E459618-000/00?colorDisplayCode=09",
+      "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/459618/item/goods_09_459618_3x4.jpg",
+      "measurements": {}
+    },
+    {
+      "id": "jacket-ma1-olive", "brand": "Uniqlo", "name": "MA-1 Jacket", "color": "Olive", "type": "JACKET", "size": "M",
+      "png_path": "assets/items/jacket-ma1-olive.png",
+      "source_url": "https://www.uniqlo.com/us/en/products/E459618-000/00?colorDisplayCode=57",
+      "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/459618/item/goods_57_459618_3x4.jpg",
+      "measurements": {}
+    },
+    {
+      "id": "jacket-ma1-navy", "brand": "Uniqlo", "name": "MA-1 Jacket", "color": "Navy", "type": "JACKET", "size": "M",
+      "png_path": "assets/items/jacket-ma1-navy.png",
+      "source_url": "https://www.uniqlo.com/us/en/products/E459618-000/00?colorDisplayCode=69",
+      "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/459618/item/goods_69_459618_3x4.jpg",
+      "measurements": {}
+    },
+    {
+      "id": "jacket-utility-olive", "brand": "Uniqlo", "name": "Utility Jacket", "color": "Olive", "type": "JACKET", "size": "M",
+      "png_path": "assets/items/jacket-utility-olive.png",
+      "source_url": "https://www.uniqlo.com/us/en/products/E458182-000/00?colorDisplayCode=56",
+      "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/458182/item/goods_56_458182_3x4.jpg",
+      "measurements": {}
+    },
+    {
+      "id": "jacket-utility-brown", "brand": "Uniqlo", "name": "Utility Jacket", "color": "Brown", "type": "JACKET", "size": "M",
+      "png_path": "assets/items/jacket-utility-brown.png",
+      "source_url": "https://www.uniqlo.com/us/en/products/E458182-000/00?colorDisplayCode=34",
+      "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/458182/item/goods_34_458182_3x4.jpg",
+      "measurements": {}
+    },
+    {
+      "id": "jacket-harrington", "brand": "Uniqlo", "name": "Harrington Jacket", "color": "Beige", "type": "JACKET", "size": "M",
+      "png_path": "assets/items/jacket-harrington.png",
+      "source_url": null,
+      "img_url": null,
+      "measurements": {}
+    },
+    {
+      "id": "chino-beige", "brand": "Uniqlo", "name": "Slim Chino Pants", "color": "Beige", "type": "CHINOS", "size": "32/29",
+      "png_path": "assets/items/chino-beige.png",
+      "source_url": "https://www.uniqlo.com/us/en/products/E450251-000/00?colorDisplayCode=32",
+      "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/450251/item/goods_32_450251_3x4.jpg",
+      "measurements": { "m_waist": 83.0, "m_hip": 100.0, "m_inseam": 73.5, "m_thigh": 57.0, "m_rise": 26.0 }
+    },
+    {
+      "id": "chino-black", "brand": "Uniqlo", "name": "Slim Chino Pants", "color": "Black", "type": "CHINOS", "size": "32/29",
+      "png_path": "assets/items/chino-black.png",
+      "source_url": "https://www.uniqlo.com/us/en/products/E450251-000/00?colorDisplayCode=09",
+      "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/450251/item/goods_09_450251_3x4.jpg",
+      "measurements": { "m_waist": 83.0, "m_hip": 100.0, "m_inseam": 73.5, "m_thigh": 57.0, "m_rise": 26.0 }
+    },
+    {
+      "id": "chino-olive", "brand": "Uniqlo", "name": "Slim Chino Pants", "color": "Olive", "type": "CHINOS", "size": "32/29",
+      "png_path": "assets/items/chino-olive.png",
+      "source_url": "https://www.uniqlo.com/us/en/products/E450251-000/00?colorDisplayCode=57",
+      "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/450251/item/goods_57_450251_3x4.jpg",
+      "measurements": { "m_waist": 83.0, "m_hip": 100.0, "m_inseam": 73.5, "m_thigh": 57.0, "m_rise": 26.0 }
+    },
+    {
+      "id": "jeans-levis-black", "brand": "Levi's", "name": "511 Slim Jeans", "color": "Black", "type": "JEANS", "size": "32/30",
+      "png_path": "assets/items/jeans-levis-black.png",
+      "source_url": "https://www.levi.com/US/en_US/clothing/men/jeans/511-slim-fit-jeans/p/045111907",
+      "img_url": "https://lsco.scene7.com/is/image/lsco/045111907-front-pdp?$large$",
+      "measurements": { "m_waist": 83.0, "m_hip": 99.0, "m_inseam": 76.0, "m_thigh": 55.0, "m_rise": 25.5 }
+    },
+    {
+      "id": "jeans-blue", "brand": "Levi's", "name": "501 Original Jeans", "color": "Blue", "type": "JEANS", "size": "32/30",
+      "png_path": "assets/items/jeans-blue.png",
+      "source_url": null,
+      "img_url": null,
+      "measurements": {}
+    },
+    {
+      "id": "jeans-dark", "brand": "Levi's", "name": "512 Slim Taper", "color": "Charcoal", "type": "JEANS", "size": "32/30",
+      "png_path": "assets/items/jeans-dark.png",
+      "source_url": null,
+      "img_url": null,
+      "measurements": {}
+    },
+    {
+      "id": "trousers-wide", "brand": "Uniqlo", "name": "Wide Trousers", "color": "Beige", "type": "TROUSERS", "size": "M",
+      "png_path": "assets/items/trousers-wide.png",
+      "source_url": null,
+      "img_url": null,
+      "measurements": {}
+    },
+    {
+      "id": "polo-white", "brand": "Uniqlo", "name": "DRY Pique Polo", "color": "White", "type": "POLO", "size": "M",
+      "png_path": "assets/items/polo-white.png",
+      "source_url": "https://www.uniqlo.com/us/en/products/E455388-000/00?colorDisplayCode=00",
+      "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455388/item/goods_00_455388_3x4.jpg",
+      "measurements": { "m_chest": 104.0, "m_shoulder_width": 46.0, "m_body_length": 72.0, "m_sleeves": 62.0 }
+    },
+    {
+      "id": "polo-black", "brand": "Uniqlo", "name": "DRY Pique Polo", "color": "Black", "type": "POLO", "size": "M",
+      "png_path": "assets/items/polo-black.png",
+      "source_url": "https://www.uniqlo.com/us/en/products/E455388-000/00?colorDisplayCode=09",
+      "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455388/item/goods_09_455388_3x4.jpg",
+      "measurements": { "m_chest": 104.0, "m_shoulder_width": 46.0, "m_body_length": 72.0, "m_sleeves": 62.0 }
+    },
+    {
+      "id": "polo-olive", "brand": "Uniqlo", "name": "DRY Pique Polo", "color": "Olive", "type": "POLO", "size": "M",
+      "png_path": "assets/items/polo-olive.png",
+      "source_url": null,
+      "img_url": null,
+      "measurements": { "m_chest": 104.0, "m_shoulder_width": 46.0, "m_body_length": 72.0, "m_sleeves": 62.0 }
+    },
+    {
+      "id": "tee-supima-black", "brand": "Uniqlo", "name": "SUPIMA Cotton Tee", "color": "Black", "type": "TEE", "size": "M",
+      "png_path": "assets/items/tee-supima-black.png",
+      "source_url": "https://www.uniqlo.com/us/en/products/E455365-001/00?colorDisplayCode=09",
+      "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455365/item/goods_09_455365_3x4.jpg",
+      "measurements": { "m_chest": 102.0, "m_shoulder_width": 45.5, "m_body_length": 70.0 }
+    },
+    {
+      "id": "tee-supima-grey", "brand": "Uniqlo", "name": "SUPIMA Cotton Tee", "color": "Gray", "type": "TEE", "size": "M",
+      "png_path": "assets/items/tee-supima-grey.png",
+      "source_url": "https://www.uniqlo.com/us/en/products/E455365-001/00?colorDisplayCode=07",
+      "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455365/item/goods_07_455365_3x4.jpg",
+      "measurements": { "m_chest": 102.0, "m_shoulder_width": 45.5, "m_body_length": 70.0 }
+    },
+    {
+      "id": "tee-airism", "brand": "Uniqlo", "name": "AIRism Cotton Tee", "color": "White", "type": "TEE", "size": "M",
+      "png_path": "assets/items/tee-airism.png",
+      "source_url": null, "img_url": null,
+      "measurements": {}
+    },
+    {
+      "id": "tee-white", "brand": "Uniqlo", "name": "Cotton Tee", "color": "White", "type": "TEE", "size": "M",
+      "png_path": "assets/items/tee-white.png",
+      "source_url": null, "img_url": null,
+      "measurements": {}
+    },
+    {
+      "id": "tee-beige", "brand": "Uniqlo", "name": "Cotton Tee", "color": "Beige", "type": "TEE", "size": "M",
+      "png_path": "assets/items/tee-beige.jpeg",
+      "source_url": null, "img_url": null,
+      "measurements": {}
+    },
+    {
+      "id": "tee-grey", "brand": "Uniqlo", "name": "Cotton Tee", "color": "Gray", "type": "TEE", "size": "M",
+      "png_path": "assets/items/tee-grey.png",
+      "source_url": null, "img_url": null,
+      "measurements": {}
+    },
+    {
+      "id": "tee-burgundy", "brand": "Uniqlo", "name": "Cotton Tee", "color": "Burgundy", "type": "TEE", "size": "M",
+      "png_path": "assets/items/tee-burgundy.png",
+      "source_url": null, "img_url": null,
+      "measurements": {}
+    },
+    {
+      "id": "tee-yellow", "brand": "Uniqlo", "name": "Cotton Tee", "color": "Yellow", "type": "TEE", "size": "M",
+      "png_path": "assets/items/tee-yellow.png",
+      "source_url": null, "img_url": null,
+      "measurements": {}
+    },
+    {
+      "id": "henley-navy", "brand": "Everlane", "name": "Waffle Henley", "color": "Navy", "type": "HENLEY", "size": "M",
+      "png_path": "assets/items/henley-navy.png",
+      "source_url": "https://www.everlane.com/products/mens-waffle-ls-henley2-navy",
+      "img_url": "https://www.everlane.com/cdn/shop/files/90d18368_d5fa.jpg?v=1753411710",
+      "measurements": {}
+    },
+    {
+      "id": "shirt-denim", "brand": "Uniqlo", "name": "Denim Shirt", "color": "Blue", "type": "SHIRT", "size": "M",
+      "png_path": "assets/items/shirt-denim.png",
+      "source_url": null, "img_url": null,
+      "measurements": {}
+    },
+    {
+      "id": "sweater-black", "brand": "Uniqlo", "name": "Wool Sweater", "color": "Black", "type": "SWEATER", "size": "M",
+      "png_path": "assets/items/sweater-black.png",
+      "source_url": null, "img_url": null,
+      "measurements": {}
+    },
+    {
+      "id": "white-sneaker", "brand": "Adidas", "name": "Stan Smith", "color": "White", "type": "SNEAKERS", "size": "42",
+      "png_path": "assets/items/white-sneaker.png",
+      "source_url": null, "img_url": null,
+      "measurements": { "m_shoe_size": 42.0 }
+    },
+    {
+      "id": "loafers-black", "brand": "Uniqlo", "name": "Leather Loafers", "color": "Black", "type": "LOAFERS", "size": "42",
+      "png_path": "assets/items/loafers-black.png",
+      "source_url": null, "img_url": null,
+      "measurements": { "m_shoe_size": 42.0 }
+    },
+    {
+      "id": "mule-tan", "brand": "Uniqlo", "name": "Leather Mules", "color": "Tan", "type": "MULES", "size": "42",
+      "png_path": "assets/items/mule-tan.png",
+      "source_url": null, "img_url": null,
+      "measurements": { "m_shoe_size": 42.0 }
+    },
+    {
+      "id": "bag-black", "brand": "Uniqlo", "name": "Tote Bag", "color": "Black", "type": "BAG", "size": "OS",
+      "png_path": "assets/items/bag-black.png",
+      "source_url": null, "img_url": null,
+      "measurements": {}
+    },
+    {
+      "id": "cap-plaid", "brand": "Uniqlo", "name": "Plaid Cap", "color": "Multicolor", "type": "CAP", "size": "OS",
+      "png_path": "assets/items/cap-plaid.png",
+      "source_url": null, "img_url": null,
+      "measurements": {}
+    }
+  ],
+
+  "engine_config": {
+    "top_n": 24,
+    "per_formula_cap": 80,
+    "generation_cap": 500,
+    "max_distinct_colors": 4,
+    "max_formality_gap": 2.5,
+    "default_weights": {
+      "fit": 0.1, "color": 0.25, "style": 0.25,
+      "season": 0.1, "texture": 0.1, "formality": 0.1, "proportion": 0.1
+    },
+    "fit_thresholds": {
+      "chest":          { "ideal": [2, 6],   "ok": [0, 12]  },
+      "waist":          { "ideal": [2, 6],   "ok": [0, 10]  },
+      "hip":            { "ideal": [4, 8],   "ok": [0, 15]  },
+      "thigh":          { "ideal": [3, 8],   "ok": [0, 14]  },
+      "inseam":         { "ideal": [-3, 2],  "ok": [-6, 4]  },
+      "sleeves":        { "ideal": [-1, 2],  "ok": [-3, 4]  },
+      "upper_arm":      { "ideal": [2, 5],   "ok": [0, 8]   },
+      "waist_top":      { "ideal": [2, 6],   "ok": [0, 10]  },
+      "body_length":    { "ideal": [0, 5],   "ok": [-3, 10] },
+      "waist_outer":    { "ideal": [4, 8],   "ok": [0, 14]  },
+      "shoulder_width": { "ideal": [0, 3],   "ok": [-1, 5]  }
+    },
+    "season_matrix": {
+      "summer":    { "summer": 1, "spring": 0.8, "fall": 0.3,  "winter": 0,   "allSeason": 0.9 },
+      "spring":    { "summer": 0.8, "spring": 1, "fall": 0.7,  "winter": 0.3, "allSeason": 0.9 },
+      "fall":      { "summer": 0.3, "spring": 0.7, "fall": 1,  "winter": 0.8, "allSeason": 0.9 },
+      "winter":    { "summer": 0, "spring": 0.3, "fall": 0.8,  "winter": 1,   "allSeason": 0.9 },
+      "allSeason": { "summer": 0.9, "spring": 0.9, "fall": 0.9,"winter": 0.9, "allSeason": 1   }
+    },
+    "volume_scale": { "slim": 1, "regular": 2, "relaxed": 3, "wide": 4, "oversized": 5 },
+    "body_goal_formulas": {
+      "balanced":          [],
+      "elongation":        ["monochrome", "tonal_gradient", "rule_of_thirds"],
+      "define_waist":      ["rule_of_thirds", "contrast_pairing"],
+      "broaden_shoulders": ["contrast_pairing", "one_two_three"]
+    },
+    "color_scheme_formulas": {
+      "monochrome":     ["monochrome"],
+      "analogous":      ["tonal_gradient", "monochrome"],
+      "tonal":          ["tonal_gradient"],
+      "complementary":  ["contrast_pairing", "neutral_pop"],
+      "neutral_accent": ["neutral_pop", "one_two_three"]
+    }
+  }
+}

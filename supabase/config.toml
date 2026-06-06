@@ -1,0 +1,18 @@
+# Supabase local development config
+# Docs: https://supabase.com/docs/guides/local-development/cli/config
+
+[auth]
+site_url = "exp://localhost:8081"
+additional_redirect_urls = ["exp://localhost:8081"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = false
+enable_confirmations = true
+otp_length = 6
+
+[auth.email.template.magic_link]
+subject = "Your True Clothes verification code"
+content_path = "./supabase/templates/magic-link.html"

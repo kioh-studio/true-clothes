@@ -1,0 +1,156 @@
+{
+  "jacket-ma1-black": {
+    "id": "jacket-ma1-black",
+    "brand": "Uniqlo",
+    "name": "MA-1 Jacket",
+    "color": "Black",
+    "type": "JACKET",
+    "size": "M",
+    "url": "https://www.uniqlo.com/us/en/products/E459618-000/00?colorDisplayCode=09",
+    "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/459618/item/goods_09_459618_3x4.jpg",
+    "png_path": "assets/items/jacket-ma1-black.png"
+  },
+  "jacket-ma1-olive": {
+    "id": "jacket-ma1-olive",
+    "brand": "Uniqlo",
+    "name": "MA-1 Jacket",
+    "color": "Olive",
+    "type": "JACKET",
+    "size": "M",
+    "url": "https://www.uniqlo.com/us/en/products/E459618-000/00?colorDisplayCode=57",
+    "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/459618/item/goods_57_459618_3x4.jpg",
+    "png_path": "assets/items/jacket-ma1-olive.png"
+  },
+  "jacket-ma1-navy": {
+    "id": "jacket-ma1-navy",
+    "brand": "Uniqlo",
+    "name": "MA-1 Jacket",
+    "color": "Navy",
+    "type": "JACKET",
+    "size": "M",
+    "url": "https://www.uniqlo.com/us/en/products/E459618-000/00?colorDisplayCode=69",
+    "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/459618/item/goods_69_459618_3x4.jpg",
+    "png_path": "assets/items/jacket-ma1-navy.png"
+  },
+  "jacket-utility-olive": {
+    "id": "jacket-utility-olive",
+    "brand": "Uniqlo",
+    "name": "Utility Jacket",
+    "color": "Olive",
+    "type": "JACKET",
+    "size": "M",
+    "url": "https://www.uniqlo.com/us/en/products/E458182-000/00?colorDisplayCode=56",
+    "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/458182/item/goods_56_458182_3x4.jpg",
+    "png_path": "assets/items/jacket-utility-olive.png"
+  },
+  "jacket-utility-brown": {
+    "id": "jacket-utility-brown",
+    "brand": "Uniqlo",
+    "name": "Utility Jacket",
+    "color": "Brown",
+    "type": "JACKET",
+    "size": "M",
+    "url": "https://www.uniqlo.com/us/en/products/E458182-000/00?colorDisplayCode=34",
+    "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/458182/item/goods_34_458182_3x4.jpg",
+    "png_path": "assets/items/jacket-utility-brown.png"
+  },
+  "chino-beige": {
+    "id": "chino-beige",
+    "brand": "Uniqlo",
+    "name": "Slim Chino Pants",
+    "color": "Beige",
+    "type": "CHINOS",
+    "size": "32/29",
+    "url": "https://www.uniqlo.com/us/en/products/E450251-000/00?colorDisplayCode=32",
+    "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/450251/item/goods_32_450251_3x4.jpg",
+    "png_path": "assets/items/chino-beige.png"
+  },
+  "chino-black": {
+    "id": "chino-black",
+    "brand": "Uniqlo",
+    "name": "Slim Chino Pants",
+    "color": "Black",
+    "type": "CHINOS",
+    "size": "32/29",
+    "url": "https://www.uniqlo.com/us/en/products/E450251-000/00?colorDisplayCode=09",
+    "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/450251/item/goods_09_450251_3x4.jpg",
+    "png_path": "assets/items/chino-black.png"
+  },
+  "chino-olive": {
+    "id": "chino-olive",
+    "brand": "Uniqlo",
+    "name": "Slim Chino Pants",
+    "color": "Olive",
+    "type": "CHINOS",
+    "size": "32/29",
+    "url": "https://www.uniqlo.com/us/en/products/E450251-000/00?colorDisplayCode=57",
+    "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/450251/item/goods_57_450251_3x4.jpg",
+    "png_path": "assets/items/chino-olive.png"
+  },
+  "jeans-levis-black": {
+    "id": "jeans-levis-black",
+    "brand": "Levi's",
+    "name": "511 Slim Jeans",
+    "color": "Black",
+    "type": "JEANS",
+    "size": "32/30",
+    "url": "https://www.levi.com/US/en_US/clothing/men/jeans/511-slim-fit-jeans/p/045111907",
+    "img_url": "https://lsco.scene7.com/is/image/lsco/045111907-front-pdp?$large$",
+    "png_path": "assets/items/jeans-levis-black.png"
+  },
+  "polo-white": {
+    "id": "polo-white",
+    "brand": "Uniqlo",
+    "name": "DRY Pique Polo",
+    "color": "White",
+    "type": "POLO",
+    "size": "M",
+    "url": "https://www.uniqlo.com/us/en/products/E455388-000/00?colorDisplayCode=00",
+    "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455388/item/goods_00_455388_3x4.jpg",
+    "png_path": "assets/items/polo-white.png"
+  },
+  "polo-black": {
+    "id": "polo-black",
+    "brand": "Uniqlo",
+    "name": "DRY Pique Polo",
+    "color": "Black",
+    "type": "POLO",
+    "size": "M",
+    "url": "https://www.uniqlo.com/us/en/products/E455388-000/00?colorDisplayCode=09",
+    "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455388/item/goods_09_455388_3x4.jpg",
+    "png_path": "assets/items/polo-black.png"
+  },
+  "tee-supima-black": {
+    "id": "tee-supima-black",
+    "brand": "Uniqlo",
+    "name": "SUPIMA Cotton Tee",
+    "color": "Black",
+    "type": "TEE",
+    "size": "M",
+    "url": "https://www.uniqlo.com/us/en/products/E455365-001/00?colorDisplayCode=09",
+    "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455365/item/goods_09_455365_3x4.jpg",
+    "png_path": "assets/items/tee-supima-black.png"
+  },
+  "tee-supima-grey": {
+    "id": "tee-supima-grey",
+    "brand": "Uniqlo",
+    "name": "SUPIMA Cotton Tee",
+    "color": "Grey",
+    "type": "TEE",
+    "size": "M",
+    "url": "https://www.uniqlo.com/us/en/products/E455365-001/00?colorDisplayCode=07",
+    "img_url": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455365/item/goods_07_455365_3x4.jpg",
+    "png_path": "assets/items/tee-supima-grey.png"
+  },
+  "henley-navy": {
+    "id": "henley-navy",
+    "brand": "Everlane",
+    "name": "Waffle Henley",
+    "color": "Navy",
+    "type": "SHIRT",
+    "size": "M",
+    "url": "https://www.everlane.com/products/mens-waffle-ls-henley2-navy",
+    "img_url": "https://www.everlane.com/cdn/shop/files/90d18368_d5fa.jpg?v=1753411710",
+    "png_path": "assets/items/henley-navy.png"
+  }
+}

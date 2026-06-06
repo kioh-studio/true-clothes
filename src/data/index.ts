@@ -1,0 +1,358 @@
+// Data — wardrobe items, outfits, collections, style options, colors.
+// Images use Unsplash stable IDs; local PNG cutouts are required() assets.
+
+const U = (id: string, w = 800) =>
+  `https://images.unsplash.com/${id}?w=${w}&q=80&auto=format&fit=crop`;
+
+export const PHOTOS = {
+  outfit_1: U('photo-1490481651871-ab68de25d43d'),
+  outfit_2: U('photo-1539109136881-3be0616acf4b'),
+  outfit_3: U('photo-1483985988355-763728e1935b'),
+  outfit_4: U('photo-1496217590455-aa63a8350eea'),
+  outfit_5: U('photo-1485231183945-fffde7cc051e'),
+  outfit_6: U('photo-1551488831-00ddcb6c6bd3'),
+  outfit_7: U('photo-1469334031218-e382a71b716b'),
+  outfit_8: U('photo-1490114538077-0a7f8cb49891'),
+  detail_1: U('photo-1558769132-cb1aea458c5e'),
+  detail_2: U('photo-1542272604-787c3835535d'),
+  detail_3: U('photo-1485518882345-15568b007407'),
+  style_oldmoney: U('photo-1581338834647-b0fb40704e21'),
+  style_streetwear: U('photo-1523398002811-999ca8dec234'),
+  style_minimalist: U('photo-1487222477894-8943e31ef7b2'),
+  style_smartcasual: U('photo-1507003211169-0a1dd7228f2d'),
+  style_preppy: U('photo-1521572163474-6864f9cf17ab'),
+  style_athleisure: U('photo-1539109136881-3be0616acf4b'),
+  style_y2k: U('photo-1529139574466-a303027c1d8b'),
+  style_bohemian: U('photo-1502716119720-b23a93e5fe1b'),
+};
+
+export interface ClothingItem {
+  id: string;
+  type: string;
+  name: string;
+  color: string;
+  material?: string;
+  img?: string;
+  png?: number;       // local require() path — set in ITEMS below
+  pngBlend?: boolean;
+  tone: number;
+  wornCount: number;
+  addedDate: string;
+  brand?: string;
+  size?: string;
+  fit?: string;
+  fitNote?: string;
+  measurements?: Array<{ label: string; value: string | number; unit?: string }>;
+  price?: number;       // VND
+}
+
+// Local PNG assets (transparent cutouts) — must use require() for native bundling
+const ASSET = {
+  'tee-white':            require('../../assets/items/tee-white.png')         as number,
+  'tee-yellow':           require('../../assets/items/tee-yellow.png')        as number,
+  'tee-burgundy':         require('../../assets/items/tee-burgundy.png')      as number,
+  'tee-grey':             require('../../assets/items/tee-grey.png')          as number,
+  'tee-airism':           require('../../assets/items/tee-airism.png')        as number,
+  'polo-olive':           require('../../assets/items/polo-olive.png')        as number,
+  'sweater-black':        require('../../assets/items/sweater-black.png')     as number,
+  'tee-beige':            require('../../assets/items/tee-beige.jpeg')        as number,
+  'jacket-harrington':    require('../../assets/items/jacket-harrington.png') as number,
+  'jeans-blue':           require('../../assets/items/jeans-blue.png')        as number,
+  'jeans-dark':           require('../../assets/items/jeans-dark.png')        as number,
+  'loafers-black':        require('../../assets/items/loafers-black.png')     as number,
+  'bag-black':            require('../../assets/items/bag-black.png')         as number,
+  // Fetched items — Uniqlo MA-1 jackets
+  'jacket-ma1-black':     require('../../assets/items/jacket-ma1-black.png')     as number,
+  'jacket-ma1-olive':     require('../../assets/items/jacket-ma1-olive.png')     as number,
+  'jacket-ma1-navy':      require('../../assets/items/jacket-ma1-navy.png')      as number,
+  // Fetched items — Uniqlo Utility jackets
+  'jacket-utility-olive': require('../../assets/items/jacket-utility-olive.png') as number,
+  'jacket-utility-brown': require('../../assets/items/jacket-utility-brown.png') as number,
+  // Fetched items — Uniqlo Slim Chinos
+  'chino-beige':          require('../../assets/items/chino-beige.png')          as number,
+  'chino-black':          require('../../assets/items/chino-black.png')          as number,
+  'chino-olive':          require('../../assets/items/chino-olive.png')          as number,
+  // Fetched items — Levi's jeans
+  'jeans-levis-black':    require('../../assets/items/jeans-levis-black.png')    as number,
+  // Fetched items — Uniqlo DRY Polos
+  'polo-white':           require('../../assets/items/polo-white.png')           as number,
+  'polo-black':           require('../../assets/items/polo-black.png')           as number,
+  // Fetched items — Uniqlo SUPIMA Tees
+  'tee-supima-black':     require('../../assets/items/tee-supima-black.png')     as number,
+  'tee-supima-grey':      require('../../assets/items/tee-supima-grey.png')      as number,
+  // Fetched items — Everlane Henley
+  'henley-navy':          require('../../assets/items/henley-navy.png')          as number,
+  'white-sneaker':        require('../../assets/items/white-sneaker.png')        as number,
+  // Fetched items — De Basé Vietnam
+  'shirt-denim':          require('../../assets/items/shirt-denim.png')          as number,
+  'trousers-wide':        require('../../assets/items/trousers-wide.png')        as number,
+  'mule-tan':             require('../../assets/items/mule-tan.png')             as number,
+  'cap-plaid':            require('../../assets/items/cap-plaid.png')            as number,
+} satisfies Record<string, number>;
+
+// Measurement helpers — keeps item definitions concise
+type M = Array<{ label: string; value: string | number; unit?: string }>;
+const top  = (chest: number, length: number, sleeve: number, shoulder: number): M => [
+  { label: 'Chest', value: chest }, { label: 'Length', value: length },
+  { label: 'Sleeve', value: sleeve }, { label: 'Shoulder', value: shoulder },
+];
+const bot  = (waist: number, hip: number, inseam: number, rise: number, leg: number): M => [
+  { label: 'Waist', value: waist }, { label: 'Hip', value: hip },
+  { label: 'Inseam', value: inseam }, { label: 'Rise', value: rise }, { label: 'Leg opening', value: leg },
+];
+const shoe = (us: number, eu: number): M => [
+  { label: 'Size (US)', value: us, unit: '' }, { label: 'Size (EU)', value: eu, unit: '' },
+  { label: 'Width', value: 'D', unit: '' },
+];
+const bag  = (w: number, h: number, d: number, strap: number): M => [
+  { label: 'Width', value: w }, { label: 'Height', value: h },
+  { label: 'Depth', value: d }, { label: 'Strap drop', value: strap },
+];
+
+export const ITEMS: ClothingItem[] = [
+  { id: 'i_tee_white',  type: 'TEE',    name: 'Oversized white tee',  color: 'White',    material: 'Cotton', png: ASSET['tee-white'],    img: U('photo-1521572163474-6864f9cf17ab', 600), tone: 2, wornCount: 12, addedDate: 'Apr 2026', price: 299_000,   size: 'L',    measurements: top(58, 72, 26, 52) },
+  { id: 'i_tee_yellow', type: 'TEE',    name: 'Mustard cotton tee',   color: 'Mustard',  material: 'Cotton', png: ASSET['tee-yellow'],   img: U('photo-1521572163474-6864f9cf17ab', 600), tone: 4, wornCount: 5,  addedDate: 'Apr 2026', price: 299_000,   size: 'M',    measurements: top(56, 70, 24, 50) },
+  { id: 'i_tee_burg',   type: 'TEE',    name: 'Burgundy cotton tee',  color: 'Burgundy', material: 'Cotton', png: ASSET['tee-burgundy'], img: U('photo-1521572163474-6864f9cf17ab', 600), tone: 3, wornCount: 4,  addedDate: 'Mar 2026', price: 299_000,   size: 'M',    measurements: top(56, 70, 24, 50) },
+  { id: 'i_tee_grey',   type: 'TEE',    name: 'Heather grey tee',     color: 'Grey',     material: 'Cotton', png: ASSET['tee-grey'],     img: U('photo-1521572163474-6864f9cf17ab', 600), tone: 1, wornCount: 16, addedDate: 'May 2026', price: 299_000,   size: 'M',    measurements: top(56, 70, 24, 50) },
+  { id: 'i_tee_airism', type: 'TEE',    name: 'Airism crew tee',      color: 'Grey',     material: 'Cotton', png: ASSET['tee-airism'],   img: U('photo-1521572163474-6864f9cf17ab', 600), tone: 1, wornCount: 9,  addedDate: 'May 2026', price: 399_000,   size: 'M',    measurements: top(54, 68, 23, 49) },
+  { id: 'i_polo_olive', type: 'POLO',   name: 'Olive knit polo',      color: 'Olive',    material: 'Cotton', png: ASSET['polo-olive'],   img: U('photo-1602810318383-e386cc2a3ccf', 600), tone: 1, wornCount: 6,  addedDate: 'Feb 2026', price: 499_000,   size: 'M',    measurements: top(56, 70, 24, 50) },
+  { id: 'i_swt_black',  type: 'KNIT',   name: 'Black crewneck',       color: 'Black',    material: 'Cotton', png: ASSET['sweater-black'],img: U('photo-1576566588028-4147f3842f27', 600), tone: 3, wornCount: 8,  addedDate: 'Jan 2026', price: 599_000,   size: 'M',    measurements: top(58, 68, 65, 50) },
+  { id: 'i_tee_beige',  type: 'KNIT',   name: 'Beige milano knit',    color: 'Beige',    material: 'Wool',   png: ASSET['tee-beige'],    img: U('photo-1576566588028-4147f3842f27', 600), tone: 0, pngBlend: true, wornCount: 9, addedDate: 'Jan 2026', price: 799_000,   size: 'M',    measurements: top(56, 66, 62, 48) },
+  { id: 'i_jkt_harr',   type: 'JACKET', name: 'Beige harrington',     color: 'Beige',    material: 'Cotton', png: ASSET['jacket-harrington'], img: U('photo-1591047139829-d91aecb6caea', 600), tone: 0, wornCount: 4, addedDate: 'May 2026', price: 899_000,   size: 'M',    measurements: top(60, 66, 64, 52) },
+  { id: 'i_jeans_blue', type: 'JEANS',  name: 'Light wash jeans',     color: 'Indigo',   material: 'Denim',  png: ASSET['jeans-blue'],   img: U('photo-1542272604-787c3835535d', 600), tone: 2, wornCount: 14, addedDate: 'Apr 2026', price: 799_000,   size: 'W32 L30', measurements: bot(82, 100, 80, 27, 22) },
+  { id: 'i_jeans_dark', type: 'JEANS',  name: 'Dark wash jeans',      color: 'Navy',     material: 'Denim',  png: ASSET['jeans-dark'],   img: U('photo-1542272604-787c3835535d', 600), tone: 3, wornCount: 11, addedDate: 'Apr 2026', price: 799_000,   size: 'W32 L30', measurements: bot(82, 100, 80, 27, 20) },
+  { id: 'i_loaf_black', type: 'LOAFERS',name: 'Black penny loafers',  color: 'Black',    material: 'Leather',png: ASSET['loafers-black'],img: U('photo-1582897085656-c636d006a246', 600), tone: 3, wornCount: 7, addedDate: 'Mar 2026', price: 1_490_000, size: 'EU 42',  measurements: shoe(9, 42) },
+  { id: 'i_bag_black',  type: 'BAG',    name: 'Black nylon tote',     color: 'Black',    material: 'Nylon',  png: ASSET['bag-black'],    img: U('photo-1548036328-c9fa89d128fa', 500), tone: 3, wornCount: 6, addedDate: 'Apr 2026', price: 699_000,                 measurements: bag(38, 32, 14, 28) },
+  { id: 'i10',          type: 'SNEAKERS',name: 'White low-tops',      color: 'White',    material: 'Canvas', png: ASSET['white-sneaker'], tone: 2, wornCount: 14, addedDate: 'Nov 2025', price: 2_990_000, size: 'EU 42',  measurements: shoe(9, 42) },
+
+  // ── Fetched items ─────────────────────────────────────────────────────────
+  // Jackets
+  { id: 'jkt_ma1_blk', type: 'JACKET', name: 'MA-1 Blouson Jacket',   color: 'Black', material: 'Nylon',  png: ASSET['jacket-ma1-black'],     tone: 3, wornCount: 0, addedDate: 'May 2026', brand: 'Uniqlo',   price: 1_290_000, size: 'M', measurements: top(62, 66, 65, 53) },
+  { id: 'jkt_ma1_olv', type: 'JACKET', name: 'MA-1 Blouson Jacket',   color: 'Olive', material: 'Nylon',  png: ASSET['jacket-ma1-olive'],     tone: 1, wornCount: 0, addedDate: 'May 2026', brand: 'Uniqlo',   price: 1_290_000, size: 'M', measurements: top(62, 66, 65, 53) },
+  { id: 'jkt_ma1_nvy', type: 'JACKET', name: 'MA-1 Blouson Jacket',   color: 'Navy',  material: 'Nylon',  png: ASSET['jacket-ma1-navy'],      tone: 3, wornCount: 0, addedDate: 'May 2026', brand: 'Uniqlo',   price: 1_290_000, size: 'M', measurements: top(62, 66, 65, 53) },
+  { id: 'jkt_utl_olv', type: 'JACKET', name: 'Cotton Utility Jacket', color: 'Olive', material: 'Cotton', png: ASSET['jacket-utility-olive'], tone: 1, wornCount: 0, addedDate: 'May 2026', brand: 'Uniqlo',   price: 999_000,   size: 'M', measurements: top(60, 72, 64, 52) },
+  { id: 'jkt_utl_brn', type: 'JACKET', name: 'Cotton Utility Jacket', color: 'Brown', material: 'Cotton', png: ASSET['jacket-utility-brown'], tone: 2, wornCount: 0, addedDate: 'May 2026', brand: 'Uniqlo',   price: 999_000,   size: 'M', measurements: top(60, 72, 64, 52) },
+  // Bottoms
+  { id: 'chino_beige', type: 'CHINOS', name: 'Slim Fit Chino Pants',  color: 'Beige', material: 'Cotton', png: ASSET['chino-beige'],          tone: 0, wornCount: 0, addedDate: 'May 2026', brand: 'Uniqlo',   price: 799_000,   size: 'W30 L30', measurements: bot(80, 96, 80, 27, 18) },
+  { id: 'chino_black', type: 'CHINOS', name: 'Slim Fit Chino Pants',  color: 'Black', material: 'Cotton', png: ASSET['chino-black'],          tone: 3, wornCount: 0, addedDate: 'May 2026', brand: 'Uniqlo',   price: 799_000,   size: 'W30 L30', measurements: bot(80, 96, 80, 27, 18) },
+  { id: 'chino_olive', type: 'CHINOS', name: 'Slim Fit Chino Pants',  color: 'Olive', material: 'Cotton', png: ASSET['chino-olive'],          tone: 1, wornCount: 0, addedDate: 'May 2026', brand: 'Uniqlo',   price: 799_000,   size: 'W30 L30', measurements: bot(80, 96, 80, 27, 18) },
+  { id: 'jns_lv_blk',  type: 'JEANS',  name: '511 Slim Fit Jeans',    color: 'Black', material: 'Denim',  png: ASSET['jeans-levis-black'],    tone: 3, wornCount: 0, addedDate: 'May 2026', brand: "Levi's",   price: 1_890_000, size: 'W32 L30', measurements: bot(82, 98, 78, 26, 18) },
+  // Tops
+  { id: 'polo_white',  type: 'POLO',   name: 'DRY Piqué Polo Shirt',  color: 'White', material: 'Cotton', png: ASSET['polo-white'],           tone: 0, wornCount: 0, addedDate: 'May 2026', brand: 'Uniqlo',   price: 499_000,   size: 'M', measurements: top(56, 70, 24, 50) },
+  { id: 'polo_black',  type: 'POLO',   name: 'DRY Piqué Polo Shirt',  color: 'Black', material: 'Cotton', png: ASSET['polo-black'],           tone: 3, wornCount: 0, addedDate: 'May 2026', brand: 'Uniqlo',   price: 499_000,   size: 'M', measurements: top(56, 70, 24, 50) },
+  { id: 'tee_sup_blk', type: 'TEE',    name: 'SUPIMA Cotton Crew Tee',color: 'Black', material: 'Cotton', png: ASSET['tee-supima-black'],     tone: 3, wornCount: 0, addedDate: 'May 2026', brand: 'Uniqlo',   price: 499_000,   size: 'M', measurements: top(55, 70, 24, 50) },
+  { id: 'tee_sup_gry', type: 'TEE',    name: 'SUPIMA Cotton Crew Tee',color: 'Grey',  material: 'Cotton', png: ASSET['tee-supima-grey'],      tone: 2, wornCount: 0, addedDate: 'May 2026', brand: 'Uniqlo',   price: 499_000,   size: 'M', measurements: top(55, 70, 24, 50) },
+  { id: 'henley_navy', type: 'SHIRT',  name: 'Waffle-Knit Henley',    color: 'Navy',  material: 'Cotton', png: ASSET['henley-navy'],          tone: 3, wornCount: 0, addedDate: 'May 2026', brand: 'Everlane', price: 1_290_000, size: 'M', measurements: top(56, 70, 62, 50) },
+
+  // ── De Basé Vietnam ────────────────────────────────────────────────────────
+  // Tops
+  { id: 'debase_shirt_denim', type: 'SHIRT',    name: 'RAW Denim Shirt',       color: 'Indigo', material: 'Raw Denim',         png: ASSET['shirt-denim'],    tone: 3, wornCount: 0, addedDate: 'May 2026', brand: 'De Basé', price: 540_000, size: 'L', measurements: top(112, 74, 65, 58) },
+  // Bottoms
+  { id: 'debase_trousers',    type: 'TROUSERS', name: 'basé TROUSERS 01',      color: 'Black',  material: 'Polyester / Rayon', png: ASSET['trousers-wide'],  tone: 3, wornCount: 0, addedDate: 'May 2026', brand: 'De Basé', price: 520_000, size: 'L', measurements: bot(80, 95, 75, 28, 27) },
+  // Accessories
+  { id: 'debase_mule_tan',    type: 'LOAFERS',  name: 'Buckle Mulé',           color: 'Tan',    material: 'Suede',             png: ASSET['mule-tan'],       tone: 2, wornCount: 0, addedDate: 'May 2026', brand: 'De Basé', price: 850_000, size: 'EU 42', measurements: shoe(9, 42) },
+  { id: 'debase_cap_plaid',   type: 'CAP',      name: 'basé Logo CAP 01',      color: 'Forest', material: 'Wool Felt',         png: ASSET['cap-plaid'],      tone: 3, wornCount: 0, addedDate: 'May 2026', brand: 'De Basé', price: 300_000, measurements: [{ label: 'Head circ.', value: '50–60', unit: 'cm' }] },
+];
+
+export const itemById = (id: string) => ITEMS.find(i => i.id === id);
+
+export interface Outfit {
+  id: string;
+  title: string;
+  subtitle: string;
+  style: string;
+  context: string;
+  weather: string;
+  description: string;
+  longDescription: string;
+  tags: string[];
+  tone: number;
+  itemIds: string[];
+  img?: string;
+  formula?: string; // formula ID that generated this outfit
+  tier?: 1 | 2;     // 1 = matches user style, 2 = flex/discovery
+  // Fit engine scores (0.0–1.0) — present on generated outfits
+  scores?: {
+    totalScore: number;
+    styleCoherence: number;
+    colorHarmony: number;
+    fitScore: number;
+    proportionBalance: number;
+    formalityConsistency: number;
+    seasonMatch: number;
+    textureInterest: number;
+  };
+}
+
+export const OUTFITS: Outfit[] = [
+  {
+    id: 'o1', title: 'Harrington & Denim', subtitle: 'casual friday',
+    style: 'OLD MONEY', context: 'CASUAL FRIDAY', weather: '24°C',
+    description: 'Beige harrington, white tee, light wash denim, black loafers.',
+    longDescription: 'A jacket that belongs to no decade. Wear it open over a clean white tee, with jeans you have already broken in, and shoes that walk well.',
+    tags: ['24°C', 'WEEKEND', 'DAYTIME'], tone: 0,
+    itemIds: ['i_jeans_blue', 'i_tee_white', 'i_jkt_harr', 'i_loaf_black', 'i_bag_black'],
+    img: PHOTOS.outfit_1,
+  },
+  {
+    id: 'o2', title: 'Quiet Monday', subtitle: 'workday rotation',
+    style: 'MINIMALIST', context: 'WORKDAY', weather: '22°C',
+    description: 'Beige knit, dark wash jeans, black loafers.',
+    longDescription: 'A composed palette for the start of the week. Soft texture against sharp tailoring — nothing shouts, everything resolves.',
+    tags: ['22°C', 'OFFICE', 'MORNING'], tone: 1,
+    itemIds: ['i_jeans_dark', 'i_tee_beige', 'i_loaf_black', 'i_bag_black'],
+    img: PHOTOS.outfit_2,
+  },
+  {
+    id: 'o3', title: 'Slow Sunday', subtitle: 'long lunch energy',
+    style: 'SMART CASUAL', context: 'WEEKEND', weather: '26°C',
+    description: 'Olive polo, light wash jeans, black loafers.',
+    longDescription: 'For days that move at their own pace. A long lunch, a longer book, an evening walk through somewhere familiar.',
+    tags: ['26°C', 'WEEKEND', 'AFTERNOON'], tone: 2,
+    itemIds: ['i_jeans_blue', 'i_polo_olive', 'i_loaf_black'],
+    img: PHOTOS.outfit_3,
+  },
+  {
+    id: 'o4', title: 'After Hours', subtitle: 'considered, never costumed',
+    style: 'SMART CASUAL', context: 'DINNER', weather: '20°C',
+    description: 'Black crewneck, dark wash jeans, black loafers.',
+    longDescription: "A dinner that doesn't announce itself. Considered, never costumed.",
+    tags: ['20°C', 'EVENING', 'DINNER'], tone: 3,
+    itemIds: ['i_jeans_dark', 'i_swt_black', 'i_loaf_black', 'i_bag_black'],
+    img: PHOTOS.outfit_4,
+  },
+  {
+    id: 'o5', title: 'Off-Duty', subtitle: 'basics, executed precisely',
+    style: 'STREETWEAR', context: 'WEEKEND', weather: '28°C',
+    description: 'Mustard tee, light wash jeans, black loafers.',
+    longDescription: 'The basics, executed precisely. The whole point is restraint — let the fit do the talking.',
+    tags: ['28°C', 'CASUAL', 'DAY'], tone: 4,
+    itemIds: ['i_jeans_blue', 'i_tee_yellow', 'i_loaf_black'],
+    img: PHOTOS.outfit_5,
+  },
+  {
+    id: 'o6', title: 'Slate Weather', subtitle: 'overcast, considered',
+    style: 'MINIMALIST', context: 'WORKDAY', weather: '19°C',
+    description: 'Grey tee, harrington jacket, dark jeans, black loafers.',
+    longDescription: 'Tone-on-tone with one warm note. The jacket holds the shape, the rest gets out of the way.',
+    tags: ['19°C', 'OFFICE', 'DAY'], tone: 0,
+    itemIds: ['i_jeans_dark', 'i_tee_grey', 'i_jkt_harr', 'i_loaf_black', 'i_bag_black'],
+    img: PHOTOS.outfit_6,
+  },
+];
+
+export interface StyleOption {
+  id: string;
+  name: string;
+  desc: string;
+  img: string;
+}
+
+export const STYLES: StyleOption[] = [
+  { id: 'oldmoney',    name: 'Old Money',    desc: 'REFINED · CLASSIC',    img: PHOTOS.style_oldmoney },
+  { id: 'streetwear',  name: 'Streetwear',   desc: 'URBAN · BOLD',         img: PHOTOS.style_streetwear },
+  { id: 'minimalist',  name: 'Minimalist',   desc: 'PARED · DELIBERATE',   img: PHOTOS.style_minimalist },
+  { id: 'smartcasual', name: 'Smart Casual', desc: 'POLISHED · EASY',      img: PHOTOS.style_smartcasual },
+  { id: 'preppy',      name: 'Preppy',       desc: 'CLEAN · TRADITIONAL',  img: PHOTOS.style_preppy },
+  { id: 'athleisure',  name: 'Athleisure',   desc: 'ACTIVE · RELAXED',     img: PHOTOS.style_athleisure },
+  { id: 'y2k',         name: 'Y2K',          desc: 'PLAYFUL · NOSTALGIC',  img: PHOTOS.style_y2k },
+  { id: 'bohemian',    name: 'Bohemian',     desc: 'FLOWING · ROMANTIC',   img: PHOTOS.style_bohemian },
+];
+
+export interface ColorOption {
+  name: string;
+  hex: string;
+  tag: string;
+}
+
+export const COLORS: ColorOption[] = [
+  { name: 'Cream',     hex: '#F2EDE4', tag: 'WARM NEUTRAL' },
+  { name: 'Sand',      hex: '#D9C9A8', tag: 'EARTH' },
+  { name: 'Camel',     hex: '#B89776', tag: 'EARTH' },
+  { name: 'Terracotta',hex: '#A0613F', tag: 'EARTH' },
+  { name: 'Rust',      hex: '#7C3B25', tag: 'EARTH' },
+  { name: 'Dove',      hex: '#C8C5BF', tag: 'NEUTRAL' },
+  { name: 'Charcoal',  hex: '#3A3631', tag: 'DARK NEUTRAL' },
+  { name: 'Black',     hex: '#1A1815', tag: 'DARK NEUTRAL' },
+  { name: 'Navy',      hex: '#1F2A44', tag: 'COOL' },
+  { name: 'Slate',     hex: '#5C6770', tag: 'COOL' },
+  { name: 'Sage',      hex: '#8B9B7A', tag: 'COOL' },
+  { name: 'Forest',    hex: '#3B4E3B', tag: 'COOL' },
+  { name: 'Burgundy',  hex: '#5C2B2E', tag: 'WARM' },
+  { name: 'Mustard',   hex: '#B58A2D', tag: 'WARM' },
+  { name: 'Ochre',     hex: '#9C6B2F', tag: 'WARM' },
+  { name: 'Emerald',   hex: '#2F5D4F', tag: 'ACCENT' },
+];
+
+export interface Collection {
+  id: string;
+  name: string;
+  description: string;
+  createdDate: string;
+  outfitIds: string[];
+}
+
+export const COLLECTIONS: Collection[] = [
+  { id: 'c1', name: 'Workweek', description: 'Outfits I rotate Monday through Friday.', createdDate: 'CREATED MAY 2026', outfitIds: ['o1', 'o2', 'o3', 'o4', 'o6'] },
+  { id: 'c2', name: 'Weekends', description: 'Slower days, unhurried compositions.',    createdDate: 'CREATED APR 2026', outfitIds: ['o1', 'o5', 'o6'] },
+  { id: 'c3', name: 'Travel',   description: 'Pieces that pack flat and never feel borrowed.', createdDate: 'CREATED MAR 2026', outfitIds: ['o2', 'o4'] },
+];
+
+export interface StyleNiche {
+  id: string;
+  name: string;
+  desc: string;
+}
+
+export const STYLE_NICHES: Record<string, StyleNiche[]> = {
+  oldmoney: [
+    { id: 'oldmoney:ivy',      name: 'Ivy League',           desc: 'Oxford shirts, cable knits, penny loafers' },
+    { id: 'oldmoney:european', name: 'European Heritage',    desc: 'Tailoring, scarves, understated quality' },
+    { id: 'oldmoney:coastal',  name: 'Coastal Preppy',       desc: 'Linen, boat shoes, relaxed shapes' },
+    { id: 'oldmoney:quiet',    name: 'Quiet Luxury',         desc: 'No logos, impeccable fabric, restrained palette' },
+  ],
+  minimalist: [
+    { id: 'minimalist:scandi', name: 'Scandinavian',         desc: 'Functional, raw fabrics, tonal dressing' },
+    { id: 'minimalist:lemaire',name: 'Margiela / Lemaire',   desc: 'Deconstructed, draped, intellectual' },
+    { id: 'minimalist:japmin', name: 'Japanese Minimal',     desc: 'Wabi-sabi, natural fibres, asymmetry' },
+    { id: 'minimalist:capsule',name: 'Capsule Wardrobe',     desc: 'Fewer pieces, endless rotation' },
+  ],
+  streetwear: [
+    { id: 'streetwear:hype',   name: 'Hype / Drop Culture', desc: 'Collabs, exclusives, statement pieces' },
+    { id: 'streetwear:skate',  name: 'Skate-Influenced',    desc: 'Wide-leg, graphic tees, low-profile shoes' },
+    { id: 'streetwear:workwear',name: 'Workwear / Utility',  desc: 'Cargos, flannels, durable fabrics' },
+    { id: 'streetwear:luxe',   name: 'Luxury Streetwear',   desc: 'High-end sportswear, understated flex' },
+  ],
+  smartcasual: [
+    { id: 'smartcasual:biz',   name: 'Business Casual',     desc: 'Chinos, polos, clean trainers' },
+    { id: 'smartcasual:resort',name: 'Resort Smart',        desc: 'Linen, relaxed tailoring, warm tones' },
+    { id: 'smartcasual:denim', name: 'Denim-Led',           desc: 'Premium denim as a foundation' },
+  ],
+  preppy: [
+    { id: 'preppy:trad',       name: 'Trad / East Coast',   desc: 'Rugby shirts, chinos, duck boots' },
+    { id: 'preppy:mod',        name: 'Modern Preppy',       desc: 'Elevated basics with a campus feel' },
+  ],
+  athleisure: [
+    { id: 'athleisure:run',    name: 'Running Culture',     desc: 'Technical fabrics, trail aesthetics' },
+    { id: 'athleisure:gorpcore',name: 'Gorpcore',           desc: 'Outdoor gear worn in the city' },
+    { id: 'athleisure:studio', name: 'Studio-to-Street',    desc: 'Yoga-adjacent, clean and mobile' },
+  ],
+  y2k: [
+    { id: 'y2k:cyber',         name: 'Cyber Y2K',           desc: 'Metallics, tech fabrics, bright accents' },
+    { id: 'y2k:indie',         name: 'Indie Sleaze',        desc: 'Low-rise, vintage band tees, dishevelled' },
+  ],
+  bohemian: [
+    { id: 'bohemian:earthy',   name: 'Earthy Boho',         desc: 'Terracotta, linen, natural textures' },
+    { id: 'bohemian:folk',     name: 'Folk-Inspired',       desc: 'Embroidery, prints, layered silhouettes' },
+  ],
+};
+
+export const OCCASIONS = ['CASUAL', 'OFFICE', 'WEEKEND', 'EVENING', 'DINNER', 'TRAVEL', 'GYM'] as const;
+
+export const COLOR_HEX: Record<string, string> = {
+  Beige: '#D4C2A0', Cream: '#EFE6D2', White: '#F5F1E8', Tan: '#C9A77A',
+  Brown: '#7C5A3B', Camel: '#B89776', Sand: '#D9C9A8', Stone: '#C2B7A3',
+  Charcoal: '#3A3631', Black: '#1F1D1A', Grey: '#9C968B', Indigo: '#3E4A66',
+  Blue: '#5C7392', Navy: '#2A3550', Gold: '#C9A865',
+  Mustard: '#C6A24C', Olive: '#7B7A4E', Burgundy: '#7E2F36',
+};
