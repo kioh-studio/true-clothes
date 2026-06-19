@@ -7,17 +7,15 @@ import { IconChevronLeft } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { COLORS } from '../../src/data';
 import { useFitEngineStore } from '../../src/stores/fitEngineStore';
-import { Dimensions } from 'react-native';
+import { useGridCardWidth } from '../../src/design/layout';
 
-const { width: W } = Dimensions.get('window');
 const PAD = 24;
 const GAP = 12;
-const COLS = 3;
-const SWATCH = (W - PAD * 2 - GAP * (COLS - 1)) / COLS;
 
 const LIGHT_COLORS = ['#F2EDE4', '#D9C9A8', '#C8C5BF'];
 
 export default function ColorsScreen() {
+  const SWATCH = useGridCardWidth(3);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { setColorPreferences } = useFitEngineStore();
@@ -56,8 +54,8 @@ export default function ColorsScreen() {
             const isLight = LIGHT_COLORS.includes(c.hex);
             const isSelected = selected.includes(c.name);
             return (
-              <Pressable key={c.name} onPress={() => toggle(c.name)} style={styles.colorItem}>
-                <View style={[styles.swatch, { backgroundColor: c.hex, borderWidth: isSelected ? 1 : 0, borderColor: T.color.primary }]}>
+              <Pressable key={c.name} onPress={() => toggle(c.name)} style={[styles.colorItem, { width: SWATCH }]}>
+                <View style={[styles.swatch, { width: SWATCH, height: SWATCH, backgroundColor: c.hex, borderWidth: isSelected ? 1 : 0, borderColor: T.color.primary }]}>
                   {isSelected && (
                     <View style={[styles.dot, { backgroundColor: isLight ? T.color.primary : T.color.canvas }]} />
                   )}
@@ -75,6 +73,21 @@ export default function ColorsScreen() {
             I'm open to anything — surprise me.
           </TextLink>
         </View>
+
+        <View style={{ height: 24 }} />
+
+        {/* Personal colour detect CTA */}
+        <Pressable
+          onPress={() => router.push('/(onboarding)/personal-color' as any)}
+          style={styles.detectRow}
+        >
+          <View style={styles.detectInner}>
+            <Text style={styles.detectTitle}>DETECT MY COLOUR SEASON</Text>
+            <Text style={styles.detectCaption}>4 questions · under a minute</Text>
+          </View>
+          <Text style={styles.detectArrow}>→</Text>
+        </Pressable>
+
         <View style={{ height: 24 }} />
         <PrimaryButton onPress={handleContinue}>CONTINUE</PrimaryButton>
       </ScrollView>
@@ -83,6 +96,15 @@ export default function ColorsScreen() {
 }
 
 const styles = StyleSheet.create({
+  detectRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 18, paddingHorizontal: 20,
+    borderWidth: 0.5, borderColor: T.color.hairline,
+  },
+  detectInner:   { flex: 1 },
+  detectTitle:   { ...type.ui, fontSize: 11, color: T.color.primary, letterSpacing: 1.5 },
+  detectCaption: { ...type.ui, fontSize: 10, color: T.color.tertiary, marginTop: 4 },
+  detectArrow:   { ...type.ui, color: T.color.primary, fontSize: 16 },
   container: { flex: 1, backgroundColor: T.color.canvas },
   topBar: { height: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 },
   backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
@@ -93,8 +115,8 @@ const styles = StyleSheet.create({
   h1: { ...type.h1, color: T.color.primary },
   caption: { ...type.caption, marginTop: 12 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP },
-  colorItem: { width: SWATCH, alignItems: 'center' },
-  swatch: { width: SWATCH, height: SWATCH, position: 'relative', alignItems: 'flex-end', justifyContent: 'flex-start', padding: 8 },
+  colorItem: { alignItems: 'center' },
+  swatch: { position: 'relative', alignItems: 'flex-end', justifyContent: 'flex-start', padding: 8 },
   dot: { width: 12, height: 12, borderRadius: 999 },
   colorName: { fontFamily: T.font.serif, fontSize: 14, fontWeight: '400', color: T.color.primary, textAlign: 'center', marginTop: 8 },
   colorTag: { ...type.ui, fontSize: 9, color: T.color.tertiary, textAlign: 'center', marginTop: 4 },

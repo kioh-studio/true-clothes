@@ -1,9 +1,20 @@
 // wardrobeService — sole point of contact with clothing_items table and
 // wardrobe-photos storage bucket. Screens and stores MUST NOT import `sb` directly.
 
-import * as FileSystem from 'expo-file-system';
 import { sb } from './supabase';
-import { WardrobeItem } from '../types/fitEngine';
+import { WardrobeItem, PhotoStorageKind, MKey, LogoSignal } from '../types/fitEngine';
+
+// Garment measurement columns the engine reads (cm). Kept in one place so the
+// add/read paths stay in sync with the DB m_* columns.
+const M_KEYS: MKey[] = [
+  'm_chest', 'm_shoulder_width', 'm_sleeves', 'm_body_length',
+  'm_waist', 'm_hip', 'm_inseam', 'm_thigh', 'm_rise', 'm_skirt_length', 'm_shoe_size',
+];
+import {
+  optimizeImage, writeDeviceCopy, uploadCloudCopy, removePhoto, relativePathFor, resolveDeviceUri,
+} from './itemPhotoService';
+
+export type StorageTier = 'free' | 'premium';
 
 // ─── Error Types ─────────────────────────────────────────────────────────────
 
@@ -30,6 +41,17 @@ export interface AddItemInput {
   sizeLabel?: string;
   brand?: string;
   notes?: string;
+  name?: string;
+  type?: string;              // real controlled garment type (TEE/JACKET…) — wins over category mapping
+  primaryColor?: string;
+  material?: string;
+  fit?: string;               // controlled fit — engine reads this (feature 006)
+  pattern?: string;
+  warmthSeason?: string[];
+  measurements?: Partial<Record<MKey, number>>;  // garment measurements in cm
+  link?: string;              // product URL → source_url
+  graphics?: LogoSignal | null;  // logo signals (feature 006)
+  source?: string;            // provenance: 'ai' | 'item' | 'personal' (defaults to DB default)
 }
 
 export interface UpdateItemInput {
@@ -37,6 +59,16 @@ export interface UpdateItemInput {
   sizeLabel?: string;
   brand?: string;
   notes?: string;
+  name?: string;
+  type?: string;
+  primaryColor?: string;
+  material?: string;
+  fit?: string;
+  pattern?: string;
+  warmthSeason?: string[];
+  measurements?: Partial<Record<MKey, number>>;
+  link?: string;
+  graphics?: LogoSignal | null;
 }
 
 // ─── Legacy type (pre-sync AsyncStorage items) ───────────────────────────────
@@ -61,13 +93,34 @@ interface ClothingItemRow {
   type: string | null;
   name: string | null;
   color: string | null;
+  primary_color: string | null;
   material: string | null;
+  fit: string | null;
+  fit_note: string | null;
+  pattern: string | null;
+  warmth_season: string[] | null;
   brand: string | null;
   size: string | null;
+  source: string | null;
+  source_url: string | null;
+  graphics: LogoSignal | null;
   photo_url: string | null;
+  photo_storage: PhotoStorageKind | null;
   times_worn: number;
   added_at: string;
   updated_at: string;
+  // m_* measurement columns (cm) — engine reads these
+  m_chest: number | null;
+  m_shoulder_width: number | null;
+  m_sleeves: number | null;
+  m_body_length: number | null;
+  m_waist: number | null;
+  m_hip: number | null;
+  m_inseam: number | null;
+  m_thigh: number | null;
+  m_rise: number | null;
+  m_skirt_length: number | null;
+  m_shoe_size: number | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -88,21 +141,62 @@ const CATEGORY_TO_TYPE: Record<WardrobeItem['category'], string> = {
   outerwear: 'JACKET',
   footwear:  'SNEAKERS',
   accessory: 'BAG',
+  dress:     'DRESS',
+  headwear:  'HAT',
 };
 
 function rowToItem(row: ClothingItemRow, userId: string): WardrobeItem {
+  // Photo resolution (signed URL / local file) is lazy — done by useItemPhoto.
+  // Here we only carry the discriminator and the persisted reference.
   return {
     id: row.id,
     userId,
-    photoUrl: row.photo_url,
-    photoPath: null,
+    photoStorage: row.photo_storage ?? (row.photo_url ? 'cloud' : 'none'),
+    photoUrl: null,
+    photoLocalUri: null,
+    photoPath: row.photo_url,
     category: inferCategory(row.type),
+    type: row.type,
     colors: row.color ? [row.color] : [],
     sizeLabel: row.size,
     brand: row.brand,
     notes: null,
     createdAt: row.added_at ?? new Date().toISOString(),
+    name: row.name,
+    primaryColor: row.primary_color,
+    material: row.material,
+    fit: row.fit,
+    pattern: row.pattern,
+    // warmth_season is a text column — stored as a comma-joined list
+    warmthSeason: row.warmth_season
+      ? String(row.warmth_season).split(',').map(s => s.trim()).filter(Boolean)
+      : [],
+    measurements: collectMeasurements(row),
+    graphics: row.graphics ?? null,
   };
+}
+
+// Gather the non-null m_* columns into a measurements object.
+function collectMeasurements(row: ClothingItemRow): Partial<Record<MKey, number>> | null {
+  const out: Partial<Record<MKey, number>> = {};
+  for (const k of M_KEYS) {
+    const v = row[k];
+    if (typeof v === 'number' && !Number.isNaN(v)) out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+// Spread a measurements object into individual m_* DB columns (cm).
+function measurementColumns(
+  m: Partial<Record<MKey, number>> | undefined,
+): Record<string, number> {
+  const cols: Record<string, number> = {};
+  if (!m) return cols;
+  for (const k of M_KEYS) {
+    const v = m[k];
+    if (typeof v === 'number' && !Number.isNaN(v) && v > 0) cols[k] = v;
+  }
+  return cols;
 }
 
 async function getWardrobeId(userId: string): Promise<string | null> {
@@ -115,13 +209,31 @@ async function getWardrobeId(userId: string): Promise<string | null> {
   return (data as { id: string }).id;
 }
 
-function base64ToBlob(base64: string, mimeType: string): Blob {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
+/** Fetch a single row (with photo fields) for cleanup/promotion flows. */
+async function fetchRow(id: string): Promise<ClothingItemRow | null> {
+  const { data, error } = await sb.from('clothing_items').select('*').eq('id', id).single();
+  if (error || !data) return null;
+  return data as ClothingItemRow;
+}
+
+// Build the persisted photo reference + discriminator for a picked image.
+// Always writes a device copy (free: authoritative; premium: pending upload +
+// offline cache). Premium additionally attempts an immediate cloud upload;
+// on failure the item stays 'local' and is retried later (research D8).
+async function storePhoto(
+  userId: string, itemId: string, localPhotoUri: string, tier: StorageTier,
+): Promise<{ photoStorage: PhotoStorageKind; photoPath: string }> {
+  const optimized = await optimizeImage(localPhotoUri);
+  const relativePath = await writeDeviceCopy(itemId, optimized.uri);
+  if (tier === 'premium') {
+    try {
+      const storagePath = await uploadCloudCopy(userId, itemId, optimized.uri);
+      return { photoStorage: 'cloud', photoPath: storagePath };
+    } catch (err) {
+      console.warn('[wardrobeService] cloud upload deferred (kept local):', err);
+    }
   }
-  return new Blob([bytes], { type: mimeType });
+  return { photoStorage: 'local', photoPath: relativePath };
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -158,62 +270,148 @@ export async function fetchMyItems(): Promise<WardrobeItem[]> {
  * Throws WardrobeStorageError if upload fails.
  * Throws WardrobeDbError if insert fails.
  */
-export async function addItem(input: AddItemInput): Promise<WardrobeItem> {
+export async function addItem(input: AddItemInput, tier: StorageTier = 'free'): Promise<WardrobeItem> {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) throw new WardrobeDbError('Not authenticated');
 
   const wardrobeId = await getWardrobeId(user.id);
   if (!wardrobeId) throw new WardrobeDbError('Wardrobe not found');
 
-  let photoUrl: string | null = null;
-  let storagePath: string | null = null;
+  // Generate the id up front so device path / storage path / row id all align.
+  const itemId = crypto.randomUUID();
+  let photoStorage: PhotoStorageKind = 'none';
+  let photoPath: string | null = null;
 
   if (input.localPhotoUri) {
-    const itemId = crypto.randomUUID();
-    storagePath = `${user.id}/${itemId}.jpg`;
-
-    const fileInfo = await FileSystem.getInfoAsync(input.localPhotoUri);
-    if (!fileInfo.exists) throw new WardrobeStorageError('Photo file not found');
-
-    const base64 = await FileSystem.readAsStringAsync(input.localPhotoUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    const blob = base64ToBlob(base64, 'image/jpeg');
-
-    const { error: uploadError } = await sb.storage
-      .from('wardrobe-photos')
-      .upload(storagePath, blob, { contentType: 'image/jpeg', upsert: false });
-
-    if (uploadError) throw new WardrobeStorageError('Photo upload failed', uploadError);
-
-    const { data: urlData } = sb.storage
-      .from('wardrobe-photos')
-      .getPublicUrl(storagePath);
-    photoUrl = urlData?.publicUrl ?? null;
+    try {
+      const stored = await storePhoto(user.id, itemId, input.localPhotoUri, tier);
+      photoStorage = stored.photoStorage;
+      photoPath = stored.photoPath;
+    } catch (err) {
+      throw new WardrobeStorageError('Could not store photo', err);
+    }
   }
 
+  const color = input.colors[0] ?? null;
   const { data, error: dbError } = await sb
     .from('clothing_items')
     .insert({
-      wardrobe_id: wardrobeId,
-      type: CATEGORY_TO_TYPE[input.category],
-      color: input.colors[0] ?? null,
-      size: input.sizeLabel ?? null,
-      brand: input.brand ?? null,
-      photo_url: photoUrl,
+      id:           itemId,
+      wardrobe_id:  wardrobeId,
+      // Real controlled type wins; fall back to category mapping for manual adds.
+      type:         input.type ?? CATEGORY_TO_TYPE[input.category],
+      name:         input.name ?? null,
+      color,
+      primary_color: input.primaryColor ?? color,
+      material:     input.material ?? null,
+      fit:          input.fit ?? null,
+      pattern:      input.pattern ?? null,
+      // text column — serialize as comma-joined list
+      warmth_season: input.warmthSeason?.length ? input.warmthSeason.join(',') : null,
+      size:         input.sizeLabel ?? null,
+      brand:        input.brand ?? null,
+      source_url:   input.link ?? null,
+      graphics:     input.graphics ?? null,
+      ...(input.source ? { source: input.source } : {}),
+      ...measurementColumns(input.measurements),
+      photo_url:    photoPath,
+      photo_storage: photoStorage,
     })
     .select()
     .single();
 
   if (dbError) {
-    if (storagePath) {
-      sb.storage.from('wardrobe-photos').remove([storagePath]).catch(err =>
-        console.warn('[wardrobeService] Storage cleanup failed after DB error:', err)
-      );
-    }
+    // Roll back stored photo (device + cloud) so a failed insert leaves no orphan.
+    removePhoto({
+      relativePath: photoStorage === 'local' ? photoPath : relativePathFor(itemId),
+      storagePath:  photoStorage === 'cloud' ? photoPath : null,
+    }).catch(() => {});
     throw new WardrobeDbError('Failed to save clothing item', dbError);
   }
 
+  return rowToItem(data as ClothingItemRow, user.id);
+}
+
+/** Replace an item's photo: clean up the prior copy, store the new one per tier. */
+export async function replaceItemPhoto(id: string, localPhotoUri: string, tier: StorageTier): Promise<WardrobeItem> {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) throw new WardrobeDbError('Not authenticated');
+
+  const row = await fetchRow(id);
+  if (!row) throw new WardrobeDbError('Item not found');
+
+  // Remove the previous photo (device or cloud) before writing the new one.
+  await removePhoto({
+    relativePath: row.photo_storage === 'local' ? row.photo_url : null,
+    storagePath:  row.photo_storage === 'cloud' ? row.photo_url : null,
+  });
+
+  const stored = await storePhoto(user.id, id, localPhotoUri, tier);
+  const { data, error } = await sb
+    .from('clothing_items')
+    .update({ photo_url: stored.photoPath, photo_storage: stored.photoStorage })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw new WardrobeDbError('Failed to update photo', error);
+  return rowToItem(data as ClothingItemRow, user.id);
+}
+
+/** Items whose photo is still local — pending cloud upload / migration candidates (premium). */
+export async function listPendingCloudUploads(): Promise<WardrobeItem[]> {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return [];
+  const wardrobeId = await getWardrobeId(user.id);
+  if (!wardrobeId) return [];
+
+  const { data, error } = await sb
+    .from('clothing_items')
+    .select('*')
+    .eq('wardrobe_id', wardrobeId)
+    .eq('photo_storage', 'local');
+  if (error || !data) return [];
+  return (data as ClothingItemRow[]).map(row => rowToItem(row, user.id));
+}
+
+/** Upload a local item's device copy to the cloud and flip photo_storage→'cloud'. Idempotent. */
+export async function promoteToCloud(id: string): Promise<WardrobeItem | null> {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return null;
+
+  const row = await fetchRow(id);
+  if (!row) return null;
+  // Not a real on-device file (already cloud, no photo, a bundled asset ref, or a
+  // direct remote URL) → nothing to upload.
+  if (row.photo_storage !== 'local' || !row.photo_url
+      || row.photo_url.startsWith('asset:') || /^https?:\/\//.test(row.photo_url)) {
+    return rowToItem(row, user.id);
+  }
+
+  const deviceUri = await resolveDeviceUri(row.photo_url);
+  if (!deviceUri) {
+    // Local file is gone (e.g. reclaimed) — cannot promote; leave as-is.
+    return rowToItem(row, user.id);
+  }
+  let storagePath: string;
+  try {
+    storagePath = await uploadCloudCopy(user.id, id, deviceUri);
+  } catch (err) {
+    console.warn('[wardrobeService] promoteToCloud upload failed (will retry):', err);
+    return rowToItem(row, user.id);
+  }
+
+  const { data, error } = await sb
+    .from('clothing_items')
+    .update({ photo_url: storagePath, photo_storage: 'cloud' })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) {
+    // DB flip failed — remove the just-uploaded object to avoid an orphan.
+    removePhoto({ storagePath }).catch(() => {});
+    return rowToItem(row, user.id);
+  }
+  // Device copy is retained as the premium cache (FR-008a).
   return rowToItem(data as ClothingItemRow, user.id);
 }
 
@@ -225,9 +423,21 @@ export async function updateItem(id: string, patch: UpdateItemInput): Promise<Wa
   if (!user) throw new WardrobeDbError('Not authenticated');
 
   const dbPatch: Record<string, unknown> = {};
-  if (patch.colors !== undefined)    dbPatch.color = patch.colors[0] ?? null;
-  if (patch.sizeLabel !== undefined) dbPatch.size  = patch.sizeLabel;
-  if (patch.brand !== undefined)     dbPatch.brand = patch.brand;
+  if (patch.colors !== undefined)      dbPatch.color         = patch.colors[0] ?? null;
+  if (patch.sizeLabel !== undefined)   dbPatch.size          = patch.sizeLabel;
+  if (patch.brand !== undefined)       dbPatch.brand         = patch.brand;
+  if (patch.name !== undefined)        dbPatch.name          = patch.name;
+  if (patch.type !== undefined)        dbPatch.type          = patch.type;
+  if (patch.primaryColor !== undefined) dbPatch.primary_color = patch.primaryColor;
+  if (patch.material !== undefined)    dbPatch.material      = patch.material;
+  if (patch.fit !== undefined)         dbPatch.fit           = patch.fit;
+  if (patch.pattern !== undefined)     dbPatch.pattern       = patch.pattern;
+  if (patch.link !== undefined)        dbPatch.source_url    = patch.link;
+  if (patch.graphics !== undefined)    dbPatch.graphics      = patch.graphics;
+  if (patch.measurements !== undefined) Object.assign(dbPatch, measurementColumns(patch.measurements));
+  if (patch.warmthSeason !== undefined) {
+    dbPatch.warmth_season = patch.warmthSeason?.length ? patch.warmthSeason.join(',') : null;
+  }
 
   const { data, error } = await sb
     .from('clothing_items')
@@ -244,6 +454,15 @@ export async function updateItem(id: string, patch: UpdateItemInput): Promise<Wa
  * Delete a clothing item by ID.
  */
 export async function deleteItem(id: string): Promise<void> {
+  // Clean up the item's photo (device + cloud) so no orphan storage remains (FR-014).
+  const row = await fetchRow(id);
+  if (row?.photo_url) {
+    await removePhoto({
+      relativePath: row.photo_storage === 'local' ? row.photo_url : null,
+      storagePath:  row.photo_storage === 'cloud' ? row.photo_url : null,
+    });
+  }
+
   const { error } = await sb
     .from('clothing_items')
     .delete()
@@ -257,6 +476,7 @@ export async function deleteItem(id: string): Promise<void> {
  */
 export async function migrateLocalItems(
   localItems: LegacyLocalItem[],
+  tier: StorageTier = 'free',
   onProgress?: (done: number, total: number) => void,
 ): Promise<WardrobeItem[]> {
   const total = localItems.length;
@@ -272,7 +492,7 @@ export async function migrateLocalItems(
         sizeLabel: legacy.size,
         brand: legacy.brand,
         notes: legacy.notes,
-      });
+      }, tier);
       migrated.push(item);
     } catch (err) {
       console.warn(`[wardrobeService] Migration failed for item ${legacy.id}:`, err);

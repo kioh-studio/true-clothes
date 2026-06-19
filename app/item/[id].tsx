@@ -7,10 +7,8 @@ import { OUTFITS, COLOR_HEX, itemById } from '../../src/data';
 import { PrimaryButton, SecondaryButton, TextLink, Divider, Segmented } from '../../src/components/ui';
 import { IconChevronLeft, IconEdit, IconShare, IconChevronRight } from '../../src/components/icons';
 import { useAppStore } from '../../src/stores/appStore';
-import { Dimensions } from 'react-native';
 import { Photo } from '../../src/components/ui';
 
-const { width: W } = Dimensions.get('window');
 
 const MEASUREMENTS_BY_TYPE: Record<string, Array<[string, string | number, string?]>> = {
   TEE:      [['Chest', 56], ['Length', 70], ['Sleeve', 24], ['Shoulder', 50]],

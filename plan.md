@@ -9,6 +9,35 @@
   - validation logic rules that affect application behavior
 - Update documentation in the same working session as the implementation change.
 
+## Changelog — 2026-06-14 · Feature 003-upload-image (tiered item-photo storage)
+- **Storage routing**: `wardrobeService.addItem(input, tier)` now decides storage by tier.
+  Free → on-device only (relative path `wardrobe-photos/{itemId}.jpg` in `documentDirectory`,
+  persisted in `clothing_items.photo_url`, `photo_storage='local'`). Premium → optimized file
+  uploaded to the **private** `wardrobe-photos` bucket at `{userId}/{itemId}.jpg`
+  (`photo_storage='cloud'`), with the device copy retained as an offline cache.
+- **Schema**: added `clothing_items.photo_storage` (`none|local|cloud`) — migration
+  `20260614000001_clothing_items_photo_storage.sql` (+ backfill existing photos to `cloud`).
+  Apply before release.
+- **Privacy**: cloud photos are served via short-lived `createSignedUrl` (FR-016); the prior
+  `getPublicUrl` call (broken on a private bucket) was removed.
+- **Optimization**: images resized to ≤1600 px long edge, JPEG ~0.7, before storage (`itemPhotoService.optimizeImage`).
+- **Local-first / no-rollback**: premium adds write device copy + row first, upload async; failures
+  leave the item `photo_storage='local'`. `appStore.syncPendingPhotos()` promotes pending locals to
+  cloud — triggered on hydrate, on reconnect, and on free→premium upgrade (`fitEngineStore.setPremium`),
+  serving as both the upload-retry queue and the US3 upgrade migration.
+- **Cleanup**: delete/replace removes the device file and/or cloud object (no orphans).
+- **Offline add**: the previous hard offline guard in `addWardrobeItem` was removed — adding now
+  works offline for both tiers.
+- **Photo reference kinds in `photo_url`** (resolved by `useItemPhoto`, in precedence order):
+  bundled `png` (demo) → `asset:<key>` (in-app catalog image via `wardrobe-photos/assetMap.ts`) →
+  `http(s)://…` direct remote URL (rendered as-is, never signed) → relative device path (local) →
+  Storage path (cloud, signed). The `http`/`asset` passthroughs fix seeded items whose `photo_url`
+  holds a retailer URL (mislabeled `cloud` by the backfill) or a bundled-asset ref.
+- **Seed**: the user's 18 image-less items were pointed at matching bundled assets
+  (`photo_storage='local'`, `photo_url='asset:<key>'`); 14 retailer-URL items render via the http passthrough.
+- **SDK 19**: `expo-file-system` legacy file API now imported from `expo-file-system/legacy`
+  (`wardrobeService` via `itemPhotoService`, and `profileService`), fixing the `EncodingType` type error.
+
 ## Plan
 - Implement onboarding as required first-run flow with persisted progress and completion gating.
 - Keep the existing Compose UI screens and move flow logic to a centralized ViewModel.
@@ -185,3 +214,78 @@ Response: { "outfits": ScoredOutfit[] }
 - Remove the 15 original engine files from `src/services/fitEngine/` after verifying the edge function works.
 - Wire `public.clothing_items` once schema is defined.
 - Add Apple/Google sign-in (native config + redirect handling).
+
+---
+
+## 2026-06-10 — Engine P0 fixes + LLM curator layer
+
+**Engine fixes (`supabase/functions/generate-outfits/`)**
+- **Personal color wired into scoring** (Q16): `index.ts` now reads `profiles.color_season` + `personal_palette`; `personal_palette` merges into `colorPreferences`, `color_season` flows into `ctx.colorSeason` so `seasonCompatibilityBonus` in `scoring.ts` is live (was dead code — `profileRes` fetched but never used).
+- **Color lookup case-insensitive** (`enrichment.ts`): `COLOR_MAP`/`COLOR_STYLE_BOOSTS` keyed exact Title Case; lowercase values from future AI extraction silently fell through to the default 'natural' profile. Material lookups normalized via `primaryMaterial()` for the same reason.
+- **Exclude by core triple**: paging exclusion used the top-slot id as pseudo-id, so excluding one outfit killed every outfit sharing that top. Server + client (`fitEngineStore.ts`) now key on `top|bottom|shoes`; legacy bare-top ids still honored until shown-ID caches cycle.
+- **`seasonOverride` now scored**: `scoreSeasonMatch(items, targetSeason?)` blends 0.6×target-match + 0.4×internal consistency when intent carries a season; previously resolved but unused.
+- **`poolHighLow` uses real formality**: replaced the category-level `estimateFormality` (top max ≈3.5 → formal-top pools nearly unreachable) with enrichment's `item.formality`.
+- **Candidate generation de-biased** (`generation.ts`): the cap was consumed by outerwear/accessory variants of the first core triple; now all distinct top×bottom×shoes triples are generated first, variants layered round-robin after. Shuffle is seeded per user+day (mulberry32) so paging/exclusion are coherent within a day.
+
+**New: LLM curator (`engine/curator.ts`)**
+- Final taste pass after rank+shuffle: Claude re-ranks the top ≤24 rule-validated candidates into 10 picks, may veto 0–4, writes a one-line `stylistNote` per pick (locale-aware vi/en). References candidates by index only — cannot invent items/combos.
+- Model `claude-haiku-4-5` (~$0.0055/batch), override via `CURATOR_MODEL` secret; structured outputs (`output_config.format` json_schema); 3.5s timeout, 0 retries; any failure → silent fallback to rule order. Skipped entirely when `ANTHROPIC_API_KEY` secret is unset.
+- API: request body adds `locale?: 'vi'|'en'` and `curate?: boolean` (client gates by tier); response adds `curated: boolean`; `ScoredOutfit` gains `stylistNote?` (server + client types).
+- UI follow-up: feed card should render `stylistNote`; client may prefetch the next batch around card ~6 to hide curator latency.
+
+**Ops**
+- To enable curation: `supabase secrets set ANTHROPIC_API_KEY=sk-ant-...` (function works without it — rule order, no notes).
+
+---
+
+## 2026-06-11 — Engine taste layer, weather wiring, curator gating, legacy cleanup
+
+**Engine (`supabase/functions/generate-outfits/`)**
+- **Claude path fully separated**: `curatorEnabled()` checks `ANTHROPIC_API_KEY` up front in `index.ts` — when unset, the curation branch is skipped entirely (no prompt building, no SDK call) and the rule-engine order returns directly.
+- **Taste layer** (`scoreTasteAdjustment` in scoring.ts): flat bonus for ~17 classic core combos (shirt+trousers+loafers, tee+jeans+sneakers, …) keyed on new `FitItem.typeName`; multiplicative vetoes for clashing pairs (sandals+trousers, oxfords+shorts, …), all-dark-flat looks, warm/cool undertone fights, ≥3 competing statement pieces. Applied in ranking as `(base + bonus) × multiplier` — one fatal flaw now sinks an outfit instead of being averaged away.
+- **Confidence weighting** (ranking.ts): dimensions with no real data (fit without measurements, style without attributes) drop out of the weighted average instead of injecting neutral 0.5s; weights renormalize over valid dims. `fit` weight floors at 0.18 when the user has body measurements.
+- **Multi-style filtering** (index.ts): items pass if they fit ANY of the user's selected styles (up to 5), union across configs; scoring weights still from the primary style.
+- **Catalog dedupe**: `STYLE_CATALOG` (scoring.ts) is now derived from `STYLE_CONFIGS` (filtering.ts) — single source of truth, no more drift.
+
+**Client**
+- **Weather → engine** (fitEngineStore.ts): `weatherContext.temperatureBand` (cold/mild/warm/hot → winter/fall/spring/summer) is sent as `intent.seasonOverride` on every feed fetch — live weather now shapes suggestions end-to-end.
+- **Curation gating**: premium (RevenueCat `usePremium`, synced into the store by `useFitFeed`) → every batch curated; free → one curated batch per day (AsyncStorage `last-curated-date`); sends `curate: false` otherwise.
+- **Stylist note UI** (app/(tabs)/index.tsx): renders `outfit.stylistNote` above the bottom meta in italic serif; `Outfit` type gains `stylistNote?`.
+- **Prefetch**: feed `onEndReachedThreshold` 0.5 → 3 (next batch loads ~3 cards before the end, hiding curator latency).
+- **formulas-edit fixed**: was importing the deleted legacy catalog and a store API that no longer existed; now uses server-driven `formulas` catalog (Q44) + restored `formulaPreferences`/`setFormulaPreferences` on the store (persisted via `style_profiles.formula_preferences`, hydrated on launch).
+- **Legacy removed**: `src/services/fitEngine/` (15 files + tests) and `src/data/measurements.ts` deleted — edge function is verified as the only engine.
+
+**Still open (needs decisions/schema)**: ingest-time AI enrichment columns on `clothing_items`; DRESS as one-piece composition (Q29); behavior-event logging (Q18); catalogs → DB tables; blind model eval once `ANTHROPIC_API_KEY` is set.
+
+---
+
+## 2026-06-11 (2) — Ingest enrichment, one-piece support, behavior events, interaction-service repair
+
+**Ingest-time enrichment (engine reads stored attributes)**
+- The extraction prompt already returned `pattern` + `warmthSeason` and `clothing_items` already had the columns — but the client `ExtractedItem` dropped both fields between extraction and save. Chain now complete: `ExtractedItem` carries them → `confirmItems` passes to `AddItemInput` → `wardrobeService` persists (text column, comma-joined) → engine selects `pattern, warmth_season` and prefers stored values over name-keyword inference (`resolvePattern`, `applyStoredWarmth` in enrichment.ts; stored warmth maps to fabricWeight + season).
+
+**One-piece composition (Q29)**
+- New `ItemCategory 'onepiece'`; DRESS/JUMPSUIT/OVERALLS/GOWN map to it. Generation emits onepiece+shoes (+outerwear) candidates where the one-piece fills both top and bottom slots with the same id; `slotsToIds` (server + client) dedupes so the garment is scored/rendered once. Fit uses TOP_MAPPINGS; proportion counts it as both halves; curator describes it as `one-piece:`.
+
+**Behavior events (Q18) + curator measurement**
+- Migration `fix_outfit_interactions_for_events`: added `outfit_data jsonb`, widened type check to include `'impression'`, added the unique `(user_id, outfit_id, type)` that upserts required.
+- `logImpressions()` records every outfit the feed shows with `{curated, formula, position}`; wired into both fetch paths (fire-and-forget). Save-rate by curated flag is now queryable: `select outfit_data->>'curated', count(*) ... join saved`.
+
+**outfitInteractionService repair (schema drift — service had never written a row: 0 rows in prod)**
+- `'save'` → `'saved'` (DB check constraint), `scheduled_date` → `scheduled_for` (actual column), snake_case → camelCase mapping in `fetchInteractions` (`outfitId` was undefined before), `types/outfit.ts` + appStore hydration updated to match.
+
+**Deployed**: engine re-deployed and boot-verified. Client compiles (remaining tsc errors are pre-existing: expo-file-system EncodingType, help.tsx icon prop, untyped params in outfit/[id].tsx).
+
+---
+
+## 2026-06-17 — Account type discriminator + store-verified premium sync
+
+**Schema**: `profiles.account_type text not null default 'free' check in ('free','premium','demo','admin')` (migration `20260616000001_profiles_account_type.sql`, applied to live DB). Previously account class was only known at runtime (RevenueCat) / by hardcoded demo credentials — now it is queryable and server-gateable.
+
+**Source of truth — store payment only**: `account_type` is written *exclusively* by completed Google Play / App Store purchases, never set manually. Sync is server-authoritative via a new RevenueCat webhook:
+- **`supabase/functions/revenuecat-webhook/index.ts`** (NEW): authenticates RevenueCat's configured shared secret (`REVENUECAT_WEBHOOK_SECRET`, NOT a Supabase JWT → must deploy `--no-verify-jwt`), maps `event.app_user_id` → `profiles.id`, and flips `account_type`. GRANT set (INITIAL_PURCHASE/RENEWAL/PRODUCT_CHANGE/UNCANCELLATION/NON_RENEWING_PURCHASE/SUBSCRIPTION_EXTENDED/TEMPORARY_ENTITLEMENT_GRANT) → `premium`; REVOKE set (EXPIRATION/SUBSCRIPTION_PAUSED) → `free`. CANCELLATION/BILLING_ISSUE are no-ops (access kept until expiry). TRANSFER moves entitlement between ids. Only the `premium` entitlement is acted on; updates guard `account_type in ('free','premium')` so `demo`/`admin` are never clobbered; anonymous/non-UUID `app_user_id`s ignored.
+- **`app/_layout.tsx`** (MODIFIED): RevenueCat init now calls `Purchases.logIn(supabaseUserId)` after `configure()` so `app_user_id` equals the Supabase `user.id` — the webhook's only way to resolve the event back to a profile. (T079 had specified this but the code only called `configure`.)
+
+**First reader of `account_type` — AI import gate**: `useItemExtraction.startExtraction` now treats a user as premium if EITHER the live RevenueCat entitlement is active OR `profiles.account_type ∈ {premium, admin}` (new `hasPremiumAccountType()` / `fetchMyAccountType()` in `profileService.ts`). This lets a store-verified upgrade unlock unlimited AI import even where RevenueCat is absent (Expo Go) or hasn't synced. `incrementCredit` still runs but the count no longer gates premium accounts.
+
+**Still not wired (open)**: `usePremium` itself still derives `isPremium` only from RevenueCat — so cloud photo storage (`addWardrobeItem` tier) and the generate-outfits curation gate do NOT yet read `account_type`. Webhook is written but not deployed; needs `supabase functions deploy revenuecat-webhook --no-verify-jwt`, `supabase secrets set REVENUECAT_WEBHOOK_SECRET=…`, and the matching URL+Authorization header configured in the RevenueCat dashboard.

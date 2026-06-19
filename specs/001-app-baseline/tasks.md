@@ -1,9 +1,9 @@
 ---
 
-description: "Task list for True Clothes App — Current State Baseline"
+description: "Task list for MIEN App — Current State Baseline"
 ---
 
-# Tasks: True Clothes App — Current State Baseline
+# Tasks: MIEN App — Current State Baseline
 
 **Input**: Design documents from `specs/001-app-baseline/`
 
@@ -13,12 +13,12 @@ description: "Task list for True Clothes App — Current State Baseline"
 
 **Organization**: Tasks grouped by user story. US2 (Feed) and US3 (Wardrobe) are the
 two partial stories. US8 (Advanced) closes all stubbed features. US1/US4–US7 are
-already complete — no tasks needed.
+already complete — only data-binding fixes remain for US3 and US7 (Phase 7 Stream D).
 
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no shared dependencies)
-- **[Story]**: Which user story this task belongs to (US2, US3, US8)
+- **[Story]**: Which user story this task belongs to (US2, US3, US8, US-COLL, INFRA)
 - Exact file paths included in every task description
 
 ## Path Conventions (Expo Router — this project)
@@ -81,7 +81,7 @@ still present (loaded from Supabase). Delete item → row and photo both removed
 - [X] T011 [P] [US3] Implement `wardrobeService.deleteItem()` in `src/services/wardrobeService.ts` — delete row from `clothing_items` by id (RLS enforces ownership); after DB delete succeeds, attempt `supabase.storage.from('wardrobe-photos').remove([photo_path])`; Storage delete failure MUST be logged (`console.warn`) but MUST NOT throw — orphaned files are acceptable in MVP
 - [X] T012 [P] [US3] Implement `wardrobeService.updateItem()` in `src/services/wardrobeService.ts` — update `colors`, `size_label`, `brand`, `notes` on `clothing_items` by id; return updated `ClothingItem` with signed URL; throw `WardrobeDbError` if row not found or update fails
 - [X] T013 [US3] Implement `wardrobeService.migrateLocalItems()` in `src/services/wardrobeService.ts` — iterate legacy items sequentially (not parallel); for each: call `addItem()` with the item's `localPhotoUri` and metadata; call `onProgress(done, total)` after each regardless of success/failure; continue on individual failures; return array of successfully migrated `ClothingItem`s
-- [X] T014 [US3] Update `src/stores/appStore.ts` — replace local wardrobe array operations with service calls: `addWardrobeItem()` action calls `wardrobeService.addItem()` then appends to local state on success; `removeWardrobeItem()` calls `wardrobeService.deleteItem()` then removes from local state; `hydrate()` calls `wardrobeService.fetchMyItems()` to populate `wardrobeItems` (replaces AsyncStorage read for wardrobe); catch `WardrobeStorageError` / `WardrobeDbError` and set an `wardrobeError: string | null` state field surfaced to UI
+- [X] T014 [US3] Update `src/stores/appStore.ts` — replace local wardrobe array operations with service calls: `addWardrobeItem()` action calls `wardrobeService.addItem()` then appends to local state on success; `removeWardrobeItem()` calls `wardrobeService.deleteItem()` then removes from local state; `hydrate()` calls `wardrobeService.fetchMyItems()` to populate `wardrobeItems` (replaces AsyncStorage read for wardrobe); catch `WardrobeStorageError` / `WardrobeDbError` and set a `wardrobeError: string | null` state field surfaced to UI
 - [X] T015 [US3] Add offline guard to wardrobe add flow in `src/stores/appStore.ts` — before calling `wardrobeService.addItem()`, check network connectivity via `NetInfo.fetch()` (import `@react-native-community/netinfo`); if `isConnected === false`, set `wardrobeError = "Adding items requires an internet connection"` and return without modifying state (FR-045)
 - [X] T016 [US3] Add first-boot migration logic to `src/stores/appStore.ts` `hydrate()` — after auth check, read `wardrobeMigrated` flag from AsyncStorage; if flag absent AND `wardrobeItems` exists in legacy AsyncStorage state, call `wardrobeService.migrateLocalItems()` with a progress callback that sets `migrationProgress: { done, total } | null` state; on completion (success or partial), write `wardrobeMigrated: true` to AsyncStorage and clear legacy wardrobe from AsyncStorage
 - [X] T017 [US3] Add migration progress UI to `app/_layout.tsx` — read `migrationProgress` from `appStore`; if non-null, render a full-screen overlay (luxury minimal: large thin text "Syncing your wardrobe… {done}/{total}" on Canvas background) that blocks navigation until migration completes; remove overlay when `migrationProgress` returns to null
@@ -128,11 +128,11 @@ outfit text. (b) Menu → Settings → screen opens with unit toggle + delete ac
 ### Implementation for User Story 8
 
 - [X] T024 [P] [US8] Create `app/settings.tsx` — Settings screen using `src/design/tokens.ts` exclusively; sections: (1) Preferences — unit toggle Metric/Imperial (reads/writes `appStore.unitPreference: 'metric'|'imperial'`, add this field to appStore); (2) Account — Sign Out button (calls `authStore.logout()`); (3) Danger Zone — "Delete Account" button (danger red `T.color.Error` text, hairline border, calls a `deleteAccount()` action); (4) App — version string from `app.json` via `expo-constants`; apply luxury minimal design: large thin section headings, generous padding, hairline separators
-- [X] T025 [P] [US8] Create `app/help.tsx` — Help & Feedback screen using design tokens; render 5 static FAQ items as expandable accordion rows (question visible, answer hidden behind tap): Q1 "How does the outfit engine work?", Q2 "Why are my outfits not personalised?", Q3 "Can I use the app offline?", Q4 "How do I delete my account?", Q5 "How do I change my body measurements?"; at the bottom: a "Send feedback" row that calls `Linking.openURL('mailto:support@trueclothes.app')` on tap; luxury minimal typography throughout
+- [X] T025 [P] [US8] Create `app/help.tsx` — Help & Feedback screen using design tokens; render 5 static FAQ items as expandable accordion rows (question visible, answer hidden behind tap): Q1 "How does the outfit engine work?", Q2 "Why are my outfits not personalised?", Q3 "Can I use the app offline?", Q4 "How do I delete my account?", Q5 "How do I change my body measurements?"; at the bottom: a "Send feedback" row that calls `Linking.openURL('mailto:support@mien.app')` on tap; luxury minimal typography throughout
 - [X] T026 [P] [US8] Create `supabase/functions/delete-user/index.ts` — Deno Edge Function: (1) verify Bearer JWT, get `userId` via `supabase.auth.getUser(token)`; (2) delete all Storage objects in `wardrobe-photos/{userId}/` via `supabase.storage.from('wardrobe-photos').list(userId)` then `remove()`; (3) call `supabase.auth.admin.deleteUser(userId)` using the service role key from `Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')`; respond 200 on success, 401 on auth failure, 500 on error; all `clothing_items`, `profiles`, `body_measurements`, `style_profiles` rows cascade-delete automatically via FK ON DELETE CASCADE
 - [X] T027 [US8] Implement `deleteAccount()` action in `src/stores/authStore.ts` — call `supabase.functions.invoke('delete-user')` with user's JWT; on success: call `authStore.logout()` to clear local session and navigate to auth screen; on error: surface error message to caller; this function is called from `app/settings.tsx` after confirmation
 - [X] T028 [US8] Add confirmation modal to `app/settings.tsx` Delete Account button — on tap, show a `Modal` (React Native) or `Alert.alert` with title "Delete account?", message "This permanently deletes your profile, wardrobe, and all data. This cannot be undone.", two buttons: "Cancel" (dismiss) and "Delete" (calls `authStore.deleteAccount()`); show inline loading indicator while deletion is in progress; on success navigate to `/(onboarding)` root
-- [X] T029 [US8] Wire Share.share() for outfit sharing (FR-031) — in `app/outfit/[id].tsx` (or its hook), implement `shareOutfit()`: build share message as `"{style tag} look — {item1}, {item2}, {item3} | True Clothes"`; call `Share.share({ message })` from `react-native`; call `shareOutfit()` from the existing share icon's `onPress` handler; no new dependencies required
+- [X] T029 [US8] Wire Share.share() for outfit sharing (FR-031) — in `app/outfit/[id].tsx` (or its hook), implement `shareOutfit()`: build share message as `"{style tag} look — {item1}, {item2}, {item3} | MIEN"`; call `Share.share({ message })` from `react-native`; call `shareOutfit()` from the existing share icon's `onPress` handler; no new dependencies required
 - [X] T030 [US8] Register `settings` and `help` routes in `app/_layout.tsx` — add `<Stack.Screen name="settings" options={{ title: 'Settings', animation: 'slide_from_right' }} />` and `<Stack.Screen name="help" options={{ title: 'Help & Feedback', animation: 'slide_from_right' }} />`
 - [X] T031 [US8] Replace "soon" stubs for Settings and Help in `app/(tabs)/menu.tsx` — find the menu items with `soon: true` for Settings and Help & Feedback; replace `onPress` handlers with `router.push('/settings')` and `router.push('/help')` respectively; remove the "soon" badge from both items; leave all other "soon" items (Trending, Style Guide, Shop) unchanged
 
@@ -150,6 +150,54 @@ outfit text. (b) Menu → Settings → screen opens with unit toggle + delete ac
 
 ---
 
+## Phase 7: Collections Management UI + Schema Drift Fix + Data Binding Fixes (2026-06-07)
+
+**Context**: Phases 1–6 complete. Four open work streams remain:
+(A) Schema drift corrective migration; (B) Collections management UI wiring;
+(C) Outfit detail "Add to Collection" semantic fix; (D) Screen data binding gaps —
+wardrobe screen, add-item screen, and profile screen all point at stale local state
+instead of the remote Supabase-backed state introduced in Phase 3.
+
+Tasks from `specs/001-app-baseline/plan.md` Phase 7 plus three new gaps surfaced
+in the UI audit (T043–T045).
+
+### Stream A — Infrastructure
+
+- [X] T035 [INFRA] Write `supabase/migrations/20260607000003_fix_schema_drift.sql` — add `IF NOT EXISTS` guards for: (1) `CREATE TABLE IF NOT EXISTS public.wardrobes (id uuid PK DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE, created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(user_id))` with RLS `select/insert own` policies; (2) `ALTER TABLE public.clothing_items ADD COLUMN IF NOT EXISTS wardrobe_id uuid REFERENCES public.wardrobes(id) ON DELETE CASCADE`; (3) `ALTER TABLE public.clothing_items DROP COLUMN IF EXISTS user_id` — DO NOT execute this, just add a comment noting the column may need removal once all rows are migrated. Migration is idempotent and safe to run against the live DB.
+
+- [X] T036 [P] [INFRA] Add `CollectionDisplayItem` type and `resolveItemIds()` pure helper to `src/data/index.ts` — export `interface CollectionDisplayItem { id: string; name: string; categoryLabel: string; imageSource: number | { uri: string } | null }`; export `function resolveItemIds(ids: string[], wardrobeItems: WardrobeItem[]): CollectionDisplayItem[]` — two-pass lookup: (1) `itemById(id)` for static items → map `{ id, name: i.name, categoryLabel: i.type, imageSource: i.png ?? (i.img ? { uri: i.img } : null) }`; (2) `wardrobeItems.find(i => i.id === id)` for UUID items → map `{ id, name: w.category.toUpperCase(), categoryLabel: w.category.toUpperCase(), imageSource: w.photoUrl ? { uri: w.photoUrl } : null }`; skip nulls. `WardrobeItem` must be imported from `src/types/fitEngine.ts`. This is a pure function with no side effects.
+
+### Stream B — Collections Management UI
+
+- [X] T037 [P] [US-COLL] Create `src/features/collections/useCollectionSheet.ts` hook — manages bottom-sheet form state for create/edit flows: `name: string`, `description: string`, `visible: boolean`, `mode: 'create' | 'edit'`, `editingId: string | null`; actions: `openCreate()` (set mode=create, clear fields, visible=true), `openEdit(collection: Collection)` (set mode=edit, pre-fill fields, visible=true), `close()`, `setName()`, `setDescription()`; no Supabase calls — delegates to `appStore.createCollection` / `appStore.updateCollection` from the caller
+
+- [X] T038 [US-COLL] Wire "Create Collection" sheet in `app/collections/index.tsx` — import `useCollectionSheet` hook; wire the existing `+` icon `Pressable` `onPress` to `sheet.openCreate()`; render a `BottomSheet` with: text input for name (required, max 60 chars), text input for description (optional, max 200 chars), a confirm `PrimaryButton` labelled "CREATE" that calls `appStore.createCollection(name, description)` then `sheet.close()`, and a dismiss `TextLink`; disable confirm button when name is empty; show inline error when `appStore.collectionsError` is non-null; luxury minimal design: large thin labels, hairline `TextInput` borders using `T.color.hairline`, `T.font.serif` for labels — T038 depends on T037
+
+- [X] T039 [US-COLL] Wire "Edit Collection" sheet and delete action in `app/collections/[id].tsx` — wire existing edit icon `Pressable` `onPress` to `sheet.openEdit(collection)`; render a `BottomSheet` with: pre-filled name + description inputs (same design as T038), a confirm `PrimaryButton` labelled "SAVE" calling `appStore.updateCollection(id, { name, description })` then `sheet.close()`, a `TextLink` labelled "Delete collection" in `T.color.error` that shows an `Alert.alert("Delete collection?", "This cannot be undone.", [Cancel, Delete])` on tap, Delete calls `appStore.deleteCollection(id)` and navigates back via `router.back()` — T039 depends on T037
+
+- [X] T040 [US-COLL] Implement "Add Items to Collection" picker in `app/collections/[id].tsx` — add an "ADD ITEMS" text button or hairline button below the item grid; on tap: open a `BottomSheet` (maxHeight 85%) containing a `FlatList` of all items from `appStore.wardrobeItems` that are NOT already in `collection.itemIds`; render each as a half-width card (CARD_W pattern from existing code) with selected-border highlight (`borderColor: T.color.primary` when selected, `T.color.hairline` otherwise); manage a local `selectedIds: Set<string>` state; add a fixed bottom bar with "ADD {n} ITEMS" `PrimaryButton` (disabled when empty) that calls `appStore.addItemToCollection(id, itemId)` for each selected ID sequentially then closes the sheet; if `wardrobeItems` is empty, render a prompt: "Add items to your wardrobe first" with a CTA to the wardrobe screen
+
+- [X] T041 [US-COLL] Update item lookup in `app/collections/index.tsx` and `app/collections/[id].tsx` to use `resolveItemIds()` — in both screens, replace the current `c.itemIds.map(id => ITEMS.find(i => i.id === id)).filter(Boolean)` pattern with `resolveItemIds(c.itemIds, appStore.wardrobeItems)`; update rendering to use `CollectionDisplayItem.imageSource` in Image source prop and `CollectionDisplayItem.categoryLabel` / `name` for labels; `Photo` component may need to be replaced with a plain `Image` in the collage cells since `Photo` expects `ClothingItem` shape — verify and fix if needed; T041 depends on T036
+
+### Stream C — Outfit Detail Fix
+
+- [X] T042 [US-COLL] Repurpose "Add to Collection" button on `app/outfit/[id].tsx` — replace the `toggleCollection(outfit.id)` call (which incorrectly tracks outfit IDs in `collectionsAddedSet`) with: (1) a local `collectionPickerOpen: boolean` state; (2) on button press: open a `BottomSheet` showing a list of the user's `appStore.collections` as pressable rows (name + item count); (3) when a collection is selected, iterate `outfit.itemIds` and for each item whose ID is a Supabase UUID (not a static demo ID — check `!/^[a-z]/.test(id)` or similar), call `appStore.addItemToCollection(collectionId, itemId)`; (4) on completion, close picker and show a brief inline confirmation text "Items added to {collection.name}"; if `collections` is empty, render a prompt "Create a collection first" with a link to `/collections`; remove `collectionsAddedSet` from `useAppStore` destructure in this component — the `collectionsAddedSet` store field itself is preserved for now (other screens may use it) but its usage in outfit detail is replaced
+
+### Stream D — Data Binding Fixes
+
+These three gaps were introduced when the Phase 3 service layer was implemented but the
+screens were not updated to read from the new store state.
+
+- [X] T043 [P] [US3] Update `app/(tabs)/wardrobe.tsx` to display `wardrobeItems` (remote, Supabase-backed) instead of `items` (static + local-only) — replace `const { items, addItem } = useAppStore()` with `const { wardrobeItems, removeWardrobeItem, wardrobeError } = useAppStore()`; update the `filtered` derivation to read from `wardrobeItems` using `WardrobeItem.category` (e.g. 'top', 'bottom') for filter matching, mapping to FILTER labels ('TOP', 'BOTTOM' etc); update `ItemCard` rendering: `WardrobeItem` has `photoUrl` instead of `img`/`png` — pass `{ uri: item.photoUrl }` as the image source; update the delete handler to call `removeWardrobeItem(item.id)`; show `wardrobeError` as a top banner when non-null; keep the `AddItemSheet` / FAB but remove its inline `addItem()` call (wired in T044)
+
+- [X] T044 [P] [US3] Update `app/add-item.tsx` to call `addWardrobeItem()` (Supabase sync) instead of `addItem()` (local-only) — in `handleSave()`, replace `addItem({ id: 'u_' + Date.now(), ... })` with `await appStore.addWardrobeItem({ localPhotoUri: imageUri ?? undefined, category: category.toLowerCase() as WardrobeItem['category'], colors: [color], sizeLabel: size, brand: brand || undefined, notes: name || undefined })`; import `WardrobeItem` type from `src/types/fitEngine.ts`; show an `ActivityIndicator` on the save button while the upload/insert is in progress; on `wardrobeError` non-null, display the error inline and allow retry; on success navigate back with `router.back()`; also update the `onAdded` handler in `app/(tabs)/wardrobe.tsx`'s `AddItemSheet` to call `addWardrobeItem()` using the same pattern (T043 and T044 can proceed in parallel — different files)
+
+- [X] T045 [P] [US7] Wire `app/(tabs)/profile.tsx` display name and avatar initial to `authStore` — replace the hardcoded `"Khoi Nguyen"` and `"K"` with live data: import `useAuthStore`; read `authStore.profile?.phone` or `authStore.profile?.email` as the display identity (format: mask phone as `+84 *** ***{last4}` or show email prefix); derive the avatar initial from the first character of the display identity; if `authStore.profile` is null (not yet loaded), show placeholder `"—"`; the "Edit profile" TextLink currently has no `onPress` — add navigation to a future `/profile-edit` route stub (push `router.push('/profile-edit' as any)`) or remove the link if that route is not planned for this phase (check CLAUDE.md — it is not listed, so remove or disable the link to avoid dead navigation)
+
+**Checkpoint (Phase 7 complete)**: Collections can be created, edited, deleted. Items can be added to collections via a picker. Outfit detail's "Add to Collection" adds wardrobe items (not outfit IDs). Wardrobe screen shows Supabase-synced items. Add item syncs to Supabase. Profile shows real user identity.
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -160,12 +208,19 @@ outfit text. (b) Menu → Settings → screen opens with unit toggle + delete ac
 - **US2 Feed Improvements (Phase 4)**: T018–T019 run in parallel; T020 depends on T019; T021 depends on T020; T022 depends on Phase 3 completion (wardrobeItems in store); T023 depends on T022
 - **US8 Stubbed Features (Phase 5)**: T024–T026 run in parallel; T027 depends on T026; T028 depends on T024 + T027; T029 independent of T024–T028; T030 depends on T024 + T025; T031 depends on T030
 - **Polish (Phase 6)**: Depends on all user story phases being complete
+- **Phase 7 (Collections UI + Schema Fix + Data Binding)**:
+  - Stream A: T035 and T036 can start immediately (parallel)
+  - Stream B: T037 can start immediately; T038 and T039 depend on T037 (parallel after T037); T040 depends on T037; T041 depends on T036
+  - Stream C: T042 is independent of all other Phase 7 tasks
+  - Stream D: T043, T044, T045 are all independent of each other and of Streams A/B/C — start immediately in parallel
 
 ### User Story Dependencies
 
-- **US3 (Wardrobe Sync)**: Depends on Foundational (Phase 2) only — no dependency on US2/US8
-- **US2 (Feed Improvements)**: T018–T021 can start after Phase 2; T022 depends on US3 completion (needs wardrobe items in store); T023 is independent of US3
-- **US8 (Stubbed Features)**: Fully independent of US3 and US2 — can start after Phase 2
+- **US3 (Wardrobe Sync)**: Phase 3 service + store work done; T043/T044 (Stream D) complete the screen wiring
+- **US2 (Feed Improvements)**: All tasks T018–T023 complete
+- **US8 (Stubbed Features)**: All tasks T024–T031 complete
+- **US-COLL (Collections UI)**: Depends on T036 (resolveItemIds) for T041; T037 for T038/T039/T040; T042 independent
+- **US7 (Profile)**: T045 completes the data binding for profile screen
 
 ### Within Each User Story
 
@@ -199,6 +254,11 @@ T019: appStore weather state + refreshWeather()  [then T020 → T021 → T022 �
 T024: Create app/settings.tsx
 T025: Create app/help.tsx
 T026: Create supabase/functions/delete-user/index.ts
+
+# Phase 7 Stream D — all 3 launch together (independent files):
+T043: app/(tabs)/wardrobe.tsx → wardrobeItems
+T044: app/add-item.tsx → addWardrobeItem()
+T045: app/(tabs)/profile.tsx → authStore data
 ```
 
 ---
@@ -219,24 +279,28 @@ T026: Create supabase/functions/delete-user/index.ts
 2. Phase 4 → Feed error recovery + weather + empty state ✅
 3. Phase 5 → Share + Settings + Help + Delete Account ✅
 4. Phase 6 → Polish and documentation ✅
+5. Phase 7 → Collections UI + data binding fixes (current work)
 
-### Parallel Team Strategy (if multiple developers)
+### Phase 7 Recommended Order
 
-After Phase 2 completes:
-- **Developer A**: Phase 3 (Wardrobe Sync — T009–T017)
-- **Developer B**: Phase 4 T018–T021 (Weather service + store), then T022–T023
-- **Developer C**: Phase 5 (Stubbed Features — T024–T031)
+With a single developer, recommended sequencing within Phase 7:
 
-All three developers can work independently after migrations are applied.
+1. **Start now (parallel)**: T035, T036, T037, T042, T043, T044, T045 — all touch different files
+2. **After T037**: T038, T039, T040 (bottom sheets depend on the hook)
+3. **After T036**: T041 (resolveItemIds helper must exist)
+4. **Final check**: Run Scenario 9 in `specs/001-app-baseline/quickstart.md`
 
 ---
 
 ## Notes
 
 - `[P]` tasks have no shared file dependencies — safe to run in parallel
-- `[US2]`/`[US3]`/`[US8]` labels map to spec.md user stories
+- `[US2]`/`[US3]`/`[US8]`/`[US-COLL]`/`[US7]` labels map to spec.md user stories
 - Each phase has an explicit **Checkpoint** — validate independently before moving on
 - T015 (offline guard) requires `@react-native-community/netinfo` — verify it is already installed (`package.json`) before implementing; if absent, install first
 - T026 (delete-user Edge Function) uses `SUPABASE_SERVICE_ROLE_KEY` — this env var must be set in Supabase project settings under Edge Function secrets, never in `.env`
 - T029 (Share) uses React Native built-in `Share` — no additional package needed
+- T043/T044: `WardrobeItem` from `src/types/fitEngine.ts` has `category` as `'top'|'bottom'|'outerwear'|'footwear'|'accessory'` — map to the wardrobe screen's FILTER labels ('TOP', 'BOTTOM', 'OUTERWEAR', 'FOOTWEAR', 'ACCESSORIES') when filtering
+- T044: `addWardrobeItem()` in `appStore` takes an `AddItemInput` shape — check `wardrobeService` contract for exact field names before implementing
+- T045: `/profile-edit` route does not exist and is not planned for this phase — disable or remove the "Edit profile" TextLink rather than adding dead navigation
 - Constitution gate reminder for every task touching Supabase: all DB/Storage calls MUST go through the service module (`wardrobeService.ts`), never directly from screens or stores

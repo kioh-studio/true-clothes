@@ -1,6 +1,6 @@
 // Outfit Detail screen
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Image, Share } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Image, Share, useWindowDimensions } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OUTFITS, itemById } from '../../src/data';
@@ -9,17 +9,17 @@ import { PrimaryButton, SecondaryButton, TextLink, Tag, BottomSheet, Divider, Ph
 import { IconX, IconHeart, IconShare, IconSparkle, IconChevronRight } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAppStore } from '../../src/stores/appStore';
-import { Dimensions } from 'react-native';
-
-const { width: W } = Dimensions.get('window');
 
 export default function OutfitDetailScreen() {
+  const { width: W } = useWindowDimensions();
   const { id, data } = useLocalSearchParams<{ id: string; data?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { savedSet, wornSet, collectionsAddedSet, scheduledSet, toggleSave, toggleWorn, toggleCollection, toggleSchedule } = useAppStore();
+  const { savedSet, wornSet, scheduledSet, toggleSave, toggleWorn, toggleSchedule, collections, addItemToCollection } = useAppStore();
   const [variationOpen, setVariationOpen] = useState(false);
   const [tryOnOpen, setTryOnOpen] = useState(false);
+  const [collectionPickerOpen, setCollectionPickerOpen] = useState(false);
+  const [addedToCollectionSuccess, setAddedToCollectionSuccess] = useState(false);
 
   const outfit = (data ? JSON.parse(data) : null) ?? OUTFITS.find(o => o.id === id) ?? OUTFITS[0];
   const items = outfit.itemIds.map(itemById).filter(Boolean) as NonNullable<ReturnType<typeof itemById>>[];
@@ -34,14 +34,13 @@ export default function OutfitDetailScreen() {
     });
   }, [outfit.id]);
   const worn = wornSet.has(outfit.id);
-  const addedToCollection = collectionsAddedSet.has(outfit.id);
 
   const HERO_H = W * (5 / 4);
 
   // T029: Share outfit via native share sheet
   const shareOutfit = () => {
     const itemNames = items.slice(0, 3).map(i => i.name).join(', ');
-    const message = `${outfit.style} look — ${itemNames} | True Clothes`;
+    const message = `${outfit.style} look — ${itemNames} | MIEN`;
     Share.share({ message });
   };
 
@@ -130,8 +129,8 @@ export default function OutfitDetailScreen() {
             {worn ? '✓  WORN TODAY' : 'WEAR TODAY'}
           </PrimaryButton>
           <View style={{ height: 12 }} />
-          <SecondaryButton onPress={() => toggleCollection(outfit.id)}>
-            {addedToCollection ? 'ADDED TO COLLECTION' : 'ADD TO COLLECTION'}
+          <SecondaryButton onPress={() => setCollectionPickerOpen(true)}>
+            {addedToCollectionSuccess ? 'ADDED TO COLLECTION ✓' : 'ADD TO COLLECTION'}
           </SecondaryButton>
           <View style={{ height: 12 }} />
           <SecondaryButton onPress={() => toggleSchedule(outfit.id)}>SCHEDULE FOR ANOTHER DAY</SecondaryButton>
@@ -168,6 +167,42 @@ export default function OutfitDetailScreen() {
           ))}
           <View style={{ height: 24 }} />
           <PrimaryButton onPress={() => setVariationOpen(false)}>APPLY CHANGES</PrimaryButton>
+        </View>
+      </BottomSheet>
+
+      {/* Collection picker sheet */}
+      <BottomSheet open={collectionPickerOpen} onClose={() => setCollectionPickerOpen(false)} maxHeight="70%">
+        <View style={{ padding: 24 }}>
+          <Text style={styles.h3}>Save to collection.</Text>
+          <Text style={[type.caption, { marginTop: 8, marginBottom: 24 }]}>
+            Wardrobe items from this outfit will be added.
+          </Text>
+          {collections.length === 0 ? (
+            <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+              <Text style={[type.caption, { textAlign: 'center' }]}>No collections yet. Create one from Your Wardrobe.</Text>
+            </View>
+          ) : (
+            collections.map(col => (
+              <Pressable
+                key={col.id}
+                onPress={async () => {
+                  const uuidItems = outfit.itemIds.filter(id => /^[0-9a-f]{8}-/.test(id));
+                  for (const itemId of uuidItems) {
+                    await addItemToCollection(col.id, itemId);
+                  }
+                  setCollectionPickerOpen(false);
+                  setAddedToCollectionSuccess(true);
+                }}
+                style={[styles.itemRow, { borderBottomWidth: 0.5, borderBottomColor: T.color.hairline }]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.itemName}>{col.name}</Text>
+                  <Text style={[type.caption, { marginTop: 2, fontSize: 11 }]}>{col.itemIds.length} items</Text>
+                </View>
+                <IconChevronRight size={12} color={T.color.tertiary} strokeWidth={1.4} />
+              </Pressable>
+            ))
+          )}
         </View>
       </BottomSheet>
 

@@ -1,7 +1,7 @@
 // Settings screen — T024 (US8)
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable, Switch, Alert, Modal, ActivityIndicator,
+  View, Text, StyleSheet, ScrollView, Pressable, Switch, Alert, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,14 +9,16 @@ import { T, type } from '../src/design/tokens';
 import { IconChevronLeft } from '../src/components/icons';
 import { useAuthStore } from '../src/stores/authStore';
 import { useAppStore } from '../src/stores/appStore';
+import { useTranslation } from '../src/i18n';
 
 const APP_VERSION = '1.0.0';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { logout, deleteAccount } = useAuthStore();
-  const { unitPreference } = useAppStore();
+  const { unitPreference, language, setLanguage } = useAppStore();
 
   const [units, setUnits] = useState<'metric' | 'imperial'>(unitPreference);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -30,12 +32,12 @@ export default function SettingsScreen() {
 
   const handleDeleteAccount = () => {
     Alert.alert(
-      'Delete account?',
-      'This permanently deletes your profile, wardrobe, and all data. This cannot be undone.',
+      t('settings_deleteAccountAlertTitle'),
+      t('settings_deleteAccountAlertMessage'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('settings_deleteAccountCancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('settings_deleteAccountConfirm'),
           style: 'destructive',
           onPress: confirmDelete,
         },
@@ -73,12 +75,12 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Preferences */}
-        <Text style={styles.sectionLabel}>PREFERENCES</Text>
+        <Text style={styles.sectionLabel}>{t('settings_preferencesSection')}</Text>
         <View style={styles.section}>
           <View style={styles.row}>
             <View style={styles.rowBody}>
-              <Text style={styles.rowTitle}>Units</Text>
-              <Text style={styles.rowDesc}>{units === 'metric' ? 'Metric (cm, kg)' : 'Imperial (in, lb)'}</Text>
+              <Text style={styles.rowTitle}>{t('settings_units')}</Text>
+              <Text style={styles.rowDesc}>{units === 'metric' ? t('settings_unitsMetric') : t('settings_unitsImperial')}</Text>
             </View>
             <Switch
               value={units === 'imperial'}
@@ -89,22 +91,39 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* Language */}
+        <Text style={[styles.sectionLabel, { marginTop: 32 }]}>{t('settings_languageSection')}</Text>
+        <View style={styles.section}>
+          <Pressable style={styles.row} onPress={() => setLanguage('en')}>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowTitle}>{t('settings_languageEnglish')}</Text>
+            </View>
+            {language === 'en' && <View style={styles.selectedDot} />}
+          </Pressable>
+          <Pressable style={styles.row} onPress={() => setLanguage('vi')}>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowTitle}>{t('settings_languageVietnamese')}</Text>
+            </View>
+            {language === 'vi' && <View style={styles.selectedDot} />}
+          </Pressable>
+        </View>
+
         {/* Account */}
-        <Text style={[styles.sectionLabel, { marginTop: 32 }]}>ACCOUNT</Text>
+        <Text style={[styles.sectionLabel, { marginTop: 32 }]}>{t('settings_accountSection')}</Text>
         <View style={styles.section}>
           <Pressable style={styles.row} onPress={() => logout().then(() => router.replace('/(onboarding)'))}>
-            <Text style={styles.rowTitle}>Sign out</Text>
+            <Text style={styles.rowTitle}>{t('settings_signOut')}</Text>
           </Pressable>
         </View>
 
         {/* Danger Zone */}
-        <Text style={[styles.sectionLabel, { marginTop: 32 }]}>DANGER ZONE</Text>
+        <Text style={[styles.sectionLabel, { marginTop: 32 }]}>{t('settings_dangerZoneSection')}</Text>
         <View style={styles.section}>
           <Pressable style={[styles.row, styles.dangerRow]} onPress={handleDeleteAccount} disabled={deleteLoading}>
             {deleteLoading ? (
               <ActivityIndicator size="small" color={T.color.error} />
             ) : (
-              <Text style={styles.dangerText}>Delete Account</Text>
+              <Text style={styles.dangerText}>{t('settings_deleteAccount')}</Text>
             )}
           </Pressable>
           {deleteError && (
@@ -113,10 +132,10 @@ export default function SettingsScreen() {
         </View>
 
         {/* App Info */}
-        <Text style={[styles.sectionLabel, { marginTop: 32 }]}>APP</Text>
+        <Text style={[styles.sectionLabel, { marginTop: 32 }]}>{t('settings_appSection')}</Text>
         <View style={styles.section}>
           <View style={styles.row}>
-            <Text style={styles.rowTitle}>Version</Text>
+            <Text style={styles.rowTitle}>{t('settings_version')}</Text>
             <Text style={styles.rowDesc}>{APP_VERSION}</Text>
           </View>
         </View>
@@ -186,5 +205,11 @@ const styles = StyleSheet.create({
     ...type.caption,
     color: T.color.error,
     paddingVertical: 8,
+  },
+  selectedDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: T.color.primary,
   },
 });

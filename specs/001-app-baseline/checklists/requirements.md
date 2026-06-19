@@ -1,4 +1,4 @@
-# Specification Quality Checklist: True Clothes App — Current State Baseline
+# Specification Quality Checklist: MIEN App — Current State Baseline
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-06-06

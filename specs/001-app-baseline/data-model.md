@@ -1,4 +1,4 @@
-# Data Model: True Clothes App — Current State Baseline
+# Data Model: MIEN App — Current State Baseline
 
 **Branch**: `001-app-baseline` | **Date**: 2026-06-06
 
@@ -248,3 +248,125 @@ On first boot after the update:
 **Trade-off**: Migration is sequential to avoid hammering Storage. For a user with
 50 items this could take ~30 s on slow connections. A progress indicator should be
 shown during migration.
+
+---
+
+## New Entity: `public.collections` (added 2026-06-07)
+
+Collections group wardrobe items — not outfits. A collection is a named, user-curated
+set of clothing items (e.g. "Workweek picks", "Travel capsule"). An item can belong
+to multiple collections (many-to-many via `collection_items` join table).
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK DEFAULT gen_random_uuid() | |
+| `user_id` | `uuid` | FK → `auth.users.id` ON DELETE CASCADE, NOT NULL | Owner |
+| `name` | `text` | NOT NULL | Human label, no uniqueness constraint |
+| `description` | `text` | NOT NULL DEFAULT '' | Optional longer description |
+| `created_at` | `timestamptz` | NOT NULL DEFAULT now() | |
+| `updated_at` | `timestamptz` | NOT NULL DEFAULT now() | Auto-maintained by trigger |
+
+**RLS**:
+- SELECT / INSERT / UPDATE / DELETE scoped to `auth.uid() = user_id`.
+
+**Trigger**: `collections_updated_at` — `BEFORE UPDATE FOR EACH ROW` calls
+`public.handle_updated_at()` to maintain `updated_at`.
+
+**Indexes**: `collections_user_id_idx ON public.collections (user_id)`.
+
+**Constraints**:
+- No max collections per user.
+- No minimum items per collection.
+- Name is not unique — users can have two collections with the same name.
+
+---
+
+## New Entity: `public.collection_items` (join table, added 2026-06-07)
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `collection_id` | `uuid` | FK → `public.collections.id` ON DELETE CASCADE, NOT NULL | |
+| `item_id` | `uuid` | FK → `public.clothing_items.id` ON DELETE CASCADE, NOT NULL | |
+| `added_at` | `timestamptz` | NOT NULL DEFAULT now() | |
+| PRIMARY KEY | — | `(collection_id, item_id)` | Item appears at most once per collection |
+
+**RLS**: All operations gated on parent collection ownership:
+- SELECT: `EXISTS (SELECT 1 FROM collections c WHERE c.id = collection_id AND c.user_id = auth.uid())`
+- INSERT: same `EXISTS` check (with check)
+- DELETE: same `EXISTS` check
+
+**Index**: `collection_items_item_id_idx ON public.collection_items (item_id)` — for
+"which collections does this item belong to?" lookups.
+
+**Cascade behaviour**: Deleting a collection removes all its `collection_items` rows.
+Deleting a wardrobe item removes all `collection_items` rows that reference it.
+
+---
+
+## TypeScript Domain Types — Collections (client-side)
+
+```typescript
+// In src/data/index.ts (existing, updated 2026-06-07)
+interface Collection {
+  id: string
+  name: string
+  description: string
+  createdDate: string      // Display label e.g. "CREATED MAY 2026"
+  itemIds: string[]        // Wardrobe item IDs — may be static demo IDs OR Supabase UUIDs
+}
+
+// Internal DB row in collectionsService.ts — never exported
+interface CollectionRow {
+  id: string
+  name: string
+  description: string | null
+  created_at: string
+  collection_items: { item_id: string }[] | null
+}
+
+// Display helper output — returned by resolveItemIds() in src/data/index.ts
+interface CollectionDisplayItem {
+  id: string
+  name: string
+  categoryLabel: string    // Normalised: "TEE", "TOP", "JEANS", etc.
+  imageSource: number | { uri: string } | null  // number = local require(), uri = remote URL
+}
+```
+
+**Two-pass item resolution** (see Research Decision 6):
+```
+resolveItemIds(ids: string[], wardrobeItems: WardrobeItem[]): CollectionDisplayItem[]
+
+  For each id:
+    1. Try itemById(id) from ITEMS static data → map to CollectionDisplayItem
+    2. Else try wardrobeItems.find(i => i.id === id) → map to CollectionDisplayItem
+    3. Else return null (item deleted or not yet loaded)
+```
+
+---
+
+## Updated Entity Relationship Diagram
+
+```
+auth.users (Supabase managed)
+    │
+    ├──1:1── public.profiles
+    ├──1:1── public.body_measurements
+    ├──1:1── public.style_profiles
+    ├──1:1── public.wardrobes                    (live schema — see Decision 7)
+    │             │
+    │             └──1:N── public.clothing_items (wardrobe_id FK)
+    │                           │       │
+    │                           │       └── storage: wardrobe-photos/{userId}/{id}.jpg
+    │                           │
+    └──1:N── public.collections │
+                  │             │
+                  └──N:M──────── public.collection_items
+                                (collection_id, item_id — join table)
+```
+
+**Schema drift note** (see Research Decision 7): The migration files T001–T003
+originally used `clothing_items.user_id` directly. The live DB uses `wardrobes` +
+`clothing_items.wardrobe_id`. A corrective migration (`20260607000003_fix_schema_drift.sql`)
+documents the correct schema for `supabase db reset` correctness without modifying
+any existing rows.

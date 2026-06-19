@@ -1,4 +1,4 @@
-# Feature Specification: True Clothes App — Current State Baseline
+# Feature Specification: MIEN App — Current State Baseline
 
 **Feature Branch**: `001-app-baseline`
 
@@ -32,7 +32,7 @@ are complete, what is partially done, and what appears broken or missing.
 
 ### User Story 1 — New User Onboarding (Priority: P1) ✅ Complete
 
-A first-time user opens True Clothes and is guided through a sequential setup flow
+A first-time user opens MIEN and is guided through a sequential setup flow
 that collects everything the app needs to generate personalised outfit suggestions:
 identity, location, body measurements, style preferences, and colour palette. At the
 end, the user is prompted to add their first clothing item before accessing the main app.

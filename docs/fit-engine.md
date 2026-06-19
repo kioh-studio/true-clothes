@@ -1,4 +1,4 @@
-# Fit Engine — True Clothes
+# Fit Engine — MIEN
 
 How the app collects user data, characterizes clothing items, suggests styles, composes outfits, and scores fit compatibility.
 

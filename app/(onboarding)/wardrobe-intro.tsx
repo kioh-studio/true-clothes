@@ -74,7 +74,7 @@ export default function WardrobeIntroScreen() {
         </View>
 
         <View style={{ flex: 1, minHeight: 32 }} />
-        <PrimaryButton onPress={async () => { await completeOnboarding(); router.replace('/(tabs)/wardrobe'); }}>
+        <PrimaryButton onPress={async () => { await completeOnboarding(); router.push('/add-item' as any); }}>
           ADD FIRST ITEM
         </PrimaryButton>
         <View style={{ height: 16 }} />

@@ -15,7 +15,7 @@ import { useAuthStore } from '../../src/stores/authStore';
 type NavDestination =
   | 'BUILDER' | 'SAVED' | 'COLLECTIONS'
   | 'SCHEDULE' | 'HISTORY' | 'PROFILE'
-  | 'STYLES_EDIT' | 'COLORS_EDIT' | 'MEASUREMENTS_EDIT'
+  | 'STYLES_EDIT' | 'COLORS_EDIT' | 'MEASUREMENTS_EDIT' | 'FORMULAS_EDIT'
   | 'SETTINGS' | 'HELP';
 
 const SECTIONS: Array<{
@@ -33,7 +33,7 @@ const SECTIONS: Array<{
     items: [
       { icon: <IconDashedSquare size={20} strokeWidth={1.4} />, title: 'Build an outfit',    desc: 'Compose from your wardrobe',       go: 'BUILDER' },
       { icon: <IconBookmark size={20} strokeWidth={1.4} />,      title: 'Saved outfits',      desc: 'Bookmarks from your feed',         go: 'SAVED' },
-      { icon: <IconLayers size={20} strokeWidth={1.4} />,        title: 'Collections',        desc: 'Outfits grouped by theme',         go: 'COLLECTIONS' },
+      { icon: <IconLayers size={20} strokeWidth={1.4} />,        title: 'Collections',        desc: 'Wardrobe items grouped by theme',  go: 'COLLECTIONS' },
       { icon: <IconCalendar size={20} strokeWidth={1.4} />,      title: 'Schedule outfits',   desc: 'Plan the week ahead',              go: 'SCHEDULE' },
       { icon: <IconClock size={20} strokeWidth={1.4} />,         title: 'Outfit history',     desc: 'What you wore and when',           go: 'HISTORY' },
     ],
@@ -52,6 +52,7 @@ const SECTIONS: Array<{
       { icon: <IconSparkle size={20} strokeWidth={1.4} />, title: 'Style preferences',  desc: 'Edit your style picks',    go: 'STYLES_EDIT' },
       { icon: <IconDot size={20} />,                       title: 'Color palette',       desc: 'Edit your color choices',  go: 'COLORS_EDIT' },
       { icon: <IconEdit size={20} strokeWidth={1.4} />,    title: 'Size & measurements', desc: 'Edit your sizing',         go: 'MEASUREMENTS_EDIT' },
+      { icon: <IconSparkle size={20} strokeWidth={1.4} />, title: 'Outfit formulas',     desc: 'How outfits are built',    go: 'FORMULAS_EDIT' },
     ],
   },
   {
@@ -81,6 +82,7 @@ export default function MenuScreen() {
       case 'STYLES_EDIT':      return push('/styles-edit');
       case 'COLORS_EDIT':      return push('/colors-edit');
       case 'MEASUREMENTS_EDIT':return push('/measurements-edit');
+      case 'FORMULAS_EDIT':    return push('/formulas-edit');
       case 'SETTINGS':         return push('/settings');
       case 'HELP':             return push('/help');
     }
@@ -137,7 +139,7 @@ export default function MenuScreen() {
           <TextLink onPress={logout} color={T.color.tertiary}>Sign out</TextLink>
         </View>
         <View style={{ height: 16 }} />
-        <Text style={styles.version}>TRUE CLOTHES · v1.0.0</Text>
+        <Text style={styles.version}>MIEN · v1.0.0</Text>
       </ScrollView>
 
       <BottomNav

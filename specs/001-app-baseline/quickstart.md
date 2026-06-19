@@ -1,4 +1,4 @@
-# Quickstart: Validation Guide — True Clothes App Baseline
+# Quickstart: Validation Guide — MIEN App Baseline
 
 **Branch**: `001-app-baseline` | **Date**: 2026-06-06
 
@@ -262,6 +262,59 @@ implementation (`/speckit-tasks` → implementation phase).
 
 ---
 
+---
+
+## Scenario 9: Collections Management (Phase 7)
+
+**Validates**: Collections feature — create, edit, add items, delete
+
+### Prerequisites
+
+Apply the collections migration before running this scenario:
+```bash
+supabase db push
+# or apply supabase/migrations/20260607000001_collections.sql manually
+```
+
+### Steps
+
+1. Navigate to **Menu** → **Collections**.
+2. Tap the **+** icon. Enter name "Travel" and description "Pieces that pack flat". Tap **CREATE**.
+3. Confirm the new collection appears in the grid with the name and 0 items.
+4. Tap the collection to open the detail view.
+5. Tap **ADD ITEMS**. Select 2 items from your wardrobe. Tap **ADD 2 ITEMS**.
+6. Confirm both items appear in the collection detail grid.
+7. Tap the edit icon. Change the name to "Travel Capsule". Tap **SAVE**.
+8. Confirm the collection name updates in both the detail and list views.
+9. Tap edit again → **Delete collection** → confirm deletion.
+10. Confirm the collection is gone from the list.
+
+### Expected outcomes
+
+- Created collection persists across app restarts (loaded from `collectionsService.fetchMyCollections()` on boot).
+- Added items appear in both the collection detail AND the collection card collage on the list screen.
+- Items remain in the wardrobe grid after being added to a collection (many-to-many — no move).
+- Deleting the collection does NOT delete the items from the wardrobe.
+- Supabase dashboard → `collections` table: row exists/is deleted as expected.
+- Supabase dashboard → `collection_items` table: join rows exist/cascade-delete with collection.
+
+### Outfit Detail — "Add to Collection" (T042)
+
+1. Open any outfit from the feed.
+2. Tap **ADD TO COLLECTION**.
+3. A picker sheet shows your collections. Select "Travel Capsule".
+4. Confirm each **wardrobe** item in the outfit (Supabase UUID items) is added to the collection.
+5. Navigate to the collection detail — the newly added items appear.
+
+### Failure indicators
+
+- `+` button does nothing → `openCreate()` not wired to the `Pressable`; check T038.
+- Items don't appear after adding → `appStore.addItemToCollection` not updating state; check T040.
+- Demo ITEMS (static string IDs like `i_tee_white`) added to collection return FK error → T042 UUID guard missing; only wardrobe items with UUID IDs should be added.
+- Collection list shows blank thumbnails for wardrobe items → `resolveItemIds()` not finding UUID items in `wardrobeItems`; check T041.
+
+---
+
 ## Validation Checklist
 
 After running all scenarios:
@@ -274,3 +327,4 @@ After running all scenarios:
 - [ ] S6: Help screen accessible with FAQ + working feedback link
 - [ ] S7: Pre-sync items migrate to Supabase on first boot
 - [ ] S8: App remains usable offline; no crashes in airplane mode
+- [ ] S9: Collections created, edited, and deleted; items added/removed correctly

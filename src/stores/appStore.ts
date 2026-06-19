@@ -5,13 +5,30 @@ import { ClothingItem, Collection, ITEMS, COLLECTIONS } from '../data';
 import { WardrobeItem } from '../types/fitEngine';
 import { WeatherContext } from '../types/weather';
 import {
-  fetchMyItems, addItem, deleteItem,
-  migrateLocalItems,
-  AddItemInput, LegacyLocalItem,
+  fetchMyItems, addItem, deleteItem, updateItem,
+  migrateLocalItems, listPendingCloudUploads, promoteToCloud,
+  AddItemInput, UpdateItemInput, LegacyLocalItem,
   WardrobeStorageError, WardrobeDbError,
 } from '../services/wardrobeService';
+import { useFitEngineStore } from './fitEngineStore';
+import {
+  saveOutfit, unsaveOutfit,
+  markWorn as svcMarkWorn, unmarkWorn,
+  scheduleOutfit, unscheduleOutfit,
+  fetchInteractions, fetchWornCooldownIds,
+} from '../services/outfitInteractionService';
 import { fetchCurrentWeather } from '../services/weatherService';
+import {
+  fetchMyCollections,
+  createCollection as svcCreateCollection,
+  updateCollection as svcUpdateCollection,
+  deleteCollection as svcDeleteCollection,
+  addItemToCollection as svcAddItemToCollection,
+  removeItemFromCollection as svcRemoveItemFromCollection,
+  createdLabel,
+} from '../services/collectionsService';
 import { useAuthStore } from './authStore';
+import i18n from '../i18n';
 
 const STORAGE_KEY = 'app-store';
 const MIGRATION_FLAG_KEY = 'wardrobe-migrated-v1';
@@ -34,7 +51,19 @@ interface AppState {
   wardrobeItems: WardrobeItem[];
   addWardrobeItem: (input: AddItemInput) => Promise<void>;
   removeWardrobeItem: (id: string) => Promise<void>;
+  updateWardrobeItem: (id: string, patch: UpdateItemInput) => Promise<void>;
   wardrobeError: string | null;            // session-only
+
+  // Push any still-local photos to the cloud for premium users. Doubles as the
+  // upload-retry queue (offline adds) and the free→premium upgrade migration
+  // (feature 003-upload-image, research D7/D8).
+  syncPendingPhotos: () => Promise<void>;
+
+  // ── Offline state ──────────────────────────────────────────────────────────
+  isOffline: boolean;
+
+  // ── Worn cooldown (server-backed) ─────────────────────────────────────────
+  wornCooldownIds: string[];
 
   // ── Migration progress (session-only) ──────────────────────────────────────
   migrationProgress: { done: number; total: number } | null;
@@ -56,7 +85,14 @@ interface AppState {
   setScheduleOutfit: (dateKey: string, outfitId: string) => void;
   clearScheduleOutfit: (dateKey: string) => void;
 
+  // ── Collections (server-persisted, locally cached) ─────────────────────────
   collections: Collection[];
+  collectionsError: string | null;            // session-only
+  createCollection: (name: string, description: string) => Promise<void>;
+  updateCollection: (id: string, patch: { name?: string; description?: string }) => Promise<void>;
+  deleteCollection: (id: string) => Promise<void>;
+  addItemToCollection: (collectionId: string, itemId: string) => Promise<void>;
+  removeItemFromCollection: (collectionId: string, itemId: string) => Promise<void>;
 
   // ── Preferences (persisted) ────────────────────────────────────────────────
   unitPreference: 'metric' | 'imperial';
@@ -65,6 +101,10 @@ interface AppState {
   weatherContext: WeatherContext | null;
   weatherLastFetched: string | null;
   refreshWeather: () => Promise<void>;
+
+  // ── Language (persisted) ─────────────────────────────────────────────────
+  language: 'en' | 'vi';
+  setLanguage: (lang: 'en' | 'vi') => void;
 
   hydrate: () => Promise<void>;
 }
@@ -83,6 +123,7 @@ interface Persisted {
   unitPreference?: 'metric' | 'imperial';
   weatherContext?: WeatherContext | null;
   weatherLastFetched?: string | null;
+  language?: 'en' | 'vi';
 }
 
 function save(s: {
@@ -97,6 +138,7 @@ function save(s: {
   unitPreference: 'metric' | 'imperial';
   weatherContext: WeatherContext | null;
   weatherLastFetched: string | null;
+  language: 'en' | 'vi';
 }) {
   const data: Persisted = {
     savedSet: [...s.savedSet],
@@ -110,6 +152,7 @@ function save(s: {
     unitPreference: s.unitPreference,
     weatherContext: s.weatherContext,
     weatherLastFetched: s.weatherLastFetched,
+    language: s.language,
   };
   AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data)).catch(() => {});
 }
@@ -138,18 +181,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   wardrobeItems: [],
   wardrobeError: null,
   migrationProgress: null,
+  isOffline: false,
+  wornCooldownIds: [],
 
   addWardrobeItem: async (input) => {
-    // T015: offline guard
-    const netState = await NetInfo.fetch();
-    if (netState.isConnected === false) {
-      set({ wardrobeError: 'Adding items requires an internet connection' });
-      return;
-    }
-
+    // Feature 003: adding works offline. Free items are stored on-device; premium
+    // items are stored on-device first and uploaded to the cloud when possible
+    // (a failed/absent upload leaves the item 'local' for syncPendingPhotos to retry).
     set({ wardrobeError: null });
     try {
-      const item = await addItem(input);
+      const tier = useFitEngineStore.getState().premium ? 'premium' : 'free';
+      const item = await addItem(input, tier);
       set(s => ({ wardrobeItems: [item, ...s.wardrobeItems] }));
     } catch (err) {
       if (err instanceof WardrobeStorageError) {
@@ -176,32 +218,77 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  updateWardrobeItem: async (id, patch) => {
+    set({ wardrobeError: null });
+    try {
+      const updated = await updateItem(id, patch);
+      set(s => ({ wardrobeItems: s.wardrobeItems.map(i => i.id === id ? updated : i) }));
+    } catch (err) {
+      if (err instanceof WardrobeDbError) {
+        set({ wardrobeError: 'Failed to update item. Please try again.' });
+      } else {
+        set({ wardrobeError: 'Something went wrong. Please try again.' });
+      }
+    }
+  },
+
+  syncPendingPhotos: async () => {
+    if (!useFitEngineStore.getState().premium) return;
+    try {
+      const pending = await listPendingCloudUploads();
+      for (const it of pending) {
+        const updated = await promoteToCloud(it.id);
+        if (updated) {
+          set(s => ({ wardrobeItems: s.wardrobeItems.map(w => (w.id === updated.id ? updated : w)) }));
+        }
+      }
+    } catch (err) {
+      console.warn('[appStore] syncPendingPhotos failed:', err);
+    }
+  },
+
   // ── Outfit interaction ─────────────────────────────────────────────────────
   savedSet: new Set(['o2']),
   scheduledSet: new Set(),
   wornSet: new Set(),
   collectionsAddedSet: new Set(),
 
-  toggleSave: (id) => set((s) => {
-    const savedSet = new Set(s.savedSet);
-    savedSet.has(id) ? savedSet.delete(id) : savedSet.add(id);
-    save({ ...s, savedSet });
-    return { savedSet };
-  }),
+  toggleSave: (id) => {
+    set((s) => {
+      const savedSet = new Set(s.savedSet);
+      const wasSaved = savedSet.has(id);
+      wasSaved ? savedSet.delete(id) : savedSet.add(id);
+      save({ ...s, savedSet });
+      // Best-effort server sync
+      if (wasSaved) unsaveOutfit(id).catch(() => {});
+      else saveOutfit(id).catch(() => {});
+      return { savedSet };
+    });
+  },
 
-  toggleSchedule: (id) => set((s) => {
-    const scheduledSet = new Set(s.scheduledSet);
-    scheduledSet.has(id) ? scheduledSet.delete(id) : scheduledSet.add(id);
-    save({ ...s, scheduledSet });
-    return { scheduledSet };
-  }),
+  toggleSchedule: (id) => {
+    set((s) => {
+      const scheduledSet = new Set(s.scheduledSet);
+      const wasScheduled = scheduledSet.has(id);
+      wasScheduled ? scheduledSet.delete(id) : scheduledSet.add(id);
+      save({ ...s, scheduledSet });
+      if (wasScheduled) unscheduleOutfit(id).catch(() => {});
+      else scheduleOutfit(id, new Date().toISOString().split('T')[0]).catch(() => {});
+      return { scheduledSet };
+    });
+  },
 
-  toggleWorn: (id) => set((s) => {
-    const wornSet = new Set(s.wornSet);
-    wornSet.has(id) ? wornSet.delete(id) : wornSet.add(id);
-    save({ ...s, wornSet });
-    return { wornSet };
-  }),
+  toggleWorn: (id) => {
+    set((s) => {
+      const wornSet = new Set(s.wornSet);
+      const wasWorn = wornSet.has(id);
+      wasWorn ? wornSet.delete(id) : wornSet.add(id);
+      save({ ...s, wornSet });
+      if (wasWorn) unmarkWorn(id).catch(() => {});
+      else svcMarkWorn(id).catch(() => {});
+      return { wornSet };
+    });
+  },
 
   wornHistory: [],
   markWorn: (outfitId) => set((s) => {
@@ -209,6 +296,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const wornHistory = [entry, ...s.wornHistory];
     const wornSet = new Set(s.wornSet);
     wornSet.add(outfitId);
+    svcMarkWorn(outfitId).catch(() => {});
     save({ ...s, wornHistory, wornSet });
     return { wornHistory, wornSet };
   }),
@@ -235,10 +323,107 @@ export const useAppStore = create<AppState>((set, get) => ({
     return { scheduleMap };
   }),
 
+  // ── Collections ────────────────────────────────────────────────────────────
+  // Server-persisted (Supabase) with a local cache for read-only offline. Mutations
+  // update local state optimistically and best-effort sync to the server; the next
+  // hydrate reconciles from the server when authenticated.
   collections: COLLECTIONS,
+  collectionsError: null,
+
+  createCollection: async (name, description) => {
+    set({ collectionsError: null });
+    try {
+      const created = await svcCreateCollection(name, description);
+      const col: Collection = created ?? {
+        id: crypto.randomUUID(),
+        name,
+        description,
+        createdDate: createdLabel(new Date().toISOString()),
+        itemIds: [],
+      };
+      set((s) => {
+        const collections = [col, ...s.collections];
+        save({ ...s, collections });
+        return { collections };
+      });
+    } catch {
+      set({ collectionsError: 'Failed to create collection. Please try again.' });
+    }
+  },
+
+  updateCollection: async (id, patch) => {
+    set((s) => {
+      const collections = s.collections.map(c => c.id === id ? { ...c, ...patch } : c);
+      save({ ...s, collections });
+      return { collections };
+    });
+    try {
+      await svcUpdateCollection(id, patch);
+    } catch {
+      set({ collectionsError: 'Failed to save collection. Please try again.' });
+    }
+  },
+
+  deleteCollection: async (id) => {
+    set((s) => {
+      const collections = s.collections.filter(c => c.id !== id);
+      save({ ...s, collections });
+      return { collections };
+    });
+    try {
+      await svcDeleteCollection(id);
+    } catch {
+      set({ collectionsError: 'Failed to delete collection. Please try again.' });
+    }
+  },
+
+  addItemToCollection: async (collectionId, itemId) => {
+    set((s) => {
+      const collections = s.collections.map(c =>
+        c.id === collectionId && !c.itemIds.includes(itemId)
+          ? { ...c, itemIds: [...c.itemIds, itemId] }
+          : c,
+      );
+      save({ ...s, collections });
+      return { collections };
+    });
+    try {
+      await svcAddItemToCollection(collectionId, itemId);
+    } catch {
+      set({ collectionsError: 'Failed to add item. Please try again.' });
+    }
+  },
+
+  removeItemFromCollection: async (collectionId, itemId) => {
+    set((s) => {
+      const collections = s.collections.map(c =>
+        c.id === collectionId
+          ? { ...c, itemIds: c.itemIds.filter(i => i !== itemId) }
+          : c,
+      );
+      save({ ...s, collections });
+      return { collections };
+    });
+    try {
+      await svcRemoveItemFromCollection(collectionId, itemId);
+    } catch {
+      set({ collectionsError: 'Failed to remove item. Please try again.' });
+    }
+  },
 
   // ── Preferences ────────────────────────────────────────────────────────────
   unitPreference: 'metric',
+
+  // ── Language ───────────────────────────────────────────────────────────────
+  language: 'en' as const,
+
+  setLanguage: (lang) => {
+    i18n.changeLanguage(lang);
+    set(s => {
+      save({ ...s, language: lang });
+      return { language: lang };
+    });
+  },
 
   // ── Weather ────────────────────────────────────────────────────────────────
   weatherContext: null,
@@ -268,6 +453,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // ── Hydration ─────────────────────────────────────────────────────────────
   hydrate: async () => {
+    // T075: Subscribe to network state changes
+    NetInfo.addEventListener(state => {
+      const wasOffline = get().isOffline;
+      set({ isOffline: state.isConnected === false });
+      // On reconnect, flush any photos that couldn't reach the cloud while offline.
+      if (wasOffline && state.isConnected) {
+        get().syncPendingPhotos().catch(() => {});
+      }
+    });
+
     try {
       // 1. Restore persisted local state
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -288,7 +483,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           unitPreference:      data.unitPreference ?? 'metric',
           weatherContext:      data.weatherContext ?? null,
           weatherLastFetched:  data.weatherLastFetched ?? null,
+          language:            data.language ?? 'en',
         });
+        if (data.language) i18n.changeLanguage(data.language);
       }
 
       // 2. Fetch remote wardrobe (requires auth)
@@ -299,14 +496,44 @@ export const useAppStore = create<AppState>((set, get) => ({
         // Not authenticated or network failure — continue with empty wardrobe
       }
 
+      // 2a. Hydrate outfit interactions from server
+      try {
+        const [interactions, cooldownIds] = await Promise.all([
+          fetchInteractions(),
+          fetchWornCooldownIds(),
+        ]);
+        const savedSet = new Set<string>();
+        const wornSet  = new Set<string>();
+        const scheduledSet = new Set<string>();
+        for (const i of interactions) {
+          if (i.type === 'saved')     savedSet.add(i.outfitId);
+          if (i.type === 'worn')      wornSet.add(i.outfitId);
+          if (i.type === 'scheduled') scheduledSet.add(i.outfitId);
+        }
+        set({ savedSet, wornSet, scheduledSet, wornCooldownIds: cooldownIds });
+      } catch {
+        // Not authenticated — keep local sets
+      }
+
+      // 2b. Fetch remote collections (requires auth). null = not authenticated →
+      // keep the cached/demo collections; [] = authenticated with none.
+      try {
+        const remoteCollections = await fetchMyCollections();
+        if (remoteCollections !== null) set({ collections: remoteCollections });
+      } catch {
+        // Network failure — keep cached collections
+      }
+
       // 3. T016: First-boot migration from AsyncStorage to Supabase
       const migrated = await AsyncStorage.getItem(MIGRATION_FLAG_KEY);
       if (!migrated && legacyUserItems.length > 0) {
         const total = legacyUserItems.length;
         set({ migrationProgress: { done: 0, total } });
 
+        const legacyTier = useFitEngineStore.getState().premium ? 'premium' : 'free';
         const migratedItems = await migrateLocalItems(
           legacyUserItems as unknown as LegacyLocalItem[],
+          legacyTier,
           (done, t) => set({ migrationProgress: { done, total: t } }),
         );
 
@@ -325,6 +552,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.warn('[appStore] hydrate failed:', err);
     } finally {
       set({ hydrated: true });
+      // Premium: opportunistically push any local-only photos to the cloud.
+      get().syncPendingPhotos().catch(() => {});
     }
   },
 }));

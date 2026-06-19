@@ -40,7 +40,7 @@ export default function SplashScreen() {
       {/* Bottom brand area */}
       <View style={styles.brandArea}>
         <Animated.Text style={[styles.brand, { opacity, transform: [{ translateY }] }]}>
-          TRUE CLOTHES
+          MIEN
         </Animated.Text>
         <Animated.Text style={[styles.tagline, { opacity: subtitleOpacity }]}>
           A more considered way to dress.

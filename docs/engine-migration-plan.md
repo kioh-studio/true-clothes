@@ -216,14 +216,65 @@ Per request, the function loads:
 
 ---
 
+## Phase 2 (Product Features) — New Scoring Dimensions
+
+These additions were implemented in the `002-product-features` branch and MUST be kept in sync between `src/services/fitEngine/` (legacy local path) and `supabase/functions/generate-outfits/engine/` (authoritative backend).
+
+### New scoring dimensions
+
+| Dimension | File | Weight | Description |
+|---|---|---|---|
+| Body shape | `scoring.ts` | Boost | Items whose proportions are compatible with `body_shape` get a score boost (e.g., triangle → score up A-line bottoms) |
+| Personal palette | `colorHarmony.ts` | ×1.3 | Outfits whose item colors overlap `personal_palette` receive a 30% score boost |
+| Formula weights | `scoring.ts` + `ranking.ts` | Variable | Selected formula slug (`color_harmony`, `rule_of_thirds`, `proportion_balance`, `monochrome`) adjusts scorer weights at request time |
+
+### New request payload fields (Edge Function)
+
+```
+POST /functions/v1/generate-outfits
+Body:
+{
+  exclude_ids?: string[]        // outfit IDs to skip (seen + recently worn)
+  worn_cooldown_ids?: string[]  // outfit IDs worn within last 7 days
+  formula_id?: string           // UUID from public.formulas; null = default weights
+  intent_context?: IntentContext // forward-compat hook for future AI chat
+}
+```
+
+### New response fields
+
+```
+{
+  outfits: ScoredOutfit[]  // exactly 10 (or fewer if pool exhausted)
+  has_more: boolean        // true if more outfits remain after this batch
+}
+```
+
+### Pagination + dedup
+
+- Response capped at **10 outfits** per request (down from 24).
+- Client tracks `shownOutfitIds` in AsyncStorage and sends as `exclude_ids`.
+- When server returns < 3 outfits, client flushes `shownOutfitIds` for a fresh cycle.
+- `worn_cooldown_ids` = outfit IDs with `worn_at` within last 7 days (from `outfit_interactions`).
+
+### Server-backed outfit interactions
+
+Outfit save / worn / scheduled state is now persisted to `public.outfit_interactions`.
+`appStore` optimistically updates local Sets and fires best-effort server sync.
+On hydrate, server state wins over local AsyncStorage state.
+
+---
+
 ## Summary
 
-| Metric | Before (all client) | After (client + backend) |
-|---|---|---|
-| Client files | 30 | 10 |
-| Client lines | 5,373 | ~960 |
-| Backend files | 0 | 7 |
-| Backend lines | 0 | ~1,480 |
-| Engine runs on | User's phone | Supabase Edge Function |
-| Config data lives in | Hardcoded TypeScript | Database (admin-editable) |
-| Update engine behavior | Code deploy to app stores | Update DB row (instant) |
+| Metric | Before (all client) | After Phase 1 (client + backend) | After Phase 2 additions |
+|---|---|---|---|
+| Client files | 30 | 10 | 15 (+5 services/hooks) |
+| Client lines | 5,373 | ~960 | ~1,800 |
+| Backend files | 0 | 7 | 8 (+extract-garments) |
+| Backend lines | 0 | ~1,480 | ~1,680 |
+| Engine runs on | User's phone | Supabase Edge Function | Supabase Edge Function |
+| Config data lives in | Hardcoded TypeScript | Database (admin-editable) | Database (admin-editable) |
+| Update engine behavior | Code deploy to app stores | Update DB row (instant) | Update DB row (instant) |
+| Scoring dimensions | 7 | 7 | 9 (+ body shape, + personal palette) |
+| Outfits per response | 24 | 24 | 10 with pagination |

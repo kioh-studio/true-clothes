@@ -1,8 +1,8 @@
-# True Clothes — CLAUDE.md
+# MIEN — CLAUDE.md
 
 ## App Concept
 
-**True Clothes** is a personal fashion recommendation app. It collects the user's body measurements, style preferences, and color palette, then uses their existing wardrobe to suggest outfits they can actually wear today — filtered by weather, mood, and occasion.
+**MIEN** is a personal fashion recommendation app. It collects the user's body measurements, style preferences, and color palette, then uses their existing wardrobe to suggest outfits they can actually wear today — filtered by weather, mood, and occasion.
 
 The core loop:
 1. User inputs measurements, style, and color preferences during onboarding.
@@ -226,5 +226,8 @@ OutfitSuggestion {
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/001-app-baseline/plan.md
+at specs/006-ai-item-extraction/plan.md
+
+The previous feature plan is at specs/005-wardrobe-add-item-screens/plan.md
+The baseline plan (phases 1–7, complete) is at specs/001-app-baseline/plan.md
 <!-- SPECKIT END -->

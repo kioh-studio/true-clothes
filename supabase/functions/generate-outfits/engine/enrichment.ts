@@ -14,7 +14,8 @@ const CATEGORY_MAP: Record<string, ItemCategory> = {
   TEE: 'top', POLO: 'top', KNIT: 'top', SHIRT: 'top', BLOUSE: 'top', VEST: 'top',
   SWEATER: 'top', CARDIGAN: 'top', HENLEY: 'top',
   JACKET: 'outwear', BLAZER: 'outwear', COAT: 'outwear', HOODIE: 'outwear', PARKA: 'outwear', OVERCOAT: 'outwear',
-  JEANS: 'bottom', TROUSERS: 'bottom', CHINOS: 'bottom', SHORTS: 'bottom', SKIRT: 'bottom', DRESS: 'bottom',
+  JEANS: 'bottom', TROUSERS: 'bottom', CHINOS: 'bottom', SHORTS: 'bottom', SKIRT: 'bottom',
+  DRESS: 'onepiece', JUMPSUIT: 'onepiece', OVERALLS: 'onepiece', GOWN: 'onepiece',
   LOAFERS: 'shoes', SNEAKERS: 'shoes', BOOTS: 'shoes', HEELS: 'shoes', SANDALS: 'shoes', OXFORDS: 'shoes', MULES: 'shoes',
   BAG: 'accessory', BELT: 'accessory', SCARF: 'accessory', WATCH: 'accessory', CAP: 'accessory',
   NECKLACE: 'accessory', SUNGLASSES: 'accessory', HAT: 'accessory', RING: 'accessory', BRACELET: 'accessory',
@@ -69,8 +70,15 @@ const COLOR_MAP: Record<string, ColorEntry> = {
   Natural:    ['natural',   'light',  'muted',     45,        15,  82,  'warm'],
 };
 
+// Case-insensitive lookup — DB values are Title Case today, but AI extraction
+// or future imports may store lowercase. Falling through to the default profile
+// silently destroys the color signal, so normalize instead.
+const COLOR_MAP_LC: Record<string, ColorEntry> = Object.fromEntries(
+  Object.entries(COLOR_MAP).map(([k, v]) => [k.toLowerCase(), v]),
+);
+
 export const colorProfileOf = (colorName: string): ColorProfile => {
-  const entry = COLOR_MAP[colorName];
+  const entry = colorName ? COLOR_MAP_LC[colorName.trim().toLowerCase()] : undefined;
   if (entry) {
     return {
       primaryColor: entry[0], colorLightness: entry[1], colorSaturation: entry[2],
@@ -84,6 +92,14 @@ export const colorProfileOf = (colorName: string): ColorProfile => {
 };
 
 // ─── Fabric profile ──────────────────────────────────────────────────────────
+
+// First material segment, normalized to Title Case so map lookups survive
+// lowercase or uppercase DB values ('cotton/wool' → 'Cotton').
+function primaryMaterial(material: string | undefined): string | undefined {
+  const mat = material?.split(/[\/,]/)[0]?.trim();
+  if (!mat) return undefined;
+  return mat.charAt(0).toUpperCase() + mat.slice(1).toLowerCase();
+}
 
 type FabricDefaults = Pick<FabricProfile, 'fabricWeight' | 'breathability'>;
 
@@ -108,11 +124,11 @@ const SEASON_BY_WEIGHT: Record<FabricProfile['fabricWeight'], SeasonType> = {
 };
 
 const LAYER_BY_CATEGORY: Record<ItemCategory, FabricProfile['layerRole']> = {
-  top: 'base', bottom: 'base', shoes: 'base', accessory: 'base', outwear: 'outer',
+  top: 'base', bottom: 'base', shoes: 'base', accessory: 'base', outwear: 'outer', onepiece: 'base',
 };
 
 const fabricProfileOf = (material: string | undefined, category: ItemCategory): FabricProfile => {
-  const mat = material?.split(/[\/,]/)[0]?.trim();
+  const mat = primaryMaterial(material);
   const def: Partial<FabricDefaults> = mat ? (FABRIC_DEFAULTS[mat] ?? {}) : {};
   const weight: FabricProfile['fabricWeight'] = def.fabricWeight ?? 'medium';
   return {
@@ -170,6 +186,10 @@ const COLOR_STYLE_BOOSTS: Record<string, string[]> = {
   Brown:     ['oldmoney', 'bohemian'],
 };
 
+const COLOR_KEY_LC: Record<string, string> = Object.fromEntries(
+  Object.keys(COLOR_STYLE_BOOSTS).map(k => [k.toLowerCase(), k]),
+);
+
 const MATERIAL_STYLE_BOOSTS: Record<string, string[]> = {
   Leather:  ['streetwear', 'oldmoney'],
   Wool:     ['oldmoney', 'preppy'],
@@ -184,14 +204,13 @@ export function styleTagsOf(type: string, color?: string, material?: string): st
   if (!color && !material) return baseTags;
 
   const boosts = new Set<string>();
-  if (color && COLOR_STYLE_BOOSTS[color]) {
-    COLOR_STYLE_BOOSTS[color].forEach(t => boosts.add(t));
+  const colorKey = color ? COLOR_KEY_LC[color.trim().toLowerCase()] : undefined;
+  if (colorKey && COLOR_STYLE_BOOSTS[colorKey]) {
+    COLOR_STYLE_BOOSTS[colorKey].forEach(t => boosts.add(t));
   }
-  if (material) {
-    const mat = material.split(/[\/,]/)[0]?.trim();
-    if (mat && MATERIAL_STYLE_BOOSTS[mat]) {
-      MATERIAL_STYLE_BOOSTS[mat].forEach(t => boosts.add(t));
-    }
+  const mat = primaryMaterial(material);
+  if (mat && MATERIAL_STYLE_BOOSTS[mat]) {
+    MATERIAL_STYLE_BOOSTS[mat].forEach(t => boosts.add(t));
   }
 
   const reinforced = baseTags.filter(t => boosts.has(t));
@@ -271,11 +290,11 @@ const MATERIAL_WARMTH: Record<string, number> = {
   Wool: 4, Leather: 4, Canvas: 3, Fleece: 5, Cashmere: 5,
 };
 const CATEGORY_WARMTH: Record<string, number> = {
-  top: 2, bottom: 3, outwear: 4, shoes: 2, accessory: 1,
+  top: 2, bottom: 3, outwear: 4, shoes: 2, accessory: 1, onepiece: 3,
 };
 
 function deriveWarmth(material: string | undefined, category: ItemCategory): number {
-  const mat = material?.split(/[\/,]/)[0]?.trim();
+  const mat = primaryMaterial(material);
   if (mat && MATERIAL_WARMTH[mat] !== undefined) return MATERIAL_WARMTH[mat];
   return CATEGORY_WARMTH[category] ?? 2;
 }
@@ -303,7 +322,7 @@ const COLOR_FORMALITY_SHIFT: Partial<Record<PrimaryColor, number>> = {
 function deriveFormality(type: string, color: PrimaryColor, material?: string): number {
   let base = TYPE_FORMALITY[type.toUpperCase()] ?? 2.5;
   base += COLOR_FORMALITY_SHIFT[color] ?? 0;
-  const mat = material?.split(/[\/,]/)[0]?.trim();
+  const mat = primaryMaterial(material);
   if (mat === 'Wool' || mat === 'Cashmere' || mat === 'Silk') base += 0.5;
   if (mat === 'Nylon' || mat === 'Fleece') base -= 0.5;
   if (mat === 'Denim') base -= 0.3;
@@ -352,8 +371,7 @@ const FABRIC_NAME_MAP: Record<string, FabricName> = {
 };
 
 function deriveFabricName(material: string | undefined): FabricName | undefined {
-  if (!material) return undefined;
-  const mat = material.split(/[\/,]/)[0]?.trim();
+  const mat = primaryMaterial(material);
   return mat ? FABRIC_NAME_MAP[mat] : undefined;
 }
 
@@ -393,18 +411,50 @@ function parseMeasurements(
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
+// ─── Stored ingest-time attributes ───────────────────────────────────────────
+// AI extraction (extract-garments) and manual entry persist `pattern` and
+// `warmth_season` on clothing_items. Stored values beat name-keyword guessing.
+
+const STORED_PATTERN_MAP: Record<string, Pattern> = {
+  solid: 'solid', striped: 'striped', stripe: 'striped',
+  plaid: 'plaid', houndstooth: 'plaid', tartan: 'plaid',
+  checked: 'checkered', checkered: 'checkered', check: 'checkered', gingham: 'checkered',
+  floral: 'floral', graphic: 'graphic',
+  print: 'abstract', abstract: 'abstract', camo: 'abstract', 'polka dot': 'abstract',
+};
+
+const WARMTH_SEASON_MAP: Record<string, Pick<FabricProfile, 'fabricWeight' | 'season'>> = {
+  lightweight_summer:     { fabricWeight: 'light',  season: 'summer' },
+  midweight_transitional: { fabricWeight: 'medium', season: 'allSeason' },
+  warm_winter:            { fabricWeight: 'heavy',  season: 'winter' },
+  all_season:             { fabricWeight: 'medium', season: 'allSeason' },
+};
+
+function resolvePattern(item: ClothingItemRow): Pattern {
+  const stored = item.pattern?.trim().toLowerCase();
+  if (stored && STORED_PATTERN_MAP[stored]) return STORED_PATTERN_MAP[stored];
+  return inferPattern(item.name);
+}
+
+function applyStoredWarmth(fabric: FabricProfile, item: ClothingItemRow): FabricProfile {
+  const stored = item.warmthSeason?.split(',')[0]?.trim().toLowerCase();
+  const override = stored ? WARMTH_SEASON_MAP[stored] : undefined;
+  return override ? { ...fabric, ...override } : fabric;
+}
+
 // ─── Build FitItem from ClothingItemRow ─────────────────────────────────────
 
 export function toFitItem(item: ClothingItemRow): FitItem {
   const category = categoryOf(item.type);
-  const pattern = inferPattern(item.name);
+  const pattern = resolvePattern(item);
   const graphics = inferGraphics(item.name);
-  const fabric = fabricProfileOf(item.material, category);
+  const fabric = applyStoredWarmth(fabricProfileOf(item.material, category), item);
   const colorProfile = colorProfileOf(item.color);
 
   return {
     id: item.id,
     category,
+    typeName: item.type.toUpperCase(),
     colorProfile,
     graphics,
     fabric: { ...fabric, pattern },

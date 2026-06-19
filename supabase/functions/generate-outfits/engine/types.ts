@@ -1,6 +1,6 @@
 // Engine-internal types — all measurements in centimeters.
 
-export type ItemCategory = 'top' | 'bottom' | 'outwear' | 'shoes' | 'accessory';
+export type ItemCategory = 'top' | 'bottom' | 'outwear' | 'shoes' | 'accessory' | 'onepiece';
 
 // ─── Color Profile ───────────────────────────────────────────────────────────
 
@@ -73,6 +73,8 @@ export interface GarmentMeasurements {
 
 export type PreferredFit = 'SLIM' | 'REGULAR' | 'RELAXED' | 'OVERSIZED';
 
+export type BodyShape = 'hourglass' | 'rectangle' | 'triangle' | 'inverted_triangle' | 'apple';
+
 export interface BodyMeasurements {
   body_height?: number;
   body_weight?: number;
@@ -90,6 +92,7 @@ export interface BodyMeasurements {
   body_foot_length?: number;
   body_foot_width?: number;
   preferredFit?: PreferredFit;
+  body_shape?: BodyShape;
 }
 
 // ─── Style Attribute Vectors ─────────────────────────────────────────────────
@@ -148,6 +151,7 @@ export interface StyleConfig {
 export interface FitItem {
   id: string;
   category: ItemCategory;
+  typeName: string;          // normalized garment type, e.g. 'TEE', 'BLAZER'
   colorProfile: ColorProfile;
   graphics: GraphicsProfile;
   fabric: FabricProfile;
@@ -179,6 +183,7 @@ export interface ScoredOutfit {
   slots: OutfitSlots;
   formula: string;
   tier: 1 | 2;
+  stylistNote?: string;
   styleCoherence: number;
   colorHarmony: number;
   fitScore: number;
@@ -200,6 +205,7 @@ export interface EngineContext {
   bodyMeasurements: BodyMeasurements;
   styleProfile: UserStyleProfile;
   colorPreferences: string[];
+  colorSeason?: string;
   intent?: IntentContext;
   scoringWeights?: ScoringWeights;
 }
@@ -263,5 +269,7 @@ export interface ClothingItemRow {
   color: string;
   material?: string;
   fit?: string;
+  pattern?: string | null;        // ingest-time attribute (AI extraction / manual)
+  warmthSeason?: string | null;   // 'lightweight_summer' | 'midweight_transitional' | 'warm_winter' | 'all_season'
   measurements?: Array<{ label: string; value: string | number; unit?: string }>;
 }

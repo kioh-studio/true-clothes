@@ -1,45 +1,24 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PrimaryButton, TextLink, Field, Segmented } from '../../src/components/ui';
 import { IconChevronLeft } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
-import { useFitEngineStore } from '../../src/stores/fitEngineStore';
+import { useMeasurements } from '../../src/features/measurements/useMeasurements';
+import { useTranslation } from '../../src/i18n';
 
 export default function MeasurementsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { setBodyMeasurements } = useFitEngineStore();
-  const [height, setHeight] = useState('');
-  const [weight, setWeight] = useState('');
-  const [heightUnit, setHeightUnit] = useState('CM');
-  const [weightUnit, setWeightUnit] = useState('KG');
-  const [chest, setChest] = useState('');
-  const [waist, setWaist] = useState('');
-  const [hips, setHips] = useState('');
-  const [inseam, setInseam] = useState('');
-  const [thigh, setThigh] = useState('');
-  const [rise, setRise] = useState('');
+  const { t } = useTranslation();
+  const { values, setField, bodyShape, consentGiven, setConsentGiven, save, saving } = useMeasurements();
+
+  const [heightUnit, setHeightUnit] = React.useState('CM');
+  const [weightUnit, setWeightUnit] = React.useState('KG');
 
   const handleContinue = async () => {
-    const heightCm = height
-      ? heightUnit === 'IN' ? parseFloat(height) * 2.54 : parseFloat(height)
-      : undefined;
-    const weightKg = weight
-      ? weightUnit === 'LB' ? parseFloat(weight) * 0.453592 : parseFloat(weight)
-      : undefined;
-
-    await setBodyMeasurements({
-      body_height: heightCm && !isNaN(heightCm) ? heightCm : undefined,
-      body_weight: weightKg && !isNaN(weightKg) ? weightKg : undefined,
-      body_bust:   chest  ? parseFloat(chest)  : undefined,
-      body_waist:  waist  ? parseFloat(waist)  : undefined,
-      body_hip:    hips   ? parseFloat(hips)   : undefined,
-      body_inseam: inseam ? parseFloat(inseam) : undefined,
-      body_thigh:  thigh  ? parseFloat(thigh)  : undefined,
-      body_rise:   rise   ? parseFloat(rise)   : undefined,
-    });
+    await save();
     router.push('/(onboarding)/styles');
   };
 
@@ -50,68 +29,87 @@ export default function MeasurementsScreen() {
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.2} />
         </Pressable>
         <Pressable onPress={() => router.push('/(onboarding)/styles')} style={styles.skipBtn}>
-          <Text style={styles.skipText}>SKIP</Text>
+          <Text style={styles.skipText}>{t('onboarding_measurements_skip')}</Text>
         </Pressable>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
         <View style={{ height: 32 }} />
-        <Text style={styles.h1}>Your measurements.</Text>
-        <Text style={styles.caption}>We use these to recommend items that fit your frame. Required fields are minimal.</Text>
+        <Text style={styles.h1}>{t('onboarding_measurements_title')}</Text>
+        <Text style={styles.caption}>{t('onboarding_measurements_subtitle')}</Text>
         <View style={{ height: 40 }} />
 
-        <Text style={styles.sectionLabel}>REQUIRED</Text>
+        <Text style={styles.sectionLabel}>{t('onboarding_measurements_required')}</Text>
         <View style={{ height: 16 }} />
 
         <View style={styles.fieldWithSegment}>
           <View style={{ flex: 1 }}>
-            <Field label="HEIGHT" value={height} onChange={setHeight} placeholder="—" suffix={heightUnit.toLowerCase()} keyboardType="number-pad" />
+            <Field label={t('onboarding_measurements_heightLabel')} value={values.body_height} onChange={(val) => setField('body_height', val)} placeholder={t('onboarding_measurements_heightPlaceholder')} suffix={heightUnit.toLowerCase()} keyboardType="number-pad" />
           </View>
           <Segmented options={['CM', 'IN']} value={heightUnit} onChange={setHeightUnit} />
         </View>
         <View style={{ height: 16 }} />
         <View style={styles.fieldWithSegment}>
           <View style={{ flex: 1 }}>
-            <Field label="WEIGHT" value={weight} onChange={setWeight} placeholder="—" suffix={weightUnit.toLowerCase()} keyboardType="number-pad" />
+            <Field label={t('onboarding_measurements_weightLabel')} value={values.body_weight} onChange={(val) => setField('body_weight', val)} placeholder={t('onboarding_measurements_weightPlaceholder')} suffix={weightUnit.toLowerCase()} keyboardType="number-pad" />
           </View>
           <Segmented options={['KG', 'LB']} value={weightUnit} onChange={setWeightUnit} />
         </View>
 
         <View style={{ height: 40 }} />
-        <Text style={styles.sectionLabel}>OPTIONAL — IMPROVES ACCURACY</Text>
+        <Text style={styles.sectionLabel}>{t('onboarding_measurements_optional')}</Text>
         <View style={{ height: 16 }} />
 
         <View style={styles.twoCol}>
           <View style={styles.colItem}>
-            <Field label="CHEST / BUST" value={chest} onChange={setChest} placeholder="— cm" keyboardType="number-pad" />
+            <Field label={t('onboarding_measurements_chestLabel')} value={values.body_bust} onChange={(val) => setField('body_bust', val)} placeholder={t('onboarding_measurements_chestPlaceholder')} keyboardType="number-pad" />
           </View>
           <View style={styles.colItem}>
-            <Field label="WAIST" value={waist} onChange={setWaist} placeholder="— cm" keyboardType="number-pad" />
+            <Field label={t('onboarding_measurements_waistLabel')} value={values.body_waist} onChange={(val) => setField('body_waist', val)} placeholder={t('onboarding_measurements_waistPlaceholder')} keyboardType="number-pad" />
           </View>
           <View style={styles.colItem}>
-            <Field label="HIPS" value={hips} onChange={setHips} placeholder="— cm" keyboardType="number-pad" />
+            <Field label={t('onboarding_measurements_hipsLabel')} value={values.body_hip} onChange={(val) => setField('body_hip', val)} placeholder={t('onboarding_measurements_hipsPlaceholder')} keyboardType="number-pad" />
           </View>
           <View style={styles.colItem}>
-            <Field label="INSEAM" value={inseam} onChange={setInseam} placeholder="— cm" keyboardType="number-pad" />
+            <Field label={t('onboarding_measurements_inseamLabel')} value={values.body_inseam} onChange={(val) => setField('body_inseam', val)} placeholder={t('onboarding_measurements_inseamPlaceholder')} keyboardType="number-pad" />
           </View>
           <View style={styles.colItem}>
-            <Field label="THIGH" value={thigh} onChange={setThigh} placeholder="— cm" keyboardType="number-pad" />
+            <Field label={t('onboarding_measurements_thighLabel')} value={values.body_thigh} onChange={(val) => setField('body_thigh', val)} placeholder={t('onboarding_measurements_thighPlaceholder')} keyboardType="number-pad" />
           </View>
           <View style={styles.colItem}>
-            <Field label="RISE" value={rise} onChange={setRise} placeholder="— cm" keyboardType="number-pad" />
+            <Field label={t('onboarding_measurements_riseLabel')} value={values.body_rise} onChange={(val) => setField('body_rise', val)} placeholder={t('onboarding_measurements_risePlaceholder')} keyboardType="number-pad" />
           </View>
         </View>
 
+        {bodyShape && (
+          <View style={styles.bodyShapeBadge}>
+            <Text style={styles.bodyShapeLabel}>BODY SHAPE</Text>
+            <Text style={styles.bodyShapeValue}>{bodyShape.replace('_', ' ').toUpperCase()}</Text>
+          </View>
+        )}
+
+        <View style={{ height: 32 }} />
+
+        {/* Consent */}
+        <Pressable style={styles.consentRow} onPress={() => setConsentGiven(!consentGiven)}>
+          <View style={[styles.checkbox, consentGiven && styles.checkboxChecked]}>
+            {consentGiven && <Text style={styles.checkmark}>✓</Text>}
+          </View>
+          <Text style={styles.consentText}>I consent to my measurements being stored securely.</Text>
+        </Pressable>
+
         <View style={{ height: 32 }} />
         <View style={{ alignItems: 'center' }}>
-          <TextLink color={T.color.primary} arrow>Estimate with AI photo capture</TextLink>
+          <TextLink color={T.color.primary} arrow>{t('onboarding_measurements_aiCapture')}</TextLink>
           <Text style={[type.caption, { fontSize: 11, color: T.color.tertiary, marginTop: 8, textAlign: 'center' }]}>
-            Take a photo in fitted clothing. We'll estimate measurements with on-device AI.
+            {t('onboarding_measurements_aiCaptureDesc')}
           </Text>
         </View>
 
         <View style={{ height: 48 }} />
-        <PrimaryButton onPress={handleContinue}>CONTINUE</PrimaryButton>
+        <PrimaryButton onPress={handleContinue} disabled={saving || !consentGiven}>
+          {saving ? 'SAVING…' : t('onboarding_measurements_continue')}
+        </PrimaryButton>
       </ScrollView>
     </View>
   );
@@ -131,4 +129,15 @@ const styles = StyleSheet.create({
   fieldWithSegment: { flexDirection: 'row', alignItems: 'flex-start', gap: 16 },
   twoCol: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
   colItem: { width: '47%' },
+  bodyShapeBadge: { marginTop: 24, alignItems: 'flex-start' },
+  bodyShapeLabel: { ...type.ui, fontSize: 10, color: T.color.tertiary, marginBottom: 4 },
+  bodyShapeValue: { fontFamily: T.font.serif, fontSize: 20, fontWeight: '300', color: T.color.primary },
+  consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  checkbox: {
+    width: 20, height: 20, borderWidth: 0.5, borderColor: T.color.hairline,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2,
+  },
+  checkboxChecked: { backgroundColor: T.color.primary, borderColor: T.color.primary },
+  checkmark: { color: T.color.canvas, fontSize: 12 },
+  consentText: { ...type.caption, flex: 1 },
 });

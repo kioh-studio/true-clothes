@@ -17,6 +17,14 @@ export const T = {
     error: '#8B3A30',
     info: '#4A5D6B',
     sheetDim: 'rgba(26, 24, 21, 0.45)',
+    season: {
+      spring: '#8B7355',
+      summer: '#6B7B8B',
+      autumn: '#A0673A',
+      winter: '#3A4A5C',
+    },
+    offlineBg: '#EDE8DF',
+    extractionIndicator: '#4A5D6B',
   },
   font: {
     serif: 'CormorantGaramond_400Regular' as const,

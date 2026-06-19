@@ -13,6 +13,7 @@ export default function OnboardingLayout() {
       <Stack.Screen name="colors" />
       <Stack.Screen name="complete" />
       <Stack.Screen name="wardrobe-intro" />
+      <Stack.Screen name="personal-color" />
     </Stack>
   );
 }

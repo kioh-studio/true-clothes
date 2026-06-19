@@ -18,10 +18,16 @@ import {
   type AuthResult,
 } from '../services/authService';
 import {
+  fetchMyMeasurements, upsertMyMeasurements,
+} from '../services/measurementService';
+import type { BodyMeasurements } from '../types/measurements';
+import {
   fetchMyProfile, updateMyProfile, markOnboardingComplete,
+  uploadAvatar as svcUploadAvatar,
   dobIsoToApp, joinLocation,
   type ProfilePatch,
 } from '../services/profileService';
+import type { ColorSeason } from '../types/profile';
 import { sb } from '../services/supabase';
 import { DEMO_PHONE, DEMO_EMAIL, DEMO_OTP, DEMO_PROFILE } from '../config/demo';
 
@@ -34,6 +40,12 @@ interface AuthState {
   gender: string;
   dob: string;       // "DD/MM/YYYY"
   location: string;  // "City, Country"
+  displayName: string;
+  avatarUrl: string | null;
+  avatarPath: string | null;
+  colorSeason: ColorSeason | null;
+  personalPalette: string[];
+  measurements: BodyMeasurements | null;
   // OTP flow state
   pendingPhone: string;
   pendingEmail: string;
@@ -44,6 +56,10 @@ interface AuthState {
   sendOtp: (phoneInput: string, email: string) => Promise<AuthResult>;
   verifyOtp: (code: string) => Promise<AuthResult>;
   setProfile: (profile: ProfilePatch) => Promise<{ ok: boolean; message?: string }>;
+  updateProfile: (patch: ProfilePatch) => Promise<{ ok: boolean; message?: string }>;
+  uploadAvatar: (localUri: string) => Promise<void>;
+  savePersonalColor: (result: { season: ColorSeason; palette: string[] }) => Promise<void>;
+  saveMeasurements: (m: BodyMeasurements) => Promise<void>;
   completeOnboarding: () => Promise<{ ok: boolean; message?: string }>;
   logout: () => Promise<void>;
   deleteAccount: () => Promise<void>;
@@ -51,16 +67,25 @@ interface AuthState {
 }
 
 async function hydrateProfile(set: (s: Partial<AuthState>) => void, userId: string) {
-  const row = await fetchMyProfile(userId);
+  const [row, mRow] = await Promise.all([
+    fetchMyProfile(userId),
+    fetchMyMeasurements(userId),
+  ]);
   if (!row) return;
   set({
     isLoggedIn: true,
     onboardingComplete: row.onboarding_complete ?? false,
-    phone:    row.phone || '',
-    email:    row.email || '',
-    gender:   row.gender || '',
-    dob:      dobIsoToApp(row.date_of_birth),
-    location: joinLocation(row.location_city, row.location_country),
+    phone:          row.phone || '',
+    email:          row.email || '',
+    gender:         row.gender || '',
+    dob:            dobIsoToApp(row.date_of_birth),
+    location:       joinLocation(row.location_city, row.location_country),
+    displayName:    row.display_name || '',
+    avatarUrl:      row.avatar_url ?? null,
+    avatarPath:     row.avatar_path ?? null,
+    colorSeason:    (row.color_season as ColorSeason | null) ?? null,
+    personalPalette: row.personal_palette ?? [],
+    measurements:   mRow as import('./authStore').AuthState['measurements'],
   });
 }
 
@@ -72,6 +97,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   gender: '',
   dob: '',
   location: '',
+  displayName: '',
+  avatarUrl: null,
+  avatarPath: null,
+  colorSeason: null,
+  personalPalette: [],
+  measurements: null,
   pendingPhone: '',
   pendingEmail: '',
   pendingAuthMethod: '',
@@ -157,6 +188,46 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return res;
   },
 
+  updateProfile: async (patch) => {
+    const userId = await getCurrentUserId();
+    if (!userId) return { ok: false, message: 'Not signed in.' };
+    const res = await updateMyProfile(userId, patch);
+    if (res.ok) {
+      const local: Partial<AuthState> = {};
+      if (patch.email        !== undefined) local.email       = patch.email;
+      if (patch.gender       !== undefined) local.gender      = patch.gender;
+      if (patch.dob          !== undefined) local.dob         = patch.dob;
+      if (patch.location     !== undefined) local.location    = patch.location;
+      if (patch.displayName  !== undefined) local.displayName = patch.displayName ?? '';
+      if (patch.colorSeason  !== undefined) local.colorSeason = (patch.colorSeason as ColorSeason | null) ?? null;
+      if (patch.personalPalette !== undefined) local.personalPalette = patch.personalPalette;
+      if (Object.keys(local).length) set(local);
+    }
+    return res;
+  },
+
+  uploadAvatar: async (localUri) => {
+    const userId = await getCurrentUserId();
+    if (!userId) throw new Error('Not signed in.');
+    const { avatarPath: currentPath } = get();
+    const { avatarUrl, avatarPath } = await svcUploadAvatar(userId, localUri, currentPath);
+    set({ avatarUrl, avatarPath });
+  },
+
+  savePersonalColor: async (result) => {
+    const userId = await getCurrentUserId();
+    if (!userId) return;
+    await updateMyProfile(userId, { colorSeason: result.season, personalPalette: result.palette });
+    set({ colorSeason: result.season, personalPalette: result.palette });
+  },
+
+  saveMeasurements: async (m) => {
+    const userId = await getCurrentUserId();
+    if (!userId) return;
+    await upsertMyMeasurements(userId, m as import('../types/fitEngine').BodyMeasurements);
+    set({ measurements: m });
+  },
+
   completeOnboarding: async () => {
     const userId = await getCurrentUserId();
     if (!userId) return { ok: false, message: 'Not signed in.' };
@@ -170,6 +241,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({
       isLoggedIn: false, onboardingComplete: false,
       phone: '', email: '', gender: '', dob: '', location: '',
+      displayName: '', avatarUrl: null, avatarPath: null, colorSeason: null, personalPalette: [], measurements: null,
       pendingPhone: '', pendingEmail: '', pendingAuthMethod: '',
     });
   },
@@ -186,6 +258,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({
       isLoggedIn: false, onboardingComplete: false,
       phone: '', email: '', gender: '', dob: '', location: '',
+      displayName: '', avatarUrl: null, avatarPath: null, colorSeason: null, personalPalette: [], measurements: null,
       pendingPhone: '', pendingEmail: '', pendingAuthMethod: '',
     });
   },
@@ -208,6 +281,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({
           isLoggedIn: false, onboardingComplete: false,
           phone: '', email: '', gender: '', dob: '', location: '',
+          displayName: '', avatarUrl: null, avatarPath: null, colorSeason: null, personalPalette: [], measurements: null,
         });
       }
     });

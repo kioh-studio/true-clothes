@@ -1,46 +1,57 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Image, FlatList, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Image, FlatList, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { T, type } from '../../src/design/tokens';
-import { OUTFITS, ClothingItem, PHOTOS } from '../../src/data';
+import { PHOTOS } from '../../src/data';
+import { WardrobeItem } from '../../src/types/fitEngine';
 import { BottomNav } from '../../src/components/ui/BottomNav';
-import { BottomSheet, PrimaryButton, SecondaryButton, TextLink, Tag, Field, Photo } from '../../src/components/ui';
+import { BottomSheet, PrimaryButton, TextLink, Tag, Field, Photo } from '../../src/components/ui';
 import { IconSearch, IconPlus, IconChevronLeft, IconCamera, IconImage, IconReceipt, IconChevronRight } from '../../src/components/icons';
 import { useAppStore } from '../../src/stores/appStore';
+import { useItemPhoto } from '../../src/features/wardrobe-photos';
+import { useGridCardWidth } from '../../src/design/layout';
 
-const { width: W } = Dimensions.get('window');
-const CARD_W = (W - 24 * 2 - 12) / 2;
-
-const FILTERS = ['ALL', 'TOPS', 'BOTTOMS', 'OUTERWEAR', 'FOOTWEAR', 'ACCESSORIES'];
-const FILTER_TYPES: Record<string, string[]> = {
-  TOPS: ['SHIRT', 'KNIT', 'TEE', 'POLO', 'HENLEY'],
-  BOTTOMS: ['JEANS', 'TROUSERS', 'CHINOS'],
-  OUTERWEAR: ['BLAZER', 'COAT', 'JACKET'],
-  FOOTWEAR: ['LOAFERS', 'SNEAKERS'],
-  ACCESSORIES: ['BELT', 'SCARF', 'BAG', 'WATCH', 'NECKLACE', 'SUNGLASSES', 'CAP'],
+const FILTERS = ['ALL', 'TOPS', 'BOTTOMS', 'OUTERWEAR', 'DRESSES', 'FOOTWEAR', 'ACCESSORIES', 'HEADWEAR'];
+const FILTER_CATS: Record<string, WardrobeItem['category']> = {
+  TOPS: 'top',
+  BOTTOMS: 'bottom',
+  OUTERWEAR: 'outerwear',
+  DRESSES: 'dress',
+  FOOTWEAR: 'footwear',
+  ACCESSORIES: 'accessory',
+  HEADWEAR: 'headwear',
 };
 
-function ItemCard({ item, onPress }: { item: ClothingItem; onPress: () => void }) {
+function mapTypeToCategory(type: string): WardrobeItem['category'] {
+  const t = type.toLowerCase();
+  if (['shirt', 'knit', 'tee', 'polo', 'henley'].includes(t)) return 'top';
+  if (['jeans', 'trousers', 'chinos'].includes(t)) return 'bottom';
+  if (['blazer', 'coat', 'jacket'].includes(t)) return 'outerwear';
+  if (['loafers', 'sneakers'].includes(t)) return 'footwear';
+  return 'accessory';
+}
+
+function WardrobeItemCard({ item, onPress }: { item: WardrobeItem; onPress: () => void }) {
+  const CARD_W = useGridCardWidth();
+  const { source, status } = useItemPhoto(item);
   return (
     <Pressable onPress={onPress} style={[styles.itemCard, { width: CARD_W }]}>
       <View style={styles.itemThumb}>
-        {item.png ? (
-          <Image source={item.png} style={styles.itemImg} resizeMode="contain" />
-        ) : item.img ? (
-          <Image source={{ uri: item.img }} style={styles.itemImg} resizeMode="cover" />
+        {status === 'ready' && source ? (
+          <Image source={source} style={styles.itemImg} resizeMode="cover" />
         ) : (
-          <Text style={styles.itemTypeFallback}>{item.type}</Text>
+          <Text style={styles.itemTypeFallback}>{item.category.toUpperCase()}</Text>
         )}
       </View>
       <View style={{ padding: 4, paddingTop: 12 }}>
-        <Text style={styles.itemType}>{item.type}</Text>
+        <Text style={styles.itemType}>{item.category.toUpperCase()}</Text>
         <View style={{ height: 4 }} />
-        <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.itemName} numberOfLines={1}>{item.notes ?? item.category}</Text>
         <View style={{ height: 4 }} />
-        <Text style={styles.itemMeta}>Worn {item.wornCount}× · Added {item.addedDate}</Text>
+        <Text style={styles.itemMeta}>{item.colors.join(', ')}{item.brand ? ` · ${item.brand}` : ''}</Text>
       </View>
     </Pressable>
   );
@@ -49,27 +60,39 @@ function ItemCard({ item, onPress }: { item: ClothingItem; onPress: () => void }
 export default function WardrobeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { items, addItem } = useAppStore();
+  const { wardrobeItems, addWardrobeItem, wardrobeError } = useAppStore();
   const [filter, setFilter] = useState('ALL');
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const filtered = filter === 'ALL' ? items
-    : items.filter(i => (FILTER_TYPES[filter] || []).includes(i.type));
+  const filtered = filter === 'ALL'
+    ? wardrobeItems
+    : wardrobeItems.filter(i => i.category === FILTER_CATS[filter]);
 
   const visible = search
-    ? filtered.filter(i => i.name.toLowerCase().includes(search.toLowerCase()) || i.type.toLowerCase().includes(search.toLowerCase()))
+    ? filtered.filter(i =>
+      i.category.toLowerCase().includes(search.toLowerCase()) ||
+      (i.notes ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      (i.brand ?? '').toLowerCase().includes(search.toLowerCase())
+    )
     : filtered;
 
-  const counts: Record<string, number> = { ALL: items.length };
-  Object.keys(FILTER_TYPES).forEach(f => {
-    counts[f] = items.filter(i => (FILTER_TYPES[f] || []).includes(i.type)).length;
+  const counts: Record<string, number> = { ALL: wardrobeItems.length };
+  Object.keys(FILTER_CATS).forEach(f => {
+    counts[f] = wardrobeItems.filter(i => i.category === FILTER_CATS[f]).length;
   });
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* Error banner */}
+      {wardrobeError ? (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorBannerText}>{wardrobeError}</Text>
+        </View>
+      ) : null}
+
       {/* Nav */}
       <View style={styles.nav}>
         <Pressable onPress={() => setSearchOpen(v => !v)} style={styles.iconBtn}>
@@ -111,13 +134,13 @@ export default function WardrobeScreen() {
         ) : (
           <View style={styles.grid}>
             {visible.map(item => (
-              <ItemCard key={item.id} item={item} onPress={() => router.push(`/item/${item.id}`)} />
+              <WardrobeItemCard key={item.id} item={item} onPress={() => router.push(`/item/${item.id}` as any)} />
             ))}
           </View>
         )}
       </ScrollView>
 
-      {/* FAB — navigates to full add-item screen */}
+      {/* FAB — navigates to Add to Wardrobe wizard */}
       <Pressable onPress={() => router.push('/add-item' as any)} style={[styles.fab, { bottom: insets.bottom + 88 }]}>
         <IconPlus size={24} color={T.color.canvas} strokeWidth={1.4} />
       </Pressable>
@@ -127,17 +150,14 @@ export default function WardrobeScreen() {
         if (tab === 'profile') router.replace('/(tabs)/profile');
       }} onMenu={() => setMenuOpen(true)} />
 
-      <AddItemSheet open={addOpen} onClose={() => setAddOpen(false)} onAdded={(item) => {
-        addItem({
-          id: 'u_' + Date.now(),
-          type: (item.type || 'ITEM').toUpperCase(),
-          name: item.name || 'New item',
-          color: item.color || 'Beige',
-          material: item.material,
-          img: item.img,
-          tone: 0,
-          wornCount: 0,
-          addedDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+      <AddItemSheet open={addOpen} onClose={() => setAddOpen(false)} onAdded={async (item) => {
+        await addWardrobeItem({
+          localPhotoUri: item.img ?? null,
+          category: mapTypeToCategory(item.type ?? 'accessory'),
+          colors: [item.color ?? 'Unknown'],
+          sizeLabel: undefined,
+          brand: undefined,
+          notes: item.name || undefined,
         });
       }} />
     </View>
@@ -153,7 +173,7 @@ async function saveImageLocally(uri: string): Promise<string> {
     await FileSystem.copyAsync({ from: uri, to: dest });
     return dest;
   } catch {
-    return uri; // fallback to original URI
+    return uri;
   }
 }
 
@@ -162,13 +182,14 @@ const SIMULATED_ATTRS = {
   pattern: 'Solid', occasion: 'Smart casual', season: 'Spring, Summer',
 };
 
-function AddItemSheet({ open, onClose, onAdded }: { open: boolean; onClose: () => void; onAdded: (item: any) => void }) {
+function AddItemSheet({ open, onClose, onAdded }: { open: boolean; onClose: () => void; onAdded: (item: any) => Promise<void> }) {
   const [step, setStep] = useState<'method' | 'processing' | 'review'>('method');
   const [name, setName] = useState('');
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   React.useEffect(() => {
-    if (!open) setTimeout(() => { setStep('method'); setName(''); setImageUri(null); }, 500);
+    if (!open) setTimeout(() => { setStep('method'); setName(''); setImageUri(null); setSaving(false); }, 500);
   }, [open]);
 
   const pickAndProcess = async (uri: string) => {
@@ -183,13 +204,9 @@ function AddItemSheet({ open, onClose, onAdded }: { open: boolean; onClose: () =
     if (status !== 'granted') return;
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-      allowsEditing: true,
-      aspect: [3, 4],
+      quality: 0.8, allowsEditing: true, aspect: [3, 4],
     });
-    if (!result.canceled && result.assets[0]) {
-      await pickAndProcess(result.assets[0].uri);
-    }
+    if (!result.canceled && result.assets[0]) await pickAndProcess(result.assets[0].uri);
   };
 
   const launchLibrary = async () => {
@@ -197,13 +214,9 @@ function AddItemSheet({ open, onClose, onAdded }: { open: boolean; onClose: () =
     if (status !== 'granted') return;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-      allowsEditing: true,
-      aspect: [3, 4],
+      quality: 0.8, allowsEditing: true, aspect: [3, 4],
     });
-    if (!result.canceled && result.assets[0]) {
-      await pickAndProcess(result.assets[0].uri);
-    }
+    if (!result.canceled && result.assets[0]) await pickAndProcess(result.assets[0].uri);
   };
 
   return (
@@ -256,10 +269,14 @@ function AddItemSheet({ open, onClose, onAdded }: { open: boolean; onClose: () =
           <View style={{ height: 32 }} />
           <Field label="GIVE IT A NAME (OPTIONAL)" value={name} onChange={setName} placeholder="Beige linen blazer" />
           <View style={{ height: 32 }} />
-          <PrimaryButton onPress={() => {
-            onAdded({ ...SIMULATED_ATTRS, name, img: imageUri ?? undefined });
+          <PrimaryButton disabled={saving} onPress={async () => {
+            setSaving(true);
+            await onAdded({ ...SIMULATED_ATTRS, name, img: imageUri ?? undefined });
+            setSaving(false);
             onClose();
-          }}>ADD TO WARDROBE</PrimaryButton>
+          }}>
+            {saving ? 'SAVING…' : 'ADD TO WARDROBE'}
+          </PrimaryButton>
           <View style={{ height: 16 }} />
           <View style={{ alignItems: 'center' }}>
             <TextLink onPress={onClose} color={T.color.tertiary}>Cancel</TextLink>
@@ -272,6 +289,8 @@ function AddItemSheet({ open, onClose, onAdded }: { open: boolean; onClose: () =
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: T.color.canvas },
+  errorBanner: { backgroundColor: '#B0413E', paddingHorizontal: 16, paddingVertical: 8 },
+  errorBannerText: { ...type.caption, fontSize: 12, color: '#FFF', textAlign: 'center' },
   nav: { height: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 },
   iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   title: { fontFamily: T.font.serif, fontSize: 20, fontWeight: '400', color: T.color.primary },

@@ -1,13 +1,13 @@
 {
   "expo": {
-    "name": "True Clothes",
-    "slug": "true-clothes",
+    "name": "MIEN",
+    "slug": "mien",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "scheme": "trueclothes",
+    "scheme": "mien",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -33,8 +33,14 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "True Clothes needs access to your photos to add clothing items to your wardrobe.",
-          "cameraPermission": "True Clothes needs your camera to photograph clothing items."
+          "photosPermission": "MIEN needs access to your photos to add clothing items to your wardrobe.",
+          "cameraPermission": "MIEN needs your camera to photograph clothing items."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "MIEN uses your camera to analyse your skin undertone and hair colour for personalised outfit suggestions."
         }
       ]
     ],

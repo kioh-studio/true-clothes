@@ -1,11 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import {
   View, StyleSheet, Animated, Pressable, ScrollView,
-  Dimensions, ViewStyle,
+  useWindowDimensions, ViewStyle,
 } from 'react-native';
 import { T } from '../../design/tokens';
-
-const { height: SCREEN_H } = Dimensions.get('window');
 
 interface Props {
   open: boolean;
@@ -17,6 +15,7 @@ interface Props {
 }
 
 export function BottomSheet({ open, onClose, children, maxHeight = '90%', style }: Props) {
+  const { height: SCREEN_H } = useWindowDimensions();
   const translateY = useRef(new Animated.Value(SCREEN_H)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const [mounted, setMounted] = React.useState(false);

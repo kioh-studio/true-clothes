@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Image, Dimensions, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Image, FlatList } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PrimaryButton, Photo } from '../../src/components/ui';
@@ -7,9 +7,8 @@ import { IconChevronLeft, IconCheck } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { STYLES, StyleOption } from '../../src/data';
 import { useFitEngineStore } from '../../src/stores/fitEngineStore';
-
-const { width: W } = Dimensions.get('window');
-const CARD_W = (W - 24 * 2 - 12) / 2;
+import { StyleCatalogItem } from '../../src/services/stylesCatalogService';
+import { useGridCardWidth } from '../../src/design/layout';
 
 const RELATED_MAP: Record<string, string[]> = {
   oldmoney: ['preppy', 'smartcasual'],
@@ -19,6 +18,7 @@ const RELATED_MAP: Record<string, string[]> = {
 };
 
 function StyleCard({ style: s, selected, onPress, small = false }: { style: StyleOption; selected: boolean; onPress: () => void; small?: boolean }) {
+  const CARD_W = useGridCardWidth();
   const w = small ? 130 : CARD_W;
   const h = w * (4 / 3);
   return (
@@ -41,13 +41,24 @@ function StyleCard({ style: s, selected, onPress, small = false }: { style: Styl
   );
 }
 
+const MAX_STYLES = 5;
+
 export default function StylesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { setStyleProfile } = useFitEngineStore();
+  const { setStyleProfile, styles: catalogStyles } = useFitEngineStore();
   const [selected, setSelected] = useState<string[]>([]);
 
-  const toggle = (id: string) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  // Use catalog if loaded, fall back to static STYLES
+  const styleList = catalogStyles.length > 0
+    ? catalogStyles
+    : STYLES;
+
+  const toggle = (id: string) => setSelected(s => {
+    if (s.includes(id)) return s.filter(x => x !== id);
+    if (s.length >= MAX_STYLES) return s; // enforce max 5
+    return [...s, id];
+  });
 
   const handleContinue = async () => {
     if (selected.length === 0) return;
@@ -55,7 +66,20 @@ export default function StylesScreen() {
     router.push('/(onboarding)/colors');
   };
 
-  const related = [...new Set(selected.flatMap(id => RELATED_MAP[id] || []).filter(id => !selected.includes(id)))];
+  // Build related from catalog relatedSlugs if available, else RELATED_MAP
+  const related = catalogStyles.length > 0
+    ? [...new Set(
+        selected
+          .flatMap(id => {
+            const item = catalogStyles.find(s => s.id === id || s.slug === id);
+            return item?.relatedSlugs ?? [];
+          })
+          .filter(slug => !selected.some(id => {
+            const item = catalogStyles.find(s => s.id === id || s.slug === id);
+            return item?.slug === slug;
+          })),
+      )]
+    : [...new Set(selected.flatMap(id => RELATED_MAP[id] || []).filter(id => !selected.includes(id)))];
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -80,29 +104,56 @@ export default function StylesScreen() {
         <Text style={styles.caption}>Select what speaks to you. We'll learn as you go.</Text>
         <View style={{ height: 24 }} />
 
+        {selected.length >= MAX_STYLES && (
+          <Text style={[styles.caption, { color: T.color.tertiary, fontSize: 11 }]}>
+            Maximum 5 styles selected
+          </Text>
+        )}
+
         {related.length > 0 && (
           <View style={styles.relatedSection}>
             <Text style={styles.relatedLabel}>
-              BECAUSE YOU LIKE {STYLES.find(s => s.id === selected[0])?.name.toUpperCase()}
+              YOU MIGHT ALSO LIKE
             </Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingHorizontal: 24 }}>
-              {related.slice(0, 4).map(id => {
-                const s = STYLES.find(x => x.id === id)!;
-                return <StyleCard key={s.id} style={s} small selected={selected.includes(s.id)} onPress={() => toggle(s.id)} />;
+              {related.slice(0, 4).map(slug => {
+                const s = styleList instanceof Array && styleList.length > 0 && 'slug' in styleList[0]
+                  ? (styleList as StyleCatalogItem[]).find(x => x.slug === slug)
+                  : STYLES.find(x => x.id === slug);
+                if (!s) return null;
+                const id = 'slug' in s ? s.id : (s as StyleOption).id;
+                const isSelected = selected.includes(id);
+                return (
+                  <StyleCard
+                    key={id}
+                    style={s as StyleOption}
+                    small
+                    selected={isSelected}
+                    onPress={() => toggle(id)}
+                  />
+                );
               })}
             </ScrollView>
           </View>
         )}
 
         <View style={styles.grid}>
-          {STYLES.map(s => (
-            <StyleCard key={s.id} style={s} selected={selected.includes(s.id)} onPress={() => toggle(s.id)} />
-          ))}
+          {styleList.map(s => {
+            const id = s.id;
+            return (
+              <StyleCard
+                key={id}
+                style={s as StyleOption}
+                selected={selected.includes(id)}
+                onPress={() => toggle(id)}
+              />
+            );
+          })}
         </View>
 
         <View style={{ height: 24 }} />
         <PrimaryButton onPress={handleContinue} disabled={selected.length === 0}>
-          {selected.length > 0 ? `CONTINUE (${selected.length} SELECTED)` : 'SELECT AT LEAST ONE'}
+          {selected.length > 0 ? `CONTINUE (${selected.length} / ${MAX_STYLES})` : 'SELECT AT LEAST ONE'}
         </PrimaryButton>
       </ScrollView>
     </View>

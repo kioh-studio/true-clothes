@@ -2,17 +2,50 @@
 
 // ─── Wardrobe (Supabase-backed) ──────────────────────────────────────────────
 
+// Where an item's photo physically lives (feature 003-upload-image).
+//   'none'  -> no photo
+//   'local' -> on-device only (free tier); photoPath is a relative device path
+//   'cloud' -> Supabase private bucket (premium); photoPath is the storage path
+export type PhotoStorageKind = 'none' | 'local' | 'cloud'
+
+// Garment measurement columns the fit engine reads (cm). Subset of the DB m_* set
+// that maps to a controlled measurement key (feature 006-ai-item-extraction).
+export type MKey =
+  | 'm_chest' | 'm_shoulder_width' | 'm_sleeves' | 'm_body_length'
+  | 'm_waist' | 'm_hip' | 'm_inseam' | 'm_thigh' | 'm_rise'
+  | 'm_skirt_length' | 'm_shoe_size'
+
+// Logo / statement-strength signals captured at ingest (feature 006).
+// Stored in clothing_items.graphics (jsonb); NOT read by the engine yet.
+export interface LogoSignal {
+  present: boolean
+  size: 'small' | 'medium' | 'large' | null
+  kind: 'brand_logo' | 'slogan_text' | 'graphic' | null
+  text: string | null
+}
+
 export interface WardrobeItem {
   id: string
   userId: string
-  photoUrl: string | null    // signed URL (1-hour expiry)
-  photoPath: string | null   // Storage path for deletion: {userId}/{id}.jpg
-  category: 'top' | 'bottom' | 'outerwear' | 'footwear' | 'accessory'
+  photoStorage: PhotoStorageKind   // discriminator for photoPath (feature 003)
+  photoUrl: string | null    // resolved signed URL (cloud) — in-memory only, never persisted
+  photoLocalUri: string | null // resolved absolute device file:// uri — in-memory only
+  photoPath: string | null   // persisted: relative device path (local) OR storage path {userId}/{id}.jpg (cloud)
+  category: 'top' | 'bottom' | 'outerwear' | 'footwear' | 'accessory' | 'dress' | 'headwear'
+  type: string | null        // granular DB type (TEE/JEANS/JACKET…) — drives collage layout
   colors: string[]           // named colour strings, never hex
   sizeLabel: string | null
   brand: string | null
   notes: string | null
   createdAt: string          // ISO timestamp
+  name: string | null
+  primaryColor: string | null
+  material: string | null
+  fit: string | null            // controlled fit (slim/regular/relaxed/wide/oversized) — engine reads this
+  pattern: string | null
+  warmthSeason: string[]
+  measurements: Partial<Record<MKey, number>> | null  // garment measurements in cm (feature 006)
+  graphics: LogoSignal | null   // logo signals — captured, not scored in MVP (feature 006)
 }
 
 
@@ -77,6 +110,7 @@ export interface ScoredOutfit {
   slots: OutfitSlots;
   formula: string;
   tier: 1 | 2;
+  stylistNote?: string;
   styleCoherence: number;
   colorHarmony: number;
   fitScore: number;

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable,
-  FlatList, Image, Dimensions,
+  FlatList, Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,7 +15,6 @@ import { useAppStore } from '../src/stores/appStore';
 import { STYLES, COLORS, OCCASIONS, ClothingItem } from '../src/data';
 import { OutfitCollage } from '../src/components/outfit/Collage';
 
-const { width: W } = Dimensions.get('window');
 
 const BUILDER_BUCKETS = [
   { key: 'TOPS',      types: ['TEE', 'KNIT', 'POLO', 'SHIRT'] },

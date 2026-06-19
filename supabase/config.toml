@@ -14,5 +14,5 @@ enable_confirmations = true
 otp_length = 6
 
 [auth.email.template.magic_link]
-subject = "Your True Clothes verification code"
+subject = "Your MIEN verification code"
 content_path = "./supabase/templates/magic-link.html"

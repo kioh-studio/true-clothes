@@ -171,6 +171,7 @@ export interface Outfit {
   img?: string;
   formula?: string; // formula ID that generated this outfit
   tier?: 1 | 2;     // 1 = matches user style, 2 = flex/discovery
+  stylistNote?: string; // one-line LLM curator note — why this works for the user
   // Fit engine scores (0.0–1.0) — present on generated outfits
   scores?: {
     totalScore: number;
@@ -289,13 +290,13 @@ export interface Collection {
   name: string;
   description: string;
   createdDate: string;
-  outfitIds: string[];
+  itemIds: string[];   // wardrobe item IDs — a collection groups items, not outfits
 }
 
 export const COLLECTIONS: Collection[] = [
-  { id: 'c1', name: 'Workweek', description: 'Outfits I rotate Monday through Friday.', createdDate: 'CREATED MAY 2026', outfitIds: ['o1', 'o2', 'o3', 'o4', 'o6'] },
-  { id: 'c2', name: 'Weekends', description: 'Slower days, unhurried compositions.',    createdDate: 'CREATED APR 2026', outfitIds: ['o1', 'o5', 'o6'] },
-  { id: 'c3', name: 'Travel',   description: 'Pieces that pack flat and never feel borrowed.', createdDate: 'CREATED MAR 2026', outfitIds: ['o2', 'o4'] },
+  { id: 'c1', name: 'Workweek', description: 'Pieces I rotate Monday through Friday.',       createdDate: 'CREATED MAY 2026', itemIds: ['i_tee_beige', 'i_swt_black', 'i_jeans_dark', 'i_loaf_black', 'i_bag_black'] },
+  { id: 'c2', name: 'Weekends', description: 'Slower days, unhurried compositions.',          createdDate: 'CREATED APR 2026', itemIds: ['i_tee_white', 'i_tee_yellow', 'i_polo_olive', 'i_jeans_blue', 'i10'] },
+  { id: 'c3', name: 'Travel',   description: 'Pieces that pack flat and never feel borrowed.', createdDate: 'CREATED MAR 2026', itemIds: ['i_swt_black', 'chino_beige', 'jkt_ma1_olv', 'i10'] },
 ];
 
 export interface StyleNiche {
@@ -348,6 +349,41 @@ export const STYLE_NICHES: Record<string, StyleNiche[]> = {
 };
 
 export const OCCASIONS = ['CASUAL', 'OFFICE', 'WEEKEND', 'EVENING', 'DINNER', 'TRAVEL', 'GYM'] as const;
+
+// ─── Collection item resolution ──────────────────────────────────────────────
+
+import { WardrobeItem } from '../types/fitEngine';
+
+export interface CollectionDisplayItem {
+  id: string;
+  name: string;
+  categoryLabel: string;
+  imageSource: number | { uri: string } | null;
+}
+
+export function resolveItemIds(ids: string[], wardrobeItems: WardrobeItem[]): CollectionDisplayItem[] {
+  return ids.map(id => {
+    const s = itemById(id);
+    if (s) {
+      return {
+        id,
+        name: s.name,
+        categoryLabel: s.type,
+        imageSource: s.png ?? (s.img ? { uri: s.img } : null),
+      };
+    }
+    const r = wardrobeItems.find(i => i.id === id);
+    if (r) {
+      return {
+        id,
+        name: r.notes ?? r.category.toUpperCase(),
+        categoryLabel: r.category.toUpperCase(),
+        imageSource: r.photoUrl ? { uri: r.photoUrl } : null,
+      };
+    }
+    return null;
+  }).filter((item): item is CollectionDisplayItem => item !== null);
+}
 
 export const COLOR_HEX: Record<string, string> = {
   Beige: '#D4C2A0', Cream: '#EFE6D2', White: '#F5F1E8', Tan: '#C9A77A',

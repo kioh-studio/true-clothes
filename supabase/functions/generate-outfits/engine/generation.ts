@@ -1,7 +1,7 @@
 // Formula pools + candidate generation.
 // Merges formulaCatalog.ts + outfitCompositor.ts.
 
-import { FitItem, ItemCategory, PrimaryColor, ColorLightness, OutfitCandidate } from './types.ts';
+import { FitItem, ItemCategory, PrimaryColor, ColorLightness, OutfitCandidate, OutfitSlots } from './types.ts';
 
 // ─── Formula Definitions ────────────────────────────────────────────────────
 
@@ -75,18 +75,6 @@ function getColorFamily(color: PrimaryColor): string {
   return 'other';
 }
 
-const TYPE_FORMALITY: Record<string, number> = {
-  top: 2.5, bottom: 3.0, outwear: 3.5, shoes: 3.0, accessory: 2.5,
-};
-
-function estimateFormality(item: FitItem): number {
-  let base = TYPE_FORMALITY[item.category] ?? 2.5;
-  if (item.fabric.fabricWeight === 'heavy') base += 0.5;
-  if (item.fabric.pattern !== 'solid') base -= 0.5;
-  if (item.styleTags.includes('oldmoney') || item.styleTags.includes('preppy')) base += 0.5;
-  if (item.styleTags.includes('streetwear') || item.styleTags.includes('athleisure')) base -= 0.5;
-  return Math.max(1, Math.min(5, base));
-}
 
 // ─── Formula Pool type ──────────────────────────────────────────────────────
 
@@ -108,6 +96,7 @@ function categorize(items: FitItem[]): ByCategory {
     shoes: items.filter(i => i.category === 'shoes'),
     outwear: items.filter(i => i.category === 'outwear'),
     accessory: items.filter(i => i.category === 'accessory'),
+    onepiece: items.filter(i => i.category === 'onepiece'),
   };
 }
 
@@ -180,10 +169,12 @@ function poolTonalGradient(cats: ByCategory): FormulaPool[] {
 }
 
 function poolHighLow(cats: ByCategory): FormulaPool[] {
-  const formalTops = cats.top.filter(i => estimateFormality(i) >= 3.5);
-  const casualTops = cats.top.filter(i => estimateFormality(i) <= 2.5);
-  const formalBottoms = cats.bottom.filter(i => estimateFormality(i) >= 3.5);
-  const casualBottoms = cats.bottom.filter(i => estimateFormality(i) <= 2.5);
+  // Uses the enrichment-derived item.formality (type + color + material aware)
+  // instead of a category-level estimate that made formal tops unreachable.
+  const formalTops = cats.top.filter(i => i.formality >= 3.5);
+  const casualTops = cats.top.filter(i => i.formality <= 2.5);
+  const formalBottoms = cats.bottom.filter(i => i.formality >= 3.5);
+  const casualBottoms = cats.bottom.filter(i => i.formality <= 2.5);
   const pools: FormulaPool[] = [];
   if (formalTops.length > 0 && casualBottoms.length > 0) {
     pools.push({ formula: 'high_low', tops: formalTops, bottoms: casualBottoms, shoes: cats.shoes, outwear: cats.outwear, accessory: cats.accessory });
@@ -306,10 +297,29 @@ export function getFormulaPools(items: FitItem[], preferredFormulas?: FormulaId[
 const PER_FORMULA_CAP = 80;
 const GENERATION_CAP = 500;
 
-function shuffle<T>(arr: T[]): T[] {
+// Seeded RNG so the same user gets the same candidate set within a day —
+// keeps exclude_ids paging coherent and results reproducible for debugging.
+function hashStr(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+function mulberry32(seed: number): () => number {
+  let s = seed;
+  return () => {
+    s += 0x6D2B79F5;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffle<T>(arr: T[], rand: () => number): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rand() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
@@ -319,68 +329,123 @@ export interface FormulaCandidate extends OutfitCandidate {
   formula: FormulaId;
 }
 
-function generateFromPool(pool: FormulaPool): FormulaCandidate[] {
-  const tops    = shuffle(pool.tops);
-  const bottoms = shuffle(pool.bottoms);
-  const shoes   = shuffle(pool.shoes);
-  const outwear = shuffle(pool.outwear);
-  const accs    = shuffle(pool.accessory);
+function generateFromPool(pool: FormulaPool, rand: () => number): FormulaCandidate[] {
+  const tops    = shuffle(pool.tops, rand);
+  const bottoms = shuffle(pool.bottoms, rand);
+  const shoes   = shuffle(pool.shoes, rand);
+  const outwear = shuffle(pool.outwear, rand);
+  const accs    = shuffle(pool.accessory, rand);
 
   if (tops.length === 0 || bottoms.length === 0 || shoes.length === 0) return [];
 
-  const candidates: FormulaCandidate[] = [];
-  outer:
+  // Enumerate distinct core triples (top + bottom + shoes).
+  const cores: Array<{ top: FitItem; bottom: FitItem; shoe: FitItem }> = [];
+  coreLoop:
   for (const top of tops) {
     for (const bottom of bottoms) {
       for (const shoe of shoes) {
-        candidates.push({ slots: { top: top.id, bottom: bottom.id, shoes: shoe.id }, formula: pool.formula });
-        for (const outer of outwear) {
-          candidates.push({ slots: { top: top.id, bottom: bottom.id, shoes: shoe.id, outwear: outer.id }, formula: pool.formula });
-          if (candidates.length >= PER_FORMULA_CAP) break outer;
-        }
-        for (const acc of accs) {
-          candidates.push({ slots: { top: top.id, bottom: bottom.id, shoes: shoe.id, accessory: acc.id }, formula: pool.formula });
-          if (candidates.length >= PER_FORMULA_CAP) break outer;
-        }
-        for (const outer of outwear) {
-          for (const acc of accs) {
-            candidates.push({ slots: { top: top.id, bottom: bottom.id, shoes: shoe.id, outwear: outer.id, accessory: acc.id }, formula: pool.formula });
-            if (candidates.length >= PER_FORMULA_CAP) break outer;
-          }
-        }
-        if (candidates.length >= PER_FORMULA_CAP) break outer;
+        cores.push({ top, bottom, shoe });
+        if (cores.length >= PER_FORMULA_CAP) break coreLoop;
       }
+    }
+  }
+
+  // For each core, precompute its DISTINCT full-outfit variants (bare core,
+  // +accessory, +outerwear, +both — whichever the pool supports), shuffled.
+  // Emitting round-robin (every core's 1st variant before any core's 2nd) keeps
+  // core diversity up front while still surfacing multiple distinct MIXES of the
+  // same items: duplicate items across outfits are fine, duplicate full outfits
+  // are not. Round 0 already yields a natural mix of 3-/4-/5-item outfits.
+  const pick = (arr: FitItem[]) => arr[Math.floor(rand() * arr.length)];
+  const variantsFor = (c: { top: FitItem; bottom: FitItem; shoe: FitItem }): OutfitSlots[] => {
+    const base: OutfitSlots = { top: c.top.id, bottom: c.bottom.id, shoes: c.shoe.id };
+    const vs: OutfitSlots[] = [{ ...base }];
+    if (accs.length > 0)                       vs.push({ ...base, accessory: pick(accs).id });
+    if (outwear.length > 0)                    vs.push({ ...base, outwear: pick(outwear).id });
+    if (outwear.length > 0 && accs.length > 0) vs.push({ ...base, outwear: pick(outwear).id, accessory: pick(accs).id });
+    return shuffle(vs, rand);
+  };
+  const coreVariants = cores.map(variantsFor);
+  const maxRounds = coreVariants.reduce((m, v) => Math.max(m, v.length), 0);
+
+  const candidates: FormulaCandidate[] = [];
+  for (let round = 0; round < maxRounds; round++) {
+    for (const vs of coreVariants) {
+      if (round >= vs.length) continue;
+      candidates.push({ slots: vs[round], formula: pool.formula });
+      if (candidates.length >= PER_FORMULA_CAP) return candidates;
     }
   }
   return candidates;
 }
 
-export function generateCandidates(items: FitItem[], preferredFormulas?: FormulaId[]): FormulaCandidate[] {
+// One-piece garments (dress/jumpsuit) fill both core slots themselves (Q29):
+// the candidate is onepiece + shoes, optionally layered with outerwear.
+// slots.top === slots.bottom === the one-piece id; ranking dedupes item lists.
+const ONEPIECE_CAP = 60;
+
+function generateOnepieceCandidates(items: FitItem[], rand: () => number): FormulaCandidate[] {
+  const onepieces = shuffle(items.filter(i => i.category === 'onepiece'), rand);
+  const shoes     = shuffle(items.filter(i => i.category === 'shoes'), rand);
+  const outwear   = shuffle(items.filter(i => i.category === 'outwear'), rand);
+  if (onepieces.length === 0 || shoes.length === 0) return [];
+
+  const candidates: FormulaCandidate[] = [];
+  for (const op of onepieces) {
+    for (const shoe of shoes) {
+      candidates.push({ slots: { top: op.id, bottom: op.id, shoes: shoe.id }, formula: 'one_two_three' });
+      if (candidates.length >= ONEPIECE_CAP) return candidates;
+    }
+  }
+  for (let i = 0; i < onepieces.length && outwear.length > 0; i++) {
+    const op = onepieces[i];
+    const shoe = shoes[i % shoes.length];
+    candidates.push({
+      slots: { top: op.id, bottom: op.id, shoes: shoe.id, outwear: outwear[i % outwear.length].id },
+      formula: 'layering_stack',
+    });
+    if (candidates.length >= ONEPIECE_CAP) break;
+  }
+  return candidates;
+}
+
+export function generateCandidates(items: FitItem[], preferredFormulas?: FormulaId[], seed?: string): FormulaCandidate[] {
+  const rand = seed ? mulberry32(hashStr(seed)) : Math.random;
   const pools = getFormulaPools(items, preferredFormulas);
+  const onepieceCandidates = generateOnepieceCandidates(items, rand);
 
-  if (pools.length === 0) return generateFallback(items);
+  if (pools.length === 0) {
+    const fallback = generateFallback(items, rand);
+    return [...onepieceCandidates, ...fallback].slice(0, GENERATION_CAP);
+  }
 
-  const allCandidates: FormulaCandidate[] = [];
+  const allCandidates: FormulaCandidate[] = [...onepieceCandidates];
   for (const pool of pools) {
-    allCandidates.push(...generateFromPool(pool));
+    allCandidates.push(...generateFromPool(pool, rand));
     if (allCandidates.length >= GENERATION_CAP) break;
   }
   return allCandidates.slice(0, GENERATION_CAP);
 }
 
-function generateFallback(items: FitItem[]): FormulaCandidate[] {
+function generateFallback(items: FitItem[], rand: () => number): FormulaCandidate[] {
   const byCategory = (cat: ItemCategory) => items.filter(i => i.category === cat);
-  const tops    = shuffle(byCategory('top'));
-  const bottoms = shuffle(byCategory('bottom'));
-  const shoes   = shuffle(byCategory('shoes'));
+  const tops    = shuffle(byCategory('top'), rand);
+  const bottoms = shuffle(byCategory('bottom'), rand);
+  const shoes   = shuffle(byCategory('shoes'), rand);
+  const outwear = shuffle(byCategory('outwear'), rand);
+  const accs    = shuffle(byCategory('accessory'), rand);
   if (tops.length === 0 || bottoms.length === 0 || shoes.length === 0) return [];
 
+  const pick = (arr: FitItem[]) => arr[Math.floor(rand() * arr.length)];
   const candidates: FormulaCandidate[] = [];
   const defaultFormula: FormulaId = 'one_two_three';
   for (const top of tops) {
     for (const bottom of bottoms) {
       for (const shoe of shoes) {
-        candidates.push({ slots: { top: top.id, bottom: bottom.id, shoes: shoe.id }, formula: defaultFormula });
+        const slots: OutfitSlots = { top: top.id, bottom: bottom.id, shoes: shoe.id };
+        if (outwear.length > 0 && rand() < 0.5)  slots.outwear   = pick(outwear).id;
+        if (accs.length > 0    && rand() < 0.55) slots.accessory = pick(accs).id;
+        candidates.push({ slots, formula: defaultFormula });
         if (candidates.length >= GENERATION_CAP) return candidates;
       }
     }

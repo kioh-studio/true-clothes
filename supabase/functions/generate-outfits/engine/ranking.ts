@@ -9,6 +9,7 @@ import {
   scoreColorHarmony, scoreStyleCoherence, computeUserAttributes,
   scoreOutfitFit, scoreProportionBalance, scoreFormalityConsistency,
   scoreSeasonMatch, scoreTextureHarmony, scoreAnchorClarity,
+  scoreTasteAdjustment,
 } from './scoring.ts';
 import { FormulaId } from './generation.ts';
 
@@ -143,8 +144,11 @@ const W_PROPORTION = 0.10, W_FORMALITY = 0.10, W_SEASON = 0.10, W_TEXTURE = 0.05
 const TOP_N = 24;
 
 function slotsToIds(slots: OutfitSlots): string[] {
-  return [slots.top, slots.bottom, slots.shoes, slots.outwear, slots.accessory]
-    .filter((id): id is string => id !== undefined);
+  // Dedupe: a one-piece occupies both top and bottom with the same id.
+  return [...new Set(
+    [slots.top, slots.bottom, slots.shoes, slots.outwear, slots.accessory]
+      .filter((id): id is string => id !== undefined),
+  )];
 }
 
 function isDuplicate(a: OutfitSlots, b: OutfitSlots): boolean {
@@ -204,11 +208,16 @@ export function rankCandidates(
   const w = ctx.scoringWeights;
   const wStyle      = w?.style      ?? W_STYLE;
   const wColor      = w?.color      ?? W_COLOR;
-  const wFit        = w?.fit        ?? W_FIT;
   const wProportion = w?.proportion ?? W_PROPORTION;
   const wFormality  = w?.formality  ?? W_FORMALITY;
   const wSeason     = w?.season     ?? W_SEASON;
   const wTexture    = w?.texture    ?? W_TEXTURE;
+
+  // Fit deserves real weight when there is real data behind it — the user
+  // entered measurements, so honor them.
+  const bodyHasMeasurements = Object.values(ctx.bodyMeasurements)
+    .some(v => typeof v === 'number');
+  const wFit = bodyHasMeasurements ? Math.max(w?.fit ?? W_FIT, 0.18) : (w?.fit ?? W_FIT);
 
   const scored: ScoredOutfit[] = [];
 
@@ -216,27 +225,37 @@ export function rankCandidates(
     const fitItems = slotsToIds(c.slots).map(id => itemMap.get(id)).filter((i): i is FitItem => i !== undefined);
     if (!passesHardConstraints(fitItems, ctx)) continue;
 
+    const colorHarmony         = scoreColorHarmony(fitItems, ctx.colorPreferences, ctx.colorSeason);
+    const fitScore             = scoreOutfitFit(fitItems, ctx.bodyMeasurements);
+    const proportionBalance    = scoreProportionBalance(fitItems);
+    const formalityConsistency = scoreFormalityConsistency(fitItems);
+    const seasonMatch          = scoreSeasonMatch(fitItems, ctx.intent?.seasonOverride);
+    const textureInterest      = scoreTextureHarmony(fitItems);
+    const anchorClarity        = scoreAnchorClarity(fitItems);
     const styleCoherence = userAttributes
       ? scoreStyleCoherence(fitItems, userAttributes, ctx.styleProfile.selectedStyles)
       : 0.5;
 
-    const colorHarmony         = scoreColorHarmony(fitItems, ctx.colorPreferences);
-    const fitScore             = scoreOutfitFit(fitItems, ctx.bodyMeasurements);
-    const proportionBalance    = scoreProportionBalance(fitItems);
-    const formalityConsistency = scoreFormalityConsistency(fitItems);
-    const seasonMatch          = scoreSeasonMatch(fitItems);
-    const textureInterest      = scoreTextureHarmony(fitItems);
-    const anchorClarity        = scoreAnchorClarity(fitItems);
+    // Confidence weighting: a dimension with no real data behind it drops out
+    // of the average instead of pulling every outfit toward a neutral 0.5.
+    const fitHasData = bodyHasMeasurements && fitItems.some(i => i.garmentMeasurements);
+    const dims: Array<[weight: number, score: number, valid: boolean]> = [
+      [wStyle,      styleCoherence,       userAttributes !== undefined],
+      [wColor,      colorHarmony,         true],
+      [wFit,        fitScore,             fitHasData],
+      [wProportion, proportionBalance,    true],
+      [wFormality,  formalityConsistency, true],
+      [wSeason,     seasonMatch,          true],
+      [wTexture,    textureInterest,      true],
+      [0.05,        anchorClarity,        true],
+    ];
+    const valid = dims.filter(([, , v]) => v);
+    const weightSum = valid.reduce((s, [wd]) => s + wd, 0);
+    const base = valid.reduce((s, [wd, sc]) => s + wd * sc, 0) / (weightSum || 1);
 
-    const totalScore =
-      wStyle      * styleCoherence +
-      wColor      * colorHarmony +
-      wFit        * fitScore +
-      wProportion * proportionBalance +
-      wFormality  * formalityConsistency +
-      wSeason     * seasonMatch +
-      wTexture    * textureInterest +
-      0.05        * anchorClarity;
+    // Taste layer: classic-combo bonus, multiplicative veto for fatal flaws.
+    const taste = scoreTasteAdjustment(fitItems);
+    const totalScore = Math.max(0, Math.min(1, (base + taste.bonus) * taste.multiplier));
 
     scored.push({
       slots: c.slots,

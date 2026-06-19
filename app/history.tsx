@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable, Image, Dimensions,
+  View, Text, StyleSheet, ScrollView, Pressable, Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,9 +10,7 @@ import { OutfitCollage } from '../src/components/outfit/Collage';
 import { IconChevronLeft } from '../src/components/icons';
 import { useAppStore } from '../src/stores/appStore';
 import { useFitFeed } from '../src/features/feed/useFitFeed';
-
-const { width: W } = Dimensions.get('window');
-const CARD_W = (W - 24 * 2 - 12) / 2;
+import { useGridCardWidth } from '../src/design/layout';
 
 function formatDate(iso: string): string {
   const d = new Date(iso + 'T00:00:00');
@@ -27,6 +25,7 @@ function formatDate(iso: string): string {
 }
 
 export default function HistoryScreen() {
+  const CARD_W = useGridCardWidth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { wornHistory } = useAppStore();

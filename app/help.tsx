@@ -65,7 +65,7 @@ export default function HelpScreen() {
   const insets = useSafeAreaInsets();
 
   const handleFeedback = () => {
-    Linking.openURL('mailto:support@trueclothes.app');
+    Linking.openURL('mailto:support@mien.app');
   };
 
   return (
@@ -95,7 +95,7 @@ export default function HelpScreen() {
           <Pressable style={styles.row} onPress={handleFeedback}>
             <View style={styles.rowBody}>
               <Text style={styles.rowTitle}>Send feedback</Text>
-              <Text style={styles.rowDesc}>support@trueclothes.app</Text>
+              <Text style={styles.rowDesc}>support@mien.app</Text>
             </View>
             <IconChevronRight size={12} color={T.color.tertiary} strokeWidth={1.4} />
           </Pressable>

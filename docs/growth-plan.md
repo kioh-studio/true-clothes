@@ -1,4 +1,4 @@
-# True Clothes — Growth Feature Plan
+# MIEN — Growth Feature Plan
 
 *How to attract users, make them stay, and turn them into advocates — stage by stage*
 
@@ -87,8 +87,8 @@ This moment is what every competitor fails to deliver. It is the ONLY thing that
 |---|---|---|
 | **App Store "hero" screenshots** — full-bleed outfit cards, luxury aesthetic | 5 screenshots showing: (1) outfit feed, (2) body-aware match score, (3) weather integration, (4) style quiz, (5) wardrobe grid. All in Celine-level design. | First impression in App Store. Every competitor's screenshots look like utility apps. Ours look like a fashion brand. Downloads driven by visual aspiration. |
 | **"What should I wear today?" — the one-line pitch** | App subtitle and all marketing: we answer ONE question. Not "organize your closet" or "plan outfits." | Positions us as the ACTION app, not the CATALOG app. Users don't want to organize — they want to get dressed faster. This reframing separates us from the entire category. |
-| **TikTok/Instagram content engine** — weekly style content from True Clothes account | Post outfit inspiration, color theory tips, body-type styling advice, "5 outfits from 10 items" challenges — all using the app's aesthetic. | Organic discovery. Fashion content performs well on TikTok (38.5% of users are 18-24). Content drives app awareness without paid ads. |
-| **"Import from Whering/Acloset"** — migration tool | Let users export from competitor apps and import into True Clothes with one flow. | Directly targets frustrated users of broken competitors. Reddit is full of people asking "is there a BETTER wardrobe app?" We intercept them at the switching moment. |
+| **TikTok/Instagram content engine** — weekly style content from MIEN account | Post outfit inspiration, color theory tips, body-type styling advice, "5 outfits from 10 items" challenges — all using the app's aesthetic. | Organic discovery. Fashion content performs well on TikTok (38.5% of users are 18-24). Content drives app awareness without paid ads. |
+| **"Import from Whering/Acloset"** — migration tool | Let users export from competitor apps and import into MIEN with one flow. | Directly targets frustrated users of broken competitors. Reddit is full of people asking "is there a BETTER wardrobe app?" We intercept them at the switching moment. |
 
 ### ACTIVATE: First Session Perfection
 
@@ -102,9 +102,9 @@ This moment is what every competitor fails to deliver. It is the ONLY thing that
 
 | Feature | What It Does | Why It Drives Growth |
 |---|---|---|
-| **Share a link → instant wardrobe analysis** | User browsing Zara/Uniqlo shares product link to True Clothes → app scrapes item data (JSON-LD / OG tags) → creates virtual item → runs fit engine → shows verdict: "WORTH IT: creates 8 new outfits" or "THINK TWICE: you own 2 similar jackets" | **3-5x usage frequency increase.** Users open the app every time they shop online (3-5x/week) — not just when getting dressed. Transforms the app from "morning helper" to "always-on fashion advisor." |
+| **Share a link → instant wardrobe analysis** | User browsing Zara/Uniqlo shares product link to MIEN → app scrapes item data (JSON-LD / OG tags) → creates virtual item → runs fit engine → shows verdict: "WORTH IT: creates 8 new outfits" or "THINK TWICE: you own 2 similar jackets" | **3-5x usage frequency increase.** Users open the app every time they shop online (3-5x/week) — not just when getting dressed. Transforms the app from "morning helper" to "always-on fashion advisor." |
 | **Snap a photo in-store → same analysis** | User in H&M takes photo of jacket on rack → Claude Vision classifies it (category, color, material) → same fit engine pipeline → verdict screen | **Captures offline shopping moments.** The app becomes indispensable for in-store decisions. No competitor exists in this moment. |
-| **Clipboard detection** | User copies product URL → opens True Clothes → "Analyze this item?" prompt appears | **Zero-friction entry.** Removes even the "share" step. Fastest path from "I want this" to "should I buy this?" |
+| **Clipboard detection** | User copies product URL → opens MIEN → "Analyze this item?" prompt appears | **Zero-friction entry.** Removes even the "share" step. Fastest path from "I want this" to "should I buy this?" |
 | **Verdict screen with outfit previews** | Shows: body fit score, style match, color harmony, new outfit count, duplicate detection ("you own 2 similar items"), est. cost-per-wear, and swipeable outfit carousel with the new item | **Builds trust through honesty.** Sometimes the answer is "SKIP IT." That honesty creates the viral story: "this app saved me from a bad purchase." No shopping app will ever tell you NOT to buy. |
 | **Wishlist** | Items analyzed but not purchased → saved with verdict data. Re-analyze if wardrobe changes. Price drop notifications. | **Retention hook independent of outfit suggestions.** Users check wishlist for price drops. Also creates a purchase intent dataset for future monetization. |
 
@@ -149,7 +149,7 @@ See full spec: `docs/feature-try-before-you-buy.md`
 |---|---|---|
 | **AI try-on preview** — see outfit on your body shape | Using body measurements, generate a silhouette visualization of how the outfit looks on YOUR proportions. Not a photo filter — a proportional wireframe showing fit and proportions. | This is the "show-don't-tell" feature for marketing. Demo videos of this feature will GO VIRAL on TikTok. "This app shows you how clothes look on YOUR body" is an irresistible hook. |
 | **"Outfit of the Day" public feed** — opt-in community | Users who want to share can post their daily outfit (anonymized body silhouette + items). Others can browse by style/body type/occasion. | Discovery mechanic. New users find the app through the community. Unlike Combyne (chaotic social), this is curated + body-type-aware. See outfits from people with YOUR proportions. |
-| **Micro-influencer partnership program** | Send app + premium access to 200 fashion micro-influencers (10K-100K). They create "styled by True Clothes" content. | Cost-effective acquisition. Fashion micro-influencers have high engagement and audience trust. Their content serves as authentic testimonials. |
+| **Micro-influencer partnership program** | Send app + premium access to 200 fashion micro-influencers (10K-100K). They create "styled by MIEN" content. | Cost-effective acquisition. Fashion micro-influencers have high engagement and audience trust. Their content serves as authentic testimonials. |
 
 ### ACTIVATE: Deeper Personalization
 
@@ -187,7 +187,7 @@ See full spec: `docs/feature-try-before-you-buy.md`
 | Feature | What It Does | Why It Drives Growth |
 |---|---|---|
 | **"Premium preview" moments** | When free users view an outfit, occasionally show: "AI try-on available for this outfit (Premium)." One-tap free trial. | Contextual upsell at the moment of highest intent. Not a wall — a window. User sees exactly what they'd get. 30-second free trial of the feature → conversion. |
-| **Brand collaboration outfits** — "Styled by [Brand]" | Partner with quality brands (COS, Uniqlo, Everlane) to create curated outfit collections using True Clothes engine. Free for users. | Brands pay for placement. Users get aspirational content. Win-win that funds growth. Also positions True Clothes as a fashion authority, not just a tool. |
+| **Brand collaboration outfits** — "Styled by [Brand]" | Partner with quality brands (COS, Uniqlo, Everlane) to create curated outfit collections using MIEN engine. Free for users. | Brands pay for placement. Users get aspirational content. Win-win that funds growth. Also positions MIEN as a fashion authority, not just a tool. |
 
 ### RETAIN: Premium Stickiness
 
@@ -217,7 +217,7 @@ See full spec: `docs/feature-try-before-you-buy.md`
 |---|---|---|
 | **Apple Watch complication** — outfit on your wrist | Glance at watch → see today's outfit. Tap → full view on phone. | Presence on the most personal screen. Daily touch-point that feels effortless. Press coverage: "This app puts your stylist on your wrist." |
 | **Web companion** — desktop wardrobe browser | Browse wardrobe + plan outfits on desktop. Synced with mobile. | Expands usage context. Users who plan outfits during work breaks (desktop) → execute in the morning (mobile). Cross-platform presence increases retention. |
-| **"Shop the gap"** — affiliate recommendations | "Your wardrobe needs a neutral sneaker. Here are 5 options in your budget from brands that match your style." | Acquisition through shopping intent. Users searching for "what shoes to buy" find True Clothes as the answer. Affiliate revenue funds growth. Not pushy — only shown when genuinely useful. |
+| **"Shop the gap"** — affiliate recommendations | "Your wardrobe needs a neutral sneaker. Here are 5 options in your budget from brands that match your style." | Acquisition through shopping intent. Users searching for "what shoes to buy" find MIEN as the answer. Affiliate revenue funds growth. Not pushy — only shown when genuinely useful. |
 
 ### RETAIN: Irreplaceable
 
@@ -231,8 +231,8 @@ See full spec: `docs/feature-try-before-you-buy.md`
 
 | Feature | What It Does | Why It Drives Growth |
 |---|---|---|
-| **"True Clothes generation"** — cultural identity | Users self-identify: "I'm a True Clothes person" = someone who dresses intentionally from their existing wardrobe, not chasing trends. | Brand becomes identity. Like how "Peloton person" or "Notion person" became identifiers. Users advocate because the app represents their VALUES, not just utility. |
-| **Open style data** — publish anonymized trend reports | Quarterly reports: "What True Clothes users are wearing." Real data on colors, styles, cost-per-wear by region. Media picks this up. | PR engine. Fashion media covers real data. "True Clothes reports earth tones up 40% this fall." Free press → brand awareness → downloads. |
+| **"MIEN generation"** — cultural identity | Users self-identify: "I'm a MIEN person" = someone who dresses intentionally from their existing wardrobe, not chasing trends. | Brand becomes identity. Like how "Peloton person" or "Notion person" became identifiers. Users advocate because the app represents their VALUES, not just utility. |
+| **Open style data** — publish anonymized trend reports | Quarterly reports: "What MIEN users are wearing." Real data on colors, styles, cost-per-wear by region. Media picks this up. | PR engine. Fashion media covers real data. "MIEN reports earth tones up 40% this fall." Free press → brand awareness → downloads. |
 
 ---
 
@@ -388,7 +388,7 @@ STAGE 4 (Month 10-15):  Monetize without betraying
                          5% conversion, $500K+ ARR
 
 STAGE 5 (Month 16+):    Own the category
-                         AI chat stylist + Apple Watch + "True Clothes generation"
+                         AI chat stylist + Apple Watch + "MIEN generation"
                          Cultural brand, not just an app
 ```
 

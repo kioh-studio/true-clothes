@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable, Dimensions, Image,
+  View, Text, StyleSheet, ScrollView, Pressable, Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,11 +9,10 @@ import { PrimaryButton, Photo } from '../src/components/ui';
 import { IconChevronLeft, IconCheck } from '../src/components/icons';
 import { STYLES, STYLE_NICHES } from '../src/data';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
-
-const { width: W } = Dimensions.get('window');
-const CARD_W = (W - 24 * 2 - 12) / 2;
+import { useGridCardWidth } from '../src/design/layout';
 
 function StyleCard({ s, selected, onPress }: { s: typeof STYLES[number]; selected: boolean; onPress: () => void }) {
+  const CARD_W = useGridCardWidth();
   const h = CARD_W * (4 / 3);
   return (
     <Pressable onPress={onPress} style={[styles.card, { width: CARD_W, height: h }]}>

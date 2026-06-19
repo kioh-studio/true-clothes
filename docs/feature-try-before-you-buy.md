@@ -14,7 +14,7 @@ But the moment of highest anxiety in fashion isn't "what should I wear?" — it'
 - "Do I already have something like this?"
 - "Is this worth the money?"
 
-**True Clothes is the only app that can answer all four questions** — because we already have the user's body measurements, style profile, color palette, and full wardrobe.
+**MIEN is the only app that can answer all four questions** — because we already have the user's body measurements, style profile, color palette, and full wardrobe.
 
 ---
 
@@ -25,7 +25,7 @@ But the moment of highest anxiety in fashion isn't "what should I wear?" — it'
 ```
 User browsing Zara/Uniqlo/ASOS on phone
   → Sees item they like
-  → Taps "Share" → selects True Clothes
+  → Taps "Share" → selects MIEN
   → App opens with item loading screen (2-3 seconds)
   → BOOM: Full analysis appears
 ```
@@ -42,7 +42,7 @@ User browsing Zara/Uniqlo/ASOS on phone
 
 ```
 User in H&M, sees a jacket on a rack
-  → Opens True Clothes → taps camera icon (or "Will it work?" button)
+  → Opens MIEN → taps camera icon (or "Will it work?" button)
   → Takes photo of the item (on hanger, mannequin, or tag)
   → AI identifies: category, color, material, estimated style
   → App asks: "Is this a [Navy Wool Jacket]?" → user confirms/adjusts
@@ -59,7 +59,7 @@ User in H&M, sees a jacket on a rack
 
 ```
 User copies product URL from any browser/app
-  → Opens True Clothes → app detects clipboard link (or paste into search)
+  → Opens MIEN → app detects clipboard link (or paste into search)
   → Same pipeline as Flow 1
 ```
 
@@ -343,7 +343,7 @@ const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
 // On Android: registers intent filters
 ```
 
-Works with Expo Router. User shares from Safari/Chrome/Instagram → True Clothes appears in share sheet → app opens with URL → analysis begins.
+Works with Expo Router. User shares from Safari/Chrome/Instagram → MIEN appears in share sheet → app opens with URL → analysis begins.
 
 **Note:** Requires EAS Build (not Expo Go) for native share extension.
 
@@ -395,7 +395,7 @@ Use category + brand defaults + user's body measurements
 
 ### Entry Points (Multiple, All Low-Friction)
 
-1. **Share sheet** — Share any URL to True Clothes from any app/browser
+1. **Share sheet** — Share any URL to MIEN from any app/browser
 2. **Camera button** — Dedicated "Will it work?" camera on home screen
 3. **Clipboard detection** — Open app with product URL copied → "Analyze this item?"
 4. **Wardrobe screen** — "+" button gets new option: "Check an item before buying"
@@ -426,11 +426,11 @@ Items analyzed but not purchased go to a **Wishlist**:
 ### It Shifts the Value Proposition
 
 **Before this feature:**
-> "True Clothes helps you style what you already own"
+> "MIEN helps you style what you already own"
 > (Utility app — nice to have, open a few times a week)
 
 **After this feature:**
-> "True Clothes helps you make smarter fashion decisions"
+> "MIEN helps you make smarter fashion decisions"
 > (Decision tool — open EVERY TIME you shop, which is often)
 
 ### Usage Frequency Multiplier
@@ -474,7 +474,7 @@ Items analyzed but not purchased go to a **Wishlist**:
 3. **Requires a full wardrobe** — the analysis is only valuable if the app knows what you own
 4. **Requires user trust** — telling someone NOT to buy something requires a relationship where the user believes the app has their interest at heart, not the retailer's
 
-This feature is the natural culmination of everything True Clothes already does. Competitors would need to rebuild from scratch.
+This feature is the natural culmination of everything MIEN already does. Competitors would need to rebuild from scratch.
 
 ---
 
@@ -528,13 +528,13 @@ Or:
 
 ### App Store Description Addition
 
-> **Will It Work?** — Share any product link or snap a photo in-store. True Clothes instantly shows you how many outfits you can build with this item, whether it fits your body, matches your style, and if you already own something similar. Stop buying clothes that sit in your closet. Start buying clothes that work.
+> **Will It Work?** — Share any product link or snap a photo in-store. MIEN instantly shows you how many outfits you can build with this item, whether it fits your body, matches your style, and if you already own something similar. Stop buying clothes that sit in your closet. Start buying clothes that work.
 
 ### The Sustainability Story
 
 This feature is the most concrete sustainability feature any fashion app has ever built. It doesn't just tell users to "buy less" — it gives them a **decision tool** that naturally reduces impulse purchases by making the value (or lack thereof) of every potential purchase objectively visible.
 
-> "True Clothes users make 40% fewer impulse purchases because they can see exactly how a new item fits their existing wardrobe before buying."
+> "MIEN users make 40% fewer impulse purchases because they can see exactly how a new item fits their existing wardrobe before buying."
 
 (Target metric — to be validated.)
 
@@ -566,7 +566,7 @@ This feature is the most concrete sustainability feature any fashion app has eve
 
 Every wardrobe app in existence is a **backward-looking tool**: organize what you already have.
 
-"Will It Work?" makes True Clothes a **forward-looking advisor**: guide what you should acquire.
+"Will It Work?" makes MIEN a **forward-looking advisor**: guide what you should acquire.
 
 This single feature:
 1. **Increases usage frequency 3-5x** (every shopping moment becomes an app-open moment)
@@ -576,4 +576,4 @@ This single feature:
 5. **Aligns with user values** (sustainability, mindful consumption, buy less but better)
 6. **Differentiates from every competitor** (nobody does this)
 
-It transforms True Clothes from "a wardrobe app" into **"the fashion decision engine."**
+It transforms MIEN from "a wardrobe app" into **"the fashion decision engine."**

@@ -1,4 +1,4 @@
-# True Clothes — Market Analysis, Competitive Rating & Staged Plan
+# MIEN — Market Analysis, Competitive Rating & Staged Plan
 
 *Research date: May 2026*
 
@@ -65,11 +65,11 @@ The "dream app" that doesn't exist yet:
 
 ---
 
-## Part 2: Competitive Scorecard — True Clothes vs. The Market
+## Part 2: Competitive Scorecard — MIEN vs. The Market
 
 ### Rating Scale: 1 (absent/broken) → 5 (best-in-class)
 
-| Dimension | Whering | Acloset | Cladwell | Stylebook | Combyne | Alta | **True Clothes (Current)** | **True Clothes (Planned)** |
+| Dimension | Whering | Acloset | Cladwell | Stylebook | Combyne | Alta | **MIEN (Current)** | **MIEN (Planned)** |
 |---|---|---|---|---|---|---|---|---|
 | **Onboarding speed** | 2 (bulk upload) | 2 (one-by-one) | 2 (tedious) | 1 (manual) | 3 (not wardrobe-focused) | 4 (AI-first) | 3 (quiz-based, mock data) | 5 (AI bulk upload + import) |
 | **Outfit suggestion quality** | 2 (beta, coin flip) | 2 (random, repetitive) | 2 (broken weather) | 1 (manual only) | 2 (community, not personal) | 4 (AI-native) | 4 (fit engine, 3-metric scoring) | 5 (learning + weather + body) |
@@ -93,10 +93,10 @@ The "dream app" that doesn't exist yet:
 | Stylebook | 21/55 | Stable but stale, no intelligence |
 | Combyne | 23/55 | Social tool, not a wardrobe manager |
 | Alta | 35/55 | Best-funded new entrant, serious threat |
-| **True Clothes (Current)** | **43/55** | Strong foundation, needs backend + real data |
-| **True Clothes (Planned)** | **54/55** | Category-defining if fully executed |
+| **MIEN (Current)** | **43/55** | Strong foundation, needs backend + real data |
+| **MIEN (Planned)** | **54/55** | Category-defining if fully executed |
 
-### True Clothes Competitive Advantages (Already Built)
+### MIEN Competitive Advantages (Already Built)
 
 1. **Fit Engine with 3-metric scoring** (style coherence + color harmony + body fit) — NO competitor has this working
 2. **TikTok-style vertical outfit feed** — NO competitor uses this interaction pattern
@@ -105,7 +105,7 @@ The "dream app" that doesn't exist yet:
 5. **Style quiz with progressive disclosure + style relationship graph** — more sophisticated than any competitor's onboarding
 6. **Daily shuffle with seed consistency** — same user, same day = same suggestions (prevents the "random every time" problem)
 
-### True Clothes Weaknesses (Current)
+### MIEN Weaknesses (Current)
 
 1. **No backend** — Supabase not integrated, all data is local/mock
 2. **No real image upload** — wardrobe items are asset files, not user photos
@@ -213,7 +213,7 @@ The "dream app" that doesn't exist yet:
 | P0 | **Premium features**: AI try-on, unlimited collections, advanced analytics, priority AI | Must offer enough value to justify cost without crippling free tier | Ongoing |
 | P1 | **Affiliate shopping** — "Complete this outfit" with links to buy missing pieces | Non-intrusive monetization aligned with user goals | 3 weeks |
 | P1 | **Brand partnerships** — featured items from ethical/quality brands that match user's style profile | Revenue + value to user if well-targeted | 4 weeks |
-| P2 | **API/platform** — let stylists use True Clothes engine for their clients | Expand TAM without building separate product | 6 weeks |
+| P2 | **API/platform** — let stylists use MIEN engine for their clients | Expand TAM without building separate product | 6 weeks |
 | P2 | **Resale integration** — sell items you never wear (Vestiaire, Depop, Poshmark) | Sustainability angle + commission revenue | 3 weeks |
 
 **Pricing philosophy** (learned from competitor failures):
@@ -241,7 +241,7 @@ The "dream app" that doesn't exist yet:
 
 ## Part 4: Critical Success Factors
 
-### What Will Kill True Clothes (Avoid These)
+### What Will Kill MIEN (Avoid These)
 
 | Killer | How Competitors Died | How to Avoid |
 |---|---|---|
@@ -253,7 +253,7 @@ The "dream app" that doesn't exist yet:
 | **Rebrand disaster** | Cladwell May 2021 mass exodus | Never remove features users love. Add, don't replace. |
 | **Data loss** | Acloset/Whering users lost entire wardrobes | Local-first + cloud sync. Offline always works. Export option. |
 
-### What Will Make True Clothes Win
+### What Will Make MIEN Win
 
 1. **Solve catalog in 5 minutes** — bulk upload + AI auto-tag + "start with 5 items" progressive approach
 2. **Body-aware suggestions that actually work** — your fit engine is the moat. No competitor has this.
@@ -266,7 +266,7 @@ The "dream app" that doesn't exist yet:
 
 ## Part 5: Final Verdict
 
-### Can True Clothes Compete?
+### Can MIEN Compete?
 
 **YES — with conditions.**
 

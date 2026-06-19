@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tension Model — Outfit Taste Prototype</title>
+<style>
+  :root{
+    --bg:#F4F1EA; --ink:#1A1814; --stone:#8A8276; --line:#DCD6C9;
+    --card:#FBF9F4; --calm:#B8B0A2; --present:#C99A4E; --strong:#5C7A55; --noise:#A8543E;
+    --positive:#5C7A55; --negative:#A8543E;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    line-height:1.55; -webkit-font-smoothing:antialiased; padding:0 24px 120px;
+  }
+  .wrap{max-width:1080px; margin:0 auto}
+  header{padding:72px 0 40px; border-bottom:1px solid var(--line)}
+  h1{font-family:Georgia,"Times New Roman",serif; font-weight:400; font-size:42px; letter-spacing:-.5px; line-height:1.1}
+  .sub{color:var(--stone); font-size:15px; margin-top:14px; max-width:640px; letter-spacing:.2px}
+  h2{font-family:Georgia,serif; font-weight:400; font-size:26px; margin:64px 0 8px; letter-spacing:-.3px}
+  .lede{color:var(--stone); font-size:14px; margin-bottom:28px; max-width:680px}
+  .eyebrow{font-size:11px; letter-spacing:2.5px; text-transform:uppercase; color:var(--stone); margin-bottom:10px}
+
+  /* builder */
+  .builder{display:grid; grid-template-columns:1fr 1fr; gap:32px; margin-top:8px}
+  @media(max-width:840px){.builder{grid-template-columns:1fr}}
+  .slots{display:flex; flex-direction:column; gap:18px}
+  .slot label{display:block; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--stone); margin-bottom:6px}
+  select{
+    width:100%; padding:12px 14px; font-size:15px; background:var(--card);
+    border:1px solid var(--line); color:var(--ink); border-radius:2px; appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%238A8276'/></svg>");
+    background-repeat:no-repeat; background-position:right 14px center;
+  }
+  select:focus{outline:none; border-color:var(--stone)}
+
+  .panel{background:var(--card); border:1px solid var(--line); border-radius:3px; padding:28px}
+  .verdict{display:flex; align-items:baseline; justify-content:space-between; padding-bottom:18px; border-bottom:1px solid var(--line); margin-bottom:20px}
+  .verdict .badge{font-family:Georgia,serif; font-size:30px; letter-spacing:.5px}
+  .verdict .tag{font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--stone)}
+
+  .axes{display:flex; flex-direction:column; gap:13px; margin-bottom:22px}
+  .axis{display:grid; grid-template-columns:96px 1fr 70px; align-items:center; gap:12px}
+  .axis .name{font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--stone)}
+  .meter{height:6px; background:#EDE8DD; border-radius:3px; overflow:hidden}
+  .meter span{display:block; height:100%; border-radius:3px; transition:width .3s ease, background .3s ease}
+  .axis .level{font-size:11px; letter-spacing:1px; text-transform:uppercase; text-align:right}
+
+  .scores{display:grid; grid-template-columns:1fr 1fr; gap:0; border-top:1px solid var(--line); margin-top:4px}
+  .score{padding:18px 0}
+  .score:first-child{border-right:1px solid var(--line); padding-right:20px}
+  .score:last-child{padding-left:20px}
+  .score .who{font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:var(--stone); margin-bottom:8px}
+  .score .num{font-family:Georgia,serif; font-size:34px}
+  .score .num small{font-size:15px; color:var(--stone)}
+  .bar{height:4px; background:#EDE8DD; border-radius:2px; margin-top:10px; overflow:hidden}
+  .bar span{display:block; height:100%}
+  .hero{font-size:12px; color:var(--stone); margin-top:18px; letter-spacing:.3px}
+  .hero b{color:var(--ink); font-weight:600}
+
+  /* legend */
+  .legend{display:flex; flex-wrap:wrap; gap:18px; margin:20px 0 0; font-size:12px; color:var(--stone)}
+  .legend span{display:inline-flex; align-items:center; gap:7px}
+  .dot{width:9px; height:9px; border-radius:50%}
+
+  /* gallery */
+  .gallery{display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:8px}
+  @media(max-width:840px){.gallery{grid-template-columns:1fr}}
+  .gcard{background:var(--card); border:1px solid var(--line); border-radius:3px; padding:22px}
+  .gcard h3{font-family:Georgia,serif; font-weight:400; font-size:20px; margin-bottom:4px}
+  .gcard .items{font-size:12.5px; color:var(--stone); margin-bottom:16px; line-height:1.6}
+  .grow{display:flex; align-items:center; gap:14px; margin-bottom:10px}
+  .gbadge{font-size:10px; letter-spacing:1.5px; text-transform:uppercase; padding:4px 10px; border-radius:2px; white-space:nowrap}
+  .gline{flex:1}
+  .gline .lab{font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--stone); display:flex; justify-content:space-between; margin-bottom:4px}
+  .gnote{font-size:12.5px; color:var(--stone); margin-top:14px; padding-top:14px; border-top:1px solid var(--line); line-height:1.6}
+  .gnote b{color:var(--ink); font-weight:600}
+
+  .flip{display:inline-block; font-size:11px; letter-spacing:1px; padding:2px 7px; border-radius:2px; margin-left:8px; vertical-align:middle}
+  .flip.up{background:rgba(92,122,85,.14); color:var(--positive)}
+  .flip.down{background:rgba(168,84,62,.14); color:var(--negative)}
+
+  .principle{background:var(--ink); color:var(--bg); border-radius:3px; padding:36px 40px; margin-top:24px}
+  .principle p{font-family:Georgia,serif; font-size:22px; line-height:1.5; font-weight:400}
+  .principle p em{color:#C99A4E; font-style:italic}
+  .foot{margin-top:48px; padding-top:24px; border-top:1px solid var(--line); font-size:12.5px; color:var(--stone); line-height:1.7}
+  code{background:#EAE4D7; padding:2px 6px; border-radius:2px; font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">MIEN · Engine R&amp;D</div>
+  <h1>The Tension Model</h1>
+  <p class="sub">A scoring prototype that asks a different question than the current engine. Not “is this outfit decent on every axis?” but “does it have <em>one</em> deliberate idea — and the discipline to keep everything else quiet?” Pick items below and watch both engines disagree.</p>
+</header>
+
+<!-- ─── BUILDER ─────────────────────────────────────────────── -->
+<h2>Build an outfit</h2>
+<p class="lede">The current engine averages its scores, so it rewards outfits that are mild everywhere. The tension model counts <em>axes of contrast</em> and rewards exactly one strong one. Try the default (a tuxedo blazer over a striped tee) — the formality clash is the whole point, yet the old engine punishes it.</p>
+
+<div class="builder">
+  <div class="slots">
+    <div class="slot"><label>Top</label><select id="sel-top"></select></div>
+    <div class="slot"><label>Bottom</label><select id="sel-bottom"></select></div>
+    <div class="slot"><label>Shoes</label><select id="sel-shoes"></select></div>
+    <div class="slot"><label>Outer layer</label><select id="sel-outer"></select></div>
+
+    <div class="legend">
+      <span><i class="dot" style="background:var(--calm)"></i>Calm</span>
+      <span><i class="dot" style="background:var(--present)"></i>Present</span>
+      <span><i class="dot" style="background:var(--strong)"></i>Strong (intentional)</span>
+      <span><i class="dot" style="background:var(--noise)"></i>Noise (uncontrolled)</span>
+    </div>
+  </div>
+
+  <div class="panel" id="panel">
+    <div class="verdict">
+      <div class="badge" id="verdict-badge">—</div>
+      <div class="tag" id="verdict-tag"></div>
+    </div>
+    <div class="axes" id="axes"></div>
+    <div class="scores">
+      <div class="score">
+        <div class="who">Current engine · mean</div>
+        <div class="num" id="old-num">—</div>
+        <div class="bar"><span id="old-bar" style="background:var(--stone)"></span></div>
+      </div>
+      <div class="score">
+        <div class="who">Tension model</div>
+        <div class="num" id="new-num">—</div>
+        <div class="bar"><span id="new-bar" style="background:var(--ink)"></span></div>
+      </div>
+    </div>
+    <div class="hero" id="hero"></div>
+  </div>
+</div>
+
+<!-- ─── GALLERY ─────────────────────────────────────────────── -->
+<h2>Where the two engines disagree</h2>
+<p class="lede">Six archetypal looks, each scored by both engines. Watch the rank flips — the outfits the old engine buries are exactly the ones with a point of view, and its favorites are the forgettable “safe” ones.</p>
+<div class="gallery" id="gallery"></div>
+
+<div class="principle">
+  <p>Correctness is an <em>average</em>. Taste is a deliberate, single, well-supported <em>deviation</em> — one strong idea, stated once, with everything else kept quiet.</p>
+</div>
+
+<div class="foot">
+  <p><b>What this prototype models</b> — four contrast axes the live DB already has data for: proportion (fit volume), formality, colour (neutral base vs. pops), texture. Each is scored <code>calm / present / strong / noise</code>. The tension model rewards exactly one <code>strong</code> with the rest <code>calm</code>; it penalises zero (forgettable) and three-plus (costume).</p>
+  <p style="margin-top:10px"><b>What it deliberately doesn’t model yet</b> — fit-on-body proportion (needs height + torso + garment length), mood/“same-world” coherence, and the styling layer (tuck, roll, cuff). Those are the next levers. The “quiet uniform” card below is the honest edge case: it reads as <em>Safe</em> here because its real taste lives in fit precision, which neither engine can currently see.</p>
+  <p style="margin-top:10px">Wired against the existing pipeline this slots into <code>ranking.ts</code> as a re-scorer over candidates from <code>generation.ts</code> — no change to filtering or generation.</p>
+</div>
+
+</div>
+
+<script>
+/* ─── Wardrobe ─────────────────────────────────────────────────────────────
+   volume: 1 slim · 2 regular · 3 relaxed · 4 wide · 5 oversized
+   formality 1–5 · sat: muted/mid/vivid · pattern: solid/bold · texture: smooth/mid/rough */
+const ITEMS = {
+  top: [
+    {id:'t3', name:'Breton striped tee',     family:'blue',  neutral:true,  sat:'mid',   vol:2, form:2,   pattern:'bold',  texture:'smooth'},
+    {id:'t1', name:'White silk shirt',        family:'white', neutral:true,  sat:'muted', vol:2, form:3.5, pattern:'solid', texture:'smooth'},
+    {id:'t5', name:'Black fitted turtleneck', family:'black', neutral:true,  sat:'muted', vol:1, form:3,   pattern:'solid', texture:'smooth'},
+    {id:'t2', name:'Oversized cream knit',    family:'white', neutral:true,  sat:'muted', vol:5, form:2.5, pattern:'solid', texture:'rough'},
+    {id:'t4', name:'Red silk blouse',         family:'red',   neutral:false, sat:'vivid', vol:2, form:3,   pattern:'solid', texture:'smooth'},
+  ],
+  bottom: [
+    {id:'b2', name:'Slim indigo jeans',    family:'blue',  neutral:false, sat:'mid',   vol:1, form:2, pattern:'solid', texture:'mid'},
+    {id:'b1', name:'Tailored black trouser',family:'black', neutral:true,  sat:'muted', vol:2, form:4, pattern:'solid', texture:'smooth'},
+    {id:'b3', name:'Wide cream trouser',   family:'white', neutral:true,  sat:'muted', vol:4, form:3, pattern:'solid', texture:'smooth'},
+    {id:'b4', name:'Leather mini skirt',   family:'black', neutral:true,  sat:'muted', vol:2, form:3, pattern:'solid', texture:'rough'},
+  ],
+  shoes: [
+    {id:'s3', name:'Strappy heels',  family:'black', neutral:true, sat:'muted', vol:1, form:4,   pattern:'solid', texture:'smooth'},
+    {id:'s1', name:'Black loafers',  family:'black', neutral:true, sat:'muted', vol:2, form:3.5, pattern:'solid', texture:'smooth'},
+    {id:'s2', name:'White sneakers', family:'white', neutral:true, sat:'muted', vol:2, form:1.5, pattern:'solid', texture:'mid'},
+  ],
+  outer: [
+    {id:'o1', name:'Black tuxedo blazer', family:'black', neutral:true,  sat:'muted', vol:2, form:4.5, pattern:'solid', texture:'smooth'},
+    {id:'o0', name:'— none —',            none:true},
+    {id:'o2', name:'Camel wool coat',     family:'earth', neutral:true,  sat:'muted', vol:3, form:4,   pattern:'solid', texture:'rough'},
+    {id:'o3', name:'Denim jacket',        family:'blue',  neutral:false, sat:'mid',   vol:3, form:2,   pattern:'solid', texture:'mid'},
+  ],
+};
+const byId = id => [].concat(...Object.values(ITEMS)).find(i=>i.id===id);
+
+/* ─── Axis analysis ────────────────────────────────────────────────────────
+   returns {level: 'calm'|'present'|'strong'|'noise', mag: 0..1} per axis */
+const SAT = {muted:0, mid:.5, vivid:1};
+
+function axisProportion(items){
+  const vols = items.map(i=>i.vol);
+  const spread = Math.max(...vols) - Math.min(...vols);
+  if(Math.min(...vols) >= 4) return {level:'noise', mag:Math.min(1,spread/4)}; // volume everywhere — heavy, no anchor
+  if(spread >= 3) return {level:'strong',  mag:Math.min(1,spread/4)};
+  if(spread === 2) return {level:'present', mag:.5};
+  return {level:'calm', mag:spread/4};
+}
+function axisFormality(items){
+  const f = items.map(i=>i.form);
+  const gap = Math.max(...f) - Math.min(...f);
+  if(gap >= 2)    return {level:'strong',  mag:Math.min(1,gap/3.5)};
+  if(gap >= 1.25) return {level:'present', mag:.5};
+  return {level:'calm', mag:gap/3.5};
+}
+function axisColor(items){
+  const nonNeutral = items.filter(i=>!i.neutral);
+  const fams = new Set(nonNeutral.map(i=>i.family));
+  const boldPattern = items.some(i=>i.pattern==='bold');
+  let pops = fams.size + (boldPattern?1:0);
+  const vivid = nonNeutral.some(i=>i.sat==='vivid');
+  if(pops === 0) return {level:'calm', mag:0};
+  if(pops === 1) return {level:'strong', mag:vivid?.9:.6};   // one clean accent
+  return {level:'noise', mag:Math.min(1,pops/3)};            // competing pops
+}
+function axisTexture(items){
+  const t = new Set(items.map(i=>i.texture));
+  if(t.has('smooth') && t.has('rough')) return {level:'strong', mag:.8};
+  if(t.size >= 2) return {level:'present', mag:.5};
+  return {level:'calm', mag:.1};
+}
+
+/* clear hero = one item clearly more distinctive than the rest */
+function heroOf(items){
+  const meanForm = items.reduce((s,i)=>s+i.form,0)/items.length;
+  const scored = items.map(i=>({i, d: (i.form-meanForm)*0.45 + SAT[i.sat]*1.0 + Math.abs(i.vol-2)*0.3}));
+  scored.sort((a,b)=>b.d-a.d);
+  const clear = scored.length>1 && (scored[0].d - scored[1].d) >= 0.6;
+  return {clear, item: scored[0].i};
+}
+
+/* ─── Tension model score ──────────────────────────────────────────────── */
+function tensionModel(items){
+  const axes = {
+    Proportion: axisProportion(items),
+    Formality:  axisFormality(items),
+    Colour:     axisColor(items),
+    Texture:    axisTexture(items),
+  };
+  const levels = Object.values(axes).map(a=>a.level);
+  const strong  = levels.filter(l=>l==='strong').length;
+  const noise   = levels.filter(l=>l==='noise').length;
+  const present = levels.filter(l=>l==='present').length;
+  const total = strong + noise;
+  const hero = heroOf(items);
+
+  let score, verdict, tag;
+  if(total === 0){
+    score = 0.42 + 0.06*present;
+    verdict = 'Safe'; tag = 'Correct · forgettable';
+  } else if(total === 1 && noise === 0){
+    score = 0.97 - 0.11*present;
+    if(present <= 1){ verdict = 'Taste'; tag = 'One idea, everything else quiet'; }
+    else { verdict = 'Almost'; tag = 'Good idea, slightly busy'; }
+    if(hero.clear) score += 0.03;
+  } else if(total === 1 && noise === 1){
+    score = 0.58; verdict = 'Almost'; tag = 'The one tension is uncontrolled';
+  } else if(total === 2){
+    score = 0.52 - 0.04*present; verdict = 'Busy'; tag = 'Two ideas competing';
+  } else {
+    score = 0.30; verdict = 'Costume'; tag = 'Too many tensions — noise';
+  }
+  score = Math.max(.15, Math.min(.99, score));
+  return {axes, score, verdict, tag, strong, noise, present, hero};
+}
+
+/* ─── Current engine (mean of the comparable scorers, real formulas) ────── */
+function colorHarmonyOld(items){
+  const fams = new Set(items.filter(i=>!i.neutral).map(i=>i.family));
+  const bold = items.some(i=>i.pattern==='bold')?1:0;
+  return Math.max(.3, 1 - 0.22*fams.size - 0.10*bold);
+}
+function formalityConsistencyOld(items){           // mirrors scoring.ts:473
+  const f = items.map(i=>i.form); const gap = Math.max(...f)-Math.min(...f);
+  if(gap<=1) return 1.0; if(gap<=1.5) return .8; if(gap<=2) return .55; if(gap<=2.5) return .3; return .15;
+}
+function proportionBalanceOld(items){              // mirrors scoring.ts:451
+  const tops = items.filter(i=>i.slot==='top'||i.slot==='outer');
+  const bottoms = items.filter(i=>i.slot==='bottom');
+  if(!tops.length||!bottoms.length) return .7;
+  const tv = Math.max(...tops.map(i=>i.vol)), bv = Math.max(...bottoms.map(i=>i.vol));
+  if(tv>=5&&bv>=5) return .15; if(tv>=4&&bv>=4) return .35;
+  const diff=Math.abs(tv-bv);
+  if(diff>=2) return 1.0; if(diff===1) return .8; if(tv<=2) return .65; return .4;
+}
+function textureOld(items){
+  const d = new Set(items.map(i=>i.texture)).size;
+  if(d===1) return .6; if(d===2) return .8; return .7;
+}
+function currentEngine(items){
+  const c=colorHarmonyOld(items), f=formalityConsistencyOld(items),
+        p=proportionBalanceOld(items), t=textureOld(items);
+  return (c+f+p+t)/4;
+}
+
+/* ─── Render ───────────────────────────────────────────────────────────── */
+const LEVEL_COLOR = {calm:'var(--calm)', present:'var(--present)', strong:'var(--strong)', noise:'var(--noise)'};
+const VERDICT_COLOR = {Taste:'var(--strong)', Almost:'var(--present)', Safe:'var(--stone)', Busy:'var(--noise)', Costume:'var(--noise)'};
+
+function collect(ids){
+  const slots = {top:'top', bottom:'bottom', shoes:'shoes', outer:'outer'};
+  const items=[];
+  for(const [slot,key] of Object.entries(slots)){
+    const it = byId(ids[slot]);
+    if(it && !it.none) items.push({...it, slot});
+  }
+  return items;
+}
+
+function renderPanel(ids){
+  const items = collect(ids);
+  const tm = tensionModel(items);
+  const old = currentEngine(items);
+
+  document.getElementById('verdict-badge').textContent = tm.verdict;
+  document.getElementById('verdict-badge').style.color = VERDICT_COLOR[tm.verdict];
+  document.getElementById('verdict-tag').textContent = tm.tag;
+
+  const axesEl = document.getElementById('axes');
+  axesEl.innerHTML = '';
+  for(const [name,a] of Object.entries(tm.axes)){
+    const row = document.createElement('div'); row.className='axis';
+    row.innerHTML = `
+      <div class="name">${name}</div>
+      <div class="meter"><span style="width:${Math.round(a.mag*100)}%; background:${LEVEL_COLOR[a.level]}"></span></div>
+      <div class="level" style="color:${LEVEL_COLOR[a.level]}">${a.level}</div>`;
+    axesEl.appendChild(row);
+  }
+
+  document.getElementById('old-num').innerHTML = Math.round(old*100)+'<small>/100</small>';
+  document.getElementById('new-num').innerHTML = Math.round(tm.score*100)+'<small>/100</small>';
+  document.getElementById('old-bar').style.width = Math.round(old*100)+'%';
+  document.getElementById('new-bar').style.width = Math.round(tm.score*100)+'%';
+
+  const heroEl = document.getElementById('hero');
+  if(tm.hero.clear && (tm.verdict==='Taste'||tm.verdict==='Almost'))
+    heroEl.innerHTML = `Anchor: <b>${tm.hero.item.name}</b> — everything else is supporting it.`;
+  else if(tm.strong+tm.noise===0)
+    heroEl.innerHTML = `No anchor, no tension — pleasant, but nothing for the eye to land on.`;
+  else if(tm.noise>0)
+    heroEl.innerHTML = `Tension present, but uncontrolled — reads as noise rather than a choice.`;
+  else
+    heroEl.innerHTML = `No single dominant piece — the look has no clear hero.`;
+}
+
+/* dropdowns */
+function fillSelect(slot){
+  const sel = document.getElementById('sel-'+slot);
+  ITEMS[slot].forEach(it=>{
+    const o=document.createElement('option'); o.value=it.id; o.textContent=it.name; sel.appendChild(o);
+  });
+  sel.addEventListener('change', update);
+}
+function currentIds(){
+  return {
+    top: document.getElementById('sel-top').value,
+    bottom: document.getElementById('sel-bottom').value,
+    shoes: document.getElementById('sel-shoes').value,
+    outer: document.getElementById('sel-outer').value,
+  };
+}
+function update(){ renderPanel(currentIds()); }
+['top','bottom','shoes','outer'].forEach(fillSelect);
+// default look: tuxedo blazer over breton tee + slim jeans + heels  → formality tension, calm elsewhere
+document.getElementById('sel-top').value='t3';
+document.getElementById('sel-bottom').value='b2';
+document.getElementById('sel-shoes').value='s3';
+document.getElementById('sel-outer').value='o1';
+update();
+
+/* ─── Gallery ──────────────────────────────────────────────────────────── */
+const GALLERY = [
+  { title:'Le Smoking',  ids:{top:'t3',bottom:'b2',shoes:'s3',outer:'o1'},
+    note:`A black-tie blazer thrown over a casual striped tee. The formality clash <b>is</b> the outfit — everything else (colour, proportion) stays quiet. The old engine’s formality-consistency scorer tanks it; the tension model sees one clean idea and rewards it.` },
+  { title:'Quiet uniform',  ids:{top:'t1',bottom:'b1',shoes:'s1',outer:'o0'},
+    note:`Carolyn-Bessette minimalism: white shirt, black trouser, loafers. Zero tension on every axis. The old engine <b>loves</b> it (consistent everywhere). The honest verdict: its real taste lives in <b>fit precision</b>, which neither engine can see yet — so here it reads as Safe.` },
+  { title:'Proportion play', ids:{top:'t2',bottom:'b2',shoes:'s2',outer:'o0'},
+    note:`Oversized knit over slim jeans — the volume gap is the statement. Here both engines agree, because the old proportion-balance scorer happens to reward volume contrast. Agreement is fine; it shows the tension model isn’t just contrarian.` },
+  { title:'One clean pop', ids:{top:'t4',bottom:'b1',shoes:'s1',outer:'o0'},
+    note:`A single red blouse against an all-black base. One colour accent, calm everywhere else — a clean pop. The anchor is obvious and the eye lands exactly where intended.` },
+  { title:'Costume', ids:{top:'t4',bottom:'b4',shoes:'s3',outer:'o3'},
+    note:`Red blouse, leather skirt, heels, denim jacket — colour clash <i>and</i> formality clash <i>and</i> texture clash. Three competing ideas. Both engines mark it down, but only the tension model can say <b>why</b>: too many tensions, no hierarchy.` },
+  { title:'Volume everywhere', ids:{top:'t2',bottom:'b3',shoes:'s2',outer:'o0'},
+    note:`Oversized knit + wide trouser — big on top, big on bottom. No contrast, just heaviness. The old engine’s “both oversized” rule and the tension model both flag it, for the same reason: there’s no anchor to read against.` },
+];
+
+function gItems(ids){
+  return ['top','bottom','shoes','outer'].map(s=>byId(ids[s])).filter(i=>i&&!i.none);
+}
+function renderGallery(){
+  // compute new-rank and old-rank to show flips
+  const scored = GALLERY.map(g=>{
+    const items = gItems(g.ids).map((it,idx)=>({...it, slot:['top','bottom','shoes','outer'][idx]}));
+    const proper = gItems(g.ids); // with slot tags for old proportion
+    const tagged = proper.map(it=>{
+      const slot = it===byId(g.ids.top)?'top':it===byId(g.ids.bottom)?'bottom':it===byId(g.ids.shoes)?'shoes':'outer';
+      return {...it, slot};
+    });
+    const tm = tensionModel(tagged);
+    const old = currentEngine(tagged);
+    return {g, tm, old, items:tagged};
+  });
+  const newRank = [...scored].sort((a,b)=>b.tm.score-a.tm.score);
+  const oldRank = [...scored].sort((a,b)=>b.old-a.old);
+  const newPos = s => newRank.indexOf(s)+1;
+  const oldPos = s => oldRank.indexOf(s)+1;
+
+  const el = document.getElementById('gallery'); el.innerHTML='';
+  scored.forEach(s=>{
+    const np=newPos(s), op=oldPos(s), delta=op-np;
+    let flip='';
+    if(delta>0) flip=`<span class="flip up">▲ ${delta} vs old</span>`;
+    else if(delta<0) flip=`<span class="flip down">▼ ${-delta} vs old</span>`;
+    const itemNames = s.items.map(i=>i.name).join(' · ');
+    const card=document.createElement('div'); card.className='gcard';
+    card.innerHTML=`
+      <h3>${s.g.title} <span style="font-size:13px;color:${VERDICT_COLOR[s.tm.verdict]};font-family:-apple-system,sans-serif;letter-spacing:1.5px;text-transform:uppercase">· ${s.tm.verdict}</span>${flip}</h3>
+      <div class="items">${itemNames}</div>
+      <div class="grow">
+        <span class="gbadge" style="background:rgba(138,130,118,.15);color:var(--stone)">Old #${op}</span>
+        <div class="gline">
+          <div class="lab"><span>Current engine</span><span>${Math.round(s.old*100)}</span></div>
+          <div class="bar"><span style="width:${Math.round(s.old*100)}%;background:var(--stone)"></span></div>
+        </div>
+      </div>
+      <div class="grow">
+        <span class="gbadge" style="background:rgba(26,24,20,.10);color:var(--ink)">New #${np}</span>
+        <div class="gline">
+          <div class="lab"><span>Tension model</span><span>${Math.round(s.tm.score*100)}</span></div>
+          <div class="bar"><span style="width:${Math.round(s.tm.score*100)}%;background:var(--ink)"></span></div>
+        </div>
+      </div>
+      <div class="gnote">${s.g.note}</div>`;
+    el.appendChild(card);
+  });
+}
+renderGallery();
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable, Dimensions,
+  View, Text, StyleSheet, ScrollView, Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,9 +10,7 @@ import { IconChevronLeft, IconCalendar, IconPlus, IconBookmark } from '../src/co
 import { useAppStore } from '../src/stores/appStore';
 import { Outfit } from '../src/data';
 import { useFitFeed } from '../src/features/feed/useFitFeed';
-
-const { width: W } = Dimensions.get('window');
-const CARD_W = (W - 24 * 2 - 12) / 2;
+import { useGridCardWidth } from '../src/design/layout';
 
 const FORECASTS = [
   '24°C · clear', '22°C · partly cloudy', '26°C · sun',
@@ -106,6 +104,7 @@ function OutfitPickerSheet({
   outfits: Outfit[]; savedIds: string[];
   onPick: (id: string) => void;
 }) {
+  const CARD_W = useGridCardWidth();
   // Surface saved outfits first, then engine-generated ones
   const ordered = [
     ...outfits.filter((o) => savedIds.includes(o.id)),

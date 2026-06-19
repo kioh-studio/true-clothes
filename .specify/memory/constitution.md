@@ -29,7 +29,7 @@
   Deferred TODOs: None
 -->
 
-# True Clothes Constitution
+# MIEN Constitution
 
 ## Core Principles
 
@@ -50,7 +50,7 @@ in `src/design/tokens.ts`. Inline hex values in `StyleSheet` objects are a viola
 - **No gradients**. No drop shadows unless structural elevation requires it (e.g., modal
   sheets) and the shadow is near-invisible.
 
-**Rationale**: True Clothes is positioned alongside Celine, The Row, and Bottega Veneta.
+**Rationale**: MIEN is positioned alongside Celine, The Row, and Bottega Veneta.
 Any visual deviation degrades brand equity in a category where aesthetic trust is the
 primary conversion lever.
 

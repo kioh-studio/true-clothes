@@ -1,8 +1,9 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useFitEngineStore } from '../../stores/fitEngineStore';
 import { Outfit } from '../../data';
 import { ScoredOutfit, OutfitSlots } from '../../types/fitEngine';
 import { useAppStore } from '../../stores/appStore';
+import { usePremium } from '../monetization/usePremium';
 
 // Stable deep-comparison hook
 function useStableValue<T>(value: T): T {
@@ -14,8 +15,11 @@ function useStableValue<T>(value: T): T {
 }
 
 function slotsToIds(slots: OutfitSlots): string[] {
-  return [slots.top, slots.bottom, slots.shoes, slots.outwear, slots.accessory]
-    .filter((id): id is string => id !== undefined);
+  // Dedupe: a one-piece (dress/jumpsuit) fills both top and bottom slots
+  return [...new Set(
+    [slots.top, slots.bottom, slots.shoes, slots.outwear, slots.accessory]
+      .filter((id): id is string => id !== undefined),
+  )];
 }
 
 const OUTFIT_TITLES = [
@@ -59,6 +63,7 @@ function scoredToOutfit(scored: ScoredOutfit, items: ReturnType<typeof useAppSto
     itemIds: ids,
     formula: scored.formula,
     tier: scored.tier,
+    stylistNote: scored.stylistNote,
     scores: {
       totalScore: scored.totalScore,
       styleCoherence: scored.styleCoherence,
@@ -73,35 +78,43 @@ function scoredToOutfit(scored: ScoredOutfit, items: ReturnType<typeof useAppSto
 }
 
 // Returns a ranked daily outfit feed from the Edge Function.
+//
+// `store.outfits` is the single source of truth: fetchOutfits() replaces it and
+// fetchMoreOutfits() appends to it. This hook subscribes to that array and maps
+// it to view models, so infinite-scroll pagination (which calls fetchMoreOutfits)
+// renders without the hook holding a second, stale copy of the list.
 export function useFitFeed(): { outfits: Outfit[]; isGenerated: boolean; loading: boolean; refresh: () => void } {
   const { items } = useAppStore();
-  const { fetchOutfits, styleProfile } = useFitEngineStore();
+  const { fetchOutfits, styleProfile, setPremium } = useFitEngineStore();
+  const scored = useFitEngineStore(s => s.outfits);
+  const { isPremium } = usePremium();
+
+  // Keep the store's tier flag in sync so fetches gate curation correctly
+  useEffect(() => { setPremium(isPremium); }, [isPremium, setPremium]);
 
   const stableStyles = useStableValue(styleProfile.selectedStyles);
 
-  const [outfits, setOutfits] = useState<Outfit[]>([]);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const scored = await fetchOutfits();
-      if (scored.length > 0) {
-        setOutfits(scored.map((s, i) => scoredToOutfit(s, items, styleProfile.selectedStyles, i)));
-      } else {
-        setOutfits([]);
-      }
+      await fetchOutfits(); // updates store.outfits (the source this hook maps)
     } catch (err) {
       console.warn('[useFitFeed] Error:', err);
-      setOutfits([]);
     } finally {
       setLoading(false);
     }
-  }, [fetchOutfits, items, styleProfile.selectedStyles]);
+  }, [fetchOutfits]);
 
   useEffect(() => {
     load();
   }, [stableStyles, load]);
+
+  const outfits = useMemo(
+    () => scored.map((s, i) => scoredToOutfit(s, items, styleProfile.selectedStyles, i)),
+    [scored, items, styleProfile.selectedStyles],
+  );
 
   return { outfits, isGenerated: outfits.length > 0, loading, refresh: load };
 }

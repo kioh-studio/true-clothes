@@ -1,4 +1,4 @@
-// Supabase client for True Clothes (React Native / Expo).
+// Supabase client for MIEN (React Native / Expo).
 //
 // The session is persisted via AsyncStorage so a logged-in user resumes
 // across app restarts. The project URL + anon (publishable) key MUST come

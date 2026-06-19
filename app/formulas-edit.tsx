@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable,
 } from 'react-native';
@@ -8,14 +8,14 @@ import { T, type } from '../src/design/tokens';
 import { PrimaryButton } from '../src/components/ui';
 import { IconChevronLeft, IconCheck } from '../src/components/icons';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
-import { FORMULA_CATALOG, FormulaId } from '../src/services/fitEngine/formulaCatalog';
+import { FormulaCatalogItem } from '../src/services/formulasCatalogService';
 
 function FormulaCard({
   formula,
   selected,
   onPress,
 }: {
-  formula: typeof FORMULA_CATALOG[number];
+  formula: FormulaCatalogItem;
   selected: boolean;
   onPress: () => void;
 }) {
@@ -26,11 +26,11 @@ function FormulaCard({
           {formula.name}
         </Text>
         <Text style={[styles.cardDesc, selected && styles.cardDescSelected]}>
-          {formula.desc}
+          {formula.description}
         </Text>
         <View style={[styles.tagPill, selected && styles.tagPillSelected]}>
           <Text style={[styles.tagText, selected && styles.tagTextSelected]}>
-            {formula.shortDesc}
+            {formula.slug.replace(/_/g, ' ').toUpperCase()}
           </Text>
         </View>
       </View>
@@ -46,16 +46,20 @@ function FormulaCard({
 export default function FormulasEditScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { formulaPreferences, setFormulaPreferences } = useFitEngineStore();
+  const { formulaPreferences, setFormulaPreferences, formulas, loadCatalogs } = useFitEngineStore();
 
-  const [selected, setSelected] = useState<FormulaId[]>(() => [...formulaPreferences]);
+  useEffect(() => {
+    if (formulas.length === 0) loadCatalogs();
+  }, [formulas.length, loadCatalogs]);
+
+  const [selected, setSelected] = useState<string[]>(() => [...formulaPreferences]);
   const initialSelected = useRef([...selected]).current;
 
   const dirty = JSON.stringify([...selected].sort()) !== JSON.stringify([...initialSelected].sort());
 
-  const toggle = (id: FormulaId) => {
+  const toggle = (slug: string) => {
     setSelected((s) =>
-      s.includes(id) ? s.filter((x) => x !== id) : [...s, id]
+      s.includes(slug) ? s.filter((x) => x !== slug) : [...s, slug]
     );
   };
 
@@ -89,16 +93,16 @@ export default function FormulasEditScreen() {
           <Text style={[styles.stepNum, { color: T.color.primary }]}>01</Text>
           <Text style={[styles.stepLabel, { color: T.color.primary }]}>FORMULAS</Text>
           <View style={styles.stepLine} />
-          <Text style={styles.stepCount}>{selected.length} / {FORMULA_CATALOG.length}</Text>
+          <Text style={styles.stepCount}>{selected.length} / {formulas.length}</Text>
         </View>
 
         <View style={styles.grid}>
-          {FORMULA_CATALOG.map((f) => (
+          {formulas.map((f) => (
             <FormulaCard
               key={f.id}
               formula={f}
-              selected={selected.includes(f.id)}
-              onPress={() => toggle(f.id)}
+              selected={selected.includes(f.slug)}
+              onPress={() => toggle(f.slug)}
             />
           ))}
         </View>
@@ -106,7 +110,7 @@ export default function FormulasEditScreen() {
         {selected.length === 0 && (
           <View style={styles.hintBox}>
             <Text style={styles.hintText}>
-              No formulas selected — your feed will use all 10 formulas for maximum variety.
+              No formulas selected — your feed will use all formulas for maximum variety.
             </Text>
           </View>
         )}

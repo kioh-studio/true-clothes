@@ -1,4 +1,4 @@
-# Implementation Plan: True Clothes App — Current State Baseline
+# Implementation Plan: MIEN App — Current State Baseline
 
 **Branch**: `001-app-baseline` | **Date**: 2026-06-06 | **Spec**: specs/001-app-baseline/spec.md
 
@@ -6,7 +6,7 @@
 
 ## Summary
 
-True Clothes has a well-built UI layer and a sophisticated server-side outfit generation
+MIEN has a well-built UI layer and a sophisticated server-side outfit generation
 engine, but personalisation is broken end-to-end: user wardrobe items are stored only
 in local device storage and never synced to Supabase. The fit engine's Edge Function
 reads from an empty database and falls back to pre-seeded demo items — real personalised
@@ -148,3 +148,91 @@ for the first time, establishing version-controlled schema management.
 ## Complexity Tracking
 
 > No Constitution Check violations. This section intentionally empty.
+
+---
+
+## Update: Collections Feature (2026-06-07)
+
+**Commit**: `a3c4000` — "Fix wardrobeService to match actual Supabase schema" and
+"Implement 001-app-baseline feature tasks (T001–T034)"
+
+### Work Completed Since Original Plan
+
+The following files were added or modified to implement the Collections feature and
+correct the live schema mismatch:
+
+| File | Status | Notes |
+|------|--------|-------|
+| `src/services/collectionsService.ts` | **NEW** | Sole Supabase entry point for collections |
+| `src/stores/appStore.ts` | **UPDATED** | Added collection actions + weather + wardrobe sync |
+| `src/data/index.ts` | **UPDATED** | `Collection.itemIds` corrected to wardrobe item IDs; demo COLLECTIONS updated |
+| `app/collections/index.tsx` | **UPDATED** | Collections screen uses wardrobe items (not outfits) |
+| `app/collections/[id].tsx` | **UPDATED** | Collection detail shows item grid |
+| `app/(tabs)/menu.tsx` | **UPDATED** | Settings/Help routes live; Collections nav to `/collections` |
+| `supabase/migrations/20260607000001_collections.sql` | **NEW** | `collections` + `collection_items` tables with RLS |
+| `supabase/functions/extract-garments/prompt.ts` | **NEW** | Garment extraction prompt (Q22/Q23 from expectation.md) |
+
+### Three Open Deferred Items (from `docs/expectation/expectation.md`)
+
+The following items from the expectation doc "Open / Deferred Work" section are
+still unimplemented and constitute the Phase 7 work plan below:
+
+1. **Schema drift** — `supabase/migrations/20260606000002_clothing_items.sql` uses
+   `clothing_items.user_id`, but the live DB uses `wardrobes` + `clothing_items.wardrobe_id`.
+   A corrective migration is needed to make `supabase db reset` produce the correct schema.
+
+2. **"Add to Collection" on outfit detail** — currently calls `toggleCollection(outfitId)`
+   which tracks outfit IDs in `collectionsAddedSet`. This is inconsistent: collections now
+   hold wardrobe items, not outfits. Should be repurposed to a collection picker that adds
+   the outfit's individual items to a chosen collection.
+
+3. **Collection management UI** — the `+` (create) icon on `collections/index.tsx` and
+   the edit icon on `collections/[id].tsx` are visual-only. The store actions
+   (`createCollection`, `updateCollection`, `deleteCollection`, `addItemToCollection`,
+   `removeItemFromCollection`) exist but no bottom-sheet UI is wired to them.
+
+### Constitution Check for Phase 7
+
+| Gate | Applies? | Result | Notes |
+|------|----------|--------|-------|
+| 1. New screen/component → design token compliance | Yes — new bottom sheets | ✅ Pass | Sheets use `T.color.*`, `T.font.*`, `T.s(n)`. No inline hex. |
+| 2. Business logic → store/hook | Yes | ✅ Pass | New sheet logic wired to existing `appStore` actions. No async/await in JSX. |
+| 3. Touches Supabase → through service module | Yes — collectionsService | ✅ Pass | All collection DB calls go through `collectionsService.ts`. |
+| 4. New entity/type | Yes — `CollectionDisplayItem` | ✅ Pass | Added to `src/data/index.ts`. No new `any`, units/colors unchanged. |
+| 5. Scoring logic change | No | N/A | |
+| 6. Multiple product domains → via stores | Yes — outfit detail + collections | ✅ Pass | Outfit detail reads `appStore.collections` and calls `appStore.addItemToCollection`. |
+
+---
+
+## Phase 7: Collections Management UI + Schema Drift Fix
+
+### Summary
+
+Three self-contained work streams, all parallelisable after T035 (migration applied):
+
+1. **Schema drift fix** (infrastructure) — write corrective migration
+2. **Collections management UI** — wire create/edit/delete sheets and item picker
+3. **Outfit detail fix** — repurpose "Add to Collection" to wardrobe-item semantics
+
+**Performance note**: `resolveItemIds()` helper (T036) is a pure synchronous function
+reading local state — no network calls, no blocking render.
+
+### Project Structure Changes (Phase 7)
+
+```text
+src/
+├── data/
+│   └── index.ts              # UPDATE: add CollectionDisplayItem type + resolveItemIds()
+├── features/
+│   └── collections/
+│       └── useCollectionSheet.ts   # NEW: hook for create/edit sheet state
+app/
+├── collections/
+│   ├── index.tsx             # UPDATE: wire + (create) button → bottom sheet
+│   └── [id].tsx              # UPDATE: wire edit button + add-items picker
+├── outfit/
+│   └── [id].tsx              # UPDATE: repurpose "Add to Collection" button
+supabase/
+└── migrations/
+    └── 20260607000003_fix_schema_drift.sql   # NEW: wardrobes table + wardrobe_id FK
+```

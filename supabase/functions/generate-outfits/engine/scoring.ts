@@ -4,58 +4,44 @@
 //         styleCatalog (for styleCoherence lookups).
 
 import {
-  FitItem, ColorProfile, PrimaryColor, BodyMeasurements,
+  FitItem, ColorProfile, PrimaryColor, BodyMeasurements, BodyShape,
   StyleAttributes, StyleDef, Mood, ColorPalette, Silhouette,
   FabricWeight, ItemFit, Season, FitPoint, FitCategory, ItemFitResult,
 } from './types.ts';
 import { colorProfileOf } from './enrichment.ts';
+import { STYLE_CONFIGS } from './filtering.ts';
+
+// Colours that flatter each personal colour season.
+// Keyed by undertone ('warm'/'cool') and lightness ('light'/'dark'/'vivid').
+const SEASON_FLATTERING: Record<string, { undertones: string[]; avoid: string[] }> = {
+  spring: {
+    undertones: ['warm'],
+    avoid: ['black', 'navy', 'burgundy', 'charcoal'],
+  },
+  summer: {
+    undertones: ['cool'],
+    avoid: ['orange', 'olive', 'mustard', 'rust'],
+  },
+  autumn: {
+    undertones: ['warm'],
+    avoid: ['black', 'navy', 'pink', 'fuchsia'],
+  },
+  winter: {
+    undertones: ['cool'],
+    avoid: ['orange', 'brown', 'beige', 'camel'],
+  },
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // STYLE CATALOG (data — will move to `styles` DB table)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const STYLE_CATALOG: StyleDef[] = [
-  {
-    id: 'oldmoney', name: 'Old Money', popularity: 0.748,
-    attributes: { formality: 4.5, colorPalette: ['neutral', 'earth', 'monochrome'], silhouette: ['tailored', 'structured'], patternLevel: 1.5, textureRichness: 3.0, mood: ['serious', 'clean'] },
-    neighbors: [{ styleId: 'minimalist', weight: 0.8 }, { styleId: 'preppy', weight: 0.8 }, { styleId: 'smartcasual', weight: 0.6 }],
-  },
-  {
-    id: 'minimalist', name: 'Minimalist', popularity: 0.568,
-    attributes: { formality: 3.5, colorPalette: ['neutral', 'monochrome', 'dark'], silhouette: ['tailored', 'relaxed'], patternLevel: 1.0, textureRichness: 1.5, mood: ['clean', 'serious'] },
-    neighbors: [{ styleId: 'oldmoney', weight: 0.8 }, { styleId: 'smartcasual', weight: 0.7 }],
-  },
-  {
-    id: 'streetwear', name: 'Streetwear', popularity: 0.504,
-    attributes: { formality: 2.0, colorPalette: ['bold', 'dark'], silhouette: ['oversized', 'relaxed'], patternLevel: 2.5, textureRichness: 1.5, mood: ['playful', 'edgy'] },
-    neighbors: [{ styleId: 'athleisure', weight: 0.7 }, { styleId: 'y2k', weight: 0.6 }],
-  },
-  {
-    id: 'smartcasual', name: 'Smart Casual', popularity: 0.750,
-    attributes: { formality: 3.0, colorPalette: ['neutral', 'earth'], silhouette: ['structured', 'relaxed'], patternLevel: 1.5, textureRichness: 2.0, mood: ['clean', 'serious'] },
-    neighbors: [{ styleId: 'oldmoney', weight: 0.6 }, { styleId: 'minimalist', weight: 0.7 }, { styleId: 'preppy', weight: 0.8 }],
-  },
-  {
-    id: 'preppy', name: 'Preppy', popularity: 0.500,
-    attributes: { formality: 3.5, colorPalette: ['neutral', 'pastel'], silhouette: ['structured', 'tailored'], patternLevel: 2.5, textureRichness: 2.0, mood: ['clean', 'playful'] },
-    neighbors: [{ styleId: 'oldmoney', weight: 0.8 }, { styleId: 'smartcasual', weight: 0.8 }],
-  },
-  {
-    id: 'athleisure', name: 'Athleisure', popularity: 0.724,
-    attributes: { formality: 1.5, colorPalette: ['bold', 'neutral'], silhouette: ['relaxed', 'oversized'], patternLevel: 1.5, textureRichness: 1.0, mood: ['playful'] },
-    neighbors: [{ styleId: 'streetwear', weight: 0.7 }, { styleId: 'y2k', weight: 0.4 }],
-  },
-  {
-    id: 'y2k', name: 'Y2K', popularity: 0.400,
-    attributes: { formality: 1.5, colorPalette: ['bold', 'pastel'], silhouette: ['bodycon', 'oversized'], patternLevel: 4.0, textureRichness: 2.0, mood: ['playful', 'edgy'] },
-    neighbors: [{ styleId: 'streetwear', weight: 0.6 }, { styleId: 'athleisure', weight: 0.4 }],
-  },
-  {
-    id: 'bohemian', name: 'Bohemian', popularity: 0.402,
-    attributes: { formality: 2.0, colorPalette: ['earth', 'bold'], silhouette: ['relaxed', 'oversized'], patternLevel: 3.5, textureRichness: 4.0, mood: ['romantic', 'artistic'] },
-    neighbors: [{ styleId: 'y2k', weight: 0.3 }, { styleId: 'athleisure', weight: 0.2 }],
-  },
-];
+// Derived from STYLE_CONFIGS (filtering.ts) — single source of truth for
+// style attributes/neighbors/popularity, no more drift between the two files.
+const STYLE_CATALOG: StyleDef[] = STYLE_CONFIGS.map(c => ({
+  id: c.id, name: c.name, popularity: c.popularity,
+  attributes: c.attributes, neighbors: c.neighbors,
+}));
 
 export const styleById = (id: string): StyleDef | undefined =>
   STYLE_CATALOG.find(s => s.id === id);
@@ -139,11 +125,33 @@ function graphicDensityPenalty(items: FitItem[]): number {
   return heavy > 1 ? 0.5 : 1.0;
 }
 
-export function scoreColorHarmony(items: FitItem[], userColorPreferences: string[]): number {
+function seasonCompatibilityBonus(profiles: ColorProfile[], colorSeason: string): number {
+  const rule = SEASON_FLATTERING[colorSeason];
+  if (!rule) return 0;
+  const total = profiles.length;
+  if (total === 0) return 0;
+
+  let penaltyCount = 0;
+  let undertoneMatchCount = 0;
+  for (const p of profiles) {
+    if (rule.avoid.includes(p.primaryColor)) penaltyCount++;
+    if (rule.undertones.includes(p.undertone)) undertoneMatchCount++;
+  }
+  const penaltyRatio = penaltyCount / total;
+  const matchRatio = undertoneMatchCount / total;
+  // Small bonus/penalty: max ±0.10
+  return matchRatio * 0.07 - penaltyRatio * 0.10;
+}
+
+export function scoreColorHarmony(
+  items: FitItem[],
+  userColorPreferences: string[],
+  colorSeason?: string,
+): number {
   if (items.length === 0) return 0.5;
   const profiles = items.map(i => i.colorProfile);
   const userPrimaries = new Set<PrimaryColor>(userColorPreferences.map(name => colorProfileOf(name).primaryColor));
-  return (
+  const base = (
     0.20 * paletteAlignment(profiles, userPrimaries) +
     0.20 * colorRelationshipScore(profiles) +
     0.15 * undertoneConsistency(profiles) +
@@ -152,6 +160,8 @@ export function scoreColorHarmony(items: FitItem[], userColorPreferences: string
     0.10 * colorCountScore(profiles) +
     0.10 * graphicDensityPenalty(items)
   );
+  if (!colorSeason) return base;
+  return Math.max(0, Math.min(1, base + seasonCompatibilityBonus(profiles, colorSeason)));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -334,9 +344,10 @@ export function scoreItemFit(item: FitItem, body: BodyMeasurements): ItemFitResu
 
   const g = item.garmentMeasurements as Record<string, number | undefined>;
   let points: FitPoint[] = [];
-  if (item.category === 'top')     points = scoreMappings(body, g, TOP_MAPPINGS);
-  if (item.category === 'bottom')  points = scoreMappings(body, g, PANTS_MAPPINGS);
-  if (item.category === 'outwear') points = scoreMappings(body, g, OUTER_MAPPINGS);
+  if (item.category === 'top')      points = scoreMappings(body, g, TOP_MAPPINGS);
+  if (item.category === 'onepiece') points = scoreMappings(body, g, TOP_MAPPINGS);
+  if (item.category === 'bottom')   points = scoreMappings(body, g, PANTS_MAPPINGS);
+  if (item.category === 'outwear')  points = scoreMappings(body, g, OUTER_MAPPINGS);
 
   if (points.length === 0) return { itemId: item.id, points: [], score: 0.5, warnings: [] };
   const score = points.reduce((sum, p) => sum + p.score, 0) / points.length;
@@ -344,10 +355,57 @@ export function scoreItemFit(item: FitItem, body: BodyMeasurements): ItemFitResu
   return { itemId: item.id, points, score, warnings };
 }
 
+// Body shape bonus: certain silhouettes suit certain shapes better.
+// Returns a multiplier [0.85, 1.15] applied to the base fit score.
+function bodyShapeMultiplier(items: FitItem[], shape: BodyShape): number {
+  const tops = items.filter(i => i.category === 'top' || i.category === 'outwear');
+  const bottoms = items.filter(i => i.category === 'bottom');
+  let bonus = 1.0;
+  switch (shape) {
+    case 'triangle': {
+      // Pear — score up A-line / wide-leg bottoms (relaxed/oversized), score down fitted bottoms
+      const wideBottom = bottoms.some(i => i.fit === 'relaxed' || i.fit === 'wide' || i.fit === 'oversized');
+      const broadTop = tops.some(i => i.fit === 'oversized' || i.fit === 'wide');
+      if (wideBottom) bonus += 0.10;
+      if (broadTop) bonus += 0.05;
+      break;
+    }
+    case 'inverted_triangle': {
+      // Wide shoulders — score down wide-shoulder tops, score up A-line bottoms
+      const wideTops = tops.filter(i => i.fit === 'oversized' || i.fit === 'wide').length;
+      if (wideTops > 0) bonus -= 0.10;
+      const wideBtm = bottoms.some(i => i.fit === 'relaxed' || i.fit === 'wide');
+      if (wideBtm) bonus += 0.08;
+      break;
+    }
+    case 'hourglass': {
+      // Defined waist — reward tailored/structured silhouettes
+      const tailored = items.some(i => i.fit === 'slim' || i.fit === 'regular');
+      if (tailored) bonus += 0.08;
+      break;
+    }
+    case 'apple': {
+      // Score up loose/flowy tops, straight-leg bottoms
+      const looseTops = tops.some(i => i.fit === 'relaxed' || i.fit === 'oversized');
+      if (looseTops) bonus += 0.08;
+      break;
+    }
+    case 'rectangle': {
+      // Score up structured/layered looks
+      const layered = items.length >= 3;
+      if (layered) bonus += 0.05;
+      break;
+    }
+  }
+  return Math.max(0.85, Math.min(1.15, bonus));
+}
+
 export function scoreOutfitFit(items: FitItem[], body: BodyMeasurements): number {
   if (items.length === 0) return 0.5;
   const results = items.map(item => scoreItemFit(item, body));
-  return results.reduce((sum, r) => sum + r.score, 0) / results.length;
+  const base = results.reduce((sum, r) => sum + r.score, 0) / results.length;
+  if (!body.body_shape) return base;
+  return Math.min(1.0, base * bodyShapeMultiplier(items, body.body_shape));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -357,8 +415,8 @@ export function scoreOutfitFit(items: FitItem[], body: BodyMeasurements): number
 const VOLUME: Record<ItemFit, number> = { slim: 1, regular: 2, relaxed: 3, wide: 4, oversized: 5 };
 
 export function scoreProportionBalance(items: FitItem[]): number {
-  const tops = items.filter(i => i.category === 'top' || i.category === 'outwear');
-  const bottoms = items.filter(i => i.category === 'bottom');
+  const tops = items.filter(i => i.category === 'top' || i.category === 'outwear' || i.category === 'onepiece');
+  const bottoms = items.filter(i => i.category === 'bottom' || i.category === 'onepiece');
   if (tops.length === 0 || bottoms.length === 0) return 0.7;
 
   const topVolume = Math.max(...tops.map(i => VOLUME[i.fit]));
@@ -401,17 +459,28 @@ const SEASON_COMPAT: Record<Season, Record<Season, number>> = {
   allSeason: { summer: 0.9, spring: 0.9, fall: 0.9, winter: 0.9, allSeason: 1.0 },
 };
 
-export function scoreSeasonMatch(items: FitItem[]): number {
+export function scoreSeasonMatch(items: FitItem[], targetSeason?: Season): number {
   const seasons = items.map(i => i.fabric.season);
-  if (seasons.length <= 1) return 0.8;
-  let total = 0, pairs = 0;
-  for (let i = 0; i < seasons.length; i++) {
-    for (let j = i + 1; j < seasons.length; j++) {
-      total += SEASON_COMPAT[seasons[i]][seasons[j]];
-      pairs++;
+
+  let internal = 0.8;
+  if (seasons.length > 1) {
+    let total = 0, pairs = 0;
+    for (let i = 0; i < seasons.length; i++) {
+      for (let j = i + 1; j < seasons.length; j++) {
+        total += SEASON_COMPAT[seasons[i]][seasons[j]];
+        pairs++;
+      }
     }
+    internal = pairs > 0 ? total / pairs : 0.8;
   }
-  return pairs > 0 ? total / pairs : 0.8;
+
+  // With a target season (intent.seasonOverride / weather), matching the
+  // actual conditions matters more than internal fabric consistency.
+  if (targetSeason && seasons.length > 0) {
+    const targetMatch = seasons.reduce((s, x) => s + SEASON_COMPAT[targetSeason][x], 0) / seasons.length;
+    return 0.6 * targetMatch + 0.4 * internal;
+  }
+  return internal;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -464,4 +533,90 @@ export function scoreAnchorClarity(items: FitItem[]): number {
   if (loudItems >= 3) return 0.2;
   if (loudItems === 2) return heroGap >= 0.5 ? 0.55 : 0.35;
   return 0.6;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TASTE ADJUSTMENT — pair affinity + aesthetic vetoes
+// ═══════════════════════════════════════════════════════════════════════════
+// A stylist thinks in vetoes and classics, not weighted averages. This layer
+// adds a flat bonus for recognized classic combinations and a multiplicative
+// penalty for combinations that are "valid but off" — a single fatal flaw
+// should sink an outfit, not be averaged away by six decent dimensions.
+
+// Classic core combos (top × bottom × shoes), keyed by garment type.
+const CLASSIC_TRIPLES: Record<string, number> = {
+  'SHIRT+TROUSERS+LOAFERS': 0.08,
+  'SHIRT+TROUSERS+OXFORDS': 0.08,
+  'SHIRT+CHINOS+LOAFERS': 0.06,
+  'KNIT+TROUSERS+LOAFERS': 0.07,
+  'SWEATER+TROUSERS+LOAFERS': 0.07,
+  'SWEATER+CHINOS+SNEAKERS': 0.05,
+  'TEE+JEANS+SNEAKERS': 0.06,
+  'TEE+CHINOS+SNEAKERS': 0.04,
+  'HOODIE+JEANS+SNEAKERS': 0.05,
+  'POLO+CHINOS+LOAFERS': 0.06,
+  'POLO+TROUSERS+LOAFERS': 0.05,
+  'SHIRT+JEANS+SNEAKERS': 0.04,
+  'KNIT+JEANS+BOOTS': 0.05,
+  'TEE+SHORTS+SANDALS': 0.04,
+  'TEE+SHORTS+SNEAKERS': 0.04,
+  'BLOUSE+SKIRT+HEELS': 0.06,
+  'BLOUSE+TROUSERS+HEELS': 0.06,
+};
+
+// Pairs that clash in dressiness or register, regardless of color/season.
+const CLASHING_PAIRS: Array<[string, string, number]> = [
+  ['SANDALS', 'TROUSERS', 0.45],
+  ['SANDALS', 'BLAZER', 0.5],
+  ['OXFORDS', 'SHORTS', 0.4],
+  ['HEELS', 'SHORTS', 0.55],
+  ['LOAFERS', 'SHORTS', 0.7],
+  ['PARKA', 'TROUSERS', 0.75],
+  ['HOODIE', 'TROUSERS', 0.7],
+];
+
+export interface TasteAdjustment {
+  bonus: number;       // flat addition to totalScore (classic combos)
+  multiplier: number;  // ≤1.0, multiplicative veto for aesthetic flaws
+}
+
+export function scoreTasteAdjustment(items: FitItem[]): TasteAdjustment {
+  let bonus = 0;
+  let multiplier = 1.0;
+
+  const byCat = (cat: string) => items.find(i => i.category === cat);
+  const top = byCat('top'), bottom = byCat('bottom'), shoes = byCat('shoes');
+
+  // Classic-combo bonus
+  if (top && bottom && shoes) {
+    const key = `${top.typeName}+${bottom.typeName}+${shoes.typeName}`;
+    bonus += CLASSIC_TRIPLES[key] ?? 0;
+  }
+
+  // Clashing-pair vetoes
+  const types = new Set(items.map(i => i.typeName));
+  for (const [a, b, mult] of CLASHING_PAIRS) {
+    if (types.has(a) && types.has(b)) multiplier *= mult;
+  }
+
+  // Flat look: every non-accessory item dark AND muted — visually dead.
+  const visible = items.filter(i => i.category !== 'accessory');
+  if (visible.length >= 3) {
+    const allDarkMuted = visible.every(i => i.colorProfile.lum < 35 && i.colorProfile.sat < 30);
+    if (allDarkMuted) multiplier *= 0.6;
+  }
+
+  // Undertone clash: warm and cool fighting with no clear dominance.
+  const tones = visible.map(i => i.colorProfile.undertone).filter(t => t !== 'neutral');
+  if (tones.length >= 2) {
+    const warm = tones.filter(t => t === 'warm').length;
+    const dominant = Math.max(warm, tones.length - warm) / tones.length;
+    if (dominant < 0.65) multiplier *= 0.65;
+  }
+
+  // Competing statements: three or more loud pieces is a costume, not an outfit.
+  const loud = items.filter(i => i.statementStrength >= 2.5).length;
+  if (loud >= 3) multiplier *= 0.5;
+
+  return { bonus, multiplier };
 }

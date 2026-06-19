@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TRUE CLOTHES — Outfit Import (Extract by AI)</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Inter:wght@300;400;500;600&display=swap" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      font-family: 'Inter', -apple-system, system-ui, sans-serif;
+      background: #EFEAE0;
+      color: #1A1815;
+      -webkit-font-smoothing: antialiased;
+    }
+    ::-webkit-scrollbar { display: none; }
+    * { scrollbar-width: none; }
+  </style>
+</head>
+<body>
+  <template id="__bundler_thumbnail">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" style="background:#EFEAE0">
+      <rect x="46" y="34" width="108" height="132" rx="14" fill="none" stroke="#1A1815" stroke-width="2.5" />
+      <path d="M100 70v40M80 90h40M70 78l12 12M118 78l-12 12M70 102l12-12M118 102l-12-12" stroke="#1A1815" stroke-width="2" fill="none" stroke-linecap="round" />
+      <text x="100" y="186" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#1A1815">OUTFIT IMPORT</text>
+    </svg>
+  </template>
+  <div id="root"></div>
+
+  <!-- React + Babel -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <!-- Source the screens depend on -->
+  <script type="text/babel" src="src/theme.jsx"></script>
+  <script type="text/babel" src="src/icons.jsx"></script>
+  <script type="text/babel" src="src/data.jsx"></script>
+  <script type="text/babel" src="src/collage.jsx"></script>
+  <script type="text/babel" src="src/onboarding.jsx"></script>
+
+  <!-- The outfit-import wizard + the wardrobe add-item sheet (entry point) -->
+  <script type="text/babel" src="src/outfit-import.jsx"></script>
+  <script type="text/babel" src="src/wardrobe.jsx"></script>
+
+  <!-- Static driver that pins each step to its own artboard -->
+  <script type="text/babel" src="src/outfit-import-showcase.jsx"></script>
+
+  <!-- Design canvas shell -->
+  <script type="text/babel" src="design-canvas.jsx"></script>
+
+  <!-- Showcase app -->
+  <script type="text/babel">
+    function DeviceFrame({ children }) {
+      return (
+        <div style={{ width: 404, height: 858, borderRadius: 56, background: '#1A1815', padding: 7, position: 'relative' }}>
+          <div style={{ width: '100%', height: '100%', borderRadius: 50, overflow: 'hidden', background: T.color.canvas, position: 'relative', isolation: 'isolate' }}>
+            <div style={{ position: 'absolute', top: 11, left: '50%', transform: 'translateX(-50%)', width: 110, height: 30, borderRadius: 999, background: '#1A1815', zIndex: 200, pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 50, zIndex: 150, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 28px', pointerEvents: 'none' }}>
+              <div style={{ fontFamily: '-apple-system, system-ui', fontWeight: 600, fontSize: 15, color: T.color.primary, opacity: 0.85 }}>9:41</div>
+              <div style={{ width: 110 }} />
+              <div style={{ ...type.ui, fontSize: 9, color: T.color.primary, opacity: 0.6 }}>5G</div>
+            </div>
+            <div style={{ width: '100%', height: '100%' }}>{children}</div>
+            <div style={{ position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)', width: 134, height: 5, borderRadius: 999, background: 'rgba(26,24,21,0.25)', zIndex: 200, pointerEvents: 'none' }} />
+          </div>
+        </div>
+      );
+    }
+
+    function Showcase() {
+      // Two photos chosen on the upload step: one read by AI, one as a single item.
+      const uploadEntries = oisEntries([
+        { libId: 'p1', method: 'ai' },
+        { libId: 'p3', method: 'item' },
+      ]);
+      const notes = { p1: 'The harrington is vintage — beige, not tan.' };
+
+      const sections = [
+        {
+          id: 'oi-entry', title: 'Entry · from Wardrobe',
+          subtitle: 'Tap “Add” in the wardrobe → the method sheet. “Extract by AI” opens the import wizard below.',
+          boards: [
+            { id: 'add-sheet', label: '01 · Add-item sheet (method)', render: () => <OISAddItemEntry /> },
+          ],
+        },
+        {
+          id: 'oi-choose', title: 'Choose photos',
+          subtitle: 'The wizard opens onto a two-phase chooser: pick a method, pick a source, then multi-select from the library.',
+          boards: [
+            { id: 'choose-method', label: '02 · Method (AI / item)', render: () => <OIShell step={0} entries={[]} chooser={{ phase: 'method', method: null }} /> },
+            { id: 'choose-source', label: '03 · Source (camera / library)', render: () => <OIShell step={0} entries={[]} chooser={{ phase: 'source', method: 'ai' }} /> },
+            { id: 'choose-library', label: '04 · Library multi-select', render: () => <OIShell step={0} entries={[]} chooser={{ phase: 'library', method: 'ai' }} /> },
+          ],
+        },
+        {
+          id: 'oi-wizard', title: 'Import wizard',
+          subtitle: 'Upload → Analyse → Review → Done. Each photo is tagged AI or single-item; review lets you fix every field before saving.',
+          boards: [
+            { id: 'step-upload', label: '05 · Upload (photos + notes)', render: () => <OIShell step={0} entries={uploadEntries} notes={notes} /> },
+            { id: 'step-analyse', label: '06 · Analysing', render: () => <OIShell step={1} entries={uploadEntries} /> },
+            { id: 'step-review', label: '07 · Review extracted items', render: () => <OIShell step={2} entries={uploadEntries} /> },
+            { id: 'step-done', label: '08 · Done', render: () => <OIShell step={3} entries={uploadEntries} /> },
+          ],
+        },
+      ];
+
+      const boardCount = sections.reduce((n, s) => n + s.boards.length, 0);
+
+      return (
+        <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
+          <div style={{
+            padding: '20px 32px', borderBottom: `0.5px solid ${T.color.hairline}`, background: T.color.canvas,
+            display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexShrink: 0,
+          }}>
+            <div>
+              <div style={{ ...type.h2, color: T.color.primary }}>TRUE CLOTHES — Outfit Import</div>
+              <div style={{ ...type.caption, marginTop: 4 }}>
+                Add to wardrobe → Extract by AI · entry sheet → choose photos → upload → analyse → review → done
+              </div>
+            </div>
+            <div style={{ ...type.ui, fontSize: 10, color: T.color.tertiary }}>{boardCount} ARTBOARDS</div>
+          </div>
+
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <DesignCanvas>
+              {sections.map((sec) => (
+                <DCSection key={sec.id} id={sec.id} title={sec.title} subtitle={sec.subtitle}>
+                  {sec.boards.map((b) => (
+                    <DCArtboard key={b.id} id={b.id} label={b.label} width={404} height={858}>
+                      <DeviceFrame>{b.render()}</DeviceFrame>
+                    </DCArtboard>
+                  ))}
+                </DCSection>
+              ))}
+            </DesignCanvas>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<Showcase />);
+  </script>
+</body>
+</html>

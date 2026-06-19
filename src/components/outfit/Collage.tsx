@@ -1,15 +1,19 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Image, StyleSheet, Text } from 'react-native';
 import { itemById, Outfit } from '../../data';
 import { T } from '../../design/tokens';
+import { useAppStore } from '../../stores/appStore';
+import { useItemPhoto } from '../../features/wardrobe-photos';
+import type { PhotoInput } from '../../features/wardrobe-photos/types';
+import type { WardrobeItem } from '../../types/fitEngine';
 
 // ─── Item role classification ────────────────────────────────────────────────
 // Anchors: the tall/long bottom item that defines the outfit's scale
 const ANCHOR_PRIORITY = ['DRESS', 'OVERCOAT', 'COAT', 'TROUSERS', 'JEANS', 'CHINOS', 'SKIRT', 'SHORTS', 'BLAZER'];
 const OUTER_TOPS = new Set(['JACKET', 'BLAZER', 'COAT', 'OVERCOAT']);
-const INNER_TOPS = new Set(['TEE', 'SHIRT', 'KNIT', 'POLO']);
+const INNER_TOPS = new Set(['TEE', 'SHIRT', 'KNIT', 'POLO', 'HENLEY']);
 const ACCESSORY_TYPES = new Set([
-  'LOAFERS', 'SNEAKERS', 'BAG', 'WATCH', 'NECKLACE', 'SUNGLASSES',
+  'LOAFERS', 'SNEAKERS', 'BOOTS', 'MULES', 'SANDALS', 'SHOES', 'BAG', 'WATCH', 'NECKLACE', 'SUNGLASSES',
   'BELT', 'SCARF', 'RING', 'BRACELET', 'HAT', 'CAP',
 ]);
 
@@ -17,25 +21,52 @@ const ACCESSORY_TYPES = new Set([
 const ASPECT: Record<string, number> = {
   JEANS: 0.54,  TROUSERS: 0.50, CHINOS: 0.54, SHORTS: 0.80, SKIRT: 0.68,
   DRESS: 0.44,  OVERCOAT: 0.50, COAT: 0.50,
-  TEE: 0.86,    SHIRT: 0.82,    KNIT: 0.88,   POLO: 0.84,
+  TEE: 0.86,    SHIRT: 0.82,    KNIT: 0.88,   POLO: 0.84,    HENLEY: 0.84,
   BLAZER: 0.80, JACKET: 0.82,
-  LOAFERS: 1.35, SNEAKERS: 1.55, BELT: 2.8,
+  LOAFERS: 1.35, SNEAKERS: 1.55, BOOTS: 1.2, MULES: 1.35, SHOES: 1.35, BELT: 2.8,
   BAG: 0.95,    WATCH: 1.0,     NECKLACE: 0.85,
   SUNGLASSES: 1.9, SCARF: 1.6,  CAP: 1.25,    HAT: 1.2,
 };
 
+// Fallback granular type for DB items that only carry a coarse `category`.
+const CATEGORY_TYPE: Record<WardrobeItem['category'], string> = {
+  top: 'TEE', bottom: 'JEANS', outerwear: 'JACKET',
+  footwear: 'SNEAKERS', accessory: 'BAG', dress: 'DRESS', headwear: 'CAP',
+};
+
+// ─── Normalized entry ─────────────────────────────────────────────────────────
+// An outfit item drawn from EITHER the bundled mock catalog (png) OR a real
+// DB-backed wardrobe item (resolved on-device via useItemPhoto). `type` drives
+// layout; `photo` is fed to useItemPhoto (which handles png / local / cloud).
+type Entry = { id: string; type: string; photo: PhotoInput; hasImage: boolean };
+
+function toEntry(id: string, wardrobeById: Map<string, WardrobeItem>): Entry | null {
+  const mock = itemById(id);
+  if (mock) {
+    return {
+      id,
+      type: mock.type.toUpperCase(),
+      photo: { id, photoStorage: 'none', photoPath: null, png: mock.png },
+      hasImage: mock.png != null,
+    };
+  }
+  const w = wardrobeById.get(id);
+  if (w) {
+    return {
+      id: w.id,
+      type: (w.type ?? CATEGORY_TYPE[w.category] ?? 'TEE').toUpperCase(),
+      photo: { id: w.id, photoStorage: w.photoStorage, photoPath: w.photoPath },
+      hasImage: w.photoStorage !== 'none' || w.photoPath != null,
+    };
+  }
+  return null;
+}
+
 // ─── Zone definitions (% of the items-area View) ────────────────────────────
-//
-// Layout rule:
-//   ANCHOR      → left column  (0–42 %)   tallest, largest
-//   SECONDARIES → right column (44–98 %)  stacked vertically within anchor height
-//   ACCESSORIES → bottom strip (80–100%)  full width, below everything
-//
 type Zone = { left: number; top: number; maxW: number; maxH: number };
 
 const ANCHOR_ZONE: Zone = { left: 2, top: 0, maxW: 40, maxH: 78 };
 
-// Secondary zones keyed by total count of secondaries (1–4)
 const SEC_ZONES: Record<number, Zone[]> = {
   1: [
     { left: 44, top: 0,  maxW: 52, maxH: 76 },
@@ -57,7 +88,6 @@ const SEC_ZONES: Record<number, Zone[]> = {
   ],
 };
 
-// Accessory zones keyed by count (1–3)
 const ACC_ZONES: Record<number, Zone[]> = {
   1: [
     { left: 30, top: 80, maxW: 40, maxH: 20 },
@@ -81,14 +111,13 @@ function fitInZone(zone: Zone, aspect: number) {
     h = zone.maxH;
     w = h * aspect;
   }
-  // Center within the zone
   const left = zone.left + (zone.maxW - w) / 2;
   const top  = zone.top  + (zone.maxH - h) / 2;
   return { left, top, w, h };
 }
 
-function resolveRoles(items: NonNullable<ReturnType<typeof itemById>>[]) {
-  let anchor: (typeof items)[0] | undefined;
+function resolveRoles(items: Entry[]) {
+  let anchor: Entry | undefined;
   for (const t of ANCHOR_PRIORITY) {
     anchor = items.find(i => i.type === t);
     if (anchor) break;
@@ -106,13 +135,12 @@ function resolveRoles(items: NonNullable<ReturnType<typeof itemById>>[]) {
 }
 
 type Slot = { left: number; top: number; w: number; h: number; z: number };
-type PositionedItem = NonNullable<ReturnType<typeof itemById>> & { slot: Slot };
+type PositionedEntry = Entry & { slot: Slot };
 
-function buildLayout(rawItems: ReturnType<typeof itemById>[]): PositionedItem[] {
-  const items = (rawItems.filter(Boolean) as NonNullable<ReturnType<typeof itemById>>[])
-    .filter(i => i.png);
+function buildLayout(rawItems: Entry[]): PositionedEntry[] {
+  const items = rawItems.filter(i => i.hasImage);
   const { anchor, secondaries, accessories } = resolveRoles(items);
-  const out: PositionedItem[] = [];
+  const out: PositionedEntry[] = [];
 
   if (anchor) {
     const fit = fitInZone(ANCHOR_ZONE, ASPECT[anchor.type] ?? 0.58);
@@ -140,6 +168,52 @@ function buildLayout(rawItems: ReturnType<typeof itemById>[]): PositionedItem[] 
   return out;
 }
 
+// ─── Per-item image (resolves png / local file / cloud via useItemPhoto) ──────
+function CollageSlot({ entry }: { entry: PositionedEntry }) {
+  const { source, status } = useItemPhoto(entry.photo);
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        left:   `${entry.slot.left}%` as `${number}%`,
+        top:    `${entry.slot.top}%`  as `${number}%`,
+        width:  `${entry.slot.w}%`    as `${number}%`,
+        height: `${entry.slot.h}%`    as `${number}%`,
+        zIndex: entry.slot.z,
+      }}
+    >
+      {status === 'ready' && source ? (
+        <Image source={source} style={styles.itemImage} resizeMode="contain" />
+      ) : null}
+    </View>
+  );
+}
+
+/** Small standalone thumbnail (used by the feed meta strip). */
+export function OutfitItemThumb({ id, style, imageStyle, fallbackStyle }: {
+  id: string;
+  style?: any;
+  imageStyle?: any;
+  fallbackStyle?: any;
+}) {
+  const wardrobeItems = useAppStore(s => s.wardrobeItems);
+  const entry = useMemo(
+    () => toEntry(id, new Map(wardrobeItems.map(w => [w.id, w]))),
+    [id, wardrobeItems],
+  );
+  // Always call the hook (stable order); fall back to an empty input if unknown.
+  const { source, status } = useItemPhoto(entry?.photo ?? { id, photoStorage: 'none', photoPath: null });
+  return (
+    <View style={style}>
+      {status === 'ready' && source ? (
+        <Image source={source} style={imageStyle} resizeMode="contain" />
+      ) : (
+        <Text style={fallbackStyle}>{entry?.type ?? ''}</Text>
+      )}
+    </View>
+  );
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 interface CollageProps {
   outfit: Outfit;
@@ -158,8 +232,15 @@ export function OutfitCollage({
   titleTop,
   containerHeight = 400,
 }: CollageProps) {
-  const items = outfit.itemIds.map(itemById);
-  const positioned = buildLayout(items);
+  const wardrobeItems = useAppStore(s => s.wardrobeItems);
+  const wardrobeById = useMemo(() => new Map(wardrobeItems.map(w => [w.id, w])), [wardrobeItems]);
+  const positioned = useMemo(() => {
+    const entries = outfit.itemIds
+      .map(id => toEntry(id, wardrobeById))
+      .filter((e): e is Entry => e != null);
+    return buildLayout(entries);
+  }, [outfit.itemIds, wardrobeById]);
+
   const titleY = titleTop != null ? titleTop : (compact ? 16 : 24);
   const titleBlockH = compact ? 52 : 72;
   const itemsTop = showTitle ? titleY + titleBlockH : 0;
@@ -179,24 +260,8 @@ export function OutfitCollage({
 
       {/* Items area: absolute from below title to near bottom */}
       <View style={[styles.itemsArea, { top: itemsTop }]}>
-        {positioned.map(item => (
-          <View
-            key={item.id}
-            style={{
-              position: 'absolute',
-              left:   `${item.slot.left}%` as `${number}%`,
-              top:    `${item.slot.top}%`  as `${number}%`,
-              width:  `${item.slot.w}%`    as `${number}%`,
-              height: `${item.slot.h}%`    as `${number}%`,
-              zIndex: item.slot.z,
-            }}
-          >
-            <Image
-              source={item.png}
-              style={styles.itemImage}
-              resizeMode="contain"
-            />
-          </View>
+        {positioned.map(entry => (
+          <CollageSlot key={entry.id} entry={entry} />
         ))}
       </View>
     </View>

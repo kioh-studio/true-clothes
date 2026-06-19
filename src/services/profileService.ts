@@ -6,12 +6,17 @@
 // (e.g. dob as "DD/MM/YYYY", location as "City, Country"). This service
 // is the only place where that mapping happens — stores and screens pass
 // app-shaped values; we translate at the boundary.
+import * as FileSystem from 'expo-file-system/legacy';
 import { sb } from './supabase';
+import { AvatarUploadError, ProfileUpdateError } from '../types/profile';
 
 // ── DB row shape (subset we touch) ───────────────────────────────────────────
 export interface ProfileRow {
   id: string;
   full_name: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+  avatar_path: string | null;
   email: string | null;
   phone: string | null;
   gender: string | null;            // enum: WOMAN | MAN | NON-BINARY | PREFER NOT TO SAY
@@ -19,6 +24,8 @@ export interface ProfileRow {
   location_city: string | null;
   location_country: string | null;
   onboarding_complete: boolean;
+  color_season: string | null;
+  personal_palette: string[];
 }
 
 // ── App-shaped data (what stores/screens use) ────────────────────────────────
@@ -29,6 +36,9 @@ export interface ProfilePatch {
   dob?: string;             // "DD/MM/YYYY" (app format)
   location?: string;        // "City, Country" (combined)
   fullName?: string;
+  displayName?: string;
+  colorSeason?: string | null;
+  personalPalette?: string[];
 }
 
 // ── DD/MM/YYYY ↔ YYYY-MM-DD ──────────────────────────────────────────────────
@@ -66,7 +76,7 @@ function joinLocation(city: string | null, country: string | null): string {
 export async function fetchMyProfile(userId: string): Promise<ProfileRow | null> {
   const { data, error } = await sb
     .from('profiles')
-    .select('id, full_name, email, phone, gender, date_of_birth, location_city, location_country, onboarding_complete')
+    .select('id, full_name, display_name, avatar_url, avatar_path, email, phone, gender, date_of_birth, location_city, location_country, onboarding_complete, color_season, personal_palette')
     .eq('id', userId)
     .maybeSingle();
   if (error) {
@@ -80,10 +90,13 @@ export async function fetchMyProfile(userId: string): Promise<ProfileRow | null>
 export async function updateMyProfile(userId: string, patch: ProfilePatch): Promise<{ ok: boolean; message?: string }> {
   const row: Record<string, string | boolean | null> = {};
 
-  if (patch.fullName !== undefined) row.full_name = patch.fullName || null;
-  if (patch.email    !== undefined) row.email     = patch.email || null;
-  if (patch.phone    !== undefined) row.phone     = patch.phone || null;
-  if (patch.gender   !== undefined) row.gender    = patch.gender || null;
+  if (patch.fullName     !== undefined) row.full_name    = patch.fullName || null;
+  if (patch.displayName  !== undefined) row.display_name = patch.displayName || null;
+  if (patch.email        !== undefined) row.email        = patch.email || null;
+  if (patch.phone        !== undefined) row.phone        = patch.phone || null;
+  if (patch.gender       !== undefined) row.gender       = patch.gender || null;
+  if (patch.colorSeason  !== undefined) row.color_season = patch.colorSeason ?? null;
+  if (patch.personalPalette !== undefined) (row as Record<string, unknown>).personal_palette = patch.personalPalette;
 
   const iso = dobAppToIso(patch.dob);
   if (iso !== undefined) row.date_of_birth = iso;
@@ -104,6 +117,28 @@ export async function updateMyProfile(userId: string, patch: ProfilePatch): Prom
   return { ok: true };
 }
 
+// ── Account type (profiles.account_type) ─────────────────────────────────────
+export type AccountType = 'free' | 'premium' | 'demo' | 'admin';
+
+/** Read the current user's stored account_type (DB source of truth). */
+export async function fetchMyAccountType(): Promise<AccountType> {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return 'free';
+  const { data, error } = await sb
+    .from('profiles')
+    .select('account_type')
+    .eq('id', user.id)
+    .maybeSingle();
+  if (error || !data) return 'free';
+  return ((data as { account_type: AccountType }).account_type) ?? 'free';
+}
+
+/** True when the stored account_type grants premium features (premium or admin). */
+export async function hasPremiumAccountType(): Promise<boolean> {
+  const t = await fetchMyAccountType();
+  return t === 'premium' || t === 'admin';
+}
+
 export async function markOnboardingComplete(userId: string): Promise<{ ok: boolean; message?: string }> {
   const { error } = await sb
     .from('profiles')
@@ -113,5 +148,39 @@ export async function markOnboardingComplete(userId: string): Promise<{ ok: bool
   return { ok: true };
 }
 
+/** Upload a local image URI as the user's avatar. Returns the public URL + storage path. */
+export async function uploadAvatar(userId: string, localUri: string, currentAvatarPath: string | null): Promise<{ avatarUrl: string; avatarPath: string }> {
+  // Delete previous avatar from storage first
+  if (currentAvatarPath) {
+    await sb.storage.from('avatars').remove([currentAvatarPath]).catch(() => {});
+  }
+
+  const ext = localUri.split('.').pop()?.toLowerCase() ?? 'jpg';
+  const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+  const path = `${userId}/${Date.now()}.${ext}`;
+
+  // Read file as base64 and convert to ArrayBuffer
+  const base64 = await FileSystem.readAsStringAsync(localUri, { encoding: FileSystem.EncodingType.Base64 });
+  const binary = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+
+  const { error: uploadError } = await sb.storage.from('avatars').upload(path, binary, { contentType: mime, upsert: true });
+  if (uploadError) throw new AvatarUploadError(uploadError.message);
+
+  const { data: urlData } = sb.storage.from('avatars').getPublicUrl(path);
+  const avatarUrl = urlData?.publicUrl ?? '';
+
+  const { error: dbError } = await sb.from('profiles').update({ avatar_url: avatarUrl, avatar_path: path }).eq('id', userId);
+  if (dbError) throw new ProfileUpdateError(dbError.message);
+
+  return { avatarUrl, avatarPath: path };
+}
+
+/** Remove the user's avatar from storage and clear DB columns. */
+export async function deleteAvatar(userId: string, avatarPath: string): Promise<void> {
+  await sb.storage.from('avatars').remove([avatarPath]).catch(() => {});
+  await sb.from('profiles').update({ avatar_url: null, avatar_path: null }).eq('id', userId);
+}
+
 // Re-export helpers for stores that need the same format mapping.
 export { dobIsoToApp, joinLocation };
+export { ProfileUpdateError, AvatarUploadError };

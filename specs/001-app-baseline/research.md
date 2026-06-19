@@ -1,4 +1,4 @@
-# Research: True Clothes App — Current State Baseline
+`# Research: MIEN App — Current State Baseline
 
 **Branch**: `001-app-baseline` | **Date**: 2026-06-06
 
@@ -142,3 +142,67 @@ immediately without blocking on infrastructure.
 - In-app feedback form with Supabase table (deferred: adds scope; `mailto:` sufficient
   for initial users)
 - Intercom/Zendesk integration (deferred: v2 when user base justifies it)
+
+---
+
+## Decision 6: Collections Item Lookup — Static vs Remote Items
+
+**Question**: Collections store `itemIds: string[]` which may contain either static
+demo IDs (e.g. `'i_tee_white'`) or Supabase UUID IDs. How should the UI resolve item
+data for display in a 2-column grid?
+
+**Decision**: A pure `resolveItemIds(ids, wardrobeItems)` helper returns a unified
+`CollectionDisplayItem` shape consumed by both `collections/index.tsx` and `[id].tsx`.
+
+- Two-pass lookup: first `itemById(id)` from `src/data/index.ts` (fast O(n) scan of
+  static ITEMS, covers demo data and pre-sync wardrobe); then `wardrobeItems.find()` scan
+  for UUID items (the remote wardrobe from Supabase).
+- Unified shape: `{ id, name, categoryLabel, imageSource: number | { uri: string } | null }`.
+  Static `ClothingItem.png` (require-path number) becomes `imageSource`; `WardrobeItem.photoUrl`
+  becomes `{ uri: photoUrl }`. React Native's `Image` accepts both forms.
+- `categoryLabel` normalised from `ClothingItem.type` (e.g. `'TEE'`) and
+  `WardrobeItem.category` (e.g. `'top'` → `'TOP'`).
+- Helper lives in `src/data/index.ts` alongside existing `itemById` export —
+  pure function, no hooks, testable in isolation, safe to call during render.
+
+**Rationale**: The collections screens are currently display-only. A single lookup
+helper keeps both screens dumb (no conditional logic per screen) and avoids duplicating
+the resolution logic. When the user is authenticated, `wardrobeItems` contains their
+real wardrobe; the static fallback covers demo mode and unsynced local items.
+
+**Alternatives considered**:
+- Separate render branches per item type (rejected: duplicates logic; coupling grows
+  as more screens need item thumbnails)
+- Store a mirror of `ClothingItem` shape for wardrobe items (rejected: `WardrobeItem`
+  shape is more accurate for remote items; shape conversion belongs at the display layer)
+
+---
+
+## Decision 7: Schema Drift — Live DB vs Migration Files
+
+**Question**: The live Supabase DB uses `wardrobes` table + `clothing_items.wardrobe_id`
+(many-to-one), but the migration files written in Phase 1 (`20260606000002_clothing_items.sql`)
+used `clothing_items.user_id` directly. How should this be reconciled?
+
+**Decision**: Accept the live schema as canonical; update the migration files to match.
+
+- `wardrobeService.ts` was already corrected (commit `a3c4000`) to use `wardrobes` +
+  `wardrobe_id`, so the service layer is accurate.
+- The migration files (T001–T003) need a new file — `20260607000003_fix_schema_drift.sql`
+  — that: (a) creates `wardrobes` table if not exists, (b) adds `wardrobe_id` column
+  to `clothing_items` if not exists, and (c) documents the corrected FK relationship.
+  These use `IF NOT EXISTS` guards so they are idempotent against the live DB.
+- The `generate-outfits` Edge Function already uses this schema (wardrobes + wardrobe_id)
+  and does NOT need changes.
+- The new `collections` migration (`20260607000001_collections.sql`) FKs into
+  `clothing_items.id` only — it is schema-drift neutral.
+
+**Rationale**: Correcting the migration history ensures `supabase db reset` produces
+a correct schema from scratch. The live DB is unaffected because all changes use
+`IF NOT EXISTS` guards.
+
+**Alternatives considered**:
+- Leave migration files wrong, document only in comments (rejected: breaks `supabase db reset`
+  and confuses future developers)
+- Drop T001–T003 and rewrite from scratch (rejected: destructive to migration history;
+  additive patch file is safer)

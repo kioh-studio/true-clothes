@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
@@ -7,11 +7,10 @@ import { Photo } from '../src/components/ui';
 import { IconChevronLeft, IconBookmark } from '../src/components/icons';
 import { useAppStore } from '../src/stores/appStore';
 import { OUTFITS } from '../src/data';
-
-const { width: W } = Dimensions.get('window');
-const CARD_W = (W - 24 * 2 - 12) / 2;
+import { useGridCardWidth } from '../src/design/layout';
 
 export default function SavedOutfitsScreen() {
+  const CARD_W = useGridCardWidth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { savedSet, toggleSave } = useAppStore();
