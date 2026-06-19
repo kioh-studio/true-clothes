@@ -226,8 +226,9 @@ OutfitSuggestion {
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/007-extract-by-item/plan.md
+at specs/008-try-on/plan.md
 
-The previous feature plan is at specs/006-ai-item-extraction/plan.md
+The previous feature plans are at specs/007-extract-by-item/plan.md and
+specs/006-ai-item-extraction/plan.md
 The baseline plan (phases 1–7, complete) is at specs/001-app-baseline/plan.md
 <!-- SPECKIT END -->

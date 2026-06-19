@@ -8,6 +8,15 @@
 
 **Input**: User description: "đọc @specs/try-on/reference.md" — Help users shop smarter by scanning an item they intend to buy and checking whether it actually suits them (color, fit, measurement, style, fabric) on a 0–100 scale, then mixing and matching it against their existing wardrobe to see what outfits it could create — all before deciding to add it to their wardrobe.
 
+## Clarifications
+
+### Session 2026-06-20
+
+- Q: When a criterion's underlying item attribute can't be extracted (e.g., Fabric when fabric is unknown), how should that criterion behave? → A: Show "Not enough info" and exclude it from the composite (same treatment as missing user data).
+- Q: How is the overall composite score weighted across the five criteria? → A: Weighted — Fit & Measurement weigh more than Color, Style, Fabric (exact weights decided at plan time).
+- Q: Does the verdict include a buy/skip recommendation, not just scores? → A: Yes — show an overall recommendation label derived from the score (e.g., "Great match" / "Worth it" / "Maybe" / "Skip").
+- Q: Must each Mix & Match suggestion be a complete outfit? → A: Yes — each suggestion must be a complete outfit (core slots top + bottom + footwear; outerwear/accessories optional), with the scanned item filling its slot. When the wardrobe can't complete an outfit, the sparse-wardrobe state applies.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Scan a prospective purchase and get a suitability verdict (Priority: P1)
@@ -80,13 +89,16 @@ After reviewing the verdict and the mix-and-match results, the user decides. If 
 - **FR-004**: System MUST extract the item's attributes (including at minimum type, color, fit, material/fabric, and style) from the photo.
 - **FR-005**: System MUST leave any attribute it cannot reliably determine as empty/unknown and MUST NOT fabricate a value.
 - **FR-006**: System MUST generate a Verdict for the scanned item consisting of an overall suitability score on a 0–100 scale.
-- **FR-007**: The Verdict MUST score each of the five criteria — Color, Style, Fit, Measurement, and Fabric — individually on a 0–100 scale, and the overall score (FR-006) MUST be a composite of those per-criterion scores.
+- **FR-006a**: The Verdict MUST present an overall recommendation label derived from the overall score (e.g., "Great match" / "Worth it" / "Maybe" / "Skip"). The exact band thresholds and labels are determined at plan time.
+- **FR-007**: The Verdict MUST score each of the five criteria — Color, Style, Fit, Measurement, and Fabric — individually on a 0–100 scale, and the overall score (FR-006) MUST be a weighted composite of those per-criterion scores, with Fit and Measurement weighted more heavily than Color, Style, and Fabric (exact weights determined at plan time). When a criterion is excluded (FR-009a/FR-009b), the composite MUST be computed over the remaining criteria's weights only.
 - **FR-008**: The Verdict MUST evaluate the item against the user's personal profile — their color palette, style preferences, and body measurements — not against generic fashion rules alone.
 - **FR-009**: Each criterion in the Verdict MUST present a plain-language explanation of its assessment.
 - **FR-009a**: When a criterion's required user-profile data is missing, the system MUST display that criterion in a "Not enough info" state (prompting the user to complete the relevant profile section) and MUST exclude it from the overall composite score, while still rendering the Verdict from the remaining criteria.
+- **FR-009b**: When a criterion's required item attribute could not be extracted (per FR-005, e.g., fabric is unknown), the system MUST display that criterion in a "Not enough info" state and MUST exclude it from the overall composite score, while still rendering the Verdict from the remaining criteria. The system MUST NOT fabricate or guess the missing attribute in order to score the criterion.
 - **FR-010**: System MUST provide a Mix & Match action on the result screen that navigates the user to a styling screen.
 - **FR-011**: On the Mix & Match screen, System MUST generate outfit combinations in which **every** generated outfit includes the scanned item.
 - **FR-012**: Mix & Match outfits MUST be composed only of the scanned item plus items already in the user's wardrobe.
+- **FR-012a**: Each Mix & Match suggestion MUST be a complete outfit covering the core slots (top, bottom, footwear; outerwear and accessories optional), with the scanned item occupying its corresponding slot. When the wardrobe cannot complete an outfit around the scanned item, no incomplete outfit is shown and the sparse-wardrobe state (see Edge Cases) applies.
 - **FR-013**: System MUST NOT persist the scanned item to the wardrobe at any point before the user explicitly taps Add.
 - **FR-014**: System MUST provide an Add action that saves the scanned item to the user's wardrobe, carrying over its extracted attributes and isolated image.
 - **FR-015**: System MUST provide a No / reject action that discards the scanned item without saving and returns the user to the scan screen.
@@ -97,8 +109,8 @@ After reviewing the verdict and the mix-and-match results, the user decides. If 
 ### Key Entities *(include if feature involves data)*
 
 - **Scanned Item (transient)**: The prospective garment under evaluation. Holds the source photo reference, the background-removed image, and the extracted attributes (type, color, fit, material/fabric, style, and any others). Exists only in the Try On session until the user adds or rejects it; it is not a wardrobe item until added.
-- **Verdict**: The suitability assessment of a Scanned Item for the current user. Holds an overall 0–100 composite score and a per-criterion 0–100 score for Color, Style, Fit, Measurement, and Fabric, each with a plain-language explanation. A criterion lacking the required profile data carries a "Not enough info" state instead of a score and is excluded from the composite. Derived from the Scanned Item's attributes and the user's profile.
-- **Mix & Match Outfit (transient)**: A suggested combination pairing the Scanned Item with one or more existing wardrobe items. Every such outfit necessarily contains the Scanned Item. Not persisted unless the broader save flow chooses to (out of scope here — these are exploratory).
+- **Verdict**: The suitability assessment of a Scanned Item for the current user. Holds an overall 0–100 composite score, an overall recommendation label derived from that score (e.g., "Great match" / "Worth it" / "Maybe" / "Skip"), and a per-criterion 0–100 score for Color, Style, Fit, Measurement, and Fabric, each with a plain-language explanation. A criterion lacking the required profile data OR the required item attribute carries a "Not enough info" state instead of a score and is excluded from the composite. Derived from the Scanned Item's attributes and the user's profile.
+- **Mix & Match Outfit (transient)**: A suggested complete outfit (core slots top + bottom + footwear; outerwear/accessories optional) built around the Scanned Item using existing wardrobe items. Every such outfit necessarily contains the Scanned Item in its slot. Not persisted — these are exploratory and disappear when the user leaves the flow.
 - **User Profile (existing)**: The user's color palette, style preferences, and body measurements, used as the basis for the Verdict. Already captured during onboarding.
 - **Wardrobe Item (existing)**: Clothing the user already owns, used as the candidate pool for Mix & Match and the destination when the user taps Add.
 

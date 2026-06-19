@@ -357,7 +357,7 @@ export function scoreItemFit(item: FitItem, body: BodyMeasurements): ItemFitResu
 
 // Body shape bonus: certain silhouettes suit certain shapes better.
 // Returns a multiplier [0.85, 1.15] applied to the base fit score.
-function bodyShapeMultiplier(items: FitItem[], shape: BodyShape): number {
+export function bodyShapeMultiplier(items: FitItem[], shape: BodyShape): number {
   const tops = items.filter(i => i.category === 'top' || i.category === 'outwear');
   const bottoms = items.filter(i => i.category === 'bottom');
   let bonus = 1.0;

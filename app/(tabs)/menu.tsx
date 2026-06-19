@@ -13,7 +13,7 @@ import {
 import { useAuthStore } from '../../src/stores/authStore';
 
 type NavDestination =
-  | 'BUILDER' | 'SAVED' | 'COLLECTIONS'
+  | 'TRY_ON' | 'BUILDER' | 'SAVED' | 'COLLECTIONS'
   | 'SCHEDULE' | 'HISTORY' | 'PROFILE'
   | 'STYLES_EDIT' | 'COLORS_EDIT' | 'MEASUREMENTS_EDIT' | 'FORMULAS_EDIT'
   | 'SETTINGS' | 'HELP';
@@ -31,6 +31,7 @@ const SECTIONS: Array<{
   {
     label: 'CREATE',
     items: [
+      { icon: <IconSparkle size={20} strokeWidth={1.4} />,       title: 'Try on before you buy', desc: 'Check if an item suits you',      go: 'TRY_ON' },
       { icon: <IconDashedSquare size={20} strokeWidth={1.4} />, title: 'Build an outfit',    desc: 'Compose from your wardrobe',       go: 'BUILDER' },
       { icon: <IconBookmark size={20} strokeWidth={1.4} />,      title: 'Saved outfits',      desc: 'Bookmarks from your feed',         go: 'SAVED' },
       { icon: <IconLayers size={20} strokeWidth={1.4} />,        title: 'Collections',        desc: 'Wardrobe items grouped by theme',  go: 'COLLECTIONS' },
@@ -73,6 +74,7 @@ export default function MenuScreen() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const push = (p: string) => router.push(p as any);
     switch (dest) {
+      case 'TRY_ON':           return push('/try-on');
       case 'BUILDER':          return push('/build');
       case 'SAVED':            return push('/saved');
       case 'COLLECTIONS':      return push('/collections');

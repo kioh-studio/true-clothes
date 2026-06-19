@@ -118,6 +118,7 @@ export default function RootLayout() {
         <Stack.Screen name="measurements-edit" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="formulas-edit" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="add-item" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="try-on" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="history" options={{ animation: 'slide_from_right' }} />
         {/* T030: Settings and Help routes */}
         <Stack.Screen name="settings" options={{ title: 'Settings', animation: 'slide_from_right' }} />
