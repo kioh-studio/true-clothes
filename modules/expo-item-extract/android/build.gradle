@@ -1,0 +1,73 @@
+// build.gradle — expo-item-extract Android module
+//
+// ML Kit versions to verify against Google's release notes when building via EAS:
+//   subject-segmentation : 1.0.0-beta1  (beta; check for stable release)
+//   image-labeling        : 17.0.8
+//   text-recognition      : 16.0.1
+//
+// These pull the bundled model variants. If you prefer the download-on-demand
+// ("_common" / "bundled") split, swap the artifact suffixes accordingly.
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+buildscript {
+    def expoModulesCorePlugin = new File(
+        project(":expo-modules-core").projectDir.absolutePath,
+        "ExpoModulesCorePlugin.gradle"
+    )
+    if (expoModulesCorePlugin.exists()) {
+        apply from: expoModulesCorePlugin
+        applyKotlinExpoModulesCorePlugin()
+    }
+}
+
+android {
+    compileSdkVersion 34
+
+    defaultConfig {
+        minSdkVersion 24
+        targetSdkVersion 34
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'src/main/AndroidManifest.xml'
+            java.srcDirs = ['src/main/java']
+        }
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    // Expo Modules Core — provided at build time by the host app.
+    implementation project(':expo-modules-core')
+
+    // Kotlin stdlib
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+
+    // ── ML Kit: Subject Segmentation ──────────────────────────────────────
+    // Bundled model variant (no download-on-first-run; larger APK).
+    // VERIFY: check https://developers.google.com/ml-kit/vision/subject-segmentation/android
+    // for the latest stable artifact name; the beta suffix may change.
+    implementation 'com.google.mlkit:subject-segmentation:1.0.0-beta1'
+
+    // ── ML Kit: Image Labeling (bundled model) ────────────────────────────
+    implementation 'com.google.mlkit:image-labeling:17.0.9'
+
+    // ── ML Kit: Text Recognition v2 (Latin script bundled) ───────────────
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
+}

@@ -47,6 +47,7 @@ export function ReviewStep({ items, photos, onEditItem, onRemoveItem, onConfirm,
     .filter((g) => g.items.length > 0);
 
   let runningIndex = 0;
+  const untypedCount = items.filter((it) => !it.type).length;
 
   return (
     <View style={styles.container}>
@@ -115,15 +116,22 @@ export function ReviewStep({ items, photos, onEditItem, onRemoveItem, onConfirm,
       </ScrollView>
 
       <View style={styles.cta}>
+        {untypedCount > 0 && items.length > 0 && (
+          <Text style={styles.ctaHint}>
+            Choose a category for {untypedCount} {untypedCount === 1 ? 'item' : 'items'} to save.
+          </Text>
+        )}
         <PrimaryButton
           onPress={onConfirm}
-          disabled={items.length === 0 || saving}
+          disabled={items.length === 0 || saving || untypedCount > 0}
         >
           {saving
             ? 'SAVING…'
             : items.length === 0
               ? 'NOTHING TO SAVE'
-              : `CONFIRM ALL · ${items.length}`}
+              : untypedCount > 0
+                ? 'CHOOSE A CATEGORY'
+                : `CONFIRM ALL · ${items.length}`}
         </PrimaryButton>
       </View>
     </View>
@@ -253,5 +261,12 @@ const styles = StyleSheet.create({
     borderTopWidth: 0.5,
     borderTopColor: T.color.hairline,
     backgroundColor: T.color.canvas,
+  },
+  ctaHint: {
+    fontFamily: T.font.sans,
+    fontSize: 12,
+    color: T.color.tertiary,
+    marginBottom: 10,
+    textAlign: 'center',
   },
 });

@@ -48,6 +48,11 @@ export function ItemCard({ item, index, onEdit, onRemove }: Props) {
 
   return (
     <View style={styles.card}>
+      {item.usedFallback && (
+        <Text style={styles.fallbackHint}>
+          Couldn't isolate cleanly — check the image, or retry on a plainer background.
+        </Text>
+      )}
       {/* top: photo + name + fields */}
       <View style={styles.topRow}>
         {/* thumbnail */}
@@ -186,6 +191,13 @@ const styles = StyleSheet.create({
     backgroundColor: T.color.canvas,
     borderWidth: 0.5,
     borderColor: T.color.hairlineStrong,
+  },
+  fallbackHint: {
+    fontFamily: T.font.sans,
+    fontSize: 11,
+    color: T.color.warning,
+    marginBottom: 10,
+    lineHeight: 16,
   },
   topRow: {
     flexDirection: 'row',

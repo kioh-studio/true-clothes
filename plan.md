@@ -289,3 +289,11 @@ Response: { "outfits": ScoredOutfit[] }
 **First reader of `account_type` — AI import gate**: `useItemExtraction.startExtraction` now treats a user as premium if EITHER the live RevenueCat entitlement is active OR `profiles.account_type ∈ {premium, admin}` (new `hasPremiumAccountType()` / `fetchMyAccountType()` in `profileService.ts`). This lets a store-verified upgrade unlock unlimited AI import even where RevenueCat is absent (Expo Go) or hasn't synced. `incrementCredit` still runs but the count no longer gates premium accounts.
 
 **Still not wired (open)**: `usePremium` itself still derives `isPremium` only from RevenueCat — so cloud photo storage (`addWardrobeItem` tier) and the generate-outfits curation gate do NOT yet read `account_type`. Webhook is written but not deployed; needs `supabase functions deploy revenuecat-webhook --no-verify-jwt`, `supabase secrets set REVENUECAT_WEBHOOK_SECRET=…`, and the matching URL+Authorization header configured in the RevenueCat dashboard.
+
+---
+
+## 2026-06-20 — AI item extraction (006) + on-device "Extract by item" (007)
+
+**006 (deployed):** `generate-item-image` Edge Function (Gemini detect with controlled-vocab validate/snap + measurement estimates + logo + nano banana 2 isolated images, injection-safe note steering + content-safety). Client: `imageGenerationService`, `wardrobeService` now persists real `type/fit/m_*/brand/source_url/graphics` + `source`. Added `clothing_items.graphics jsonb` (migration `20260620000001`). Add-to-Wardrobe wizard under `src/features/wardrobe-add/`. Removed dead Claude `extract-garments` path.
+
+**007 (JS done; native scaffolded):** on-device "Extract by item" method — free, offline, no `ai_extraction` credit. Native Expo module `modules/expo-item-extract` (iOS Vision / Android ML Kit: subject mask → transparent PNG, image labels, OCR). `extractByItemService` snaps colour (LAB ΔE → 37 via `colorMatch`), type (`itemTypeMap`, blank on low-confidence), pattern (solid), logo (OCR → `graphics`), measurement defaults. Requires an **EAS dev client** (not Expo Go); ML Kit/Vision do not run on the iOS simulator. Type is required before save (`clothing_items.type` is NOT NULL).

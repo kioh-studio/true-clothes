@@ -24,6 +24,7 @@ export interface GarmentMetadata {
 export interface ExtractedItemWithImage {
   localImageUri: string | null;       // null when image generation failed → placeholder
   metadata: GarmentMetadata;
+  usedFallback?: boolean;             // on-device item method: background couldn't be isolated cleanly
 }
 
 // ─── Internal: edge (snake_case) → domain (camelCase) ─────────────────────────

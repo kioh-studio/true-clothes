@@ -32,4 +32,5 @@ export interface ExtractedItem {
   tags: string[];
   graphics: LogoSignal | null;   // captured, no edit UI in MVP
   confidence: number;
+  usedFallback?: boolean;        // on-device item: cut-out couldn't be isolated cleanly (UI hint)
 }

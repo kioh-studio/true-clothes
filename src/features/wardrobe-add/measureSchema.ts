@@ -39,3 +39,18 @@ export const MEASURE_FIELDS: Record<MeasureGroup, Array<{ key: MKey; label: stri
   ],
   other: [],
 };
+
+// Type-aware default measurement estimates (cm; EU number for shoes), editable.
+// Used by the on-device "Extract by item" method (007) and as 006-consistent fallbacks.
+// Returns {} for accessories / blank type.
+const GROUP_DEFAULTS: Record<MeasureGroup, Partial<Record<MKey, number>>> = {
+  top: { m_chest: 54, m_shoulder_width: 46, m_body_length: 70, m_sleeves: 62 },
+  bottom: { m_waist: 82, m_hip: 102, m_inseam: 78, m_thigh: 58 },
+  shoe: { m_shoe_size: 42 },
+  other: {},
+};
+
+export function measureDefaults(type: string): Partial<Record<MKey, number>> {
+  if (!type) return {};
+  return { ...GROUP_DEFAULTS[measureGroupForType(type)] };
+}

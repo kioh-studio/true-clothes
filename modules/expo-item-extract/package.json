@@ -1,0 +1,7 @@
+{
+  "name": "expo-item-extract",
+  "version": "1.0.0",
+  "description": "On-device single-item extraction (segmentation + labels + OCR) for MIEN — feature 007.",
+  "main": "index.ts",
+  "private": true
+}

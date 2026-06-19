@@ -12,6 +12,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { T, type } from '../../../design/tokens';
 import { IconChevronLeft, IconChevronRight, IconCamera, IconImage, IconSparkle, IconDashedSquare, IconX } from '../../../components/icons';
 import type { ExtractMethod } from '../types';
+import { isExtractByItemAvailable } from '../../../services/extractByItemService';
 
 type Phase = 'method' | 'source';
 
@@ -133,22 +134,28 @@ export function MethodChooser({ visible, dismissable, onAddPhoto, onClose }: Pro
 
                 <View style={{ height: 12 }} />
 
-                {/* Extract by item — disabled / coming soon */}
-                <View style={[styles.methodCard, styles.methodCardDisabled]}>
+                {/* Extract by item — on-device (enabled when the native module is present) */}
+                <Pressable
+                  onPress={isExtractByItemAvailable ? () => pickMethod('item') : undefined}
+                  disabled={!isExtractByItemAvailable}
+                  style={[styles.methodCard, isExtractByItemAvailable ? styles.methodCardPlain : styles.methodCardDisabled]}
+                >
                   <View style={styles.methodCardTop}>
-                    <IconDashedSquare size={22} strokeWidth={1.3} color={T.color.tertiary} />
+                    <IconDashedSquare size={22} strokeWidth={1.3} color={T.color.primary} />
                     <View style={styles.freeBadge}>
                       <Text style={styles.freeBadgeText}>FREE</Text>
                     </View>
                   </View>
                   <View style={{ height: 12 }} />
-                  <Text style={[styles.methodTitle, { color: T.color.tertiary }]}>Extract by item</Text>
-                  <Text style={[styles.methodDesc, { color: T.color.tertiary }]}>
+                  <Text style={styles.methodTitle}>Extract by item</Text>
+                  <Text style={styles.methodDesc}>
                     One item on a plain background, cut out and read on-device.
                   </Text>
                   <View style={styles.methodMetaDivider} />
-                  <Text style={styles.methodMeta}>On-device · Coming soon</Text>
-                </View>
+                  <Text style={styles.methodMeta}>
+                    {isExtractByItemAvailable ? 'On-device · Free' : 'On-device · Coming soon'}
+                  </Text>
+                </Pressable>
               </>
             )}
 
@@ -286,6 +293,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     opacity: 0.55,
   },
+  methodCardPlain: {
+    borderWidth: 0.5,
+    borderColor: T.color.hairlineStrong,
+    backgroundColor: 'transparent',
+  },
   methodCardTop: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -318,12 +330,14 @@ const styles = StyleSheet.create({
     fontFamily: T.font.serif,
     fontSize: 18,
     fontWeight: '400',
+    color: T.color.primary,
   },
   methodDesc: {
     fontFamily: T.font.sans,
     fontSize: 12,
     lineHeight: 18,
     marginTop: 5,
+    color: T.color.secondary,
   },
   methodDescFeatured: {
     fontFamily: T.font.sans,

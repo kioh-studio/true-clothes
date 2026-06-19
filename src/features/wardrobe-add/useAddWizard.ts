@@ -39,6 +39,7 @@ function toExtractedItem(r: ExtractedItemWithImage, photo: PhotoEntry): Extracte
     tags: m.tags ?? [],
     graphics: m.graphics,
     confidence: m.confidence,
+    usedFallback: r.usedFallback,
   };
 }
 
@@ -137,6 +138,12 @@ export function useAddWizard() {
   // ── Confirm (batch save) ──────────────────────────────────────────────────────
   const confirm = useCallback(async () => {
     if (items.length === 0) return;
+    // Every item needs a controlled type before saving (clothing_items.type is NOT NULL).
+    // On-device "item" extraction may leave type blank on low confidence — user must pick.
+    if (items.some((it) => !it.type)) {
+      setError('Choose a type for every item before saving.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
