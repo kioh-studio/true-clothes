@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Pressable, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PrimaryButton } from '../../src/components/ui';
@@ -33,7 +33,12 @@ export default function OTPScreen() {
     const next = [...digits];
     next[i] = clean;
     setDigits(next);
-    if (clean && i < 5) inputsRef.current[i + 1]?.focus();
+    if (clean && i < 5) {
+      inputsRef.current[i + 1]?.focus();
+    } else if (clean && next.every(d => d !== '')) {
+      // Full code entered. number-pad has no Done key, so drop the keyboard here.
+      Keyboard.dismiss();
+    }
     if (error) setError('');
   };
 
@@ -71,6 +76,7 @@ export default function OTPScreen() {
   };
 
   return (
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom + 32 }]}>
       <View style={styles.topBar}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
@@ -130,6 +136,7 @@ export default function OTPScreen() {
         </PrimaryButton>
       </View>
     </View>
+    </TouchableWithoutFeedback>
   );
 }
 
