@@ -40,6 +40,9 @@ jest.mock('../../services/extractByItemService', () => ({
   get isExtractByItemAvailable() { return _isAvailable; },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   extractItemOnDevice: (uri: any, notes?: any) => mockExtractItemOnDevice(uri, notes),
+  // no-op cut-out: returns the image unchanged (no native ML in jest/node)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  cutoutOnDevice: async (uri: any) => ({ uri, usedFallback: false }),
 }));
 
 // AI extractor

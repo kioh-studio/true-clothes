@@ -13,7 +13,7 @@ import { create } from 'zustand';
 import * as FileSystem from 'expo-file-system/legacy';
 import { ScannedItem, Verdict } from '../types/tryOn';
 import { ScoredOutfit } from '../types/fitEngine';
-import { extractItemOnDevice, isExtractByItemAvailable } from '../services/extractByItemService';
+import { extractItemOnDevice, isExtractByItemAvailable, cutoutOnDevice } from '../services/extractByItemService';
 import { extractItemsWithImages } from '../services/imageGenerationService';
 import { checkCredit, incrementCredit } from '../services/usageCreditService';
 import { hasPremiumAccountType } from '../services/profileService';
@@ -184,12 +184,29 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
 
       const extracted = results[0];
 
+      // The AI path returns the item on a WHITE background. Cut it out to a
+      // transparent PNG via the on-device ML segmenter so the Result screen AND
+      // Mix & Match render it cleanly (no-op when native ML is absent / on the
+      // on-device path, which is already transparent). FR / user request.
+      let localImageUri = extracted.localImageUri ?? null;
+      let resolvedUsedFallback = extracted.usedFallback ?? usedFallback;
+      if (localImageUri && resolvedMethod === 'ai') {
+        const cut = await cutoutOnDevice(localImageUri);
+        if (cut.uri !== localImageUri) {
+          if (localImageUri.startsWith('file://')) {
+            FileSystem.deleteAsync(localImageUri, { idempotent: true }).catch(() => {});
+          }
+          localImageUri = cut.uri;
+          resolvedUsedFallback = cut.usedFallback;
+        }
+      }
+
       const scannedItem: ScannedItem = {
         id: 'scanned',
-        localImageUri: extracted.localImageUri ?? null,
+        localImageUri,
         metadata: extracted.metadata,
         method: resolvedMethod,
-        usedFallback: extracted.usedFallback ?? usedFallback,
+        usedFallback: resolvedUsedFallback,
       };
 
       // 'evaluating' is set by evaluate(); here we land at a pre-result state

@@ -22,6 +22,7 @@ let _isAvailable = false;
 jest.mock('../../services/extractByItemService', () => ({
   get isExtractByItemAvailable() { return _isAvailable; },
   extractItemOnDevice: jest.fn(),
+  cutoutOnDevice: async (uri: string) => ({ uri, usedFallback: false }),
 }));
 
 const mockExtractItemsWithImages = jest.fn();
