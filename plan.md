@@ -9,6 +9,18 @@
   - validation logic rules that affect application behavior
 - Update documentation in the same working session as the implementation change.
 
+## Changelog — 2026-06-20 · Clean build archive + dev/prod (emulator vs standalone) parity
+
+**Part A — clean build, no leftovers.**
+- Added `.easignore` (self-contained superset of `.gitignore`'s heavy excludes) so the EAS build archive ships only what the app needs. Excludes: `node_modules/`, `.expo/`, `dist/`, `.env*`, OS/IDE cruft, scratch artifacts (`*.zip`, `*.log`, `*.orig`, `*.stackdump`, `screens/` design exports), dev helper `scripts/`, `specs/` docs, tests/mocks (`**/__tests__/`, `**/*.test.*`, `jest.config.js`), and the dev-only seeder pair (`app/dev-seed.tsx`, `**/*.dev.ts(x)`).
+- Removed tracked crash dumps `bash.exe.stackdump` + `screens/bash.exe.stackdump` (they were committed and shipping in the archive). Added `*.stackdump` and `screens/*-temp/` to `.gitignore`.
+- `screens/*-temp/` and `scripts/eas-submit-driver.sh` are untracked scratch; they were also entering the archive (untracked-but-unignored files are uploaded) and are now excluded via `.easignore`. The two `try-on` components reference `screens/...` only in comments, so nothing in `app/`/`src/` imports `screens/`.
+
+**Part B — emulator/standalone parity.**
+- Env vars the app reads at runtime: `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` (`src/services/supabase.ts`), `EXPO_PUBLIC_REVENUECAT_API_KEY` (`app/_layout.tsx`). Local `.env` contains only the two Supabase keys — both already present in eas.json `production.env` with identical values → **same Supabase project + same cloud item images** in standalone as on the emulator. No `Constants.expoConfig.extra` / app.config indirection exists.
+- `EXPO_PUBLIC_REVENUECAT_API_KEY` is absent from BOTH `.env` and eas.json, and `_layout.tsx` guards it (`if (!apiKey) return`). So RevenueCat is consistently **disabled in both dev and prod** — not a parity gap, not a crash. Its real value is unknown; not added (would diverge from the emulator). Enable later by adding it to eas.json `env` once a value is provided.
+- `app/dev-seed.tsx` ran `seedLocalPhotos()` on mount (flipping items to `photo_storage='local'`, reverting the cloud migration) with **no `__DEV__` guard** — reachable in production via `mien://dev-seed`. Fixed: added an early `if (!__DEV__) return <disabled>` guard (hooks moved into an inner component to keep hook rules valid) AND excluded the file + seeder from the build archive via `.easignore`. Now inert/absent in standalone.
+
 ## Changelog — 2026-06-20 · Fix TestFlight standalone launch crash (missing build-time env)
 
 **Symptom.** Production build (v1.0.0 build 2, `4edb1321-…`) crashed immediately on launch via TestFlight on a physical iPhone, while headless checks (tsc, `expo export`, dev bundle) were all green — i.e. a standalone-build-only crash.

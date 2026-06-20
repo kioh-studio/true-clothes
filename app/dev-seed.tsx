@@ -11,6 +11,24 @@ import {
 } from '../src/features/wardrobe-photos/seedLocalPhotos.dev';
 
 export default function DevSeedScreen() {
+  // DEV-ONLY GUARD. In a production/standalone build (__DEV__ === false) this
+  // screen must be completely inert: running the seeder flips item photos back
+  // to photo_storage='local', which reverts the Supabase cloud-image migration
+  // and breaks dev/prod parity. The route is also excluded from the EAS build
+  // archive via .easignore — this guard is defense-in-depth for any build that
+  // still includes the file (e.g. preview/dev-client).
+  if (!__DEV__) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center' }]}>
+        <Text style={styles.title}>Not available</Text>
+        <Text style={styles.caption}>This screen is for development only.</Text>
+      </View>
+    );
+  }
+  return <DevSeedInner />;
+}
+
+function DevSeedInner() {
   const insets = useSafeAreaInsets();
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<SeedProgress | null>(null);

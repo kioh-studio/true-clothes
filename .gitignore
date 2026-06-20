@@ -30,3 +30,9 @@ Thumbs.db
 
 # Large binaries / archives
 *.zip
+
+# Crash dumps (e.g. from wedged shells)
+*.stackdump
+
+# Scratch design exports / temp screens (kept locally as visual reference only)
+screens/*-temp/

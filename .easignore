@@ -1,0 +1,52 @@
+# .easignore — controls what gets uploaded into the EAS Build archive.
+# Goal: ship only what the app needs at build time. Self-contained superset of
+# .gitignore's heavy excludes PLUS dev-only/scratch files, so it is correct
+# whether EAS treats this as a replacement for or an addition to .gitignore.
+
+# --- Dependencies (EAS reinstalls on the build server) ---
+node_modules/
+
+# --- VCS / Expo / build output ---
+.git/
+.expo/
+dist/
+expo-env.d.ts
+
+# --- Secrets: env is injected via eas.json build.*.env, never from .env ---
+.env
+.env.local
+
+# --- OS / IDE cruft ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# --- Scratch artifacts & design exports (not referenced by app/ or src/) ---
+*.zip
+*.log
+*.orig
+*.stackdump
+screens/
+
+# --- Dev helper scripts (no EAS build hook references them) ---
+scripts/
+
+# --- Planning / spec docs (not needed at runtime) ---
+specs/
+
+# --- Tests & mocks (not part of the shipped app) ---
+**/__tests__/
+**/__mocks__/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+jest.config.js
+
+# --- Dev-only local-photo seeder + its screen (also __DEV__-guarded in source) ---
+# Excluded as a consistent pair: dev-seed.tsx is the only importer of *.dev.ts,
+# so removing both avoids any dangling import in the production bundle.
+app/dev-seed.tsx
+**/*.dev.ts
+**/*.dev.tsx
