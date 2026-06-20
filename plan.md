@@ -16,13 +16,13 @@
 **Approach (A + I1).** Fixed demo user via email+password (no anonymous auth, no security-setting changes), with images duplicated into the demo's own storage folder (existing RLS unchanged).
 
 **DB / storage ops (live project, idempotent):**
-- Created permanent auth user `demo@mily.app` (email-confirmed, bcrypt password, email identity) → stable uid `D = 19595dec-bad6-48e7-a859-fbabee490b7d`. Verified password sign-in via GoTrue REST.
+- Created permanent auth user `demo@mien.app` (email-confirmed, bcrypt password, email identity) → stable uid `D = 19595dec-bad6-48e7-a859-fbabee490b7d`. Verified password sign-in via GoTrue REST.
 - Profile `D`: `account_type='demo'`, `onboarding_complete=true`, demo profile fields.
 - Copied Khoi's 32 `clothing_items` (wardrobe `2857ddef…`) into the demo wardrobe (`b9651128…`) with new ids, `photo_storage='cloud'`, `photo_url = D/<source_basename>` (basename preserved so the copy is a folder-prefix swap).
 - Copied the 32 storage objects `d90a166b…/<name>` → `D/<name>` via the Storage API as the demo user, gated by a **temporary, tightly-scoped** SELECT policy (`demo_seed_read_owner`: only uid D, only Khoi's folder) that was **dropped immediately after** — storage policy set is back to the original 6.
 
 **Code:**
-- `src/config/demo.ts`: `DEMO_EMAIL = "demo@mily.app"`; added `DEMO_PASSWORD = process.env.EXPO_PUBLIC_DEMO_PASSWORD`.
+- `src/config/demo.ts`: `DEMO_EMAIL = "demo@mien.app"`; added `DEMO_PASSWORD = process.env.EXPO_PUBLIC_DEMO_PASSWORD`.
 - `src/services/authService.ts`: added `signInWithPassword(email, password)`.
 - `src/stores/authStore.ts`: demo `verifyOtp` branch now calls `signInWithPassword(DEMO_EMAIL, DEMO_PASSWORD)` instead of `signInAnonymously()` (keeps the `000000` OTP UX + onboarding pre-seed). Phone and email demo entry both converge on this one user.
 - `.env` + `eas.json` (all 3 profiles): added `EXPO_PUBLIC_DEMO_PASSWORD`.
