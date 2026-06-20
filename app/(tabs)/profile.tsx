@@ -119,7 +119,8 @@ export default function ProfileScreen() {
       <BottomNav active="profile" onChange={(tab) => {
         if (tab === 'home') router.replace('/(tabs)');
         if (tab === 'wardrobe') router.replace('/(tabs)/wardrobe');
-      }} onMenu={() => {}} />
+        if (tab === 'scan') router.push('/try-on');
+      }} />
     </View>
   );
 }

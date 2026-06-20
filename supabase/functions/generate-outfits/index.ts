@@ -11,7 +11,7 @@ import {
 } from './engine/types.ts';
 import { toFitItem } from './engine/enrichment.ts';
 import { filterByStyle, styleConfigById } from './engine/filtering.ts';
-import { generateCandidates, FormulaId } from './engine/generation.ts';
+import { generateCandidates, generatePinnedCandidates, FormulaId } from './engine/generation.ts';
 import { resolveIntent, applyIntent, rankCandidates, dailyShuffle } from './engine/ranking.ts';
 import { curateOutfits, curatorEnabled } from './engine/curator.ts';
 
@@ -53,6 +53,7 @@ Deno.serve(async (req) => {
     let intentContext: { rawPrompt?: string; turnCount?: number } | undefined;
     let locale = 'vi';
     let curateRequested = true; // client gates by tier; server only needs the API key
+    let pinItem: Record<string, unknown> | undefined; // Try On / Mix & Match (feature 008)
     if (req.method === 'POST') {
       try {
         const body = await req.json();
@@ -65,8 +66,18 @@ Deno.serve(async (req) => {
         if (body.curate === false) curateRequested = false;
         intentContext = body.intent_context; // forward-compat (T078)
         if (intentContext) console.log('[generate-outfits] intent_context received:', JSON.stringify(intentContext));
+        if (body.pin_item != null) pinItem = body.pin_item as Record<string, unknown>;
       } catch {
         // Empty body is fine — all fields are optional
+      }
+    }
+
+    // Validate an optional pinned item early (Mix & Match). Absent ⇒ unchanged
+    // behavior; present-but-invalid ⇒ 400 (contract generate-outfits-pin).
+    if (pinItem !== undefined) {
+      if (typeof pinItem !== 'object' || Array.isArray(pinItem) ||
+          typeof pinItem.type !== 'string' || !pinItem.type.trim()) {
+        return jsonResponse({ error: 'Invalid pin_item: a controlled `type` is required' }, 400);
       }
     }
 
@@ -204,7 +215,19 @@ Deno.serve(async (req) => {
     //    then filter excluded outfits.
     const itemMap = new Map<string, FitItem>(filteredItems.map(i => [i.id, i]));
     const daySeed = `${userId}:${new Date().toISOString().slice(0, 10)}`;
-    let candidates = generateCandidates(filteredItems, effectiveFormulas, daySeed);
+
+    // Mix & Match (feature 008): a transient pinned item is NOT read from the DB.
+    // Build a FitItem from the request, inject it into the itemMap (so scoring can
+    // resolve it), and run the pinned generator so every candidate includes it.
+    let pinFitItem: FitItem | undefined;
+    if (pinItem) {
+      pinFitItem = toFitItem(pinItemToRow(pinItem));
+      itemMap.set(pinFitItem.id, pinFitItem);
+    }
+
+    let candidates = pinFitItem
+      ? generatePinnedCandidates(filteredItems, pinFitItem, daySeed)
+      : generateCandidates(filteredItems, effectiveFormulas, daySeed);
 
     // Exclude already-shown outfits by FULL-slot key (top|bottom|shoes|outwear|
     // accessory) so two distinct mixes of the same items remain available — only
@@ -309,4 +332,35 @@ function jsonResponse(data: unknown, status: number): Response {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+// Flat m_* request keys → the label/value array toFitItem expects. Mirrors the
+// evaluate-item conversion so a scanned item enriches identically (feature 008).
+const M_PIN_COLS: Array<[string, string]> = [
+  ['m_chest', 'chest'], ['m_shoulder_width', 'shoulder'], ['m_sleeves', 'sleeve'],
+  ['m_body_length', 'length'], ['m_upper_arm', 'upper arm'], ['m_waist', 'waist'],
+  ['m_hip', 'hip'], ['m_inseam', 'inseam'], ['m_thigh', 'thigh'], ['m_rise', 'rise'],
+];
+
+function pinItemToRow(pin: Record<string, unknown>): ClothingItemRow {
+  const rawM = pin.measurements as Record<string, unknown> | undefined;
+  const measurements = rawM
+    ? M_PIN_COLS
+        .filter(([reqKey]) => rawM[reqKey] != null)
+        .map(([reqKey, label]) => ({ label, value: Number(rawM[reqKey]), unit: 'cm' }))
+        .filter(m => !isNaN(m.value))
+    : undefined;
+
+  const type = String(pin.type);
+  return {
+    id:    typeof pin.id === 'string' && pin.id.trim() ? pin.id : 'scanned',
+    type,
+    name:  type, // type drives pattern/graphics inference; the scanned name isn't needed
+    color: typeof pin.color === 'string' ? pin.color : '',
+    material:     typeof pin.material      === 'string' ? pin.material      : undefined,
+    fit:          typeof pin.fit           === 'string' ? pin.fit           : undefined,
+    pattern:      typeof pin.pattern       === 'string' ? pin.pattern       : undefined,
+    warmthSeason: typeof pin.warmth_season === 'string' ? pin.warmth_season : undefined,
+    measurements: measurements && measurements.length > 0 ? measurements : undefined,
+  };
 }

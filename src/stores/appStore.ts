@@ -11,6 +11,7 @@ import {
   WardrobeStorageError, WardrobeDbError,
 } from '../services/wardrobeService';
 import { useFitEngineStore } from './fitEngineStore';
+import { genId } from '../utils/genId';
 import {
   saveOutfit, unsaveOutfit,
   markWorn as svcMarkWorn, unmarkWorn,
@@ -335,7 +336,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const created = await svcCreateCollection(name, description);
       const col: Collection = created ?? {
-        id: crypto.randomUUID(),
+        id: genId(),
         name,
         description,
         createdDate: createdLabel(new Date().toISOString()),

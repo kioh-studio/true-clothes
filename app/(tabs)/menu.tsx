@@ -149,9 +149,9 @@ export default function MenuScreen() {
         onChange={(tab) => {
           if (tab === 'home')     router.replace('/(tabs)');
           if (tab === 'wardrobe') router.replace('/(tabs)/wardrobe');
+          if (tab === 'scan')     router.push('/try-on');
           if (tab === 'profile')  router.replace('/(tabs)/profile');
         }}
-        onMenu={() => {}}
       />
     </View>
   );

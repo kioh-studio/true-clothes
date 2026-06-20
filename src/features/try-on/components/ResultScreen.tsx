@@ -11,8 +11,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { T, type } from '../../../design/tokens';
-import { SecondaryButton } from '../../../components/ui';
-import { IconChevronLeft, IconX } from '../../../components/icons';
+import { PrimaryButton } from '../../../components/ui';
+import {
+  IconChevronLeft, IconChevronRight, IconX, IconLayers, IconCheck,
+} from '../../../components/icons';
 import { useTryOn } from '../useTryOn';
 import { ItemOnWhite } from './ItemOnWhite';
 import { VerdictPanel } from './VerdictPanel';
@@ -32,7 +34,10 @@ type ChipKey = typeof CHIP_KEYS[number]['key'];
 export function ResultScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { status, scannedItem, verdict, error, evaluate, reset } = useTryOn();
+  const {
+    status, scannedItem, verdict, error, mixMatchOutfits,
+    evaluate, discard, fetchMixMatch, addToWardrobe,
+  } = useTryOn();
 
   // Trigger evaluation on mount if verdict is not yet available
   useEffect(() => {
@@ -43,10 +48,27 @@ export function ResultScreen() {
   }, []);
 
   const isEvaluating = status === 'evaluating' && !verdict;
+  const justAdded = status === 'added';
 
   const handleBack = () => {
-    reset();
+    // Leaving the result without buying = discard (deletes temp cut-out, FR-015).
+    discard();
     router.back();
+  };
+
+  const handleMixMatch = () => {
+    // Warm the fetch so the feed has results sooner; the feed also self-fetches.
+    if (mixMatchOutfits.length === 0) fetchMixMatch();
+    router.push('/try-on/mix-match');
+  };
+
+  const handleAdd = async () => {
+    await addToWardrobe();
+  };
+
+  const handleViewWardrobe = () => {
+    discard();
+    router.replace('/(tabs)/wardrobe');
   };
 
   // If we have no scannedItem (e.g. deep-linked), redirect back to scan
@@ -118,17 +140,21 @@ export function ResultScreen() {
           })}
         </View>
 
-        {/* ── US2 PLACEHOLDER: Mix & Match CTA ────────────────────────────────
-         * TODO(US2/T030): Replace this placeholder with the Mix & Match button.
-         * The button should call fetchMixMatch() from useTryOn() and then
-         * navigate to '/try-on/mix-match'. Display outfit count when available.
-         * ──────────────────────────────────────────────────────────────────── */}
-        <View style={styles.mixMatchPlaceholder}>
-          <Text style={styles.mixMatchPlaceholderText}>
-            {/* US2: Mix & match CTA will appear here */}
-            MIX & MATCH — Coming in US2
-          </Text>
-        </View>
+        {/* ── Mix & match with closet (US2) ───────────────────────────────────── */}
+        <Pressable onPress={handleMixMatch} style={styles.mixMatchCta}>
+          <View style={styles.mixMatchIcon}>
+            <IconLayers size={20} strokeWidth={1.3} color={T.color.canvas} />
+          </View>
+          <View style={styles.mixMatchCopy}>
+            <Text style={styles.mixMatchTitle}>Mix &amp; match with closet</Text>
+            <Text style={styles.mixMatchSub}>
+              {mixMatchOutfits.length > 0
+                ? `${mixMatchOutfits.length} outfits we'd build around this from what you own.`
+                : "Outfits we'd build around this from what you own."}
+            </Text>
+          </View>
+          <IconChevronRight size={15} strokeWidth={1.4} color={T.color.canvas} />
+        </Pressable>
 
         {/* ── Verdict ──────────────────────────────────────────────────────── */}
         {isEvaluating && !verdict ? (
@@ -156,21 +182,30 @@ export function ResultScreen() {
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
-      {/* ── US3 PLACEHOLDER: Sticky Add / No controls ───────────────────────
-       * TODO(US3/T033,T034): Replace this placeholder with the sticky decision
-       * bar. It should contain:
-       *   - PrimaryButton "ADD TO WARDROBE" → calls addToWardrobe()
-       *   - TextLink or SecondaryButton "Not for me" → calls discard()
-       * Both should only be visible when status === 'result'.
-       * ─────────────────────────────────────────────────────────────────── */}
+      {/* ── Decide · Buy or Pass (US3) ──────────────────────────────────────── */}
       <View style={[styles.stickyBar, { paddingBottom: insets.bottom + T.s(3) }]}>
-        <View style={styles.addNoPlaceholder}>
-          <Text style={styles.addNoPlaceholderText}>
-            {/* US3: Add / No controls will appear here */}
-            ADD / NO DECISION — Coming in US3
-          </Text>
-        </View>
+        <PrimaryButton onPress={handleAdd}>ADD TO WARDROBE</PrimaryButton>
+        <Pressable onPress={handleBack} hitSlop={8} style={styles.passBtn}>
+          <Text style={styles.passLabel}>Not for me</Text>
+        </Pressable>
       </View>
+
+      {/* ── Success affordance after Add (T036) ─────────────────────────────── */}
+      {justAdded ? (
+        <View style={styles.successOverlay}>
+          <View style={styles.successCard}>
+            <View style={styles.successCheck}>
+              <IconCheck size={22} strokeWidth={1.5} color={T.color.primary} />
+            </View>
+            <Text style={styles.successTitle}>Added to your wardrobe</Text>
+            <Text style={styles.successBody}>
+              {scannedItem.metadata.name || scannedItem.metadata.type} is now part
+              of your closet and will appear in outfit suggestions.
+            </Text>
+            <PrimaryButton onPress={handleViewWardrobe}>VIEW WARDROBE</PrimaryButton>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -266,18 +301,37 @@ const styles = StyleSheet.create({
     color: T.color.primary,
     marginTop: T.s(1),
   },
-  mixMatchPlaceholder: {
+  mixMatchCta: {
     marginTop: T.s(6),
-    padding: T.s(4),
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.s(3),
+    backgroundColor: T.color.primary,
+    paddingVertical: T.s(4),
+    paddingHorizontal: T.s(4),
+  },
+  mixMatchIcon: {
+    width: 42,
+    height: 42,
     borderWidth: 0.5,
     borderColor: T.color.hairline,
-    borderStyle: 'dashed',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  mixMatchPlaceholderText: {
-    ...type.ui,
-    fontSize: 9,
-    color: T.color.muted,
+  mixMatchCopy: {
+    flex: 1,
+  },
+  mixMatchTitle: {
+    fontFamily: T.font.serif,
+    fontSize: 18,
+    color: T.color.canvas,
+  },
+  mixMatchSub: {
+    ...type.caption,
+    fontSize: 11.5,
+    color: T.color.canvas,
+    opacity: 0.7,
+    marginTop: T.s(1),
   },
   evaluatingState: {
     flexDirection: 'row',
@@ -336,16 +390,51 @@ const styles = StyleSheet.create({
     borderTopWidth: 0.5,
     borderTopColor: T.color.hairline,
   },
-  addNoPlaceholder: {
-    padding: T.s(4),
+  passBtn: {
+    alignItems: 'center',
+    paddingVertical: T.s(3),
+    marginTop: T.s(1),
+  },
+  passLabel: {
+    ...type.caption,
+    color: T.color.tertiary,
+    textDecorationLine: 'underline',
+  },
+  successOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(26,24,21,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: T.s(6),
+  },
+  successCard: {
+    width: '100%',
+    backgroundColor: T.color.canvas,
     borderWidth: 0.5,
     borderColor: T.color.hairline,
-    borderStyle: 'dashed',
+    padding: T.s(6),
     alignItems: 'center',
+    gap: T.s(3),
   },
-  addNoPlaceholderText: {
-    ...type.ui,
-    fontSize: 9,
-    color: T.color.muted,
+  successCheck: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 0.5,
+    borderColor: T.color.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: T.s(1),
+  },
+  successTitle: {
+    ...type.h2,
+    color: T.color.primary,
+    textAlign: 'center',
+  },
+  successBody: {
+    ...type.caption,
+    color: T.color.secondary,
+    textAlign: 'center',
+    marginBottom: T.s(2),
   },
 });

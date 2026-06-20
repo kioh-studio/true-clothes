@@ -62,3 +62,25 @@ export async function extractItemOnDevice(
 
   return [{ localImageUri: res.cutoutUri, usedFallback: res.usedFallback, metadata }];
 }
+
+/**
+ * Post-process an item-on-white image (e.g. the AI method's output) into a
+ * transparent cut-out using the on-device ML segmenter — the same native pass
+ * `extractItemOnDevice` uses, but here we keep ONLY the cut-out and discard the
+ * coarse labels/palette (the AI metadata is richer and authoritative).
+ *
+ * No-op (returns the input unchanged) when the native module is unavailable, so
+ * the AI flow degrades gracefully to the white-background image on Expo Go /
+ * simulator. Never throws — on any failure the original image is returned.
+ */
+export async function cutoutOnDevice(
+  uri: string,
+): Promise<{ uri: string; usedFallback: boolean }> {
+  if (!isAvailable || !uri) return { uri, usedFallback: false };
+  try {
+    const res = await extractItem(uri);
+    return { uri: res.cutoutUri, usedFallback: res.usedFallback };
+  } catch {
+    return { uri, usedFallback: false };
+  }
+}

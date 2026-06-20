@@ -65,7 +65,6 @@ export default function WardrobeScreen() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [addOpen, setAddOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
 
   const filtered = filter === 'ALL'
     ? wardrobeItems
@@ -147,8 +146,9 @@ export default function WardrobeScreen() {
 
       <BottomNav active="wardrobe" onChange={(tab) => {
         if (tab === 'home') router.replace('/(tabs)');
+        if (tab === 'scan') router.push('/try-on');
         if (tab === 'profile') router.replace('/(tabs)/profile');
-      }} onMenu={() => setMenuOpen(true)} />
+      }} />
 
       <AddItemSheet open={addOpen} onClose={() => setAddOpen(false)} onAdded={async (item) => {
         await addWardrobeItem({

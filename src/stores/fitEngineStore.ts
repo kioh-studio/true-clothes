@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BodyMeasurements, UserStyleProfile, ScoredOutfit, IntentContext } from '../types/fitEngine';
+import { ScannedItem } from '../types/tryOn';
 import { getCurrentUserId } from '../services/authService';
 import { fetchMyMeasurements, upsertMyMeasurements } from '../services/measurementService';
 import { fetchMyStyleProfile, upsertMyStyleProfile } from '../services/styleProfileService';
@@ -84,6 +85,11 @@ interface FitEngineState {
 
   fetchOutfits: (opts?: { intent?: IntentContext; excludeIds?: string[] }) => Promise<ScoredOutfit[]>;
   fetchMoreOutfits: () => Promise<void>;
+
+  // Try On / Mix & Match (feature 008): outfits built around a transient scanned
+  // item, pinned into every result. Does NOT touch the feed state or consume a
+  // credit; the Verdict and the daily feed are independent of this.
+  fetchMixMatchOutfits: (scannedItem: ScannedItem) => Promise<ScoredOutfit[]>;
 
   hydrate: () => Promise<void>;
 }
@@ -217,6 +223,40 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
       AsyncStorage.setItem(SHOWN_IDS_KEY, JSON.stringify(nextShown)).catch(() => {});
     }
     return newOutfits;
+  },
+
+  fetchMixMatchOutfits: async (scannedItem) => {
+    const meta = scannedItem.metadata;
+    // Build the transient pin_item from the scanned garment's controlled-vocab
+    // metadata. measurements already use the m_* keys the engine expects.
+    const pin_item: Record<string, unknown> = {
+      id: scannedItem.id,            // "scanned" — client maps it back to the cut-out image
+      type: meta.type,
+      color: meta.color,
+      ...(meta.material ? { material: meta.material } : {}),
+      ...(meta.fit ? { fit: meta.fit } : {}),
+      ...(meta.pattern ? { pattern: meta.pattern } : {}),
+      ...(meta.warmthSeason ? { warmth_season: meta.warmthSeason } : {}),
+      ...(meta.measurements && Object.keys(meta.measurements).length
+        ? { measurements: meta.measurements }
+        : {}),
+    };
+
+    const effectiveIntent = weatherIntent();
+    const body: Record<string, unknown> = {
+      pin_item,
+      ...(effectiveIntent ? { intent: effectiveIntent } : {}),
+      locale: i18n.language?.startsWith('vi') ? 'vi' : 'en',
+      curate: false, // deterministic pairing; no LLM curation / no credit
+    };
+
+    const { data, error } = await sb.functions.invoke('generate-outfits', { body });
+    if (error) {
+      console.warn('[fitEngineStore] fetchMixMatchOutfits failed:', error);
+      throw error instanceof Error ? error : new Error('Mix & match failed');
+    }
+    const response = data as { outfits?: ScoredOutfit[] };
+    return response.outfits ?? [];
   },
 
   fetchMoreOutfits: async () => {

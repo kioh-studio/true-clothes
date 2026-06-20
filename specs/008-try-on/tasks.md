@@ -87,19 +87,19 @@ description: "Task list for Try On — Pre-Purchase Fit Check & Mix-and-Match"
 
 ### Backend (pinned-item extension)
 
-- [ ] T023 [US2] Extend `supabase/functions/generate-outfits/index.ts`: parse optional `pin_item`, build a `FitItem` via existing enrichment, inject into `itemMap` under `pin_item.id` (not DB-backed); 400 on invalid `pin_item`. Absent `pin_item` ⇒ unchanged behavior. Per `contracts/generate-outfits-pin.md`.
-- [ ] T024 [US2] Add pinned candidate generation in `supabase/functions/generate-outfits/engine/generation.ts`: a variant of `generateFromPool` that fixes the pinned item's slot so every candidate includes it; reuse all existing scoring/ranking/filtering unchanged.
-- [ ] T025 [US2] Deno test `supabase/functions/generate-outfits/engine/pin.test.ts`: with `pin_item`, 100% of returned outfits contain the pin and are complete (top+bottom+footwear); without `pin_item`, output is identical to baseline (regression guard); uncompletable wardrobe → `outfits: []`.
+- [X] T023 [US2] Extend `supabase/functions/generate-outfits/index.ts`: parse optional `pin_item`, build a `FitItem` via existing enrichment, inject into `itemMap` under `pin_item.id` (not DB-backed); 400 on invalid `pin_item`. Absent `pin_item` ⇒ unchanged behavior. Per `contracts/generate-outfits-pin.md`.
+- [X] T024 [US2] Add pinned candidate generation in `supabase/functions/generate-outfits/engine/generation.ts`: a variant of `generateFromPool` that fixes the pinned item's slot so every candidate includes it; reuse all existing scoring/ranking/filtering unchanged.
+- [X] T025 [US2] Deno test `supabase/functions/generate-outfits/engine/pin.test.ts`: with `pin_item`, 100% of returned outfits contain the pin and are complete (top+bottom+footwear); without `pin_item`, output is identical to baseline (regression guard); uncompletable wardrobe → `outfits: []`.
 - [ ] T026 [US2] Deploy via Supabase CLI: `supabase functions deploy generate-outfits` (backward-compatible redeploy).
 
 ### Client (mix & match feed)
 
-- [ ] T027 [US2] Add action `fetchMixMatchOutfits(scannedItem)` to `src/stores/fitEngineStore.ts`: build `pin_item` from the `ScannedItem`, invoke `generate-outfits`, return `ScoredOutfit[]`; no credit consumed. (Shared store action, not a cross-feature import — Constitution III/VI.)
-- [ ] T028 [US2] Wire `tryOnStore` to call `fetchMixMatchOutfits` and store `mixMatchOutfits`; expose via `useTryOn`. File: `src/stores/tryOnStore.ts`.
-- [ ] T029 [P] [US2] Build `src/features/try-on/components/MatchFeedCard.tsx`: one full-bleed outfit card — collage (scanned item framed as "considering" + wardrobe pieces), match score, title/rationale, thumbnail strip; resolve the pinned slot id `"scanned"` back to the scanned item's local cut-out image. Reuse shared collage from `src/components/outfit/` if available; otherwise local.
-- [ ] T030 [US2] Build `src/features/try-on/components/MixMatchFeed.tsx`: vertical swipe `FlatList` pager of `MatchFeedCard`, page dots, "Back to result"; sparse-wardrobe empty state when `mixMatchOutfits` is empty. Wire into `app/try-on/mix-match.tsx`. Depends on T029.
-- [ ] T031 [US2] Add the "Mix & match with closet" CTA (with outfit count) to `ResultScreen.tsx` navigating to mix-match. Depends on T020.
-- [ ] T032 [US2] Jest test `src/stores/__tests__/fitEngineStore.mixmatch.test.ts`: `fetchMixMatchOutfits` builds a correct `pin_item` and the pinned slot maps to the scanned item's local image on render.
+- [X] T027 [US2] Add action `fetchMixMatchOutfits(scannedItem)` to `src/stores/fitEngineStore.ts`: build `pin_item` from the `ScannedItem`, invoke `generate-outfits`, return `ScoredOutfit[]`; no credit consumed. (Shared store action, not a cross-feature import — Constitution III/VI.)
+- [X] T028 [US2] Wire `tryOnStore` to call `fetchMixMatchOutfits` and store `mixMatchOutfits`; expose via `useTryOn`. File: `src/stores/tryOnStore.ts`.
+- [X] T029 [P] [US2] Build `src/features/try-on/components/MatchFeedCard.tsx`: one full-bleed outfit card — collage (scanned item framed as "considering" + wardrobe pieces), match score, title/rationale, thumbnail strip; resolve the pinned slot id `"scanned"` back to the scanned item's local cut-out image. Reuse shared collage from `src/components/outfit/` if available; otherwise local.
+- [X] T030 [US2] Build `src/features/try-on/components/MixMatchFeed.tsx`: vertical swipe `FlatList` pager of `MatchFeedCard`, page dots, "Back to result"; sparse-wardrobe empty state when `mixMatchOutfits` is empty. Wire into `app/try-on/mix-match.tsx`. Depends on T029.
+- [X] T031 [US2] Add the "Mix & match with closet" CTA (with outfit count) to `ResultScreen.tsx` navigating to mix-match. Depends on T020.
+- [X] T032 [US2] Jest test `src/stores/__tests__/fitEngineStore.mixmatch.test.ts`: `fetchMixMatchOutfits` builds a correct `pin_item` and the pinned slot maps to the scanned item's local image on render.
 
 **Checkpoint**: US1 + US2 work; Mix & Match always includes the scanned item; item still unsaved.
 
@@ -111,11 +111,11 @@ description: "Task list for Try On — Pre-Purchase Fit Check & Mix-and-Match"
 
 **Independent Test**: From result, Add → item appears in wardrobe and is usable in suggestions; scan another, No → nothing saved, temp image deleted, back to scan.
 
-- [ ] T033 [US3] Implement `tryOnStore` action `addToWardrobe()`: map `ScannedItem` → `AddItemInput` (category via `categoryForType`, `source` = the extraction method `'ai'|'item'` to avoid a DB constraint change — research/plan), call `appStore.addWardrobeItem`, then clean up the temp cut-out file; surface success. File: `src/stores/tryOnStore.ts`.
-- [ ] T034 [US3] Implement discard in `reset()` (extend T003): delete the temporary cut-out image via `expo-file-system` and clear all transient state (FR-013/FR-015, SC-004). File: `src/stores/tryOnStore.ts`.
-- [ ] T035 [US3] Add the sticky "Decide · Buy or Pass" controls to `ResultScreen.tsx`: **Add** (`PrimaryButton` → `addToWardrobe`, then confirmation/navigate to wardrobe) and **No** (`SecondaryButton` → discard → back to `app/try-on/index.tsx`). Depends on T020.
-- [ ] T036 [P] [US3] Build `src/features/try-on/components/` success/confirmation affordance (inline or `BottomSheet`) shown after Add, then route to wardrobe.
-- [ ] T037 [US3] Jest test `src/stores/__tests__/tryOnStore.decide.test.ts`: `addToWardrobe` produces a correct `AddItemInput` and calls `addWardrobeItem` once; `reset()` clears state and requests temp-file deletion; no save occurs before Add.
+- [X] T033 [US3] Implement `tryOnStore` action `addToWardrobe()`: map `ScannedItem` → `AddItemInput` (category via `categoryForType`, `source` = the extraction method `'ai'|'item'` to avoid a DB constraint change — research/plan), call `appStore.addWardrobeItem`, then clean up the temp cut-out file; surface success. File: `src/stores/tryOnStore.ts`.
+- [X] T034 [US3] Implement discard in `reset()` (extend T003): delete the temporary cut-out image via `expo-file-system` and clear all transient state (FR-013/FR-015, SC-004). File: `src/stores/tryOnStore.ts`.
+- [X] T035 [US3] Add the sticky "Decide · Buy or Pass" controls to `ResultScreen.tsx`: **Add** (`PrimaryButton` → `addToWardrobe`, then confirmation/navigate to wardrobe) and **No** (`SecondaryButton` → discard → back to `app/try-on/index.tsx`). Depends on T020.
+- [X] T036 [P] [US3] Build `src/features/try-on/components/` success/confirmation affordance (inline or `BottomSheet`) shown after Add, then route to wardrobe.
+- [X] T037 [US3] Jest test `src/stores/__tests__/tryOnStore.decide.test.ts`: `addToWardrobe` produces a correct `AddItemInput` and calls `addWardrobeItem` once; `reset()` clears state and requests temp-file deletion; no save occurs before Add.
 
 **Checkpoint**: Full loop scan → verdict → mix & match → Add/No works end-to-end.
 
@@ -123,9 +123,9 @@ description: "Task list for Try On — Pre-Purchase Fit Check & Mix-and-Match"
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T038 [P] Audit all Try On screens for design-token compliance (no inline hex, hairline icons, full-bleed image, `T.s` spacing) per Constitution I.
-- [ ] T039 Unify progress + recoverable-error states across scan/evaluate/mix-match (FR-017); ensure no half-saved state on failure.
-- [ ] T040 [P] Document the Verdict scoring + pin extension in `plan.md` changelog and add a UI spec note under `src/design/**/design.md` per the Documentation Policy.
+- [X] T038 [P] Audit all Try On screens for design-token compliance (no inline hex, hairline icons, full-bleed image, `T.s` spacing) per Constitution I.
+- [X] T039 Unify progress + recoverable-error states across scan/evaluate/mix-match (FR-017); ensure no half-saved state on failure.
+- [X] T040 [P] Document the Verdict scoring + pin extension in `plan.md` changelog and add a UI spec note under `src/design/**/design.md` per the Documentation Policy.
 - [ ] T041 Run `quickstart.md` validation scenarios (US1/US2/US3) on device; confirm SC-001 (scan→verdict < 30s) and SC-003 (100% outfits include the item).
 
 ---

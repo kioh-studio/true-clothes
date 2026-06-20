@@ -21,6 +21,7 @@ export const IconChevronDown = (p: IconProps) => <Icon {...p}><Path d="M6 9l6 6 
 export const IconX = (p: IconProps) => <Icon {...p}><Path d="M6 6l12 12M18 6L6 18" /></Icon>;
 export const IconPlus = (p: IconProps) => <Icon {...p}><Path d="M12 5v14M5 12h14" /></Icon>;
 export const IconCheck = (p: IconProps) => <Icon {...p}><Path d="M4 12l5 5 11-12" /></Icon>;
+export const IconMenu = (p: IconProps) => <Icon {...p}><Path d="M4 7h16M4 12h16M4 17h16" /></Icon>;
 
 export const IconBell = (p: IconProps) => (
   <Icon {...p}>

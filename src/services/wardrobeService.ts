@@ -3,6 +3,7 @@
 
 import { sb } from './supabase';
 import { WardrobeItem, PhotoStorageKind, MKey, LogoSignal } from '../types/fitEngine';
+import { genId } from '../utils/genId';
 
 // Garment measurement columns the engine reads (cm). Kept in one place so the
 // add/read paths stay in sync with the DB m_* columns.
@@ -278,7 +279,7 @@ export async function addItem(input: AddItemInput, tier: StorageTier = 'free'): 
   if (!wardrobeId) throw new WardrobeDbError('Wardrobe not found');
 
   // Generate the id up front so device path / storage path / row id all align.
-  const itemId = crypto.randomUUID();
+  const itemId = genId();
   let photoStorage: PhotoStorageKind = 'none';
   let photoPath: string | null = null;
 

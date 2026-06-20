@@ -62,6 +62,11 @@ export function ScanScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + T.s(6) }]}>
+      {/* Close — pushed as a stack screen, so give an explicit way back */}
+      <Pressable onPress={() => router.back()} hitSlop={8} style={styles.closeBtn}>
+        <IconX size={20} strokeWidth={1.4} color={T.color.primary} />
+      </Pressable>
+
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.eyebrow}>TRY ON</Text>
@@ -132,6 +137,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: T.color.canvas,
     paddingHorizontal: T.s(6),
+  },
+  closeBtn: {
+    alignSelf: 'flex-end',
+    width: 44, height: 44,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: T.s(2),
   },
   header: {
     marginBottom: T.s(8),

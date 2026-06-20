@@ -14,9 +14,24 @@ const mockFs = {
   readAsStringAsync: jest.fn(async () => 'base64data'),
   writeAsStringAsync: jest.fn(async () => {}),
   makeDirectoryAsync: jest.fn(async () => {}),
+  deleteAsync: jest.fn(async () => {}),
   EncodingType: { Base64: 'base64' },
 };
 jest.mock('expo-file-system/legacy', () => mockFs);
+
+// Shared stores + vocab the store now depends on (US2/US3).
+const mockFetchMixMatchOutfits = jest.fn(async () => []);
+jest.mock('../fitEngineStore', () => ({
+  useFitEngineStore: { getState: () => ({ fetchMixMatchOutfits: mockFetchMixMatchOutfits }) },
+}));
+const mockAddWardrobeItem = jest.fn(async () => {});
+let _wardrobeError: string | null = null;
+jest.mock('../appStore', () => ({
+  useAppStore: { getState: () => ({ addWardrobeItem: mockAddWardrobeItem, wardrobeError: _wardrobeError }) },
+}));
+jest.mock('../../features/wardrobe-add/vocab', () => ({
+  categoryForType: (type: string) => (type === 'SHIRT' ? 'top' : 'accessory'),
+}));
 
 // On-device extractor — starts as unavailable
 let _isAvailable = false;

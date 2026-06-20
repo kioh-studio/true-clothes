@@ -409,6 +409,79 @@ function generateOnepieceCandidates(items: FitItem[], rand: () => number): Formu
   return candidates;
 }
 
+// ─── Pinned candidate generation (Try On / Mix & Match — feature 008) ────────
+//
+// Builds outfits that ALWAYS contain a transient pinned item (the scanned
+// garment the user is considering, not yet in their wardrobe). The pin's slot
+// is fixed; the remaining slots are filled from the user's actual wardrobe, so
+// every returned candidate is a COMPLETE outfit (top + bottom + footwear core)
+// that includes the pin. Scoring/ranking/filtering downstream is unchanged —
+// the pin is just another FitItem in the itemMap (contract generate-outfits-pin).
+//
+// Returns [] when the wardrobe cannot complete an outfit around the pin (e.g.
+// pin is a top but there are no bottoms/shoes) → the client's sparse-wardrobe
+// state. 100% of returned candidates include the pin (SC-003 / FR-012a).
+const PINNED_CAP = 120;
+
+export function generatePinnedCandidates(
+  wardrobe: FitItem[], pin: FitItem, seed?: string,
+): FormulaCandidate[] {
+  const rand = seed ? mulberry32(hashStr(seed)) : Math.random;
+  const cats = categorize(wardrobe);
+  const tops    = shuffle(cats.top, rand).map(i => i.id);
+  const bottoms = shuffle(cats.bottom, rand).map(i => i.id);
+  const shoes   = shuffle(cats.shoes, rand).map(i => i.id);
+  const outwear = shuffle(cats.outwear, rand).map(i => i.id);
+  const accs    = shuffle(cats.accessory, rand).map(i => i.id);
+
+  const pid = pin.id;
+
+  // Resolve the three core slots, substituting the pin into its own slot.
+  // A pinned outerwear/accessory leaves the full core to the wardrobe but is
+  // forced into the optional slot of every candidate.
+  let topPool = tops, bottomPool = bottoms, shoePool = shoes;
+  let fixedOutwear: string | undefined;
+  let fixedAccessory: string | undefined;
+
+  switch (pin.category) {
+    case 'top':       topPool = [pid]; break;
+    case 'bottom':    bottomPool = [pid]; break;
+    case 'shoes':     shoePool = [pid]; break;
+    case 'onepiece':  topPool = [pid]; bottomPool = [pid]; break;
+    case 'outwear':   fixedOutwear = pid; break;
+    case 'accessory': fixedAccessory = pid; break;
+  }
+
+  // Can't complete the core → no candidates → sparse-wardrobe state.
+  if (topPool.length === 0 || bottomPool.length === 0 || shoePool.length === 0) return [];
+
+  const pick = (arr: string[]) => arr[Math.floor(rand() * arr.length)];
+  const candidates: FormulaCandidate[] = [];
+
+  coreLoop:
+  for (const top of topPool) {
+    for (const bottom of bottomPool) {
+      for (const shoe of shoePool) {
+        const base: OutfitSlots = { top, bottom, shoes: shoe };
+        if (fixedOutwear)   base.outwear = fixedOutwear;
+        if (fixedAccessory) base.accessory = fixedAccessory;
+
+        // Distinct variants: bare core, +accessory, +outerwear (only for the
+        // optional slots the pin does not already occupy).
+        const variants: OutfitSlots[] = [{ ...base }];
+        if (!fixedAccessory && accs.length > 0)    variants.push({ ...base, accessory: pick(accs) });
+        if (!fixedOutwear   && outwear.length > 0) variants.push({ ...base, outwear: pick(outwear) });
+
+        for (const v of shuffle(variants, rand)) {
+          candidates.push({ slots: v, formula: 'one_two_three' });
+          if (candidates.length >= PINNED_CAP) break coreLoop;
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
 export function generateCandidates(items: FitItem[], preferredFormulas?: FormulaId[], seed?: string): FormulaCandidate[] {
   const rand = seed ? mulberry32(hashStr(seed)) : Math.random;
   const pools = getFormulaPools(items, preferredFormulas);

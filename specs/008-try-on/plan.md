@@ -112,3 +112,35 @@ supabase/functions/
 ## Complexity Tracking
 
 > No constitution violations — section intentionally empty.
+
+## Changelog
+
+### 2026-06-20 — Implementation (US1 + US2 + US3)
+
+**Verdict scoring (`evaluate-item`)** — new deterministic Deno edge function.
+Item-level scoring primitives were factored into
+`generate-outfits/engine/itemScoring.ts` and reused (single source of truth,
+Constitution V). Five criteria (color/style/fit/measurement/fabric) each score
+0–100; the composite weights Fit + Measurement above the rest and renormalizes
+over only the evaluable criteria. A criterion is unavailable when its item
+attribute OR the required profile data is missing — it is excluded, never
+fabricated (FR-005/FR-009a/FR-009b).
+
+**Mix & Match — `generate-outfits` pin extension (backward-compatible).** The
+request now accepts an optional `pin_item` (the transient scanned garment, not in
+the DB). When present: a `FitItem` is built via the existing `toFitItem`
+enrichment, injected into the `itemMap` under the synthetic id, and a new
+`generatePinnedCandidates()` fixes the pin's slot so **every** returned outfit
+includes it and is complete (top+bottom+footwear). All scoring/ranking/filtering
+is reused unchanged; absent `pin_item` ⇒ identical baseline behavior; an
+uncompletable wardrobe ⇒ `outfits: []` (sparse state). Invalid `pin_item` ⇒ 400.
+
+**Provenance.** On Add, the scanned item is committed through the existing
+`appStore.addWardrobeItem` → `wardrobeService.addItem` path. `source` reuses the
+extraction method (`'ai' | 'item'`) to avoid touching the possibly-constrained
+live `clothing_items.source` column (schema-drift caution); no new tables/columns.
+
+**Transient lifecycle.** `tryOnStore` is not persisted. The cut-out image is a
+temp file deleted on discard (`reset()`) and after a successful Add (the wardrobe
+service has made its own durable copy). Nothing is written before the explicit
+Add (FR-013/FR-015, SC-004). Mix & Match consumes no credit and never persists.

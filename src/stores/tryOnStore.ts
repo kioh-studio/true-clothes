@@ -18,6 +18,10 @@ import { extractItemsWithImages } from '../services/imageGenerationService';
 import { checkCredit, incrementCredit } from '../services/usageCreditService';
 import { hasPremiumAccountType } from '../services/profileService';
 import { evaluateItem } from '../services/tryOnService';
+import { AddItemInput } from '../services/wardrobeService';
+import { categoryForType } from '../features/wardrobe-add/vocab';
+import { useFitEngineStore } from './fitEngineStore';
+import { useAppStore } from './appStore';
 import type { ExtractMethod } from '../types/tryOn';
 
 export type TryOnStatus =
@@ -33,11 +37,17 @@ export interface TryOnState {
   scannedItem: ScannedItem | null;
   verdict: Verdict | null;
   mixMatchOutfits: ScoredOutfit[];
+  /** Mix & Match outfits are being fetched (US2). */
+  mixMatchLoading: boolean;
   error: string | null;
   /** True when the AI extraction was blocked by insufficient credits. */
   needsUpgrade: boolean;
 
-  /** Clear all transient state back to idle. Temp-image cleanup is added in T034. */
+  /**
+   * Clear all transient state back to idle AND delete the temporary cut-out
+   * image (T034). Doubles as the "No / discard" action (FR-015, SC-004):
+   * nothing is ever persisted, and the temp file does not leak.
+   */
   reset: () => void;
 
   /**
@@ -59,18 +69,22 @@ export interface TryOnState {
    */
   evaluate: () => Promise<void>;
 
-  // ── User Story 2 placeholder (T028) ────────────────────────────────────────
-  // fetchMixMatch(): Promise<void>
-  // TODO(US2/T028): call `generate-outfits` with pin_item=scannedItem, store
-  // mixMatchOutfits, set status 'mixMatch'.
+  /**
+   * T028 — Mix & Match action.
+   * Asks fitEngineStore to build outfits pinned around the scanned item, stores
+   * them, and advances status to 'mixMatch'. Recoverable on failure (FR-017).
+   * Consumes no credit; never persists the scanned item.
+   */
+  fetchMixMatch: () => Promise<void>;
 
-  // ── User Story 3 placeholders (T033, T034) ─────────────────────────────────
-  // addToWardrobe(): Promise<void>
-  // TODO(US3/T033): build AddItemInput from scannedItem + verdict, call
-  // wardrobeService.addItem, set status 'added'. Clean up temp images (T034).
-
-  // discard(): void
-  // TODO(US3/T034): delete temp image file (scannedItem.localImageUri), reset().
+  /**
+   * T033 — Add action.
+   * Maps the ScannedItem to an AddItemInput (category via categoryForType,
+   * source = the extraction method to avoid a DB constraint change), commits it
+   * through appStore.addWardrobeItem, then deletes the temp cut-out file and
+   * advances status to 'added'. The only point anything is persisted (FR-013).
+   */
+  addToWardrobe: () => Promise<void>;
 }
 
 // ─── file uri → base64 data URI (same helper as useAddWizard) ─────────────────
@@ -86,14 +100,27 @@ async function toDataUri(uri: string): Promise<string> {
   return `data:${mime};base64,${b64}`;
 }
 
+// Best-effort deletion of the transient cut-out file. On Add, wardrobeService
+// has already made its own durable copy, so removing our temp file is safe; on
+// discard, this prevents leaked images (R7 / FR-015).
+async function cleanupTempImage(uri: string | null): Promise<void> {
+  if (!uri || !uri.startsWith('file://')) return;
+  try {
+    await FileSystem.deleteAsync(uri, { idempotent: true });
+  } catch {
+    // best-effort — a leftover temp file must never block the flow
+  }
+}
+
 const INITIAL: Omit<
   TryOnState,
-  'reset' | 'scan' | 'evaluate'
+  'reset' | 'scan' | 'evaluate' | 'fetchMixMatch' | 'addToWardrobe'
 > = {
   status: 'idle',
   scannedItem: null,
   verdict: null,
   mixMatchOutfits: [],
+  mixMatchLoading: false,
   error: null,
   needsUpgrade: false,
 };
@@ -101,7 +128,13 @@ const INITIAL: Omit<
 export const useTryOnStore = create<TryOnState>((set, get) => ({
   ...INITIAL,
 
-  reset: () => set({ ...INITIAL }),
+  // T034 — discard/cleanup. Fire-and-forget the temp-file delete so the UI can
+  // reset synchronously; nothing is ever persisted before Add (FR-013/FR-015).
+  reset: () => {
+    const uri = get().scannedItem?.localImageUri ?? null;
+    cleanupTempImage(uri).catch(() => {});
+    set({ ...INITIAL });
+  },
 
   // ── T013: scan ─────────────────────────────────────────────────────────────
 
@@ -188,5 +221,70 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
         error: err instanceof Error ? err.message : 'Evaluation failed. Try again.',
       });
     }
+  },
+
+  // ── T028: fetchMixMatch ──────────────────────────────────────────────────────
+
+  fetchMixMatch: async () => {
+    const { scannedItem } = get();
+    if (!scannedItem) return;
+
+    set({ mixMatchLoading: true, error: null });
+
+    try {
+      const outfits = await useFitEngineStore.getState().fetchMixMatchOutfits(scannedItem);
+      set({ mixMatchOutfits: outfits, status: 'mixMatch', mixMatchLoading: false });
+    } catch (err) {
+      // Recoverable: the feed shows a retry; the scanned item stays unsaved.
+      set({
+        mixMatchLoading: false,
+        error: err instanceof Error ? err.message : 'Mix & match failed. Try again.',
+      });
+    }
+  },
+
+  // ── T033: addToWardrobe ──────────────────────────────────────────────────────
+
+  addToWardrobe: async () => {
+    const { scannedItem } = get();
+    if (!scannedItem) return;
+
+    const meta = scannedItem.metadata;
+    const input: AddItemInput = {
+      localPhotoUri: scannedItem.localImageUri,
+      category: categoryForType(meta.type),
+      colors: meta.color ? [meta.color] : [],
+      name: meta.name || undefined,
+      type: meta.type,
+      primaryColor: meta.color || undefined,
+      material: meta.material ?? undefined,
+      fit: meta.fit ?? undefined,
+      pattern: meta.pattern ?? undefined,
+      warmthSeason: meta.warmthSeason ? [meta.warmthSeason] : undefined,
+      measurements:
+        meta.measurements && Object.keys(meta.measurements).length
+          ? meta.measurements
+          : undefined,
+      brand: meta.brand || undefined,
+      graphics: meta.graphics,
+      // Reuse the existing extraction provenance ('ai' | 'item') so we don't have
+      // to touch the possibly-constrained clothing_items.source column (plan/R).
+      source: scannedItem.method,
+    };
+
+    set({ error: null });
+
+    await useAppStore.getState().addWardrobeItem(input);
+
+    const wardrobeError = useAppStore.getState().wardrobeError;
+    if (wardrobeError) {
+      // Recoverable: nothing committed cleanly; surface and let the user retry.
+      set({ error: wardrobeError });
+      return;
+    }
+
+    // Saved — wardrobeService owns a durable copy now, so drop our temp cut-out.
+    await cleanupTempImage(scannedItem.localImageUri);
+    set({ status: 'added' });
   },
 }));

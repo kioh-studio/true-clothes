@@ -14,7 +14,7 @@ import { useAppStore } from '../../src/stores/appStore';
 import { useFitEngineStore } from '../../src/stores/fitEngineStore';
 import { useFitFeed } from '../../src/features/feed/useFitFeed';
 import {
-  IconBell, IconHeart, IconBookmark, IconCalendar, IconSparkle, IconShare, IconThermometer,
+  IconBell, IconHeart, IconBookmark, IconCalendar, IconSparkle, IconShare, IconThermometer, IconMenu,
 } from '../../src/components/icons';
 
 // T021: Map temperature band → filter label
@@ -131,6 +131,9 @@ export default function HomeScreen() {
             <Pressable style={styles.bellBtn}>
               <IconBell size={18} color={T.color.tertiary} strokeWidth={1.4} />
             </Pressable>
+            <Pressable onPress={() => setMenuOpen(true)} style={styles.bellBtn}>
+              <IconMenu size={18} color={T.color.tertiary} strokeWidth={1.4} />
+            </Pressable>
           </View>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
@@ -183,8 +186,9 @@ export default function HomeScreen() {
 
       <BottomNav active="home" onChange={(tab) => {
         if (tab === 'wardrobe') router.replace('/(tabs)/wardrobe');
+        if (tab === 'scan') router.push('/try-on');
         if (tab === 'profile') router.replace('/(tabs)/profile');
-      }} onMenu={() => setMenuOpen(true)} />
+      }} />
 
       <MenuSheet open={menuOpen} onClose={() => setMenuOpen(false)}
         onOpenProfile={() => { setMenuOpen(false); router.push('/(tabs)/profile'); }}

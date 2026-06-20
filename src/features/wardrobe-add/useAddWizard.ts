@@ -3,11 +3,12 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { useAppStore } from '../../stores/appStore';
 import { AddItemInput } from '../../services/wardrobeService';
 import { extractItemsWithImages, ExtractedItemWithImage } from '../../services/imageGenerationService';
-import { extractItemOnDevice, isExtractByItemAvailable } from '../../services/extractByItemService';
+import { extractItemOnDevice, isExtractByItemAvailable, cutoutOnDevice } from '../../services/extractByItemService';
 import { checkCredit, incrementCredit, CreditStatus } from '../../services/usageCreditService';
 import { usePremium } from '../monetization/usePremium';
 import { hasPremiumAccountType } from '../../services/profileService';
 import { categoryForType } from './vocab';
+import { genId } from '../../utils/genId';
 import { WizardStep, PhotoEntry, ExtractMethod, ExtractedItem } from './types';
 
 // file uri → base64 data URI (the edge function requires a data: URI)
@@ -19,10 +20,24 @@ async function toDataUri(uri: string): Promise<string> {
   return `data:${mime};base64,${b64}`;
 }
 
+// The AI method returns the item on a WHITE background. When the on-device ML
+// segmenter is present (custom dev build), refine that image into a transparent
+// cut-out and drop the replaced white-bg file. No native module → return as-is
+// (the white-bg image), so the flow degrades gracefully on Expo Go / simulator.
+async function refineAiCutout(r: ExtractedItemWithImage): Promise<ExtractedItemWithImage> {
+  if (!r.localImageUri || !isExtractByItemAvailable) return r;
+  const { uri, usedFallback } = await cutoutOnDevice(r.localImageUri);
+  if (uri === r.localImageUri) return r; // unchanged (no native / failed)
+  if (r.localImageUri.startsWith('file://')) {
+    FileSystem.deleteAsync(r.localImageUri, { idempotent: true }).catch(() => {});
+  }
+  return { ...r, localImageUri: uri, usedFallback };
+}
+
 function toExtractedItem(r: ExtractedItemWithImage, photo: PhotoEntry): ExtractedItem {
   const m = r.metadata;
   return {
-    id: crypto.randomUUID(),
+    id: genId(),
     srcId: photo.id,
     method: photo.method,
     localImageUri: r.localImageUri,
@@ -60,7 +75,7 @@ export function useAddWizard() {
 
   // ── Upload step ─────────────────────────────────────────────────────────────
   const addPhoto = useCallback((uri: string, method: ExtractMethod) => {
-    setPhotos((p) => [...p, { id: crypto.randomUUID(), uri, method, note: '' }]);
+    setPhotos((p) => [...p, { id: genId(), uri, method, note: '' }]);
   }, []);
   const removePhoto = useCallback((id: string) => {
     setPhotos((p) => p.filter((x) => x.id !== id));
@@ -104,7 +119,9 @@ export function useAddWizard() {
             const dataUri = await toDataUri(photo.uri);
             const results = await extractItemsWithImages(dataUri, photo.note);
             if (!premium && results.length > 0) await incrementCredit('ai_extraction');
-            collected.push(...results.map((r) => toExtractedItem(r, photo)));
+            // White-bg AI image → transparent cut-out via on-device ML when present.
+            const refined = await Promise.all(results.map((r) => refineAiCutout(r)));
+            collected.push(...refined.map((r) => toExtractedItem(r, photo)));
           } else if (isExtractByItemAvailable) {
             const results = await extractItemOnDevice(photo.uri, photo.note);
             collected.push(...results.map((r) => toExtractedItem(r, photo)));

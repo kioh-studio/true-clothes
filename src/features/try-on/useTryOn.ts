@@ -6,21 +6,25 @@ import { useTryOnStore } from '../../stores/tryOnStore';
 import type { ExtractMethod } from '../../types/tryOn';
 
 export function useTryOn() {
-  const status        = useTryOnStore((s) => s.status);
-  const scannedItem   = useTryOnStore((s) => s.scannedItem);
-  const verdict       = useTryOnStore((s) => s.verdict);
+  const status          = useTryOnStore((s) => s.status);
+  const scannedItem     = useTryOnStore((s) => s.scannedItem);
+  const verdict         = useTryOnStore((s) => s.verdict);
   const mixMatchOutfits = useTryOnStore((s) => s.mixMatchOutfits);
-  const error         = useTryOnStore((s) => s.error);
-  const needsUpgrade  = useTryOnStore((s) => s.needsUpgrade);
-  const reset         = useTryOnStore((s) => s.reset);
-  const scan          = useTryOnStore((s) => s.scan);
-  const evaluate      = useTryOnStore((s) => s.evaluate);
+  const mixMatchLoading = useTryOnStore((s) => s.mixMatchLoading);
+  const error           = useTryOnStore((s) => s.error);
+  const needsUpgrade    = useTryOnStore((s) => s.needsUpgrade);
+  const reset           = useTryOnStore((s) => s.reset);
+  const scan            = useTryOnStore((s) => s.scan);
+  const evaluate        = useTryOnStore((s) => s.evaluate);
+  const fetchMixMatch   = useTryOnStore((s) => s.fetchMixMatch);
+  const addToWardrobe   = useTryOnStore((s) => s.addToWardrobe);
 
   return {
     status,
     scannedItem,
     verdict,
     mixMatchOutfits,
+    mixMatchLoading,
     error,
     needsUpgrade,
     reset,
@@ -28,8 +32,11 @@ export function useTryOn() {
     scan: (photoUri: string, method: ExtractMethod = 'ai') => scan(photoUri, method),
     /** T015: evaluate the current scannedItem against the user's profile */
     evaluate,
-    // TODO(US2/T028): expose fetchMixMatch
-    // TODO(US3/T033): expose addToWardrobe
-    // TODO(US3/T034): expose discard
+    /** T028: build Mix & Match outfits pinned around the scanned item */
+    fetchMixMatch,
+    /** T033: commit the scanned item to the wardrobe */
+    addToWardrobe,
+    /** T034: discard the scanned item (deletes the temp cut-out) and reset */
+    discard: reset,
   };
 }
