@@ -6,6 +6,7 @@ import { PrimaryButton } from '../../src/components/ui';
 import { IconChevronLeft } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAuthStore } from '../../src/stores/authStore';
+import { sanitizeDigit, digitAction } from '../../src/utils/otpInput';
 
 export default function OTPScreen() {
   const router = useRouter();
@@ -29,13 +30,14 @@ export default function OTPScreen() {
   }, [pendingPhone, pendingEmail, router]);
 
   const onDigit = (i: number, v: string) => {
-    const clean = v.replace(/\D/g, '').slice(-1);
+    const clean = sanitizeDigit(v);
     const next = [...digits];
     next[i] = clean;
     setDigits(next);
-    if (clean && i < 5) {
+    const action = digitAction(next, i, clean);
+    if (action === 'advance') {
       inputsRef.current[i + 1]?.focus();
-    } else if (clean && next.every(d => d !== '')) {
+    } else if (action === 'dismiss') {
       // Full code entered. number-pad has no Done key, so drop the keyboard here.
       Keyboard.dismiss();
     }
