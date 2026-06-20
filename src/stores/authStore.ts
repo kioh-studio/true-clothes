@@ -14,7 +14,7 @@
 import { create } from 'zustand';
 import {
   sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp,
-  toE164, getCurrentUserId, signOut,
+  toE164, getCurrentUserId, signOut, signInWithPassword,
   type AuthResult,
 } from '../services/authService';
 import {
@@ -29,7 +29,7 @@ import {
 } from '../services/profileService';
 import type { ColorSeason } from '../types/profile';
 import { sb } from '../services/supabase';
-import { DEMO_PHONE, DEMO_EMAIL, DEMO_OTP, DEMO_PROFILE } from '../config/demo';
+import { DEMO_PHONE, DEMO_EMAIL, DEMO_OTP, DEMO_PASSWORD, DEMO_PROFILE } from '../config/demo';
 
 interface AuthState {
   isLoggedIn: boolean;
@@ -139,11 +139,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { pendingPhone, pendingEmail, pendingAuthMethod } = get();
     if (!pendingPhone && !pendingEmail) return { ok: false, message: 'No verification in progress.' };
 
-    // Demo account — sign in anonymously and seed a pre-built profile.
+    // Demo account — sign into the fixed demo user (stable uid) via password.
+    // That uid owns a pre-seeded wardrobe (32 items + cloud images), so the
+    // OTP "000000" UX maps to a real, persistent account rather than a fresh
+    // anonymous user. (Anonymous sign-in is disabled on the project.)
     const isDemo = (pendingPhone === DEMO_PHONE || pendingEmail === DEMO_EMAIL) && code === DEMO_OTP;
     if (isDemo) {
-      const { error } = await sb.auth.signInAnonymously();
-      if (error) return { ok: false, message: 'Demo sign-in failed.' };
+      if (!DEMO_PASSWORD) return { ok: false, message: 'Demo account is not configured.' };
+      const demoRes = await signInWithPassword(DEMO_EMAIL, DEMO_PASSWORD);
+      if (!demoRes.ok) return { ok: false, message: 'Demo sign-in failed.' };
       const userId = await getCurrentUserId();
       if (!userId) return { ok: false, message: 'Demo sign-in failed.' };
       await Promise.all([

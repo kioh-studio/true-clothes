@@ -9,6 +9,28 @@
   - validation logic rules that affect application behavior
 - Update documentation in the same working session as the implementation change.
 
+## Changelog — 2026-06-20 · Demo account → fixed user with pre-seeded cloud wardrobe
+
+**Problem.** The demo path used `signInAnonymously()`, but anonymous sign-in is disabled on the live project (0 anon users ever) and ephemeral anyway (fresh uid/login) — so the demo never got a session, let alone a persistent wardrobe. RLS on `clothing_items`/`wardrobes` (role `authenticated`, `auth.uid() = wardrobes.user_id`) and on `storage.objects` (`auth.uid() = (storage.foldername(name))[1]`) means the demo needs a stable authed uid owning its own data + images.
+
+**Approach (A + I1).** Fixed demo user via email+password (no anonymous auth, no security-setting changes), with images duplicated into the demo's own storage folder (existing RLS unchanged).
+
+**DB / storage ops (live project, idempotent):**
+- Created permanent auth user `demo@mily.app` (email-confirmed, bcrypt password, email identity) → stable uid `D = 19595dec-bad6-48e7-a859-fbabee490b7d`. Verified password sign-in via GoTrue REST.
+- Profile `D`: `account_type='demo'`, `onboarding_complete=true`, demo profile fields.
+- Copied Khoi's 32 `clothing_items` (wardrobe `2857ddef…`) into the demo wardrobe (`b9651128…`) with new ids, `photo_storage='cloud'`, `photo_url = D/<source_basename>` (basename preserved so the copy is a folder-prefix swap).
+- Copied the 32 storage objects `d90a166b…/<name>` → `D/<name>` via the Storage API as the demo user, gated by a **temporary, tightly-scoped** SELECT policy (`demo_seed_read_owner`: only uid D, only Khoi's folder) that was **dropped immediately after** — storage policy set is back to the original 6.
+
+**Code:**
+- `src/config/demo.ts`: `DEMO_EMAIL = "demo@mily.app"`; added `DEMO_PASSWORD = process.env.EXPO_PUBLIC_DEMO_PASSWORD`.
+- `src/services/authService.ts`: added `signInWithPassword(email, password)`.
+- `src/stores/authStore.ts`: demo `verifyOtp` branch now calls `signInWithPassword(DEMO_EMAIL, DEMO_PASSWORD)` instead of `signInAnonymously()` (keeps the `000000` OTP UX + onboarding pre-seed). Phone and email demo entry both converge on this one user.
+- `.env` + `eas.json` (all 3 profiles): added `EXPO_PUBLIC_DEMO_PASSWORD`.
+
+**Security note.** `EXPO_PUBLIC_DEMO_PASSWORD` is a **baked-in shared demo credential** (committed in `eas.json`, shipped in the binary) — same backdoor class as the `000000` OTP, but scoped to a throwaway demo account holding only demo data (not Khoi's account). Khoi's real folder stays private (verified: demo signing a `d90a166b…` path → 400).
+
+**Verification.** Demo wardrobe returns 32 cloud items; 32 objects under `D/`; demo signs + GETs its own image (HTTP 200, real bytes) under normal RLS; cross-folder read denied (400). `tsc` clean; full suite 81/81. **A new EAS build is required** for the app-side changes (new demo email + `signInWithPassword` + demo password env) to reach TestFlight.
+
 ## Changelog — 2026-06-20 · Clean build archive + dev/prod (emulator vs standalone) parity
 
 **Part A — clean build, no leftovers.**

@@ -54,6 +54,13 @@ export async function verifyEmailOtp(email: string, code: string): Promise<AuthR
   return { ok: true };
 }
 
+/** Email + password sign-in. Used only by the fixed demo account (stable uid). */
+export async function signInWithPassword(email: string, password: string): Promise<AuthResult> {
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) return { ok: false, message: error.message };
+  return { ok: true };
+}
+
 export async function getCurrentUserId(): Promise<string | null> {
   const { data } = await sb.auth.getSession();
   return data.session?.user?.id ?? null;
