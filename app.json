@@ -2,6 +2,7 @@
   "expo": {
     "name": "MIEN",
     "slug": "mien",
+    "owner": "brian-k",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,7 +15,8 @@
       "backgroundColor": "#FAF7F2"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.briank.mien"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +24,11 @@
         "backgroundColor": "#FAF7F2"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -46,6 +52,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "e19e7237-9cf7-4e16-95f7-f511d3ac1574"
+      }
     }
   }
 }
