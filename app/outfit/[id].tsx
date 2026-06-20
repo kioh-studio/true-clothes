@@ -87,7 +87,7 @@ export default function OutfitDetailScreen() {
           <Text style={styles.desc}>{outfit.longDescription}</Text>
           <View style={{ height: 24 }} />
           <View style={styles.tags}>
-            {outfit.tags.map(t => <Tag key={t}>{t}</Tag>)}
+            {outfit.tags.map((t: string) => <Tag key={t}>{t}</Tag>)}
           </View>
         </View>
 
@@ -186,7 +186,7 @@ export default function OutfitDetailScreen() {
               <Pressable
                 key={col.id}
                 onPress={async () => {
-                  const uuidItems = outfit.itemIds.filter(id => /^[0-9a-f]{8}-/.test(id));
+                  const uuidItems = outfit.itemIds.filter((id: string) => /^[0-9a-f]{8}-/.test(id));
                   for (const itemId of uuidItems) {
                     await addItemToCollection(col.id, itemId);
                   }

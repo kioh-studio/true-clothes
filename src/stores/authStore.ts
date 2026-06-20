@@ -85,7 +85,7 @@ async function hydrateProfile(set: (s: Partial<AuthState>) => void, userId: stri
     avatarPath:     row.avatar_path ?? null,
     colorSeason:    (row.color_season as ColorSeason | null) ?? null,
     personalPalette: row.personal_palette ?? [],
-    measurements:   mRow as import('./authStore').AuthState['measurements'],
+    measurements:   mRow as AuthState['measurements'],
   });
 }
 

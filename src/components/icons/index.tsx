@@ -1,16 +1,18 @@
 import React from 'react';
+import type { StyleProp, ViewStyle } from 'react-native';
 import Svg, { Path, Circle, Rect, G } from 'react-native-svg';
 
 interface IconProps {
   size?: number;
   color?: string;
   strokeWidth?: number;
+  style?: StyleProp<ViewStyle>;
 }
 
-const Icon = ({ size = 20, color = 'currentColor', strokeWidth = 1.5, children }: IconProps & { children: React.ReactNode }) => (
+const Icon = ({ size = 20, color = 'currentColor', strokeWidth = 1.5, style, children }: IconProps & { children: React.ReactNode }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"
     stroke={color} strokeWidth={strokeWidth}
-    strokeLinecap="round" strokeLinejoin="round">
+    strokeLinecap="round" strokeLinejoin="round" style={style}>
     {children}
   </Svg>
 );
