@@ -9,6 +9,16 @@
   - validation logic rules that affect application behavior
 - Update documentation in the same working session as the implementation change.
 
+## Changelog — 2026-06-20 · Fix TestFlight standalone launch crash (missing build-time env)
+
+**Symptom.** Production build (v1.0.0 build 2, `4edb1321-…`) crashed immediately on launch via TestFlight on a physical iPhone, while headless checks (tsc, `expo export`, dev bundle) were all green — i.e. a standalone-build-only crash.
+
+**Root cause (confirmed).** `src/services/supabase.ts` reads `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` from `process.env` at **module load** and `throw`s if either is missing (it's imported during auth-store hydration, so it runs at launch). Those vars only existed in the local `.env`, which is **gitignored** → not uploaded to the EAS build server. `eas.json` had **no** `build.production.env` block, and `eas env:list --environment production` returned *"No variables found"*. So at build time Metro inlined `undefined` for both → the throw fired on first launch → instant crash. (Dev/Expo Go works because Metro loads `.env` from the local machine.)
+
+**Fix.** Added an `env` block with the (publishable) Supabase URL + anon key to the `development`, `preview`, and `production` profiles in `eas.json`, so they are baked into every standalone build. No secrets added beyond the already-publishable anon key; no source hardcoding. The existing throw in `supabase.ts` is retained as the loud-failure guard.
+
+**Follow-up required (NOT done here).** A new build is needed for TestFlight to pick this up: `eas build -p ios --profile production`, then resubmit. `EXPO_PUBLIC_REVENUECAT_API_KEY` is still unset everywhere, but `app/_layout.tsx` guards it (`if (!apiKey) return`) so it degrades gracefully and is not a crash cause.
+
 ## Changelog — 2026-06-14 · Feature 003-upload-image (tiered item-photo storage)
 - **Storage routing**: `wardrobeService.addItem(input, tier)` now decides storage by tier.
   Free → on-device only (relative path `wardrobe-photos/{itemId}.jpg` in `documentDirectory`,
