@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { hasPremiumAccountType } from '../../services/profileService';
 
 // RevenueCat types — only available in dev-client builds.
 // We lazy-import to avoid crashing in Expo Go.
@@ -22,16 +23,27 @@ export function usePremium(): PremiumState {
   const [offerings, setOfferings] = useState<import('react-native-purchases').PurchasesOfferings | null>(null);
 
   useEffect(() => {
-    if (!Purchases) { setIsLoading(false); return; }
+    let cancelled = false;
     (async () => {
-      try {
-        const info = await Purchases.getCustomerInfo();
-        setIsPremium(!!info.entitlements.active['premium']);
-        const o = await Purchases.getOfferings();
-        setOfferings(o);
-      } catch { /* ignore in Expo Go */ }
-      finally { setIsLoading(false); }
+      // Premium if EITHER source grants it: the live RevenueCat entitlement OR the
+      // DB account_type (premium/admin). The account_type path is the only signal
+      // available without RevenueCat — Expo Go, or a store-verified upgrade the
+      // webhook has synced but the device's RevenueCat cache hasn't.
+      let premium = false;
+      try { premium = await hasPremiumAccountType(); } catch { /* keep false */ }
+
+      if (Purchases) {
+        try {
+          const info = await Purchases.getCustomerInfo();
+          premium = premium || !!info.entitlements.active['premium'];
+          const o = await Purchases.getOfferings();
+          if (!cancelled) setOfferings(o);
+        } catch { /* ignore in Expo Go */ }
+      }
+
+      if (!cancelled) { setIsPremium(premium); setIsLoading(false); }
     })();
+    return () => { cancelled = true; };
   }, []);
 
   const purchase = useCallback(async (pkg: import('react-native-purchases').PurchasesPackage): Promise<boolean> => {

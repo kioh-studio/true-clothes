@@ -102,6 +102,17 @@ export function ScanScreen() {
         </View>
       ) : (
         <>
+          {/* Framing guide — reinforce ONE item per scan (we evaluate the item
+              you frame; multi-item picker is a future enhancement). */}
+          <View style={styles.frameGuide}>
+            <View style={[styles.frameTick, styles.frameTickTL]} />
+            <View style={[styles.frameTick, styles.frameTickTR]} />
+            <View style={[styles.frameTick, styles.frameTickBL]} />
+            <View style={[styles.frameTick, styles.frameTickBR]} />
+            <Text style={styles.frameLabel}>ONE ITEM</Text>
+            <Text style={styles.frameSub}>centre a single piece · plain background</Text>
+          </View>
+
           {/* Primary: Take photo */}
           <View style={styles.actions}>
             <PrimaryButton onPress={handlePickCamera} disabled={isScanning}>
@@ -203,6 +214,36 @@ const styles = StyleSheet.create({
     ...type.body,
     color: T.color.secondary,
   },
+  frameGuide: {
+    aspectRatio: 4 / 5,
+    marginBottom: T.s(6),
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 0.5,
+    borderColor: T.color.hairline,
+    position: 'relative',
+  },
+  frameLabel: {
+    ...type.ui,
+    fontSize: 10,
+    color: T.color.tertiary,
+  },
+  frameSub: {
+    ...type.caption,
+    fontSize: 11,
+    color: T.color.muted,
+    marginTop: T.s(1),
+  },
+  frameTick: {
+    position: 'absolute',
+    width: 16,
+    height: 16,
+    opacity: 0.7,
+  },
+  frameTickTL: { top: 10, left: 10, borderTopWidth: 1, borderLeftWidth: 1, borderTopColor: T.color.hairlineStrong, borderLeftColor: T.color.hairlineStrong },
+  frameTickTR: { top: 10, right: 10, borderTopWidth: 1, borderRightWidth: 1, borderTopColor: T.color.hairlineStrong, borderRightColor: T.color.hairlineStrong },
+  frameTickBL: { bottom: 10, left: 10, borderBottomWidth: 1, borderLeftWidth: 1, borderBottomColor: T.color.hairlineStrong, borderLeftColor: T.color.hairlineStrong },
+  frameTickBR: { bottom: 10, right: 10, borderBottomWidth: 1, borderRightWidth: 1, borderBottomColor: T.color.hairlineStrong, borderRightColor: T.color.hairlineStrong },
   actions: {
     marginTop: T.s(2),
   },

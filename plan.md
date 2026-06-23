@@ -9,6 +9,132 @@
   - validation logic rules that affect application behavior
 - Update documentation in the same working session as the implementation change.
 
+## Changelog — 2026-06-21 · Smarter on-device cutout fallback (background-model segmentation)
+
+**Why.** The on-device extractor's tier-2 fallback (corner chroma-key) only worked
+on a perfectly uniform background. Real onboarding photos (flat-lay on a wood/linen
+floor or bed) defeated it: ML SubjectSegmenter (tier 1) fails on flat-lays (no
+salient "subject"), and the corner-key left all the wood grain/seam pixels →
+"couldn't isolate cleanly". Goal is to keep extraction **on-device/free** (the
+AI path costs per use) so users build a wardrobe fast during onboarding.
+
+**Decision.** Pure-native algorithm (no OpenCV / no new deps — keeps the app light,
+which matters for the install/onboarding funnel). GrabCut was rejected: it adds
+~30–40 MB (iOS framework) and, being colour-model based, would NOT solve the one
+case pure-native also can't (item colour ≈ background colour).
+
+**Algorithm (validated in Python on real photos before porting; replaces tier-2 in
+both `ExpoItemExtractModule.kt` and `.swift`):**
+1. Work at ~512 px. sRGB→LAB.
+2. Sample a 6%-wide border frame; k-means (k=6) → background colour model.
+3. **Keep only clusters with ≥10% border share** — drops foreground that intrudes
+   into the border (e.g. a dress touching the edge). *Critical*: without this, an
+   edge-touching item poisons the bg model and the whole item gets erased.
+4. Per-pixel bg-candidate if min LAB distance to a kept cluster < 14.
+5. Flood from the borders (4-conn components) → keep only border-connected bg;
+   foreground = the rest. Handles multi-tone backgrounds (grain, seams) that a
+   single-colour key can't.
+6. Fill holes → 3×3 opening → drop fg components < 1% area.
+7. **Degenerate guard:** fg < 3% or > 97% → return null → tier 3 (original +
+   `usedFallback`). This is what stops a low-contrast white-on-white photo from
+   being output as a blank/erased image; the UI then shows the "plainer background"
+   hint.
+8. Feather (small box-blur ≈ gaussian) + soft threshold; upscale mask to full res.
+
+**Validated results (Python reference, exact params): black dress on wood floor
+ΔE≈75 → clean cut-out (44% fg); navy dress on grey studio ΔE≈56 → clean cut-out
+(17% fg); white dress on grey ΔE≈1.8 → 0% → guard rejects (correct — no colour
+signal; that clean studio shot is ML tier-1's job, and no colour method incl.
+GrabCut could separate it). Rule of thumb: works whenever item vs background ΔE
+≳ 12–15.**
+
+**Emulator/perf hardening (2026-06-21, after on-device testing).** Testing surfaced
+that **ML Kit Subject Segmentation's model is downloaded on demand via Play
+Services** and cannot be provisioned on the test emulator (logcat: `dl-Mlkit
+SubjectSegmentation…has no usable artifacts` looping). The segmenter then stalled
+the full 10 s timeout per item, and GMS's endless retry churn overloaded the
+emulator → System-UI ANR. Fixes (all in `ExpoItemExtractModule.kt`):
+- **Skip ML tier-1 on emulators** (`Build.FINGERPRINT/HARDWARE/MODEL` detection) →
+  app goes straight to the on-device fallback and never triggers the GMS download.
+- **3 s fail-fast + per-process skip flag**: on a real device, if the model isn't
+  ready (first-run download / offline) the first call caps at 3 s and every later
+  extraction skips ML for the rest of the session (no repeated stalls when adding
+  several items). Labels/OCR awaits 10 s → 5 s.
+- **Bulk pixel I/O** in the ML mask application (`getPixels`/`setPixels` instead of
+  per-pixel `getPixel`/`setPixel`, which is pathologically slow on multi-MP images).
+- Operationally cleared GMS (`pm clear com.google.android.gms`) to stop the
+  already-pending download churn on the test emulator.
+Root cause was the environment (emulator can't provision the unbundled ML model),
+not the fallback or app logic; real devices download the model once and work.
+
+**Tiers now:** ML SubjectSegmenter (skipped on emulator) → background-model fallback → original+nudge.
+Android dev client rebuilt & installed (`BUILD SUCCESSFUL`). iOS port mirrors the
+Kotlin (only buildable/verifiable on an iOS build). On-device confirmation of the
+Kotlin port against the validated result is the remaining check.
+
+## Changelog — 2026-06-21 · Enable extract-by-item on emulator (first native dev build)
+
+**Why.** "Extract by item" was disabled on the emulator. Root cause: the emulator
+ran **Expo Go** (`host.exp.exponent`), which cannot include custom local native
+modules, so `requireOptionalNativeModule('ExpoItemExtract')` → null →
+`isAvailable=false` (expected, documented). Fix = build a **dev client** that
+compiles `modules/expo-item-extract`. This was its **first ever Android build**, so
+several latent module bugs surfaced (all build-time, none caught before because the
+module had only ever been referenced, never compiled):
+
+1. **`app.json` had no `android.package`** → `expo prebuild` can't generate the
+   Android project. Added `"package": "com.briank.mien"` (mirrors the iOS
+   `bundleIdentifier`). Prebuild now generates `android/` (CNG; treat as ephemeral).
+2. **`modules/expo-item-extract/android/build.gradle`** referenced
+   `$kotlin_version` (undefined ext property) on an explicit `kotlin-stdlib-jdk8`
+   dep → project evaluation failed. Removed the line; the `kotlin-android` plugin
+   adds stdlib automatically.
+3. **Wrong ML Kit Subject Segmentation Gradle coordinate.** `com.google.mlkit:
+   subject-segmentation:1.0.0-beta1` does not exist on Google Maven. Subject
+   Segmentation ships **only via Play Services**: changed to
+   `com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1`
+   (verified the version against Google Maven metadata). The Kotlin imports
+   (`com.google.mlkit.vision.segmentation.subject.*`) are unchanged.
+4. **Wrong Subject Segmentation API call** in `ExpoItemExtractModule.kt`: the
+   factory is `SubjectSegmentation.getClient(options)`, not
+   `SubjectSegmenter.getClient(...)`. Fixed the call + added the `SubjectSegmentation`
+   import; the other 4 Kotlin errors (`foregroundConfidenceMask`, type inference,
+   `* 255`) were all cascades that cleared once `getClient` resolved.
+
+**Result.** `BUILD SUCCESSFUL`; `app-debug.apk` installed as `com.briank.mien`;
+dev client launched against Metro (8081). `isAvailable` is now true on the emulator
+→ extract-by-item is enabled. iOS Vision path is untouched (these were Android-only
+build issues). Test image (`black dress on wood-plank floor`) was pushed to the
+emulator gallery for the patterned-background case.
+
+## Changelog — 2026-06-21 · describe-outfit: per-locale prompts (EN/VI)
+
+**Goal.** `describe-outfit` should return an **English** description when called with
+`locale: 'en'` and a **Vietnamese** one with `locale: 'vi'`.
+
+**Edge function (`supabase/functions/describe-outfit/index.ts`, redeployed).**
+- Replaced the single English `SYSTEM_PROMPT` (which carried a "write in {lang}"
+  rider) with **two fully-localised system prompts** — `SYSTEM_PROMPT.en` and
+  `SYSTEM_PROMPT.vi` — plus localised user-turn labels (`LABELS.{en,vi}`:
+  styles / occasion / "Outfit:" / "write the description in …"). The whole prompt
+  is now in the target language so the copy reads natively, rather than asking an
+  English prompt to switch languages.
+- `resolveLocale(body.locale)` → `'en'` only when explicitly `'en'`, else `'vi'`
+  (Vietnamese stays the default for any missing/unknown value). Item lines stay
+  language-neutral (they're DB attribute data the model weaves in).
+- Verified on the deployed function with a real demo JWT: identical outfit payload
+  → fluent English for `en`, fluent Vietnamese for `vi`.
+
+**Client — locale was hardcoded, now follows the app language.**
+- `useOutfitDescription` passed `locale: 'vi'` literally, so an English UI still
+  got Vietnamese. It now reads the live language via `useTranslation()` →
+  `i18n.language.startsWith('vi') ? 'vi' : 'en'`, and re-runs when the language
+  changes (added `locale` to the effect deps).
+- `outfitDescriptionService.describeOutfit` cache was keyed by `outfitId` only, so
+  switching language would return the stale other-language text. Key is now
+  `${outfitId}::${locale}` so EN and VI are cached independently.
+- Server change is live (no rebuild). Client change ships with the next app reload.
+
 ## Changelog — 2026-06-20 · Demo account → fixed user with pre-seeded cloud wardrobe
 
 **Problem.** The demo path used `signInAnonymously()`, but anonymous sign-in is disabled on the live project (0 anon users ever) and ephemeral anyway (fresh uid/login) — so the demo never got a session, let alone a persistent wardrobe. RLS on `clothing_items`/`wardrobes` (role `authenticated`, `auth.uid() = wardrobes.user_id`) and on `storage.objects` (`auth.uid() = (storage.foldername(name))[1]`) means the demo needs a stable authed uid owning its own data + images.
@@ -343,3 +469,127 @@ Response: { "outfits": ScoredOutfit[] }
 **007 (JS done; native scaffolded):** on-device "Extract by item" method — free, offline, no `ai_extraction` credit. Native Expo module `modules/expo-item-extract` (iOS Vision / Android ML Kit: subject mask → transparent PNG, image labels, OCR). `extractByItemService` snaps colour (LAB ΔE → 37 via `colorMatch`), type (`itemTypeMap`, blank on low-confidence), pattern (solid), logo (OCR → `graphics`), measurement defaults. Requires an **EAS dev client** (not Expo Go); ML Kit/Vision do not run on the iOS simulator. Type is required before save (`clothing_items.type` is NOT NULL).
 
 **AI image → transparent cut-out (refinement):** the AI method returns the item on a **white background**; the on-device ML segmenter is reused purely to turn that into a transparent cut-out. New `cutoutOnDevice(uri)` in `extractByItemService` wraps the native `extractItem` and keeps ONLY the cut-out (AI metadata stays authoritative); it is a **no-op that returns the white-bg image unchanged when the native module is absent** (Expo Go / simulator) and never throws. Wired into `useAddWizard`'s AI branch (`refineAiCutout`): each AI result is refined and the replaced white-bg file deleted (best-effort). Source-selection strategy is unchanged — "Extract by item" → on-device, "Extract by AI" → AI; this only post-processes the AI image when native ML is available. Try On's auto-selection is left as-is (its AI branch only runs when native is absent, so there is nothing to refine there).
+---
+
+## 2026-06-21 — Home-feed curator moved from Claude Haiku → Gemini
+
+**`generate-outfits/engine/curator.ts`** rewritten to run on **Gemini** instead of the Anthropic SDK. Interface (`CuratorInput`/`CuratorResult`), the system prompt, and `assemble()` (index validation, veto application, rule-order backfill to 10) are unchanged — only the model call and the gate changed, so `index.ts` integration is untouched apart from a comment.
+- Gate is now **`GOOGLE_API_KEY`** (the same secret `generate-item-image`/`evaluate-item` already use) — `curatorEnabled()` checks it; one secret powers all AI paths. The old `ANTHROPIC_API_KEY` is no longer read anywhere.
+- Default model **`gemini-2.5-flash`** (override via `CURATOR_MODEL`). Call is plain REST `generateContent` (no SDK dep) with **structured JSON output** (`responseMimeType: 'application/json'` + `responseSchema`, Gemini's uppercase-type OpenAPI subset) replacing Claude tool-calling. `temperature: 0.4`, `maxOutputTokens: 2048`.
+- Reliability unchanged in spirit: single attempt, hard **5s** `AbortController` timeout (was 3.5s on the SDK), any failure → silent fallback to rule order; the feed never blocks on this layer.
+- **To enable curation:** `supabase secrets set GOOGLE_API_KEY=…` (already set for item extraction → curation is now on by default). `ANTHROPIC_API_KEY` can be removed.
+
+**Curation now actually reachable — `account_type` wired into the premium gate**
+- `usePremium` (`src/features/monetization/usePremium.ts`) previously derived `isPremium` from RevenueCat ONLY, so the generate-outfits curation gate (`fitEngineStore.resolveCurateFlag` — premium = every batch, free = one batch/day) never saw store-verified or test accounts as premium, especially in Expo Go where `react-native-purchases` doesn't load. It now resolves premium as **(RevenueCat `premium` entitlement active) OR (`hasPremiumAccountType()` → `account_type ∈ {premium, admin}`)**. This closes the gap flagged in the 2026-06-17 entry ("usePremium itself still derives isPremium only from RevenueCat") for the curation + cloud-photo gates.
+- Effect: a profile with `account_type = 'premium'` (written only by the RevenueCat webhook on a verified purchase, or manually for test/demo) now gets **every** feed batch curated by Gemini — so the curator is visibly exercised. Test account `khoibuiqn1011@gmail.com` is already `premium` in the live DB; no DB change was needed, only the client wiring.
+
+**Curator was silently never applying — `gemini-2.5-flash` thinking timeout (root cause)**
+- Symptom: no `stylistNote` ever appeared; feed was always rule order even for a premium account with `curate:true`. Verified via a throwaway `diag-curator` function (deployed `--no-verify-jwt`, called, then deleted) that ran the exact Gemini call with synthetic candidates and returned raw `finishReason`/`usageMetadata`/timing.
+- Root cause: `gemini-2.5-flash` enables **thinking by default**. The curation call spent **~1422 thought tokens and ~9.9s** (finishReason still STOP, JSON valid) — far over the 5s `AbortController` timeout, so every call aborted → `curateOutfits` returned null → silent fallback to rule order. (This was true at 3.5s/4s/5s alike.)
+- Fix: `generationConfig.thinkingConfig = { thinkingBudget: 0 }` in `curator.ts`. Measured: same prompt drops to **~1.2s** with valid structured output. Timeout left at 5s for headroom. Redeployed `generate-outfits`.
+
+**Curator now also writes the outfit description (not just the note)**
+- The home-feed card shows the curator's `stylistNote` (quoted), but the **detail screen** renders `outfit.longDescription`, which for generated outfits was always `''` (blank). The only "description" was `outfit.description` = joined item names ("White oxford shirt, Navy chinos…").
+- Curator schema/prompt extended: each pick now returns `description` (2–3 sentences, ~320 chars, editorial copy about vibe + how pieces work + occasion) alongside `note`, in the user's locale. New `ScoredOutfit.stylistDescription` (server `engine/types.ts` + client `types/fitEngine.ts`) carries it through; `index.ts` is unchanged (passes outfits through). `maxOutputTokens` 2048→4096 to fit 10 picks × (note + description) + vetoes.
+- Client: `scoredToOutfit` maps `longDescription = scored.stylistDescription ?? description` — AI description when the batch was curated, item-list fallback otherwise (never blank). Verified end-to-end via the throwaway diag: ~2.5s, valid JSON, Vietnamese note + 2–3 sentence description per pick.
+
+**Outfit description moved OUT of bulk curation → lazy per-outfit `describe-outfit` (supersedes the "curator also writes the description" note above)**
+- Why: measured on the REAL payload (24 candidates, 10 picks WITH descriptions), generating all descriptions in one call is **8–11s** (gemini-2.5-flash 11s, flash-lite 8.5s, gemini-2.0-flash retired/404) — output-token bound, no model fits a feed timeout. That made `generate-outfits` abort every time → `curated:false`, no notes, no descriptions (verified via a throwaway token-minting harness that called the deployed function as the real user).
+- New split:
+  - **Feed curation (`curator.ts`)** reverted to **note + rank only** (reverted schema/prompt/`maxOutputTokens` to 2048; `ScoredOutfit.stylistDescription` removed server + client). Note-only of 24 candidates ≈ 4s; `TIMEOUT_MS` raised 5s→**8s** for headroom so it never intermittently aborts. Verified: `curated:true`, 10/10 notes, ~5.2s end-to-end.
+  - **`describe-outfit` Edge Function (NEW)**: Bearer-authed; body `{ items:[{name,type,color,material?,fit?}], styles?, locale?, occasion? }` → ONE 2–3 sentence editorial description (gemini-2.5-flash, thinking off, 8s timeout). Returns `{ description:'' }` (never 500s) on any AI failure so the client falls back. Verified ~3.5s, valid Vietnamese.
+  - **Client**: `outfitDescriptionService.describeOutfit()` (in-memory cache by outfit id) + `useOutfitDescription()` hook; `app/outfit/[id].tsx` calls it on open for `gen_…` outfits, starting from the item-list fallback (`Outfit.longDescription` = joined item names) and swapping in the AI text with a dim-while-loading state. Mock/sample outfits keep their authored copy.
+- Net: feed stays fast (note only), the detail screen gets a rich AI description on demand (~1–3.5s, cached, with a loader).
+
+## Personal colour — camera path now actually analyses the photo (2026-06-21)
+
+**Problem.** The "SCAN MY COLOURS" path captured a wrist + hair photo but **never
+used them** — `scorePersonalColor` ran purely on the 4 manual answers, and the
+photos were shown only as reference thumbnails. The intro even claimed it "reads
+wrist & hair tone", which was false; no pixel/LAB analysis existed anywhere.
+
+**Fix — real on-device analysis, no remote AI, no native rebuild.**
+- New `src/features/personal-color/analyzePhoto.ts`: `expo-image-manipulator`
+  downscales the photo to 48×48 JPEG → `jpeg-js` (pure JS, added dep) decodes to
+  RGBA → average the central 50% region (trimming near-black shadow < 25 and
+  blown-out flash glare > 240) → sRGB→LAB.
+  - **Wrist → skin undertone:** nearest of the 3 `SKIN_OPTIONS` swatches in the
+    **a/b chroma plane only** (ignoring L) — phone auto-white-balance shifts
+    brightness far more than hue, so lightness is dropped for robustness.
+  - **Hair → option:** nearest `HAIR_OPTIONS` swatch in **full LAB** (shade +
+    warmth both matter).
+  - Every step is wrapped → any failure returns null and the quiz stays manual
+    (never crashes). Verified the LAB math: all swatches self-classify, and test
+    tones map sensibly (golden→warm, rosy→cool, light cool hair→platinum_ash).
+- `usePersonalColorDetection`: capturing a photo now runs the matching analyser
+  and **pre-fills** `skinUndertone` / `hairKey` (only when still unset, so a manual
+  pick is never clobbered), with `analyzing` + `autoSkin`/`autoHair` flags. A manual
+  selection clears the auto flag.
+- UI (`personal-color-edit`): the reference-photo caption shows "Reading your
+  tone…" while analysing and "Auto-detected from your photo — adjust if it looks
+  off." once filled, so the pre-selected answer is transparent and editable.
+- **Honest now:** because the camera genuinely informs the result, the intro copy
+  is accurate. Manual-only path is unchanged. The on-device questionnaire remains
+  the final say (user confirms/adjusts every auto-detected answer).
+- **Dep note:** added `jpeg-js` (pure JS) — needs a **Metro restart** to bundle,
+  but **no native rebuild**. `atob` is available on Hermes/Expo 54.
+- (The shared onboarding `personal-color` screen uses the same hook, so the
+  pre-fill works there too; only the edit screen got the explicit hint copy.)
+
+**describe-outfit → gemini-2.5-flash-lite**
+- Switched `describe-outfit` default model from `gemini-2.5-flash` to **`gemini-2.5-flash-lite`** (override now via its own `DESCRIBE_MODEL` env, decoupled from the curator's `CURATOR_MODEL`). Same-outfit A/B: flash-lite reads more editorial (less item-listing, names the occasion) at equal latency (~1.4–1.9s) and ~3–4× cheaper. Curator/note path unchanged (still `gemini-2.5-flash`).
+
+**Fix: detail-screen description was never fetched — items resolved from mock, not cloud wardrobe**
+- Symptom: no AI description on outfit detail. Root cause: `app/outfit/[id].tsx` resolved the outfit's garments via `itemById` (mock `ITEMS` in `src/data`), but generated outfits carry **DB ids** that live in `appStore.wardrobeItems` (cloud), not `appStore.items` (mock+legacy). So `items` came up empty → `useOutfitDescription` hit its `items.length === 0` guard and skipped the call. (The collage already resolves from `wardrobeItems`, which is why images showed but the description didn't.)
+- Fix: detail screen now builds `describeItems` from `wardrobeItems` (id → {name,type,color:colors[0]∥primaryColor,material,fit}) with mock `itemById` fallback — same source the collage uses — and passes that to the hook. Fallback text is the resolved item names (cloud-wardrobe outfits have an empty `longDescription`). `useOutfitDescription` deps now include `items.length` so it re-runs if the cloud wardrobe hydrates after mount (cached by id, so no double request). Client-only change; no function redeploy.
+
+---
+
+## Feature 009 — AI Try-On "Wear on you"
+
+Renders the user wearing a chosen outfit (distinct from the feature-008 "should I
+buy this?" scan). Entry: outfit detail → **GENERATE ON YOU** → full screen
+`app/try-on/wear.tsx`. The previous stub sheet in `outfit/[id].tsx` (hardcoded
+178cm/70kg/M, no generation) is removed.
+
+**Flow (state machine in `src/features/try-on/useWearOnYou.ts`):**
+`upload → validating → ready → rendering → result` (+ `invalid` / `error`).
+1. User takes/chooses a photo (`expo-image-picker`).
+2. **Validate** (cheap gate) — `tryon-validate` confirms ONE clear human subject;
+   on failure returns a user-facing Vietnamese reason and the user re-picks.
+3. **Generate** — `tryon-generate` composites the outfit's garments onto the photo.
+4. **Result** — generated image of the user wearing the outfit (no AI scoring).
+
+**Edge functions (Gemini, reuse `GOOGLE_API_KEY` + auth pattern of generate-item-image):**
+- `tryon-validate` — `gemini-2.5-flash` vision → `{valid, reason}`. Conservative:
+  requires is_person ∧ single_subject ∧ body_visible ∧ quality_ok.
+- `tryon-generate` — `gemini-3-pro-image-preview` (nano banana 2) image-out:
+  `[user photo, ...garment reference images, prompt]` → one photorealistic image
+  preserving the person's identity/pose/background. A detailed **PERSON PROFILE**
+  (gender, age, height/weight, body shape, preferred fit, body measurements in cm)
+  is passed as TEXT to guide body proportions + garment fit/drape — with an explicit
+  guardrail that it must NOT change the face/skin/hair (those come from the photo).
+  No scoring call (removed per product decision). Garment images are fetched
+  server-side from short-lived **signed URLs**; garments without a remote URL
+  (local/asset items) fall back to text descriptors. Max 6 garment images.
+
+**Client:**
+- `src/services/tryOnWearService.ts` — `validatePersonPhoto()`, `generateWearOn()`,
+  and `buildWearGarments()` (maps outfit items → `{type,name,color,material,fit,imageUrl}`;
+  signs cloud `photoPath` via `itemPhotoService.signedUrl`). User photo is downscaled
+  (≤1280px JPEG) and sent as a **transient base64 data URI — never uploaded to storage**;
+  the generated result is written to `documentDirectory/try-on/`.
+- The screen builds a `WearProfile` from `authStore` (gender, age from dob, and all
+  `measurements` body_* fields → labelled cm map) so generation gets the fullest body
+  info available; the on-screen frame card still shows height/weight.
+
+**Credit gating:** new `try_on` credit type in `usageCreditService` (free 2/month,
+premium unlimited — mirrors `ai_extraction`). `credit_type` is an unconstrained
+`text` column, so no DB migration needed. A credit is consumed only on a successful
+generation (failures are free).
+
+**PRIVACY — must verify before going live:** the user's photo is sent to Gemini.
+On the **paid** Gemini tier, prompts/responses are NOT used for training (logged
+briefly for abuse/safety only); on the **free** tier they MAY be used for training
++ human review. The `GOOGLE_API_KEY` project MUST be billing-enabled before this
+feature ships. Functions deployed but feature should not go live until confirmed.

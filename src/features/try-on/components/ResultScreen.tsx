@@ -4,7 +4,7 @@
 //
 // US2 and US3 placeholders are clearly marked below.
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable,
 } from 'react-native';
@@ -47,6 +47,7 @@ export function ResultScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const [adding, setAdding] = useState(false);
   const isEvaluating = status === 'evaluating' && !verdict;
   const justAdded = status === 'added';
 
@@ -63,7 +64,13 @@ export function ResultScreen() {
   };
 
   const handleAdd = async () => {
-    await addToWardrobe();
+    if (adding) return;
+    setAdding(true);
+    try {
+      await addToWardrobe();
+    } finally {
+      setAdding(false);
+    }
   };
 
   const handleViewWardrobe = () => {
@@ -184,8 +191,13 @@ export function ResultScreen() {
 
       {/* ── Decide · Buy or Pass (US3) ──────────────────────────────────────── */}
       <View style={[styles.stickyBar, { paddingBottom: insets.bottom + T.s(3) }]}>
-        <PrimaryButton onPress={handleAdd}>ADD TO WARDROBE</PrimaryButton>
-        <Pressable onPress={handleBack} hitSlop={8} style={styles.passBtn}>
+        {error && !adding ? (
+          <Text style={styles.addError}>{error}</Text>
+        ) : null}
+        <PrimaryButton onPress={handleAdd} disabled={adding}>
+          {adding ? 'ADDING…' : 'ADD TO WARDROBE'}
+        </PrimaryButton>
+        <Pressable onPress={handleBack} hitSlop={8} style={styles.passBtn} disabled={adding}>
           <Text style={styles.passLabel}>Not for me</Text>
         </Pressable>
       </View>
@@ -399,6 +411,13 @@ const styles = StyleSheet.create({
     ...type.caption,
     color: T.color.tertiary,
     textDecorationLine: 'underline',
+  },
+  addError: {
+    ...type.caption,
+    fontSize: 12,
+    color: T.color.error,
+    textAlign: 'center',
+    marginBottom: T.s(2),
   },
   successOverlay: {
     ...StyleSheet.absoluteFillObject,

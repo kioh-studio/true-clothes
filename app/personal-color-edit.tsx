@@ -27,7 +27,7 @@ export default function PersonalColorEditScreen() {
     path, step,
     wristPhotoUri, hairPhotoUri,
     skinUndertone, hairKey, eyeKey, metalKey, result,
-    saving,
+    saving, analyzing, autoSkin, autoHair,
     startCameraPath, startManualPath,
     setCameraPhoto,
     setSkin, setHair, setEye, setMetal,
@@ -133,6 +133,8 @@ export default function PersonalColorEditScreen() {
               selected={skinUndertone}
               onSelect={setSkin}
               photoUri={path === 'camera' ? wristPhotoUri : null}
+              auto={autoSkin}
+              analyzing={analyzing}
             />
           )}
 
@@ -142,6 +144,8 @@ export default function PersonalColorEditScreen() {
               onSelect={setHair}
               width={W}
               photoUri={path === 'camera' ? hairPhotoUri : null}
+              auto={autoHair}
+              analyzing={analyzing}
             />
           )}
 
@@ -279,11 +283,13 @@ function HairScanStep({ onCapture }: { onCapture: (uri: string) => void }) {
 // ─── Shared question components ────────────────────────────────────────────
 
 function SkinStep({
-  selected, onSelect, photoUri,
+  selected, onSelect, photoUri, auto, analyzing,
 }: {
   selected: string | null;
   onSelect: (k: 'warm' | 'cool' | 'neutral') => void;
   photoUri?: string | null;
+  auto?: boolean;
+  analyzing?: boolean;
 }) {
   return (
     <View>
@@ -295,8 +301,12 @@ function SkinStep({
         <>
           <View style={{ height: 20 }} />
           <Image source={{ uri: photoUri }} style={styles.photoThumb} resizeMode="cover" />
-          <Text style={[styles.caption, { fontSize: 11, color: T.color.tertiary, marginTop: 6 }]}>
-            Your wrist photo — use as reference
+          <Text style={[styles.caption, styles.photoHint]}>
+            {analyzing
+              ? 'Reading your wrist tone…'
+              : auto
+                ? 'Auto-detected from your photo — adjust if it looks off.'
+                : 'Your wrist photo — use as reference'}
           </Text>
         </>
       )}
@@ -320,12 +330,14 @@ function SkinStep({
 }
 
 function HairStep({
-  selected, onSelect, width, photoUri,
+  selected, onSelect, width, photoUri, auto, analyzing,
 }: {
   selected: string | null;
   onSelect: (k: string) => void;
   width: number;
   photoUri?: string | null;
+  auto?: boolean;
+  analyzing?: boolean;
 }) {
   const swatchSize = (width - PAD * 2 - 12 * 3) / 4;
   return (
@@ -338,8 +350,12 @@ function HairStep({
         <>
           <View style={{ height: 20 }} />
           <Image source={{ uri: photoUri }} style={styles.photoThumb} resizeMode="cover" />
-          <Text style={[styles.caption, { fontSize: 11, color: T.color.tertiary, marginTop: 6 }]}>
-            Your hair photo — use as reference
+          <Text style={[styles.caption, styles.photoHint]}>
+            {analyzing
+              ? 'Reading your hair tone…'
+              : auto
+                ? 'Auto-detected from your photo — adjust if it looks off.'
+                : 'Your hair photo — use as reference'}
           </Text>
         </>
       )}
@@ -408,6 +424,7 @@ const styles = StyleSheet.create({
   captureBtnInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#FFF' },
 
   photoThumb: { width: '100%', height: 140, borderRadius: 4 },
+  photoHint:  { fontSize: 11, color: T.color.tertiary, marginTop: 6 },
 
   optionRow:         { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 16, borderBottomWidth: 0.5, borderBottomColor: T.color.hairline },
   optionRowSelected: { borderBottomColor: T.color.primary },

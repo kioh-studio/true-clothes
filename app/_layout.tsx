@@ -108,6 +108,7 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ animation: 'none' }} />
         <Stack.Screen name="outfit/[id]" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
         <Stack.Screen name="item/[id]" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="item-edit" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="collections/index" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="collections/[id]" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="build" options={{ animation: 'slide_from_right' }} />

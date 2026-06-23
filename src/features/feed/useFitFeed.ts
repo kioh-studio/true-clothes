@@ -57,7 +57,8 @@ function scoredToOutfit(scored: ScoredOutfit, items: ReturnType<typeof useAppSto
     context: 'DAILY',
     weather: '22°C',
     description,
-    longDescription: '',
+    // Item-list fallback; the detail screen swaps in a lazy AI description on open.
+    longDescription: description,
     tags: ['22°C', 'DAILY', scored.formula.toUpperCase()],
     tone: Math.round(outfitItems.reduce((sum, i) => sum + (i?.tone ?? 1), 0) / Math.max(outfitItems.length, 1)),
     itemIds: ids,

@@ -9,7 +9,7 @@ import {
   EngineContext, FitItem, IntentContext, ClothingItemRow,
   BodyMeasurements, UserStyleProfile,
 } from './engine/types.ts';
-import { toFitItem } from './engine/enrichment.ts';
+import { toFitItem, registerColors } from './engine/enrichment.ts';
 import { filterByStyle, styleConfigById } from './engine/filtering.ts';
 import { generateCandidates, generatePinnedCandidates, FormulaId } from './engine/generation.ts';
 import { resolveIntent, applyIntent, rankCandidates, dailyShuffle } from './engine/ranking.ts';
@@ -187,6 +187,16 @@ Deno.serve(async (req) => {
       ctx = { ...ctx, scoringWeights: resolved.weights };
     }
 
+    // Load the colors lookup so enrichment can score colors that aren't in the
+    // curated COLOR_MAP (auto-added by generate-item-image). Best-effort — on
+    // failure the engine keeps the hardcoded map + neutral fallback.
+    try {
+      const { data: colorRows } = await supabase
+        .from('colors')
+        .select('name, primary_color, lightness, saturation, hue, sat_pct, lum_pct, undertone');
+      if (colorRows) registerColors(colorRows as Parameters<typeof registerColors>[0]);
+    } catch (_e) { /* keep hardcoded color map */ }
+
     // 2. Classify all items
     const fitItems = wardrobeRows.map(toFitItem);
 
@@ -248,9 +258,9 @@ Deno.serve(async (req) => {
     const ranked = rankCandidates(candidates, itemMap, ctx);
     const shuffled = dailyShuffle(ranked, userId);
 
-    // 6. LLM curation pass — ONLY when ANTHROPIC_API_KEY is set. Without the
-    //    key this entire branch is skipped and the rule-engine order is
-    //    returned directly: no prompt building, no SDK call.
+    // 6. LLM curation pass (Gemini) — ONLY when GOOGLE_API_KEY is set. Without
+    //    the key this entire branch is skipped and the rule-engine order is
+    //    returned directly: no prompt building, no network call.
     let outfits = shuffled.slice(0, 10);
     let curated = false;
     if (curatorEnabled() && curateRequested && shuffled.length > 0) {

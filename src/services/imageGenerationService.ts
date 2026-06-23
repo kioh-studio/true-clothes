@@ -25,6 +25,7 @@ export interface ExtractedItemWithImage {
   localImageUri: string | null;       // null when image generation failed → placeholder
   metadata: GarmentMetadata;
   usedFallback?: boolean;             // on-device item method: background couldn't be isolated cleanly
+  keyed?: boolean;                    // AI path: background already removed server-side (transparent PNG)
 }
 
 // ─── Internal: edge (snake_case) → domain (camelCase) ─────────────────────────
@@ -61,6 +62,15 @@ function toDomain(m: RawMetadata): GarmentMetadata {
  * Returns one entry per detected garment: an isolated product image saved to device
  * storage (or null on image failure) + controlled-vocab metadata. Order = pairing.
  *
+ * CONVENTION — background removal. The edge function generates each item on a
+ * uniform chroma background and keys it out SERVER-SIDE into a transparent PNG;
+ * such items come back with `keyed: true` and need no further processing. When
+ * keying could not be done reliably (`keyed: false`, e.g. a non-uniform AI bg),
+ * the image still carries its background, so callers SHOULD fall back to the
+ * on-device ML segmenter `cutoutOnDevice` (from `extractByItemService`) — a safe
+ * no-op when the native module is absent. Current callers: `tryOnStore.scan()`
+ * and `useAddWizard.analyse()` (via `refineAiCutout`), both gated on `!keyed`.
+ *
  * @param photoUri  base64 data URI of the outfit photo
  * @param notes     optional untrusted enrichment context
  */
@@ -74,7 +84,7 @@ export async function extractItemsWithImages(
   if (error) throw error;
 
   const res = data as {
-    items?: Array<{ image_data: string; mime_type: string; metadata: RawMetadata }>;
+    items?: Array<{ image_data: string; mime_type: string; metadata: RawMetadata; keyed?: boolean }>;
   };
   if (!Array.isArray(res?.items)) throw new Error('Unexpected response from generate-item-image');
 
@@ -96,7 +106,7 @@ export async function extractItemsWithImages(
           // keep null — review shows a placeholder, item stays editable/saveable
         }
       }
-      return { localImageUri, metadata: toDomain(item.metadata) };
+      return { localImageUri, metadata: toDomain(item.metadata), keyed: item.keyed ?? false };
     }),
   );
 }

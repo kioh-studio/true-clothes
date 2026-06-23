@@ -223,18 +223,23 @@ async function fetchRow(id: string): Promise<ClothingItemRow | null> {
 // on failure the item stays 'local' and is retried later (research D8).
 async function storePhoto(
   userId: string, itemId: string, localPhotoUri: string, tier: StorageTier,
-): Promise<{ photoStorage: PhotoStorageKind; photoPath: string }> {
-  const optimized = await optimizeImage(localPhotoUri);
-  const relativePath = await writeDeviceCopy(itemId, optimized.uri);
+): Promise<{ photoStorage: PhotoStorageKind; photoPath: string; ext: 'jpg' | 'png' }> {
+  // Preserve transparency for cut-out PNGs (Try On / AI / on-device extract);
+  // raw photos stay JPEG. JPEG would flatten a transparent cut-out's background.
+  const isPng = localPhotoUri.toLowerCase().split('?')[0].endsWith('.png');
+  const format: 'jpg' | 'png' = isPng ? 'png' : 'jpg';
+
+  const optimized = await optimizeImage(localPhotoUri, format);
+  const relativePath = await writeDeviceCopy(itemId, optimized.uri, optimized.ext);
   if (tier === 'premium') {
     try {
-      const storagePath = await uploadCloudCopy(userId, itemId, optimized.uri);
-      return { photoStorage: 'cloud', photoPath: storagePath };
+      const storagePath = await uploadCloudCopy(userId, itemId, optimized.uri, optimized.ext);
+      return { photoStorage: 'cloud', photoPath: storagePath, ext: optimized.ext };
     } catch (err) {
       console.warn('[wardrobeService] cloud upload deferred (kept local):', err);
     }
   }
-  return { photoStorage: 'local', photoPath: relativePath };
+  return { photoStorage: 'local', photoPath: relativePath, ext: optimized.ext };
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -282,12 +287,14 @@ export async function addItem(input: AddItemInput, tier: StorageTier = 'free'): 
   const itemId = genId();
   let photoStorage: PhotoStorageKind = 'none';
   let photoPath: string | null = null;
+  let photoExt: 'jpg' | 'png' = 'jpg';
 
   if (input.localPhotoUri) {
     try {
       const stored = await storePhoto(user.id, itemId, input.localPhotoUri, tier);
       photoStorage = stored.photoStorage;
       photoPath = stored.photoPath;
+      photoExt = stored.ext;
     } catch (err) {
       throw new WardrobeStorageError('Could not store photo', err);
     }
@@ -304,7 +311,8 @@ export async function addItem(input: AddItemInput, tier: StorageTier = 'free'): 
       name:         input.name ?? null,
       color,
       primary_color: input.primaryColor ?? color,
-      material:     input.material ?? null,
+      // fabric_types.name is lowercase (FK); the AI emits Title Case → normalise.
+      material:     input.material ? input.material.toLowerCase() : null,
       fit:          input.fit ?? null,
       pattern:      input.pattern ?? null,
       // text column — serialize as comma-joined list
@@ -324,7 +332,7 @@ export async function addItem(input: AddItemInput, tier: StorageTier = 'free'): 
   if (dbError) {
     // Roll back stored photo (device + cloud) so a failed insert leaves no orphan.
     removePhoto({
-      relativePath: photoStorage === 'local' ? photoPath : relativePathFor(itemId),
+      relativePath: photoStorage === 'local' ? photoPath : relativePathFor(itemId, photoExt),
       storagePath:  photoStorage === 'cloud' ? photoPath : null,
     }).catch(() => {});
     throw new WardrobeDbError('Failed to save clothing item', dbError);
@@ -395,7 +403,8 @@ export async function promoteToCloud(id: string): Promise<WardrobeItem | null> {
   }
   let storagePath: string;
   try {
-    storagePath = await uploadCloudCopy(user.id, id, deviceUri);
+    const ext: 'jpg' | 'png' = row.photo_url.toLowerCase().endsWith('.png') ? 'png' : 'jpg';
+    storagePath = await uploadCloudCopy(user.id, id, deviceUri, ext);
   } catch (err) {
     console.warn('[wardrobeService] promoteToCloud upload failed (will retry):', err);
     return rowToItem(row, user.id);
@@ -430,7 +439,7 @@ export async function updateItem(id: string, patch: UpdateItemInput): Promise<Wa
   if (patch.name !== undefined)        dbPatch.name          = patch.name;
   if (patch.type !== undefined)        dbPatch.type          = patch.type;
   if (patch.primaryColor !== undefined) dbPatch.primary_color = patch.primaryColor;
-  if (patch.material !== undefined)    dbPatch.material      = patch.material;
+  if (patch.material !== undefined)    dbPatch.material      = patch.material ? patch.material.toLowerCase() : null;
   if (patch.fit !== undefined)         dbPatch.fit           = patch.fit;
   if (patch.pattern !== undefined)     dbPatch.pattern       = patch.pattern;
   if (patch.link !== undefined)        dbPatch.source_url    = patch.link;

@@ -141,23 +141,18 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
+  // No white card — the scanned item is a transparent PNG that floats on the
+  // stage like the owned pieces, so the feed reads like a normal outfit card.
   candidateFrame: {
     position: 'absolute',
     top: '12%',
     left: '6%',
     width: '50%',
     aspectRatio: 3 / 4,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 0.5,
-    borderColor: T.color.primary,
-    overflow: 'hidden',
   },
   candidateImage: {
-    position: 'absolute',
-    top: '6%',
-    left: '6%',
-    width: '88%',
-    height: '88%',
+    width: '100%',
+    height: '100%',
   },
   candidatePlaceholder: {
     flex: 1,

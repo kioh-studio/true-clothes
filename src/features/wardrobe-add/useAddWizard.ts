@@ -20,12 +20,12 @@ async function toDataUri(uri: string): Promise<string> {
   return `data:${mime};base64,${b64}`;
 }
 
-// The AI method returns the item on a WHITE background. When the on-device ML
-// segmenter is present (custom dev build), refine that image into a transparent
-// cut-out and drop the replaced white-bg file. No native module → return as-is
-// (the white-bg image), so the flow degrades gracefully on Expo Go / simulator.
+// The edge function keys out the background server-side (r.keyed === true) → a
+// transparent PNG that needs no further work. Only when that failed (keyed false)
+// and the on-device ML segmenter is present do we refine the image into a cut-out
+// and drop the replaced bg file. No native module / already keyed → return as-is.
 async function refineAiCutout(r: ExtractedItemWithImage): Promise<ExtractedItemWithImage> {
-  if (!r.localImageUri || !isExtractByItemAvailable) return r;
+  if (!r.localImageUri || r.keyed || !isExtractByItemAvailable) return r;
   const { uri, usedFallback } = await cutoutOnDevice(r.localImageUri);
   if (uri === r.localImageUri) return r; // unchanged (no native / failed)
   if (r.localImageUri.startsWith('file://')) {

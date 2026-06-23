@@ -29,9 +29,11 @@ export class PhotoStorageError extends Error {
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
 
+export type ImgExt = 'jpg' | 'png';
+
 /** Relative reference persisted to the DB for both local files and cloud caches. */
-export function relativePathFor(itemId: string): string {
-  return `${SUBDIR}${itemId}.jpg`;
+export function relativePathFor(itemId: string, ext: ImgExt = 'jpg'): string {
+  return `${SUBDIR}${itemId}.${ext}`;
 }
 
 function absoluteFor(relativePath: string): string {
@@ -54,8 +56,15 @@ function imageSize(uri: string): Promise<{ width: number; height: number }> {
   });
 }
 
-/** Resize so the long edge ≤ MAX_LONG_EDGE and compress to JPEG (FR-006/SC-009). */
-export async function optimizeImage(localUri: string): Promise<{ uri: string; width: number; height: number }> {
+/**
+ * Resize so the long edge ≤ MAX_LONG_EDGE. Output JPEG by default; pass
+ * format:'png' to PRESERVE TRANSPARENCY for cut-out items (Try On / extract) —
+ * JPEG would flatten the alpha channel onto a solid background (FR-006/SC-009).
+ */
+export async function optimizeImage(
+  localUri: string,
+  format: ImgExt = 'jpg',
+): Promise<{ uri: string; width: number; height: number; ext: ImgExt }> {
   let actions: { resize: { width: number; height: number } }[] = [];
   try {
     const { width, height } = await imageSize(localUri);
@@ -68,16 +77,19 @@ export async function optimizeImage(localUri: string): Promise<{ uri: string; wi
     // Size probe failed (unusual) — fall back to a width cap.
     actions = [{ resize: { width: MAX_LONG_EDGE, height: MAX_LONG_EDGE } }];
   }
-  const result = await manipulateAsync(localUri, actions, { compress: JPEG_QUALITY, format: SaveFormat.JPEG });
-  return { uri: result.uri, width: result.width, height: result.height };
+  const result = await manipulateAsync(localUri, actions, {
+    compress: JPEG_QUALITY,                                   // ignored for PNG (lossless)
+    format: format === 'png' ? SaveFormat.PNG : SaveFormat.JPEG,
+  });
+  return { uri: result.uri, width: result.width, height: result.height, ext: format };
 }
 
 // ─── Device storage ──────────────────────────────────────────────────────────
 
 /** Copy an optimized file into the stable device dir. Returns the RELATIVE path. */
-export async function writeDeviceCopy(itemId: string, optimizedUri: string): Promise<string> {
+export async function writeDeviceCopy(itemId: string, optimizedUri: string, ext: ImgExt = 'jpg'): Promise<string> {
   await ensureDir();
-  const relativePath = relativePathFor(itemId);
+  const relativePath = relativePathFor(itemId, ext);
   const dest = absoluteFor(relativePath);
   await FileSystem.deleteAsync(dest, { idempotent: true });
   await FileSystem.copyAsync({ from: optimizedUri, to: dest });
@@ -93,15 +105,15 @@ export async function resolveDeviceUri(relativePath: string): Promise<string | n
 
 // ─── Cloud storage (private bucket, signed URLs) ──────────────────────────────
 
-/** Upload an optimized file to the private bucket. Returns storage path {userId}/{itemId}.jpg. */
-export async function uploadCloudCopy(userId: string, itemId: string, optimizedUri: string): Promise<string> {
-  const storagePath = `${userId}/${itemId}.jpg`;
+/** Upload an optimized file to the private bucket. Returns storage path {userId}/{itemId}.{ext}. */
+export async function uploadCloudCopy(userId: string, itemId: string, optimizedUri: string, ext: ImgExt = 'jpg'): Promise<string> {
+  const storagePath = `${userId}/${itemId}.${ext}`;
   const base64 = await FileSystem.readAsStringAsync(optimizedUri, { encoding: 'base64' });
   const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
 
   const { error } = await sb.storage
     .from(BUCKET)
-    .upload(storagePath, bytes, { contentType: 'image/jpeg', upsert: true });
+    .upload(storagePath, bytes, { contentType: ext === 'png' ? 'image/png' : 'image/jpeg', upsert: true });
   if (error) throw new PhotoStorageError('Cloud upload failed', error);
   return storagePath;
 }
@@ -116,7 +128,8 @@ export async function signedUrl(storagePath: string, expiresInSec: number = SIGN
 /** Ensure a cloud object is cached on-device (premium offline + instant repeat, FR-008a). */
 export async function ensureCloudCached(itemId: string, storagePath: string): Promise<string> {
   await ensureDir();
-  const dest = absoluteFor(relativePathFor(itemId));
+  const ext: ImgExt = storagePath.toLowerCase().endsWith('.png') ? 'png' : 'jpg';
+  const dest = absoluteFor(relativePathFor(itemId, ext));
   const info = await FileSystem.getInfoAsync(dest);
   if (info.exists) return dest;
   const url = await signedUrl(storagePath);

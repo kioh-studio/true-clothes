@@ -8,12 +8,15 @@
 // because of this layer.
 //
 // Model is config, not architecture: override with the CURATOR_MODEL secret.
+//
+// Runs on Gemini (same GOOGLE_API_KEY the item-extraction functions use) via the
+// REST generateContent endpoint with structured JSON output — no SDK dependency.
 
-import Anthropic from 'npm:@anthropic-ai/sdk';
 import { ScoredOutfit } from './types.ts';
 
-const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
-const TIMEOUT_MS = 3500;
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const DEFAULT_MODEL = 'gemini-2.5-flash';
+const TIMEOUT_MS = 8000;  // note-only curation of 24 candidates ≈ 4s; headroom so it never intermittently aborts
 const PICK_COUNT = 10;
 
 export interface CuratorInput {
@@ -28,36 +31,38 @@ export interface CuratorResult {
   vetoCount: number;
 }
 
+// Gemini responseSchema (OpenAPI subset): uppercase types, no additionalProperties,
+// propertyOrdering to keep the model's field order stable.
 const CURATION_SCHEMA = {
-  type: 'object',
+  type: 'OBJECT',
   properties: {
     picks: {
-      type: 'array',
+      type: 'ARRAY',
       items: {
-        type: 'object',
+        type: 'OBJECT',
         properties: {
-          index: { type: 'integer' },
-          note: { type: 'string' },
+          index: { type: 'INTEGER' },
+          note: { type: 'STRING' },
         },
         required: ['index', 'note'],
-        additionalProperties: false,
+        propertyOrdering: ['index', 'note'],
       },
     },
     vetoes: {
-      type: 'array',
+      type: 'ARRAY',
       items: {
-        type: 'object',
+        type: 'OBJECT',
         properties: {
-          index: { type: 'integer' },
-          reason: { type: 'string' },
+          index: { type: 'INTEGER' },
+          reason: { type: 'STRING' },
         },
         required: ['index', 'reason'],
-        additionalProperties: false,
+        propertyOrdering: ['index', 'reason'],
       },
     },
   },
   required: ['picks', 'vetoes'],
-  additionalProperties: false,
+  propertyOrdering: ['picks', 'vetoes'],
 } as const;
 
 const SYSTEM_PROMPT = `You are a personal fashion stylist making the final call on today's outfit feed. You receive a numbered list of outfit candidates that have ALREADY passed validity checks (color rules, fit, season, formality). Your job is pure taste judgment.
@@ -79,46 +84,69 @@ interface ParsedCuration {
 }
 
 // Single switch for the whole LLM path. When the key is absent the caller
-// must skip curation entirely — no prompt building, no SDK call — and return
+// must skip curation entirely — no prompt building, no network call — and return
 // the rule-engine order directly.
 export function curatorEnabled(): boolean {
-  return Boolean(Deno.env.get('ANTHROPIC_API_KEY'));
+  return Boolean(Deno.env.get('GOOGLE_API_KEY'));
+}
+
+interface GeminiResponse {
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
 }
 
 export async function curateOutfits(input: CuratorInput): Promise<CuratorResult | null> {
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
+  const apiKey = Deno.env.get('GOOGLE_API_KEY');
   if (!apiKey || input.outfits.length === 0) return null;
 
   const model = Deno.env.get('CURATOR_MODEL') ?? DEFAULT_MODEL;
-  const client = new Anthropic({ apiKey, maxRetries: 0, timeout: TIMEOUT_MS });
 
   const lines = input.outfits.map((o, i) => `#${i} ${input.describe(o)}`).join('\n');
   const noteLang = input.locale === 'vi' ? 'Vietnamese' : 'English';
 
+  // Single attempt, hard timeout — any failure falls back to the rule order so
+  // the feed never stalls on this layer.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const response = await client.messages.create({
-      model,
-      max_tokens: 2048,
-      system: SYSTEM_PROMPT,
-      tools: [{
-        name: 'submit_curation',
-        description: 'Submit the ranked picks and vetoes',
-        input_schema: CURATION_SCHEMA,
-      }],
-      tool_choice: { type: 'tool', name: 'submit_curation' },
-      messages: [{
-        role: 'user',
-        content: `${input.profileBlock}\n\nCandidates:\n${lines}\n\nPick and rank the ${PICK_COUNT} best. Write each note in ${noteLang}.`,
-      }],
+    const res = await fetch(`${GEMINI_BASE}/${model}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [{
+          parts: [{
+            text: `${input.profileBlock}\n\nCandidates:\n${lines}\n\nPick and rank the ${PICK_COUNT} best. Write each note in ${noteLang}.`,
+          }],
+        }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: CURATION_SCHEMA,
+          temperature: 0.4,
+          maxOutputTokens: 2048,
+          // gemini-2.5-flash enables "thinking" by default, which pushes this call
+          // to ~10s (≈1.4k thought tokens) — well past TIMEOUT_MS, so EVERY curation
+          // aborted and fell back to rule order. Disabling thinking drops it to ~1.2s.
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      }),
     });
 
-    const toolBlock = response.content.find(b => b.type === 'tool_use');
-    if (!toolBlock || toolBlock.type !== 'tool_use') return null;
-    const parsed = toolBlock.input as ParsedCuration;
+    if (!res.ok) {
+      console.warn('[curator] falling back to rule order:', res.status, (await res.text()).slice(0, 200));
+      return null;
+    }
+
+    const data: GeminiResponse = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.find(p => p.text)?.text;
+    if (!text) return null;
+    const parsed = JSON.parse(text) as ParsedCuration;
     return assemble(input.outfits, parsed);
   } catch (err) {
     console.warn('[curator] falling back to rule order:', err instanceof Error ? err.message : err);
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

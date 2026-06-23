@@ -7,10 +7,11 @@ export class InsufficientCreditsError extends Error {
   }
 }
 
-type CreditType = 'ai_extraction';
+type CreditType = 'ai_extraction' | 'try_on';
 
 const FREE_LIMITS: Record<CreditType, number> = {
   ai_extraction: 2,
+  try_on: 2,
 };
 
 function getPeriodStart(): string {

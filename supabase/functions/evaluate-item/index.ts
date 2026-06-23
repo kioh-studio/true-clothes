@@ -9,7 +9,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   BodyMeasurements, ClothingItemRow,
 } from '../generate-outfits/engine/types.ts';
-import { toFitItem } from '../generate-outfits/engine/enrichment.ts';
+import { toFitItem, registerColors } from '../generate-outfits/engine/enrichment.ts';
 import { computeVerdict } from './scoring.ts';
 
 const corsHeaders = {
@@ -129,6 +129,15 @@ Deno.serve(async (req) => {
       warmthSeason: typeof rawItem.warmth_season === 'string' ? rawItem.warmth_season : undefined,
       measurements: measurements && measurements.length > 0 ? measurements : undefined,
     };
+
+    // Load colors lookup so the Verdict can score colors not in the curated
+    // COLOR_MAP (auto-added by generate-item-image). Best-effort.
+    try {
+      const { data: colorRows } = await supabase
+        .from('colors')
+        .select('name, primary_color, lightness, saturation, hue, sat_pct, lum_pct, undertone');
+      if (colorRows) registerColors(colorRows as Parameters<typeof registerColors>[0]);
+    } catch (_e) { /* keep hardcoded color map */ }
 
     // ── Build FitItem and compute Verdict ─────────────────────────────────
     const fitItem = toFitItem(itemRow);

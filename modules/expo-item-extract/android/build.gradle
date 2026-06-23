@@ -56,14 +56,17 @@ dependencies {
     // Expo Modules Core — provided at build time by the host app.
     implementation project(':expo-modules-core')
 
-    // Kotlin stdlib
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+    // Kotlin stdlib is added automatically by the `kotlin-android` plugin
+    // (kotlin.stdlib.default.dependency); do NOT pin it here — the old
+    // "$kotlin_version" ext property doesn't exist in this Gradle setup and
+    // breaks project evaluation.
 
     // ── ML Kit: Subject Segmentation ──────────────────────────────────────
-    // Bundled model variant (no download-on-first-run; larger APK).
-    // VERIFY: check https://developers.google.com/ml-kit/vision/subject-segmentation/android
-    // for the latest stable artifact name; the beta suffix may change.
-    implementation 'com.google.mlkit:subject-segmentation:1.0.0-beta1'
+    // Only distributed via Google Play Services (no bundled `com.google.mlkit`
+    // artifact exists). The Kotlin imports stay `com.google.mlkit.vision.
+    // segmentation.subject.*` — only the Gradle coordinate differs.
+    // 16.0.0-beta1 is the latest published version (Google Maven, verified).
+    implementation 'com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1'
 
     // ── ML Kit: Image Labeling (bundled model) ────────────────────────────
     implementation 'com.google.mlkit:image-labeling:17.0.9'

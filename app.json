@@ -22,6 +22,7 @@
       }
     },
     "android": {
+      "package": "com.briank.mien",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FAF7F2"

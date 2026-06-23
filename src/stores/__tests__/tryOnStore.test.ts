@@ -161,14 +161,16 @@ describe('tryOnStore.scan()', () => {
     expect(mockExtractItemOnDevice).not.toHaveBeenCalled();
   });
 
-  it('uses on-device path when isExtractByItemAvailable is true', async () => {
+  it('always uses the AI path even when the on-device extractor is available', async () => {
     _isAvailable = true;
-    mockExtractItemOnDevice.mockResolvedValueOnce([{ ...EXTRACTED_ITEM, usedFallback: false }]);
+    mockExtractItemsWithImages.mockResolvedValueOnce([EXTRACTED_ITEM]);
 
     await getState().scan('file://photo.jpg', 'item');
 
-    expect(mockExtractItemOnDevice).toHaveBeenCalledTimes(1);
-    expect(mockExtractItemsWithImages).not.toHaveBeenCalled();
+    // Try On always extracts via the AI path for rich verdict metadata; the
+    // on-device extractor is never used here (the `method` arg is ignored).
+    expect(mockExtractItemsWithImages).toHaveBeenCalledTimes(1);
+    expect(mockExtractItemOnDevice).not.toHaveBeenCalled();
   });
 
   it('populates scannedItem after a successful AI scan', async () => {
@@ -187,17 +189,17 @@ describe('tryOnStore.scan()', () => {
     expect(status).toBe('evaluating');
   });
 
-  it('populates scannedItem after a successful on-device scan', async () => {
+  it("tags the scanned item method 'ai' regardless of the requested method", async () => {
     _isAvailable = true;
-    mockExtractItemOnDevice.mockResolvedValueOnce([{ ...EXTRACTED_ITEM, usedFallback: true }]);
+    mockExtractItemsWithImages.mockResolvedValueOnce([EXTRACTED_ITEM]);
 
+    // Even when 'item' is requested, Try On runs the AI path and tags the result 'ai'.
     await getState().scan('file://photo.jpg', 'item');
 
     const { scannedItem, status } = getState();
     expect(scannedItem).not.toBeNull();
     expect(scannedItem!.id).toBe('scanned');
-    expect(scannedItem!.method).toBe('item');
-    expect(scannedItem!.usedFallback).toBe(true);
+    expect(scannedItem!.method).toBe('ai');
     expect(status).toBe('evaluating');
   });
 

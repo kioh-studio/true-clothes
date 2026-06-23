@@ -77,14 +77,52 @@ const COLOR_MAP_LC: Record<string, ColorEntry> = Object.fromEntries(
   Object.entries(COLOR_MAP).map(([k, v]) => [k.toLowerCase(), v]),
 );
 
+// Colors the AI extracted that aren't in the curated COLOR_MAP are persisted to
+// the `colors` table (by generate-item-image). The engine loads them per request
+// via registerColors() so such colors score from their real attributes (hue/
+// undertone/lightness) instead of collapsing to the neutral fallback. Keyed
+// lowercase; the curated COLOR_MAP still wins for the base palette.
+export interface DbColorRow {
+  name: string;
+  primary_color: string;
+  lightness: string;
+  saturation: string;
+  hue: number | null;
+  sat_pct: number;
+  lum_pct: number;
+  undertone: string;
+}
+
+const DB_COLORS: Record<string, ColorProfile> = {};
+
+export function registerColors(rows: DbColorRow[]): void {
+  for (const r of rows) {
+    if (!r?.name) continue;
+    DB_COLORS[r.name.trim().toLowerCase()] = {
+      primaryColor:   r.primary_color as PrimaryColor,
+      colorLightness: r.lightness as ColorLightness,
+      colorSaturation: r.saturation as ColorSaturation,
+      hue: typeof r.hue === 'number' ? r.hue : undefined,
+      sat: r.sat_pct,
+      lum: r.lum_pct,
+      undertone: (r.undertone as Undertone) ?? 'neutral',
+    };
+  }
+}
+
 export const colorProfileOf = (colorName: string): ColorProfile => {
-  const entry = colorName ? COLOR_MAP_LC[colorName.trim().toLowerCase()] : undefined;
+  const key = colorName ? colorName.trim().toLowerCase() : '';
+  const entry = key ? COLOR_MAP_LC[key] : undefined;
   if (entry) {
     return {
       primaryColor: entry[0], colorLightness: entry[1], colorSaturation: entry[2],
       hue: entry[3], sat: entry[4], lum: entry[5], undertone: entry[6],
     };
   }
+  // Fall back to a DB-registered color (auto-added, richer than COLOR_MAP).
+  const dbProfile = key ? DB_COLORS[key] : undefined;
+  if (dbProfile) return dbProfile;
+
   return {
     primaryColor: 'natural', colorLightness: 'medium', colorSaturation: 'muted',
     hue: undefined, sat: 10, lum: 60, undertone: 'neutral',

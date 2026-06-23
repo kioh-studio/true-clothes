@@ -11,6 +11,7 @@ import {
   WardrobeStorageError, WardrobeDbError,
 } from '../services/wardrobeService';
 import { useFitEngineStore } from './fitEngineStore';
+import { sb } from '../services/supabase';
 import { genId } from '../utils/genId';
 import {
   saveOutfit, unsaveOutfit,
@@ -108,6 +109,15 @@ interface AppState {
   setLanguage: (lang: 'en' | 'vi') => void;
 
   hydrate: () => Promise<void>;
+  /**
+   * Reconcile server-backed state (wardrobe, outfit interactions, collections)
+   * for the currently authenticated user. Safe to call repeatedly; each block is
+   * independently guarded. Invoked from hydrate AND from the auth-state listener
+   * so data loads once the session is actually available (fixes the cold-start
+   * race where hydrate ran before the session was restored, and the first OTP
+   * login where hydrate had already run with no session).
+   */
+  loadServerState: () => Promise<void>;
 }
 
 // ─── Persisted shape ─────────────────────────────────────────────────────────
@@ -452,6 +462,47 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  // Reconcile all server-backed state for the authenticated user. Each block is
+  // independently guarded so one failure never blocks the others.
+  loadServerState: async () => {
+    // Wardrobe
+    try {
+      const remoteItems = await fetchMyItems();
+      set({ wardrobeItems: remoteItems });
+    } catch (err) {
+      // Not authenticated or network failure — keep current wardrobe
+      console.warn('[appStore] loadServerState wardrobe failed:', err);
+    }
+
+    // Outfit interactions
+    try {
+      const [interactions, cooldownIds] = await Promise.all([
+        fetchInteractions(),
+        fetchWornCooldownIds(),
+      ]);
+      const savedSet = new Set<string>();
+      const wornSet  = new Set<string>();
+      const scheduledSet = new Set<string>();
+      for (const i of interactions) {
+        if (i.type === 'saved')     savedSet.add(i.outfitId);
+        if (i.type === 'worn')      wornSet.add(i.outfitId);
+        if (i.type === 'scheduled') scheduledSet.add(i.outfitId);
+      }
+      set({ savedSet, wornSet, scheduledSet, wornCooldownIds: cooldownIds });
+    } catch {
+      // Not authenticated — keep local sets
+    }
+
+    // Collections. null = not authenticated → keep cached/demo collections;
+    // [] = authenticated with none.
+    try {
+      const remoteCollections = await fetchMyCollections();
+      if (remoteCollections !== null) set({ collections: remoteCollections });
+    } catch {
+      // Network failure — keep cached collections
+    }
+  },
+
   // ── Hydration ─────────────────────────────────────────────────────────────
   hydrate: async () => {
     // T075: Subscribe to network state changes
@@ -461,6 +512,25 @@ export const useAppStore = create<AppState>((set, get) => ({
       // On reconnect, flush any photos that couldn't reach the cloud while offline.
       if (wasOffline && state.isConnected) {
         get().syncPendingPhotos().catch(() => {});
+      }
+    });
+
+    // Re-load server state whenever auth becomes available. hydrate() can run
+    // before the persisted session is restored (cold-start race) and the initial
+    // fetch would then return empty; this also covers the first OTP login, where
+    // hydrate already ran with no session. Deduped by user id so routine token
+    // refreshes don't refetch. On sign-out, clear the wardrobe.
+    let lastAuthedUid: string | null = null;
+    sb.auth.onAuthStateChange((_event, session) => {
+      const uid = session?.user?.id ?? null;
+      if (uid) {
+        if (uid !== lastAuthedUid) {
+          lastAuthedUid = uid;
+          get().loadServerState();
+        }
+      } else {
+        lastAuthedUid = null;
+        set({ wardrobeItems: [] });
       }
     });
 
@@ -489,41 +559,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (data.language) i18n.changeLanguage(data.language);
       }
 
-      // 2. Fetch remote wardrobe (requires auth)
-      try {
-        const remoteItems = await fetchMyItems();
-        set({ wardrobeItems: remoteItems });
-      } catch {
-        // Not authenticated or network failure — continue with empty wardrobe
-      }
-
-      // 2a. Hydrate outfit interactions from server
-      try {
-        const [interactions, cooldownIds] = await Promise.all([
-          fetchInteractions(),
-          fetchWornCooldownIds(),
-        ]);
-        const savedSet = new Set<string>();
-        const wornSet  = new Set<string>();
-        const scheduledSet = new Set<string>();
-        for (const i of interactions) {
-          if (i.type === 'saved')     savedSet.add(i.outfitId);
-          if (i.type === 'worn')      wornSet.add(i.outfitId);
-          if (i.type === 'scheduled') scheduledSet.add(i.outfitId);
-        }
-        set({ savedSet, wornSet, scheduledSet, wornCooldownIds: cooldownIds });
-      } catch {
-        // Not authenticated — keep local sets
-      }
-
-      // 2b. Fetch remote collections (requires auth). null = not authenticated →
-      // keep the cached/demo collections; [] = authenticated with none.
-      try {
-        const remoteCollections = await fetchMyCollections();
-        if (remoteCollections !== null) set({ collections: remoteCollections });
-      } catch {
-        // Network failure — keep cached collections
-      }
+      // 2. Reconcile server-backed state (wardrobe + interactions + collections).
+      //    May be a no-op if the session isn't restored yet — the auth-state
+      //    listener (set up above) re-runs this the moment a user is available.
+      await get().loadServerState();
 
       // 3. T016: First-boot migration from AsyncStorage to Supabase
       const migrated = await AsyncStorage.getItem(MIGRATION_FLAG_KEY);

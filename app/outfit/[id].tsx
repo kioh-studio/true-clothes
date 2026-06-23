@@ -1,5 +1,5 @@
 // Outfit Detail screen
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Image, Share, useWindowDimensions } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,6 +9,8 @@ import { PrimaryButton, SecondaryButton, TextLink, Tag, BottomSheet, Divider, Ph
 import { IconX, IconHeart, IconShare, IconSparkle, IconChevronRight } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAppStore } from '../../src/stores/appStore';
+import { useOutfitDescription } from '../../src/features/outfit/useOutfitDescription';
+import type { DescribeItem } from '../../src/services/outfitDescriptionService';
 
 export default function OutfitDetailScreen() {
   const { width: W } = useWindowDimensions();
@@ -17,13 +19,33 @@ export default function OutfitDetailScreen() {
   const insets = useSafeAreaInsets();
   const { savedSet, wornSet, scheduledSet, toggleSave, toggleWorn, toggleSchedule, collections, addItemToCollection } = useAppStore();
   const [variationOpen, setVariationOpen] = useState(false);
-  const [tryOnOpen, setTryOnOpen] = useState(false);
   const [collectionPickerOpen, setCollectionPickerOpen] = useState(false);
   const [addedToCollectionSuccess, setAddedToCollectionSuccess] = useState(false);
 
   const outfit = (data ? JSON.parse(data) : null) ?? OUTFITS.find(o => o.id === id) ?? OUTFITS[0];
   const items = outfit.itemIds.map(itemById).filter(Boolean) as NonNullable<ReturnType<typeof itemById>>[];
   const saved = savedSet.has(outfit.id);
+
+  // Resolve the outfit's garments from the REAL cloud wardrobe (same source the
+  // collage uses), falling back to mock items — `itemById` alone misses generated
+  // outfits whose ids are DB ids. Feeds the lazy description.
+  const wardrobeItems = useAppStore(s => s.wardrobeItems);
+  const describeItems: DescribeItem[] = useMemo(() => {
+    const byId = new Map(wardrobeItems.map(w => [w.id, w]));
+    return (outfit.itemIds as string[]).map((iid): DescribeItem | null => {
+      const w = byId.get(iid);
+      if (w) return { name: w.name, type: w.type, color: w.colors?.[0] ?? w.primaryColor, material: w.material, fit: w.fit };
+      const m = itemById(iid);
+      return m ? { name: m.name, type: m.type, color: m.color, material: m.material, fit: m.fit } : null;
+    }).filter((x): x is DescribeItem => x !== null);
+  }, [outfit.itemIds, wardrobeItems]);
+
+  // Lazy AI description for generated outfits. Fallback is the resolved item names
+  // (longDescription is empty for cloud-wardrobe outfits).
+  const fallbackDesc = outfit.longDescription || describeItems.map(i => i.name).filter(Boolean).join(', ');
+  const { description: outfitDescription, loading: descLoading } = useOutfitDescription(
+    outfit.id, describeItems, fallbackDesc,
+  );
 
   useEffect(() => {
     console.log('[OutfitDetail] Opened outfit:', { id: outfit.id, title: outfit.title, style: outfit.style, tags: outfit.tags });
@@ -69,7 +91,10 @@ export default function OutfitDetailScreen() {
 
         {/* AI Try-on button */}
         <View style={{ padding: 16 }}>
-          <Pressable onPress={() => setTryOnOpen(true)} style={styles.tryOnBtn}>
+          <Pressable
+            onPress={() => router.push({ pathname: '/try-on/wear' as any, params: { id: outfit.id, data: JSON.stringify(outfit) } })}
+            style={styles.tryOnBtn}
+          >
             <IconSparkle size={16} color={T.color.primary} strokeWidth={1.4} />
             <Text style={styles.tryOnText}>GENERATE ON YOU</Text>
           </Pressable>
@@ -84,7 +109,7 @@ export default function OutfitDetailScreen() {
           <View style={{ height: 8 }} />
           <Text style={styles.h1}>{outfit.title}</Text>
           <View style={{ height: 16 }} />
-          <Text style={styles.desc}>{outfit.longDescription}</Text>
+          <Text style={[styles.desc, descLoading && { opacity: 0.5 }]}>{outfitDescription}</Text>
           <View style={{ height: 24 }} />
           <View style={styles.tags}>
             {outfit.tags.map((t: string) => <Tag key={t}>{t}</Tag>)}
@@ -206,36 +231,6 @@ export default function OutfitDetailScreen() {
         </View>
       </BottomSheet>
 
-      {/* AI Try-on sheet */}
-      <BottomSheet open={tryOnOpen} onClose={() => setTryOnOpen(false)} maxHeight="92%">
-        <View style={{ padding: 24 }}>
-          <Text style={styles.context}>AI TRY-ON</Text>
-          <View style={{ height: 8 }} />
-          <Text style={styles.h2}>See it on you.</Text>
-          <Text style={[type.caption, { marginTop: 12 }]}>
-            We'll render {outfit.title} on your frame using your measurements.
-          </Text>
-          <View style={{ height: 32 }} />
-          <View style={styles.frameCard}>
-            <Text style={styles.sectionLabel}>YOUR FRAME</Text>
-            <View style={{ height: 12 }} />
-            <View style={{ flexDirection: 'row', gap: 16 }}>
-              {[{ label: 'HEIGHT', value: '178 cm' }, { label: 'WEIGHT', value: '70 kg' }, { label: 'SIZE', value: 'M' }].map(s => (
-                <View key={s.label} style={{ flex: 1 }}>
-                  <Text style={{ ...type.ui, fontSize: 9, color: T.color.tertiary }}>{s.label}</Text>
-                  <Text style={{ fontFamily: T.font.serif, fontSize: 18, color: T.color.primary, marginTop: 4 }}>{s.value}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-          <View style={{ height: 32 }} />
-          <PrimaryButton onPress={() => setTryOnOpen(false)}>GENERATE</PrimaryButton>
-          <View style={{ height: 12 }} />
-          <Text style={{ ...type.caption, fontSize: 11, color: T.color.tertiary, textAlign: 'center' }}>
-            Takes ~6 seconds. Result stays private to your device.
-          </Text>
-        </View>
-      </BottomSheet>
     </View>
   );
 }
@@ -267,5 +262,4 @@ const styles = StyleSheet.create({
   tryOnText: { ...type.ui, color: T.color.primary },
   swapRow: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: T.color.hairline },
   swapThumb: { width: 64, height: 80, borderWidth: 0.5, borderColor: T.color.hairline, overflow: 'hidden' },
-  frameCard: { borderWidth: 0.5, borderColor: T.color.hairline, padding: 20 },
 });
