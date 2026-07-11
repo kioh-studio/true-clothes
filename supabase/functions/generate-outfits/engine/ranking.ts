@@ -9,8 +9,10 @@ import {
   scoreColorHarmony, scoreStyleCoherence, computeUserAttributes,
   scoreOutfitFit, scoreProportionBalance, scoreFormalityConsistency,
   scoreSeasonMatch, scoreTextureHarmony, scoreAnchorClarity,
-  scoreTasteAdjustment,
+  scoreTasteAdjustment, genderStylingDelta, housePOVDelta,
+  scoreTargetSilhouette,
 } from './scoring.ts';
+import { tasteAffinityDelta } from './taste.ts';
 import { FormulaId } from './generation.ts';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -155,12 +157,18 @@ function isDuplicate(a: OutfitSlots, b: OutfitSlots): boolean {
   return a.top === b.top && a.bottom === b.bottom && a.shoes === b.shoes;
 }
 
-function passesHardConstraints(fitItems: FitItem[], ctx: EngineContext): boolean {
+// Styles whose visual language embraces pattern-on-pattern. For these users two
+// bold patterns are a deliberate move, not a mistake — the hard ban relaxes to 2
+// and scoreTasteAdjustment applies a mild multiplier instead (risky ≠ invalid).
+const PATTERN_FRIENDLY_STYLES = new Set(['streetwear', 'y2k', 'bohemian']);
+
+function passesHardConstraints(fitItems: FitItem[], ctx: EngineContext, formula?: string): boolean {
   const maxColors = ctx.intent?.maxColors ?? 4;
   if (new Set(fitItems.map(i => i.colorProfile.primaryColor)).size > maxColors) return false;
 
   const boldPatterns = fitItems.filter(i => i.fabric.pattern !== 'solid' && i.fabric.pattern !== 'checkered').length;
-  if (boldPatterns > 1) return false;
+  const patternFriendly = ctx.styleProfile.selectedStyles.some(s => PATTERN_FRIENDLY_STYLES.has(s));
+  if (boldPatterns > (patternFriendly ? 2 : 1)) return false;
 
   const seasons = fitItems.map(i => i.fabric.season).filter(s => s !== 'allSeason');
   if (seasons.includes('summer') && seasons.includes('winter')) return false;
@@ -171,7 +179,11 @@ function passesHardConstraints(fitItems: FitItem[], ctx: EngineContext): boolean
 
   if (fitItems.length >= 2) {
     const formalities = fitItems.map(i => i.formality);
-    if (Math.max(...formalities) - Math.min(...formalities) > 2.5) return false;
+    // high_low candidates exist to mix registers — the generic gap cap of 2.5
+    // rejected exactly the contrast that formula was built to produce. Give them
+    // headroom (3.5) while still vetoing true costume-level gaps.
+    const gapLimit = formula === 'high_low' ? 3.5 : 2.5;
+    if (Math.max(...formalities) - Math.min(...formalities) > gapLimit) return false;
   }
 
   if (ctx.intent?.formalityRange) {
@@ -223,31 +235,56 @@ export function rankCandidates(
 
   for (const c of candidates) {
     const fitItems = slotsToIds(c.slots).map(id => itemMap.get(id)).filter((i): i is FitItem => i !== undefined);
-    if (!passesHardConstraints(fitItems, ctx)) continue;
+    if (!passesHardConstraints(fitItems, ctx, c.formula)) continue;
 
-    const colorHarmony         = scoreColorHarmony(fitItems, ctx.colorPreferences, ctx.colorSeason);
+    // Formula-aware contracts (2026-07-02): each look is judged against the
+    // concept that generated it — monochrome may trade lightness contrast for
+    // texture, texture_stack may stack weights, high_low may split registers.
+    const colorHarmony         = scoreColorHarmony(fitItems, ctx.colorPreferences, ctx.colorSeason, ctx.weatherSeason, c.formula, ctx.colorTone12);
     const fitScore             = scoreOutfitFit(fitItems, ctx.bodyMeasurements);
-    const proportionBalance    = scoreProportionBalance(fitItems);
-    const formalityConsistency = scoreFormalityConsistency(fitItems);
-    const seasonMatch          = scoreSeasonMatch(fitItems, ctx.intent?.seasonOverride);
-    const textureInterest      = scoreTextureHarmony(fitItems);
+    // Silhouette-first resolution (2026-07-12): blend the generic proportion
+    // score with how well the outfit realizes ctx.targetSilhouette, weighted
+    // by the target's confidence (0 for a fully-guessed wardrobe = no-op —
+    // proportionHasData below already excludes this dimension in that case).
+    const proportionGeneric    = scoreProportionBalance(fitItems);
+    const silhouetteConf       = ctx.targetSilhouette?.confidence ?? 0;
+    const proportionBalance    = (ctx.targetSilhouette && silhouetteConf > 0)
+      ? (1 - silhouetteConf) * proportionGeneric + silhouetteConf * scoreTargetSilhouette(fitItems, ctx.targetSilhouette)
+      : proportionGeneric;
+    const formalityConsistency = scoreFormalityConsistency(fitItems, c.formula);
+    const seasonMatch          = scoreSeasonMatch(fitItems, ctx.intent?.seasonOverride ?? ctx.weatherSeason);
+    const textureInterest      = scoreTextureHarmony(fitItems, c.formula);
     const anchorClarity        = scoreAnchorClarity(fitItems);
     const styleCoherence = userAttributes
       ? scoreStyleCoherence(fitItems, userAttributes, ctx.styleProfile.selectedStyles)
       : 0.5;
 
-    // Confidence weighting: a dimension with no real data behind it drops out
-    // of the average instead of pulling every outfit toward a neutral 0.5.
+    // Confidence weighting: a dimension with no real data behind it drops out of
+    // the average instead of pulling every outfit toward a near-constant default.
+    // Provenance flags (enrichment.ts) tell real stored attributes from defaulted
+    // ones, so sparse wardrobes shed the guessed dimensions while well-populated
+    // ones keep full weight — fixing the old "defaults add noise" flattening
+    // without penalising users who DID label their items.
     const fitHasData = bodyHasMeasurements && fitItems.some(i => i.garmentMeasurements);
+    // Proportion reads each item's `fit` (volume); meaningful only when some item
+    // has a real fit, not a type-default guess.
+    const proportionHasData = fitItems.some(i => i.provenance.fit);
+    // Season reads fabric weight/season, derived from material or warmth_season.
+    const seasonHasData = fitItems.some(i => i.provenance.material || i.provenance.warmthSeason);
+    // Texture reads fabric weight + pattern, derived from material or pattern.
+    const textureHasData = fitItems.some(i => i.provenance.material || i.provenance.pattern);
+    // Anchor/style/color/formality stay valid: they ride on type+color, which are
+    // always real. Anchor gets a slightly louder voice so a clear hero piece (the
+    // hallmark of an intentional look) separates from flat all-quiet combos.
     const dims: Array<[weight: number, score: number, valid: boolean]> = [
       [wStyle,      styleCoherence,       userAttributes !== undefined],
       [wColor,      colorHarmony,         true],
       [wFit,        fitScore,             fitHasData],
-      [wProportion, proportionBalance,    true],
+      [wProportion, proportionBalance,    proportionHasData],
       [wFormality,  formalityConsistency, true],
-      [wSeason,     seasonMatch,          true],
-      [wTexture,    textureInterest,      true],
-      [0.05,        anchorClarity,        true],
+      [wSeason,     seasonMatch,          seasonHasData],
+      [wTexture,    textureInterest,      textureHasData],
+      [0.10,        anchorClarity,        true],
     ];
     const valid = dims.filter(([, , v]) => v);
     const weightSum = valid.reduce((s, [wd]) => s + wd, 0);
@@ -255,7 +292,16 @@ export function rankCandidates(
 
     // Taste layer: classic-combo bonus, multiplicative veto for fatal flaws.
     const taste = scoreTasteAdjustment(fitItems);
-    const totalScore = Math.max(0, Math.min(1, (base + taste.bonus) * taste.multiplier));
+    // Opt-in gender-aware styling: a small additive nudge, off unless ctx.gender set.
+    const genderDelta = ctx.gender ? genderStylingDelta(fitItems, ctx.gender) : 0;
+    // Behaviour-learned taste (lever L2): a small positive nudge toward looks like
+    // the ones the user has saved/worn. Off (0) until they have positive history;
+    // confidence-scaled and capped so it refines order, never overrides styling.
+    const tasteDelta = ctx.tasteVector ? tasteAffinityDelta(fitItems, ctx.tasteVector) : 0;
+    // House POV (S4): MIEN's own voice as a small tie-breaker, halved when the
+    // user's styles pull the opposite way. Applied last, additive, capped ±0.05.
+    const houseDelta = housePOVDelta(fitItems, ctx.styleProfile.selectedStyles);
+    const totalScore = Math.max(0, Math.min(1, (base + taste.bonus) * taste.multiplier + genderDelta + tasteDelta + houseDelta));
 
     scored.push({
       slots: c.slots,
@@ -269,7 +315,16 @@ export function rankCandidates(
   // Sort: tier 1 first, then by score
   scored.sort((a, b) => a.tier !== b.tier ? a.tier - b.tier : b.totalScore - a.totalScore);
 
-  // Diversification
+  // Diversification — greedy selection with an in-place overlap penalty.
+  // The pre-sort above already orders outfits by (tier, totalScore), so we
+  // iterate best-first. A penalty is applied immediately when an outfit shares
+  // ≥2 items with any already-selected outfit; the penalized score is visible
+  // to no one — we're done selecting, we just keep the greedy order.
+  // IMPORTANT: do NOT re-sort after this loop. Re-sorting would reorder
+  // penalized outfits below ones that were intentionally passed over during
+  // greedy selection, making the result order-dependent on insertion sequence
+  // and defeating the purpose of the diversity penalty. The greedy pick order
+  // IS the intended "diverse but high-scoring" ranked sequence.
   const selected: ScoredOutfit[] = [];
   const selectedItemSets: Set<string>[] = [];
 
@@ -292,7 +347,8 @@ export function rankCandidates(
     if (selected.length >= TOP_N) break;
   }
 
-  selected.sort((a, b) => a.tier !== b.tier ? a.tier - b.tier : b.totalScore - a.totalScore);
+  // No re-sort here — the greedy pick order is deterministic and already encodes
+  // the diversity-aware ranking. Sorting afterward would be order-dependent.
   return selected;
 }
 

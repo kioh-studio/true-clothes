@@ -16,14 +16,25 @@ import { ScoredOutfit } from './types.ts';
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_MODEL = 'gemini-2.5-flash';
-const TIMEOUT_MS = 8000;  // note-only curation of 24 candidates ≈ 4s; headroom so it never intermittently aborts
+const TIMEOUT_MS = 8000;            // text-only curation of 24 candidates ≈ 4s
+const TIMEOUT_MULTIMODAL_MS = 20000; // image parts push the round-trip well past 8s
 const PICK_COUNT = 10;
+
+// One wardrobe-item photo attached to the curation call (multimodal, 2026-07-03).
+export interface CuratorImage {
+  label: string;    // binds the photo to its item name in the candidate lines
+  mimeType: string; // image/*
+  dataB64: string;  // inline base64 payload
+}
 
 export interface CuratorInput {
   outfits: ScoredOutfit[];                      // rule-ranked, up to ~24
   describe: (o: ScoredOutfit) => string;        // one-line text descriptor
   profileBlock: string;                         // user styles / colors / context
   locale: string;                               // 'vi' | 'en' — note language
+  // Optional item photos (multimodal): when present, the judge sees the ACTUAL
+  // garments instead of label text only. Absent → text-only, as before.
+  images?: CuratorImage[];
 }
 
 export interface CuratorResult {
@@ -65,7 +76,9 @@ const CURATION_SCHEMA = {
   propertyOrdering: ['picks', 'vetoes'],
 } as const;
 
-const SYSTEM_PROMPT = `You are a personal fashion stylist making the final call on today's outfit feed. You receive a numbered list of outfit candidates that have ALREADY passed validity checks (color rules, fit, season, formality). Your job is pure taste judgment.
+const SYSTEM_PROMPT = `You are MIEN's house stylist making the final call on today's outfit feed. MIEN's aesthetic is luxury minimalism in the Celine / The Row register: restraint over flash, tonal dressing, natural fabrics, precise fit — loudness must earn its place. Let that voice color your ranking and your notes, but never override the user's own stated styles: when the user leans streetwear or maximalist, their taste wins and you judge the best version of THEIR look.
+
+You receive a numbered list of outfit candidates that have ALREADY passed validity checks (color rules, fit, season, formality). Your job is pure taste judgment.
 
 Rank the ${PICK_COUNT} best candidates, best first. Judge like a stylist, not a checklist:
 - Reward outfits that read as intentional: a clear hero piece, deliberate light/dark contrast between top and bottom, classic combinations (oxford shirt + tailored trousers + loafers; tee + jeans + clean sneakers).
@@ -103,10 +116,21 @@ export async function curateOutfits(input: CuratorInput): Promise<CuratorResult 
   const lines = input.outfits.map((o, i) => `#${i} ${input.describe(o)}`).join('\n');
   const noteLang = input.locale === 'vi' ? 'Vietnamese' : 'English';
 
+  // Multimodal: item photos precede the candidate list, each bound to its item
+  // name so the model can match photos to the labels used in the lines below.
+  const images = input.images ?? [];
+  const imageParts = images.flatMap(img => [
+    { text: `PHOTO of item: ${img.label}` },
+    { inlineData: { mimeType: img.mimeType, data: img.dataB64 } },
+  ]);
+  const visualHint = images.length > 0
+    ? `\n\nItem photos are attached above the candidates. Judge colour relationships, texture, drape and how the ACTUAL garments would sit together from the photos — the text labels are only an index.`
+    : '';
+
   // Single attempt, hard timeout — any failure falls back to the rule order so
   // the feed never stalls on this layer.
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), images.length > 0 ? TIMEOUT_MULTIMODAL_MS : TIMEOUT_MS);
   try {
     const res = await fetch(`${GEMINI_BASE}/${model}:generateContent`, {
       method: 'POST',
@@ -115,9 +139,12 @@ export async function curateOutfits(input: CuratorInput): Promise<CuratorResult 
       body: JSON.stringify({
         system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
         contents: [{
-          parts: [{
-            text: `${input.profileBlock}\n\nCandidates:\n${lines}\n\nPick and rank the ${PICK_COUNT} best. Write each note in ${noteLang}.`,
-          }],
+          parts: [
+            ...imageParts,
+            {
+              text: `${input.profileBlock}${visualHint}\n\nCandidates:\n${lines}\n\nPick and rank the ${PICK_COUNT} best. Write each note in ${noteLang}.`,
+            },
+          ],
         }],
         generationConfig: {
           responseMimeType: 'application/json',

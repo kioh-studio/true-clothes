@@ -13,12 +13,14 @@ import {
 const CATEGORY_MAP: Record<string, ItemCategory> = {
   TEE: 'top', POLO: 'top', KNIT: 'top', SHIRT: 'top', BLOUSE: 'top', VEST: 'top',
   SWEATER: 'top', CARDIGAN: 'top', HENLEY: 'top',
-  JACKET: 'outwear', BLAZER: 'outwear', COAT: 'outwear', HOODIE: 'outwear', PARKA: 'outwear', OVERCOAT: 'outwear',
-  JEANS: 'bottom', TROUSERS: 'bottom', CHINOS: 'bottom', SHORTS: 'bottom', SKIRT: 'bottom',
+  CAMISOLE: 'top', CROP: 'top', BODYSUIT: 'top', TUNIC: 'top', CORSET: 'top',
+  JACKET: 'outwear', BLAZER: 'outwear', COAT: 'outwear', HOODIE: 'outwear', PARKA: 'outwear', OVERCOAT: 'outwear', CAPE: 'outwear', KIMONO: 'outwear',
+  JEANS: 'bottom', TROUSERS: 'bottom', CHINOS: 'bottom', SHORTS: 'bottom', SKIRT: 'bottom', LEGGINGS: 'bottom',
   DRESS: 'onepiece', JUMPSUIT: 'onepiece', OVERALLS: 'onepiece', GOWN: 'onepiece',
-  LOAFERS: 'shoes', SNEAKERS: 'shoes', BOOTS: 'shoes', HEELS: 'shoes', SANDALS: 'shoes', OXFORDS: 'shoes', MULES: 'shoes',
+  LOAFERS: 'shoes', SNEAKERS: 'shoes', BOOTS: 'shoes', HEELS: 'shoes', SANDALS: 'shoes', OXFORDS: 'shoes', MULES: 'shoes', FLATS: 'shoes', WEDGES: 'shoes',
   BAG: 'accessory', BELT: 'accessory', SCARF: 'accessory', WATCH: 'accessory', CAP: 'accessory',
   NECKLACE: 'accessory', SUNGLASSES: 'accessory', HAT: 'accessory', RING: 'accessory', BRACELET: 'accessory',
+  EARRINGS: 'accessory', GLOVES: 'accessory', TIGHTS: 'accessory', TIE: 'accessory',
 };
 
 export const categoryOf = (type: string): ItemCategory =>
@@ -40,24 +42,35 @@ const COLOR_MAP: Record<string, ColorEntry> = {
   Tan:        ['tan',       'light',  'muted',     30,        35,  70,  'warm'],
   Camel:      ['camel',     'medium', 'muted',     33,        40,  60,  'warm'],
   Gold:       ['metallic',  'medium', 'vivid',     45,        75,  55,  'warm'],
-  Mustard:    ['yellow',    'medium', 'vivid',     48,        70,  50,  'warm'],
+  // Mustard/Rust/Terracotta/Wine/Sage: previously collapsed into a nearby
+  // bucket (yellow/orange/orange/burgundy/green) because the engine had no
+  // dedicated PrimaryColor for them. Now repointed to their own vocabulary
+  // entry (+11 expansion, 2026-07-06) — hue/sat/lum match the canonical
+  // table in types.ts's PrimaryColor doc comment.
+  Mustard:    ['mustard',   'medium', 'vivid',     48,        65,  55,  'warm'],
   Ochre:      ['yellow',    'medium', 'balanced',  42,        55,  50,  'warm'],
   Yellow:     ['yellow',    'light',  'vivid',     55,        90,  65,  'warm'],
   Orange:     ['orange',    'medium', 'vivid',     25,        85,  55,  'warm'],
-  Rust:       ['orange',    'dark',   'balanced',  18,        55,  40,  'warm'],
-  Terracotta: ['orange',    'medium', 'balanced',  15,        50,  50,  'warm'],
+  Coral:      ['coral',     'light',  'vivid',     12,        65,  70,  'warm'],
+  Rust:       ['rust',      'medium', 'vivid',     18,        60,  45,  'warm'],
+  Terracotta: ['terracotta','medium', 'balanced',  16,        55,  50,  'warm'],
   Burgundy:   ['burgundy',  'dark',   'muted',     345,       40,  30,  'warm'],
-  Wine:       ['burgundy',  'dark',   'muted',     340,       35,  28,  'warm'],
+  Wine:       ['wine',      'dark',   'balanced',  345,       55,  30,  'cool'],
   Red:        ['red',       'medium', 'vivid',     0,         85,  50,  'warm'],
   Pink:       ['pink',      'light',  'balanced',  330,       60,  75,  'warm'],
+  Fuchsia:    ['fuchsia',   'medium', 'vivid',     320,       85,  55,  'cool'],
   Purple:     ['purple',    'medium', 'balanced',  280,       50,  45,  'cool'],
+  Lavender:   ['lavender',  'light',  'muted',     275,       30,  75,  'cool'],
+  Mauve:      ['mauve',     'medium', 'muted',     315,       25,  60,  'cool'],
   Olive:      ['olive',     'medium', 'muted',     80,        35,  40,  'warm'],
   Green:      ['green',     'medium', 'balanced',  120,       50,  45,  'cool'],
-  Sage:       ['green',     'medium', 'muted',     110,       25,  55,  'cool'],
+  Sage:       ['sage',      'medium', 'muted',     110,       20,  60,  'neutral'],
+  Mint:       ['mint',      'light',  'muted',     150,       35,  80,  'cool'],
   Forest:     ['green',     'dark',   'muted',     140,       40,  28,  'cool'],
   Emerald:    ['teal',      'medium', 'vivid',     160,       70,  45,  'cool'],
   Teal:       ['teal',      'medium', 'balanced',  175,       50,  40,  'cool'],
   Blue:       ['blue',      'medium', 'vivid',     210,       80,  50,  'cool'],
+  Denim:      ['denim',     'medium', 'balanced',  215,       45,  45,  'cool'],
   Indigo:     ['navy',      'dark',   'muted',     235,       45,  30,  'cool'],
   Navy:       ['navy',      'dark',   'muted',     225,       50,  25,  'cool'],
   Slate:      ['blue',      'medium', 'muted',     210,       20,  50,  'cool'],
@@ -110,8 +123,96 @@ export function registerColors(rows: DbColorRow[]): void {
   }
 }
 
+// ─── Measured-hex color layer (2026-07-06) ──────────────────────────────────
+// Converts a raw '#RRGGBB' hex into HSL-equivalent (hue 0-360, sat/lum 0-100 —
+// same scale as ColorEntry/DB_COLORS) and the nearest named canonical colour.
+// Used for (a) an item's stored primary_hex/secondary_hex (toFitItem below —
+// refines hue/sat/lum only, the categorical name stays from the `color`
+// field), and (b) colorPreferences entries that are hex strings rather than
+// names (personal_palette stores TONE12_PALETTES hexes, not colour names —
+// see src/features/personal-color/tone12.ts) — previously these silently
+// fell through colorProfileOf to the 'natural' default.
+
+const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
+
+export function hexToHsl(hex: string): { hue: number; sat: number; lum: number } {
+  const n = parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const lum = (max + min) / 2;
+  let hue = 0, sat = 0;
+  const d = max - min;
+  if (d !== 0) {
+    sat = lum > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) hue = ((g - b) / d) % 6;
+    else if (max === g) hue = (b - r) / d + 2;
+    else hue = (r - g) / d + 4;
+    hue *= 60;
+    if (hue < 0) hue += 360;
+  }
+  return { hue: Math.round(hue), sat: Math.round(sat * 100), lum: Math.round(lum * 100) };
+}
+
+// CALIBRATION-PENDING: coarse hue-band undertone heuristic — only used as a
+// fallback when no curated COLOR_MAP name applies (raw hex input). Reds/
+// oranges/yellows read warm, blues/purples/magentas read cool, the green/
+// yellow-green band is treated as neutral (mirrors how the curated table
+// splits e.g. Olive 'warm' vs Sage 'neutral' vs Forest 'cool' — an
+// approximation, not a re-derivation of those curated exceptions).
+export function undertoneFromHue(hue: number): Undertone {
+  if (hue >= 330 || hue < 70) return 'warm';
+  if (hue < 170) return 'neutral';
+  return 'cool';
+}
+
+function lightnessBucket(lum: number): ColorLightness {
+  return lum >= 60 ? 'light' : lum >= 30 ? 'medium' : 'dark';
+}
+
+function saturationBucket(sat: number): ColorSaturation {
+  return sat >= 60 ? 'vivid' : sat >= 45 ? 'balanced' : 'muted';
+}
+
+// Nearest named COLOR_MAP entry by weighted distance over hue/sat/lum — used
+// only to pick a categorical primaryColor for a raw hex (colorPreferences).
+// Achromatic entries (undefined hue) are compared on sat/lum alone; a
+// mismatch between one chromatic and one achromatic input carries a fixed
+// penalty so a saturated hex never nearest-matches to black/white/gray.
+function nearestNamedColor(hue: number, sat: number, lum: number): ColorEntry {
+  let best: ColorEntry | undefined;
+  let bestDist = Infinity;
+  for (const entry of Object.values(COLOR_MAP)) {
+    const [, , , eHue, eSat, eLum] = entry;
+    let dist = ((sat - eSat) / 100) ** 2 * 1.0 + ((lum - eLum) / 100) ** 2 * 1.0;
+    if (eHue === undefined) {
+      dist += 0.5; // achromatic candidate — mild penalty vs a chromatic input
+    } else {
+      const hueDiff = Math.min(Math.abs(hue - eHue), 360 - Math.abs(hue - eHue));
+      dist += (hueDiff / 180) ** 2 * 2.0; // hue is the strongest perceptual signal
+    }
+    if (dist < bestDist) { bestDist = dist; best = entry; }
+  }
+  // COLOR_MAP is a non-empty static table, so `best` is always assigned.
+  return best!;
+}
+
+function colorProfileFromHex(hex: string): ColorProfile {
+  const { hue, sat, lum } = hexToHsl(hex);
+  const nearest = nearestNamedColor(hue, sat, lum);
+  return {
+    primaryColor: nearest[0],
+    colorLightness: lightnessBucket(lum),
+    colorSaturation: saturationBucket(sat),
+    hue, sat, lum, // measured values, not the nearest entry's canonical ones
+    undertone: undertoneFromHue(hue),
+  };
+}
+
 export const colorProfileOf = (colorName: string): ColorProfile => {
-  const key = colorName ? colorName.trim().toLowerCase() : '';
+  const trimmed = colorName ? colorName.trim() : '';
+  if (HEX_RE.test(trimmed)) return colorProfileFromHex(trimmed);
+
+  const key = trimmed.toLowerCase();
   const entry = key ? COLOR_MAP_LC[key] : undefined;
   if (entry) {
     return {
@@ -165,6 +266,43 @@ const LAYER_BY_CATEGORY: Record<ItemCategory, FabricProfile['layerRole']> = {
   top: 'base', bottom: 'base', shoes: 'base', accessory: 'base', outwear: 'outer', onepiece: 'base',
 };
 
+// Layer role by garment TYPE (2026-07-03) — the category-level map above
+// collapsed layering to a binary (every top 'base', outerwear 'outer') so
+// 'mid' was dead vocabulary: a sweater carried the same label as a tee.
+// Types absent here fall back to the category map.
+const LAYER_ROLE_BY_TYPE: Record<string, FabricProfile['layerRole']> = {
+  // base — worn next to skin
+  TEE: 'base', CAMISOLE: 'base', HENLEY: 'base', BLOUSE: 'base', POLO: 'base',
+  BODYSUIT: 'base', CROP: 'base', TUNIC: 'base', CORSET: 'base', SHIRT: 'base',
+  // mid — insulation / depth between base and shell
+  SWEATER: 'mid', KNIT: 'mid', CARDIGAN: 'mid', VEST: 'mid', HOODIE: 'mid', KIMONO: 'mid',
+  // outer — the shell
+  JACKET: 'outer', BLAZER: 'outer', COAT: 'outer', PARKA: 'outer', OVERCOAT: 'outer', CAPE: 'outer',
+};
+
+// Can this piece be worn OPEN/OVER another top as a layer? Rule-derived from
+// metadata the wardrobe already stores (type × fabric × fit) — no new column,
+// applies retroactively. AI-extracted `can_layer` + a user toggle can override
+// later (backlog: dual-role layering, tầng 2–3).
+const LAYER_FABRICS = new Set(['flannel', 'denim', 'corduroy', 'wool', 'tweed']);
+
+function deriveCanLayer(
+  type: string,
+  fabricName: string | undefined,
+  fabricWeight: FabricProfile['fabricWeight'],
+  fit: ItemFit,
+): boolean {
+  const t = type.toUpperCase();
+  if (t === 'CARDIGAN' || t === 'VEST') return true;               // born to be worn open
+  if (t === 'SHIRT' || t === 'HENLEY') {
+    if (fabricName && LAYER_FABRICS.has(fabricName)) return true;  // shacket/overshirt fabrics
+    if (fabricWeight === 'heavy') return true;
+    return fit === 'relaxed' || fit === 'oversized';               // overshirt-read silhouette
+  }
+  if (t === 'SWEATER' || t === 'KNIT') return fit !== 'slim';      // knit-over-tee/oxford
+  return false;
+}
+
 const fabricProfileOf = (material: string | undefined, category: ItemCategory): FabricProfile => {
   const mat = primaryMaterial(material);
   const def: Partial<FabricDefaults> = mat ? (FABRIC_DEFAULTS[mat] ?? {}) : {};
@@ -186,6 +324,11 @@ const STYLE_AFFINITIES: Record<string, string[]> = {
   KNIT:       ['oldmoney', 'minimalist', 'smartcasual', 'preppy'],
   SHIRT:      ['oldmoney', 'smartcasual', 'preppy', 'minimalist'],
   BLOUSE:     ['bohemian', 'minimalist', 'smartcasual'],
+  CAMISOLE:   ['minimalist', 'y2k', 'smartcasual'],
+  CROP:       ['y2k', 'streetwear', 'athleisure'],
+  BODYSUIT:   ['minimalist', 'y2k', 'athleisure'],
+  TUNIC:      ['bohemian', 'minimalist', 'smartcasual'],
+  CORSET:     ['y2k', 'bohemian', 'smartcasual'],
   JACKET:     ['streetwear', 'smartcasual', 'oldmoney'],
   BLAZER:     ['oldmoney', 'smartcasual', 'preppy', 'minimalist'],
   COAT:       ['oldmoney', 'minimalist', 'smartcasual'],
@@ -196,16 +339,25 @@ const STYLE_AFFINITIES: Record<string, string[]> = {
   CHINOS:     ['preppy', 'smartcasual', 'oldmoney'],
   SHORTS:     ['athleisure', 'streetwear', 'preppy'],
   SKIRT:      ['bohemian', 'minimalist', 'y2k'],
+  LEGGINGS:   ['athleisure', 'streetwear'],
+  CAPE:       ['bohemian', 'oldmoney', 'minimalist'],
+  KIMONO:     ['bohemian', 'minimalist', 'oldmoney'],
   DRESS:      ['bohemian', 'minimalist', 'y2k', 'smartcasual'],
   LOAFERS:    ['oldmoney', 'minimalist', 'smartcasual', 'preppy'],
   SNEAKERS:   ['athleisure', 'streetwear', 'smartcasual'],
   BOOTS:      ['streetwear', 'bohemian', 'oldmoney'],
+  FLATS:      ['minimalist', 'oldmoney', 'preppy', 'smartcasual'],
+  WEDGES:     ['bohemian', 'smartcasual', 'preppy'],
   BAG:        ['minimalist', 'oldmoney', 'streetwear'],
   BELT:       ['oldmoney', 'preppy', 'smartcasual'],
   SCARF:      ['oldmoney', 'bohemian', 'preppy'],
   WATCH:      ['oldmoney', 'preppy', 'smartcasual', 'minimalist'],
   NECKLACE:   ['bohemian', 'y2k', 'minimalist'],
+  EARRINGS:   ['minimalist', 'oldmoney', 'y2k'],
+  GLOVES:     ['oldmoney', 'minimalist'],
+  TIGHTS:     ['minimalist', 'y2k', 'preppy'],
   SUNGLASSES: ['streetwear', 'y2k', 'minimalist'],
+  TIE:        ['oldmoney', 'preppy', 'smartcasual'],
 };
 
 const COLOR_STYLE_BOOSTS: Record<string, string[]> = {
@@ -301,24 +453,29 @@ const FIT_FROM_STRING: Record<string, ItemFit> = {
 const TYPE_DEFAULT_FIT: Record<string, ItemFit> = {
   TEE: 'regular', POLO: 'regular', KNIT: 'relaxed', SHIRT: 'regular',
   BLOUSE: 'relaxed', HENLEY: 'regular', SWEATER: 'relaxed', CARDIGAN: 'relaxed', VEST: 'regular',
+  CAMISOLE: 'slim', CROP: 'slim', BODYSUIT: 'slim', TUNIC: 'relaxed', CORSET: 'slim',
   JACKET: 'regular', BLAZER: 'regular', COAT: 'relaxed', HOODIE: 'oversized',
-  PARKA: 'oversized', OVERCOAT: 'relaxed',
+  PARKA: 'oversized', OVERCOAT: 'relaxed', CAPE: 'oversized', KIMONO: 'relaxed',
   JEANS: 'regular', TROUSERS: 'regular', CHINOS: 'regular',
-  SHORTS: 'regular', SKIRT: 'regular', DRESS: 'regular',
+  SHORTS: 'regular', SKIRT: 'regular', LEGGINGS: 'slim', DRESS: 'regular',
   LOAFERS: 'regular', SNEAKERS: 'regular', BOOTS: 'regular',
   HEELS: 'slim', SANDALS: 'regular', OXFORDS: 'regular', MULES: 'regular',
+  FLATS: 'regular', WEDGES: 'regular',
 };
 
-function deriveFit(item: ClothingItemRow): ItemFit {
+// Returns the derived fit AND whether it came from a real signal (stored `fit`
+// column or a fit keyword in the name) vs a type-default guess. The `real` flag
+// feeds proportion-balance confidence weighting in ranking.ts.
+function deriveFitWithProvenance(item: ClothingItemRow): { fit: ItemFit; real: boolean } {
   if (item.fit) {
     const normalized = FIT_FROM_STRING[item.fit.toLowerCase()];
-    if (normalized) return normalized;
+    if (normalized) return { fit: normalized, real: true };
   }
   const lower = item.name.toLowerCase();
   for (const [keyword, fit] of Object.entries(FIT_FROM_STRING)) {
-    if (lower.includes(keyword)) return fit;
+    if (lower.includes(keyword)) return { fit, real: true };
   }
-  return TYPE_DEFAULT_FIT[item.type.toUpperCase()] ?? 'regular';
+  return { fit: TYPE_DEFAULT_FIT[item.type.toUpperCase()] ?? 'regular', real: false };
 }
 
 // ─── Warmth (1–5) ────────────────────────────────────────────────────────────
@@ -342,13 +499,15 @@ function deriveWarmth(material: string | undefined, category: ItemCategory): num
 const TYPE_FORMALITY: Record<string, number> = {
   TEE: 1.5, POLO: 2.5, KNIT: 3.0, SHIRT: 3.5, BLOUSE: 3.0,
   HENLEY: 2.0, SWEATER: 2.5, CARDIGAN: 2.5, VEST: 3.0,
+  CAMISOLE: 2.5, CROP: 1.5, BODYSUIT: 2.5, TUNIC: 2.5, CORSET: 3.0,
   JACKET: 3.0, BLAZER: 4.5, COAT: 3.5, HOODIE: 1.5,
-  PARKA: 2.0, OVERCOAT: 4.0,
-  JEANS: 2.0, TROUSERS: 4.0, CHINOS: 3.0, SHORTS: 1.5, SKIRT: 3.0, DRESS: 3.5,
+  PARKA: 2.0, OVERCOAT: 4.0, CAPE: 3.5, KIMONO: 3.0,
+  JEANS: 2.0, TROUSERS: 4.0, CHINOS: 3.0, SHORTS: 1.5, SKIRT: 3.0, LEGGINGS: 1.5, DRESS: 3.5,
   LOAFERS: 4.0, SNEAKERS: 1.5, BOOTS: 3.0, HEELS: 4.5, SANDALS: 1.0,
-  OXFORDS: 4.5, MULES: 3.0,
+  OXFORDS: 4.5, MULES: 3.0, FLATS: 3.0, WEDGES: 3.0,
   BAG: 2.5, BELT: 3.5, SCARF: 3.0, WATCH: 3.5, CAP: 1.5,
   NECKLACE: 3.0, SUNGLASSES: 2.0, HAT: 2.5,
+  EARRINGS: 3.0, GLOVES: 3.0, TIGHTS: 3.0, TIE: 3.5,
 };
 
 const COLOR_FORMALITY_SHIFT: Partial<Record<PrimaryColor, number>> = {
@@ -390,7 +549,7 @@ function deriveStatementStrength(
   const NEUTRALS = new Set(['black', 'white', 'gray', 'charcoal', 'beige', 'cream', 'ivory', 'tan', 'taupe', 'camel', 'brown', 'khaki', 'natural', 'navy']);
   if (!NEUTRALS.has(colorProfile.primaryColor)) score += 0.5;
 
-  const LOUD_TYPES = new Set(['BLAZER', 'COAT', 'OVERCOAT', 'DRESS']);
+  const LOUD_TYPES = new Set(['BLAZER', 'COAT', 'OVERCOAT', 'DRESS', 'CAPE', 'GOWN', 'KIMONO', 'CORSET']);
   const QUIET_TYPES = new Set(['TEE', 'BELT', 'WATCH', 'SOCKS']);
   if (LOUD_TYPES.has(type.toUpperCase())) score += 0.5;
   if (QUIET_TYPES.has(type.toUpperCase())) score -= 0.3;
@@ -420,7 +579,11 @@ const LABEL_TO_KEY: Record<string, keyof GarmentMeasurements> = {
   'chest': 'chest', 'length': 'body_length', 'sleeve': 'sleeves',
   'shoulder': 'shoulder_width', 'waist': 'waist', 'hip': 'hip',
   'inseam': 'inseam', 'rise': 'rise', 'thigh': 'thigh',
-  'upper arm': 'upper_arm', 'leg opening': 'waist', // ignored in scoring
+  'upper arm': 'upper_arm',
+  // 'leg opening' removed: it measures the hem circumference at the bottom of
+  // a pant leg — not the waist. Routing it to 'waist' corrupted waist-ease
+  // calculations. No valid fit-model key exists for leg opening, so it is
+  // intentionally ignored (not mapped) rather than misrouted.
 };
 
 function parseMeasurements(
@@ -474,6 +637,20 @@ function resolvePattern(item: ClothingItemRow): Pattern {
   return inferPattern(item.name);
 }
 
+// Pattern is a "real" signal when it came from a stored `pattern` column (incl. an
+// explicit 'solid') or a pattern keyword in the name — NOT when it silently
+// defaulted to 'solid' for an unlabelled item. Drives texture/statement confidence.
+function patternIsReal(item: ClothingItemRow): boolean {
+  const stored = item.pattern?.trim().toLowerCase();
+  if (stored && STORED_PATTERN_MAP[stored]) return true;
+  return inferPattern(item.name) !== 'solid';
+}
+
+function warmthSeasonIsReal(item: ClothingItemRow): boolean {
+  const stored = item.warmthSeason?.split(',')[0]?.trim().toLowerCase();
+  return Boolean(stored && WARMTH_SEASON_MAP[stored]);
+}
+
 function applyStoredWarmth(fabric: FabricProfile, item: ClothingItemRow): FabricProfile {
   const stored = item.warmthSeason?.split(',')[0]?.trim().toLowerCase();
   const override = stored ? WARMTH_SEASON_MAP[stored] : undefined;
@@ -487,7 +664,38 @@ export function toFitItem(item: ClothingItemRow): FitItem {
   const pattern = resolvePattern(item);
   const graphics = inferGraphics(item.name);
   const fabric = applyStoredWarmth(fabricProfileOf(item.material, category), item);
-  const colorProfile = colorProfileOf(item.color);
+  // Measured-hex color layer (2026-07-06): when the item's isolated photo has
+  // yielded a measured primary_hex, refine hue/sat/lum with the ACTUAL pixel
+  // reading instead of the coarse named-category values — sharper colour-
+  // harmony/lightness-contrast scoring. The categorical primaryColor NAME
+  // stays from the `color` field (avoid-lists / style palettes match by
+  // name, not by measured hue) — a bad/absent hex simply skips this refinement.
+  let colorProfile = colorProfileOf(item.color);
+  if (item.primary_hex && /^#[0-9A-Fa-f]{6}$/.test(item.primary_hex)) {
+    const { hue, sat, lum } = hexToHsl(item.primary_hex);
+    colorProfile = {
+      ...colorProfile,
+      hue, sat, lum,
+      undertone: undertoneFromHue(hue),
+      colorLightness: lightnessBucket(lum),
+      colorSaturation: saturationBucket(sat),
+    };
+  }
+  const { fit, real: fitReal } = deriveFitWithProvenance(item);
+  const layerRole = LAYER_ROLE_BY_TYPE[item.type.toUpperCase()] ?? fabric.layerRole;
+  const fabricName = deriveFabricName(item.material);
+
+  // Visual enrichment đợt 2: stored image-derived signals refine the derived
+  // statement strength — print scale changes how loud a pattern actually reads,
+  // and visual interest captures striking-ness no categorical field can.
+  let statementStrength = deriveStatementStrength(pattern, graphics, colorProfile, item.type);
+  if (item.printScale === 'micro') statementStrength = Math.max(0, statementStrength - 0.5);
+  if (item.printScale === 'large') statementStrength = Math.min(5, statementStrength + 0.5);
+  if (typeof item.visualInterest === 'number') {
+    statementStrength = Math.max(0, Math.min(5, statementStrength + (item.visualInterest - 0.5) * 0.6));
+  }
+  const drape = item.drape === 'structured' || item.drape === 'regular' || item.drape === 'fluid'
+    ? item.drape : undefined;
 
   return {
     id: item.id,
@@ -495,13 +703,23 @@ export function toFitItem(item: ClothingItemRow): FitItem {
     typeName: item.type.toUpperCase(),
     colorProfile,
     graphics,
-    fabric: { ...fabric, pattern },
+    fabric: { ...fabric, pattern, layerRole },
+    // Stored can_layer (AI-extracted or user-set) wins over the rule derivation.
+    canLayer: item.canLayer ?? deriveCanLayer(item.type, fabricName, fabric.fabricWeight, fit),
     garmentMeasurements: parseMeasurements(item.measurements, category),
     styleTags: styleTagsOf(item.type, item.color, item.material),
-    fit: deriveFit(item),
+    fit,
     warmth: deriveWarmth(item.material, category),
     formality: deriveFormality(item.type, colorProfile.primaryColor, item.material),
-    statementStrength: deriveStatementStrength(pattern, graphics, colorProfile, item.type),
-    fabricName: deriveFabricName(item.material),
+    statementStrength,
+    fabricName,
+    drape,
+    visualInterest: typeof item.visualInterest === 'number' ? item.visualInterest : undefined,
+    provenance: {
+      fit: fitReal,
+      material: Boolean(primaryMaterial(item.material)),
+      pattern: patternIsReal(item),
+      warmthSeason: warmthSeasonIsReal(item),
+    },
   };
 }

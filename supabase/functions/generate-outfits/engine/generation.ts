@@ -1,7 +1,9 @@
 // Formula pools + candidate generation.
 // Merges formulaCatalog.ts + outfitCompositor.ts.
 
-import { FitItem, ItemCategory, PrimaryColor, ColorLightness, OutfitCandidate, OutfitSlots } from './types.ts';
+import { FitItem, ItemCategory, PrimaryColor, ColorLightness, OutfitCandidate, OutfitSlots, TargetSilhouette } from './types.ts';
+import { VOLUME } from './scoring.ts';
+import { pairSilhouetteMatch, measurementPriorityBoost } from './silhouette.ts';
 
 // ─── Formula Definitions ────────────────────────────────────────────────────
 
@@ -68,7 +70,7 @@ const COLOR_FAMILIES: Record<string, PrimaryColor[]> = {
   grays: ['gray', 'charcoal'],
 };
 
-function getColorFamily(color: PrimaryColor): string {
+export function getColorFamily(color: PrimaryColor): string {
   for (const [family, members] of Object.entries(COLOR_FAMILIES)) {
     if (members.includes(color)) return family;
   }
@@ -242,7 +244,11 @@ function poolRuleOfThirds(cats: ByCategory): FormulaPool[] {
 
 function poolLayeringStack(cats: ByCategory): FormulaPool[] {
   if (cats.outwear.length === 0 || cats.top.length === 0 || cats.bottom.length === 0 || cats.shoes.length === 0) return [];
-  const baseTops = cats.top.filter(i => i.fabric.layerRole === 'base');
+  // Base OR mid tops sit under outerwear (tee+coat and sweater+coat are both
+  // canonical stacks). Before layerRole was derived by type (2026-07-03) every
+  // top was 'base', so this filter was a no-op; keeping mid preserves that
+  // coverage now that knits/cardigans carry their true 'mid' role.
+  const baseTops = cats.top.filter(i => i.fabric.layerRole === 'base' || i.fabric.layerRole === 'mid');
   if (baseTops.length === 0) return [];
   return [{ formula: 'layering_stack', tops: baseTops, bottoms: cats.bottom, shoes: cats.shoes, outwear: cats.outwear, accessory: cats.accessory }];
 }
@@ -295,7 +301,7 @@ export function getFormulaPools(items: FitItem[], preferredFormulas?: FormulaId[
 // ─── Candidate generation (from outfitCompositor) ───────────────────────────
 
 const PER_FORMULA_CAP = 80;
-const GENERATION_CAP = 500;
+export const GENERATION_CAP = 500;
 
 // Seeded RNG so the same user gets the same candidate set within a day —
 // keeps exclude_ids paging coherent and results reproducible for debugging.
@@ -329,24 +335,185 @@ export interface FormulaCandidate extends OutfitCandidate {
   formula: FormulaId;
 }
 
-function generateFromPool(pool: FormulaPool, rand: () => number): FormulaCandidate[] {
-  const tops    = shuffle(pool.tops, rand);
-  const bottoms = shuffle(pool.bottoms, rand);
-  const shoes   = shuffle(pool.shoes, rand);
+// ─── Anchor-first composition (S2, 2026-07-02) ───────────────────────────────
+//
+// A stylist doesn't enumerate every combination and grade it — they pick the
+// piece the look is BUILT AROUND, then choose each remaining piece FOR the
+// pieces already on the table. generateFromPool used to enumerate cores
+// round-robin; it now composes them: rank anchors, pick the best-matching
+// counterpart for each anchor, then the best shoe for that pair. Deterministic
+// (affinity sort with id tie-breaks); the seeded rand only feeds variant picks.
+
+// Reuses scoring.ts's canonical VOLUME map (slim=1 … oversized=5) — do not
+// redefine it here.
+const FIT_VOLUME: Record<string, number> = VOLUME;
+const ANCHOR_CAP = 8;   // anchors considered per pool
+const BRANCH = 2;       // counterparts / shoes explored per step
+
+function isTopLike(i: FitItem): boolean {
+  return i.category === 'top' || i.category === 'outwear' || i.category === 'onepiece';
+}
+function isBottomLike(i: FitItem): boolean {
+  return i.category === 'bottom' || i.category === 'onepiece';
+}
+
+// How well two SPECIFIC pieces sit together — the conditional judgment a
+// stylist makes at each pick. Cheap heuristics in [0, 1], formula-aware.
+//
+// Silhouette-first resolution (2026-07-12): when a `target` is supplied with
+// `targetConfidence > 0`, the generic proportion term is confidence-blended
+// with how well the pair realizes the target silhouette — but ONLY when {a,b}
+// actually contains one top-like and one bottom-like item (a shoe/top or
+// shoe/bottom pairAffinity call is unaffected). At targetConfidence === 0
+// (fully guessed wardrobe, or no target passed) this is byte-identical to the
+// pre-existing generic behaviour.
+export function pairAffinity(
+  a: FitItem, b: FitItem, formula?: FormulaId,
+  target?: TargetSilhouette, targetConfidence = 0,
+): number {
+  const pa = a.colorProfile, pb = b.colorProfile;
+
+  // Colour relationship: neutrals pair with anything; chromatic pairs follow hue distance.
+  let color: number;
+  if (pa.hue === undefined || pb.hue === undefined) {
+    color = 0.85;
+  } else {
+    const d = Math.min(Math.abs(pa.hue - pb.hue), 360 - Math.abs(pa.hue - pb.hue));
+    color = d <= 30 ? 1.0 : d <= 50 ? 0.85 : (d >= 150 ? 0.9 : d >= 120 ? 0.7 : 0.4);
+  }
+
+  // Light/dark interplay: some contrast reads deliberate — except in tonal
+  // formulas, where tightness is the concept and the pool already enforces it.
+  let light: number;
+  if (formula === 'monochrome' || formula === 'tonal_gradient') {
+    light = 0.8;
+  } else {
+    const dl = Math.abs(pa.lum - pb.lum);
+    light = dl >= 15 && dl <= 70 ? 1.0 : dl < 15 ? 0.6 : 0.7;
+  }
+
+  // Register: neighbours by default; a deliberate split for high_low.
+  const df = Math.abs(a.formality - b.formality);
+  const formality = formula === 'high_low'
+    ? (df >= 1.5 && df <= 3.0 ? 1.0 : df >= 1.0 ? 0.7 : 0.4)
+    : Math.max(0, 1 - df / 2.5);
+
+  // Proportion: one fitted piece against one with volume beats two of a kind.
+  const dv = Math.abs((FIT_VOLUME[a.fit] ?? 2) - (FIT_VOLUME[b.fit] ?? 2));
+  const genericProportion = dv === 1 || dv === 2 ? 1.0 : dv === 0 ? 0.7 : 0.5;
+
+  let proportion = genericProportion;
+  if (target && targetConfidence > 0) {
+    const top = isTopLike(a) ? a : (isTopLike(b) ? b : undefined);
+    const bottom = isBottomLike(b) ? b : (isBottomLike(a) ? a : undefined);
+    if (top && bottom && top.id !== bottom.id) {
+      const silhouetteMatch = pairSilhouetteMatch(top, bottom, target);
+      proportion = (1 - targetConfidence) * genericProportion + targetConfidence * silhouetteMatch;
+    }
+  }
+
+  // Undertone: warm and cool fight unless one side is neutral.
+  const undertone = pa.undertone === 'neutral' || pb.undertone === 'neutral' || pa.undertone === pb.undertone ? 1.0 : 0.5;
+
+  return 0.30 * color + 0.20 * light + 0.25 * formality + 0.15 * proportion + 0.10 * undertone;
+}
+
+// Deterministic ordering helpers: affinity desc, id asc as the tie-break.
+const byScoreThenId = <T extends { s: number; i: FitItem }>(a: T, b: T) =>
+  b.s - a.s || (a.i.id < b.i.id ? -1 : 1);
+
+function generateFromPool(pool: FormulaPool, rand: () => number, target?: TargetSilhouette): FormulaCandidate[] {
   const outwear = shuffle(pool.outwear, rand);
   const accs    = shuffle(pool.accessory, rand);
 
-  if (tops.length === 0 || bottoms.length === 0 || shoes.length === 0) return [];
+  if (pool.tops.length === 0 || pool.bottoms.length === 0 || pool.shoes.length === 0) return [];
 
-  // Enumerate distinct core triples (top + bottom + shoes).
-  const cores: Array<{ top: FitItem; bottom: FitItem; shoe: FitItem }> = [];
-  coreLoop:
-  for (const top of tops) {
-    for (const bottom of bottoms) {
-      for (const shoe of shoes) {
-        cores.push({ top, bottom, shoe });
-        if (cores.length >= PER_FORMULA_CAP) break coreLoop;
+  // Silhouette-first resolution (2026-07-12): degradable — at conf 0 (no
+  // target, or a fully-guessed wardrobe) every boost below is exactly 0 and
+  // pairAffinity's blend is a no-op, so this is byte-identical to the
+  // pre-existing behaviour. `mBoost` is the SMALL measurement-priority nudge:
+  // enough to break a near-tie toward a measured item, never enough to
+  // override a real statementStrength/affinity gap ("loudest piece leads").
+  const conf = target?.confidence ?? 0;
+  const mBoost = (i: FitItem) => (conf > 0 ? measurementPriorityBoost(i) : 0);
+
+  // 1. Anchors: the loudest pieces across tops + bottoms + OUTERWEAR lead
+  //    their looks (a statement coat anchors by presence — S2 follow-up,
+  //    2026-07-03). Deterministic: statementStrength desc, id tie-break.
+  type Core = { top: FitItem; bottom: FitItem; shoe: FitItem; outwear?: FitItem };
+  const anchors = [...pool.tops, ...pool.bottoms, ...pool.outwear]
+    .map(i => ({ s: i.statementStrength + mBoost(i), i }))
+    .sort(byScoreThenId)
+    .slice(0, ANCHOR_CAP)
+    .map(({ i }) => i);
+
+  // 2. Compose around each anchor: best counterparts FOR the anchor, then the
+  //    best shoes FOR each resulting pair (averaged affinity to both pieces).
+  const cores: Core[] = [];
+  const seenCore = new Set<string>();
+  const perAnchor: Core[][] = [];
+
+  for (const anchor of anchors) {
+    const looks: Core[] = [];
+
+    if (anchor.category === 'outwear') {
+      // Outerwear leads: it is FIXED into the outwear slot and the whole core
+      // is composed under it — best top for the coat, best bottom for that
+      // pair, best shoes for the result.
+      const tops = pool.tops
+        .map(i => ({ s: pairAffinity(anchor, i, pool.formula, target, conf) + mBoost(i), i }))
+        .sort(byScoreThenId).slice(0, BRANCH).map(({ i }) => i);
+      for (const top of tops) {
+        const bottom = pool.bottoms
+          .map(i => ({
+            s: (pairAffinity(top, i, pool.formula, target, conf) + pairAffinity(anchor, i, pool.formula, target, conf)) / 2 + mBoost(i),
+            i,
+          }))
+          .sort(byScoreThenId)[0]?.i;
+        if (!bottom) continue;
+        const shoes = pool.shoes
+          .map(i => ({ s: (pairAffinity(i, top, pool.formula) + pairAffinity(i, bottom, pool.formula)) / 2, i }))
+          .sort(byScoreThenId).slice(0, BRANCH).map(({ i }) => i);
+        for (const shoe of shoes) looks.push({ top, bottom, shoe, outwear: anchor });
       }
+    } else {
+      const anchorIsTop = anchor.category !== 'bottom';
+      const counterpartPool = anchorIsTop ? pool.bottoms : pool.tops;
+
+      const counterparts = counterpartPool
+        .map(i => ({ s: pairAffinity(anchor, i, pool.formula, target, conf) + mBoost(i), i }))
+        .sort(byScoreThenId)
+        .slice(0, BRANCH)
+        .map(({ i }) => i);
+
+      for (const counterpart of counterparts) {
+        const top = anchorIsTop ? anchor : counterpart;
+        const bottom = anchorIsTop ? counterpart : anchor;
+        const shoes = pool.shoes
+          .map(i => ({ s: (pairAffinity(i, top, pool.formula) + pairAffinity(i, bottom, pool.formula)) / 2, i }))
+          .sort(byScoreThenId)
+          .slice(0, BRANCH)
+          .map(({ i }) => i);
+        for (const shoe of shoes) looks.push({ top, bottom, shoe });
+      }
+    }
+    perAnchor.push(looks);
+  }
+
+  // 3. Interleave anchor-major (every anchor's best look before any anchor's
+  //    second) so the front of the feed shows DIFFERENT stories, not four
+  //    variations of the strongest anchor.
+  const maxLooks = perAnchor.reduce((m, l) => Math.max(m, l.length), 0);
+  coreLoop:
+  for (let round = 0; round < maxLooks; round++) {
+    for (const looks of perAnchor) {
+      if (round >= looks.length) continue;
+      const c = looks[round];
+      const key = `${c.top.id}|${c.bottom.id}|${c.shoe.id}|${c.outwear?.id ?? ''}`;
+      if (seenCore.has(key)) continue;
+      seenCore.add(key);
+      cores.push(c);
+      if (cores.length >= PER_FORMULA_CAP) break coreLoop;
     }
   }
 
@@ -357,12 +524,37 @@ function generateFromPool(pool: FormulaPool, rand: () => number): FormulaCandida
   // same items: duplicate items across outfits are fine, duplicate full outfits
   // are not. Round 0 already yields a natural mix of 3-/4-/5-item outfits.
   const pick = (arr: FitItem[]) => arr[Math.floor(rand() * arr.length)];
-  const variantsFor = (c: { top: FitItem; bottom: FitItem; shoe: FitItem }): OutfitSlots[] => {
+
+  // Dual-role layering (2026-07-03) — an OPTIONAL variant, never a gate: a
+  // canLayer top from this pool may occupy the outwear slot OVER a true base
+  // top (overshirt/cardigan/knit-over). Physical sanity: the layer must be at
+  // least as heavy and not tighter than what's underneath. The bare core is
+  // always emitted too, so non-layered outfits are entirely unaffected.
+  const WEIGHT_ORDER: Record<string, number> = { light: 0, medium: 1, heavy: 2 };
+  const layerables = pool.tops.filter(t => t.canLayer);
+  const layerOptionsFor = (baseTop: FitItem): FitItem[] =>
+    baseTop.fabric.layerRole === 'base'
+      ? layerables.filter(l =>
+          l.id !== baseTop.id &&
+          WEIGHT_ORDER[l.fabric.fabricWeight] >= WEIGHT_ORDER[baseTop.fabric.fabricWeight] &&
+          (FIT_VOLUME[l.fit] ?? 2) >= (FIT_VOLUME[baseTop.fit] ?? 2))
+      : [];
+
+  const variantsFor = (c: Core): OutfitSlots[] => {
     const base: OutfitSlots = { top: c.top.id, bottom: c.bottom.id, shoes: c.shoe.id };
+    // Outerwear-anchored core: the coat is fixed — only the accessory varies.
+    if (c.outwear) {
+      base.outwear = c.outwear.id;
+      const vs: OutfitSlots[] = [{ ...base }];
+      if (accs.length > 0) vs.push({ ...base, accessory: pick(accs).id });
+      return shuffle(vs, rand);
+    }
     const vs: OutfitSlots[] = [{ ...base }];
     if (accs.length > 0)                       vs.push({ ...base, accessory: pick(accs).id });
     if (outwear.length > 0)                    vs.push({ ...base, outwear: pick(outwear).id });
     if (outwear.length > 0 && accs.length > 0) vs.push({ ...base, outwear: pick(outwear).id, accessory: pick(accs).id });
+    const layers = layerOptionsFor(c.top);
+    if (layers.length > 0)                     vs.push({ ...base, outwear: pick(layers).id });
     return shuffle(vs, rand);
   };
   const coreVariants = cores.map(variantsFor);
@@ -409,6 +601,52 @@ function generateOnepieceCandidates(items: FitItem[], rand: () => number): Formu
   return candidates;
 }
 
+// ─── Shared inner loop ────────────────────────────────────────────────────────
+//
+// Builds complete outfit candidates (top + bottom + shoes + optional layers)
+// given pre-resolved slot pools expressed as id arrays. Both the pinned path
+// (generatePinnedCandidates) and the hero-first path (generateHeroCandidates)
+// share this loop so the enumeration logic has ONE source of truth.
+//
+// fixedOutwear / fixedAccessory — when set, that id is forced into every
+// candidate and the corresponding optional pool is skipped. cap limits the
+// total returned; rand must be the caller's seeded generator so this function
+// consumes its share of the RNG sequence in order.
+// Returns [] immediately when any core pool is empty.
+function buildAroundFixed(
+  topPool: string[], bottomPool: string[], shoePool: string[],
+  outwear: string[], accs: string[],
+  fixedOutwear: string | undefined, fixedAccessory: string | undefined,
+  cap: number, rand: () => number,
+): FormulaCandidate[] {
+  if (topPool.length === 0 || bottomPool.length === 0 || shoePool.length === 0) return [];
+
+  const pick = (arr: string[]) => arr[Math.floor(rand() * arr.length)];
+  const candidates: FormulaCandidate[] = [];
+
+  for (const top of topPool) {
+    for (const bottom of bottomPool) {
+      for (const shoe of shoePool) {
+        const base: OutfitSlots = { top, bottom, shoes: shoe };
+        if (fixedOutwear)   base.outwear   = fixedOutwear;
+        if (fixedAccessory) base.accessory = fixedAccessory;
+
+        // Distinct variants: bare core, +accessory, +outerwear (only for the
+        // optional slots that aren't already fixed by the caller).
+        const variants: OutfitSlots[] = [{ ...base }];
+        if (!fixedAccessory && accs.length > 0)    variants.push({ ...base, accessory: pick(accs) });
+        if (!fixedOutwear   && outwear.length > 0) variants.push({ ...base, outwear:   pick(outwear) });
+
+        for (const v of shuffle(variants, rand)) {
+          candidates.push({ slots: v, formula: 'one_two_three' });
+          if (candidates.length >= cap) return candidates;
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
 // ─── Pinned candidate generation (Try On / Mix & Match — feature 008) ────────
 //
 // Builds outfits that ALWAYS contain a transient pinned item (the scanned
@@ -424,12 +662,25 @@ function generateOnepieceCandidates(items: FitItem[], rand: () => number): Formu
 const PINNED_CAP = 120;
 
 export function generatePinnedCandidates(
-  wardrobe: FitItem[], pin: FitItem, seed?: string,
+  wardrobe: FitItem[], pin: FitItem, seed?: string, target?: TargetSilhouette,
 ): FormulaCandidate[] {
   const rand = seed ? mulberry32(hashStr(seed)) : Math.random;
   const cats = categorize(wardrobe);
-  const tops    = shuffle(cats.top, rand).map(i => i.id);
-  const bottoms = shuffle(cats.bottom, rand).map(i => i.id);
+
+  // Silhouette-first resolution (2026-07-12): at conf 0 (no target passed, or
+  // a fully-guessed wardrobe) this is a plain shuffle, byte-identical to the
+  // pre-existing behaviour. With confidence, a measured top/bottom surfaces
+  // earlier in its pool — a stable sort on top of the seeded shuffle, so it
+  // stays deterministic without hard-filtering out any guessed item.
+  const conf = target?.confidence ?? 0;
+  const orderIds = (arr: FitItem[]): string[] => {
+    const shuffled = shuffle(arr, rand);
+    if (conf <= 0) return shuffled.map(i => i.id);
+    return [...shuffled].sort((a, b) => measurementPriorityBoost(b) - measurementPriorityBoost(a)).map(i => i.id);
+  };
+
+  const tops    = orderIds(cats.top);
+  const bottoms = orderIds(cats.bottom);
   const shoes   = shuffle(cats.shoes, rand).map(i => i.id);
   const outwear = shuffle(cats.outwear, rand).map(i => i.id);
   const accs    = shuffle(cats.accessory, rand).map(i => i.id);
@@ -455,34 +706,158 @@ export function generatePinnedCandidates(
   // Can't complete the core → no candidates → sparse-wardrobe state.
   if (topPool.length === 0 || bottomPool.length === 0 || shoePool.length === 0) return [];
 
-  const pick = (arr: string[]) => arr[Math.floor(rand() * arr.length)];
-  const candidates: FormulaCandidate[] = [];
-
-  coreLoop:
-  for (const top of topPool) {
-    for (const bottom of bottomPool) {
-      for (const shoe of shoePool) {
-        const base: OutfitSlots = { top, bottom, shoes: shoe };
-        if (fixedOutwear)   base.outwear = fixedOutwear;
-        if (fixedAccessory) base.accessory = fixedAccessory;
-
-        // Distinct variants: bare core, +accessory, +outerwear (only for the
-        // optional slots the pin does not already occupy).
-        const variants: OutfitSlots[] = [{ ...base }];
-        if (!fixedAccessory && accs.length > 0)    variants.push({ ...base, accessory: pick(accs) });
-        if (!fixedOutwear   && outwear.length > 0) variants.push({ ...base, outwear: pick(outwear) });
-
-        for (const v of shuffle(variants, rand)) {
-          candidates.push({ slots: v, formula: 'one_two_three' });
-          if (candidates.length >= PINNED_CAP) break coreLoop;
-        }
-      }
-    }
-  }
-  return candidates;
+  return buildAroundFixed(
+    topPool, bottomPool, shoePool,
+    outwear, accs,
+    fixedOutwear, fixedAccessory,
+    PINNED_CAP, rand,
+  );
 }
 
-export function generateCandidates(items: FitItem[], preferredFormulas?: FormulaId[], seed?: string): FormulaCandidate[] {
+// ─── Hero-first generation ────────────────────────────────────────────────────
+//
+// Generates outfits built AROUND high-statement ("hero") items in the user's
+// wardrobe. The resulting candidates are merged into the normal pool by index.ts
+// so visually striking pieces get featured even when formula scoring would rank
+// them lower. Uses buildAroundFixed so enumeration behavior is identical to the
+// pinned path.
+export const HERO_CAP           = 6;    // max heroes selected per day
+export const HERO_PER_CAP       = 24;   // max candidates contributed per hero
+export const HERO_MIN_STATEMENT = 2.0;  // minimum heroScore to qualify as a hero
+const HERO_PALETTE_BONUS        = 0.5;  // a piece in the user's own palette makes a better hero
+
+// A piece can LEAD a look two ways, and heroScore captures both:
+//   • loudly — colour/pattern/graphics (statementStrength), OR
+//   • architecturally — a tailored or outerwear piece anchors a look by its CUT
+//     even in a quiet neutral. Without this, a minimalist/all-neutral wardrobe
+//     (MIEN's target aesthetic) would never get a hero and L3 would do nothing.
+// Plus a small nudge when the piece sits in the user's palette, so the featured
+// item also matches their taste. All weights tunable.
+function structuralPresence(item: FitItem): number {
+  let b = 0;
+  if (item.category === 'outwear') b += 1.0;                       // outerwear naturally anchors
+  if (item.formality >= 4.0) b += 0.8;                             // tailored/formal (blazer, structured trouser)
+  else if (item.formality >= 3.5) b += 0.5;
+  if (item.fit === 'slim' || item.fit === 'oversized') b += 0.3;  // a deliberate silhouette
+  return Math.min(b, 1.8);
+}
+
+// A piece the user has actually saved/worn outfits around is a proven hero —
+// small additive bonus so their own favourites get featured (L2 follow-up c).
+const HERO_FAVOURITE_BONUS = 0.4;
+
+function heroScore(item: FitItem, palette: Set<PrimaryColor>, favourites?: Set<string>): number {
+  const paletteBonus = palette.has(item.colorProfile.primaryColor) ? HERO_PALETTE_BONUS : 0;
+  const favouriteBonus = favourites?.has(item.id) ? HERO_FAVOURITE_BONUS : 0;
+  // Visual interest (đợt 2): a piece the camera says is striking makes a better
+  // hero than an equally-categorised plain one. Centered on 0.5, ±0.4 swing.
+  const visualBonus = typeof item.visualInterest === 'number' ? (item.visualInterest - 0.5) * 0.8 : 0;
+  return item.statementStrength + structuralPresence(item) + paletteBonus + favouriteBonus + visualBonus;
+}
+
+export function generateHeroCandidates(
+  items: FitItem[], seed?: string, userPalette: PrimaryColor[] = [], favouriteIds?: Set<string>,
+  target?: TargetSilhouette,
+): FormulaCandidate[] {
+  const rand = seed ? mulberry32(hashStr(seed)) : Math.random;
+
+  // Hero-eligible categories: statement pieces that ANCHOR an outfit visually.
+  // Shoes and accessories are excluded — they complement rather than lead.
+  const eligibleCategories = new Set<ItemCategory>(['top', 'bottom', 'outwear', 'onepiece']);
+  const eligible = items.filter(i => eligibleCategories.has(i.category));
+  const palette = new Set(userPalette);
+
+  // Silhouette-first resolution (2026-07-12): same degradable measurement
+  // boost as generateFromPool — 0 (no-op) unless a target with real
+  // confidence is supplied, so existing callers (no 5th arg) are unaffected.
+  const conf = target?.confidence ?? 0;
+  const mBoost = (i: FitItem) => (conf > 0 ? measurementPriorityBoost(i) : 0);
+
+  // Primary hero pool: rank eligible items by heroScore (loudness + architectural
+  // presence + palette affinity), keep those above the threshold, and take at most
+  // ONE hero per garment TYPE so the feed isn't six near-identical statement pieces.
+  // Deterministic: heroScore desc, id tie-break.
+  const ranked = eligible
+    .map(i => ({ i, s: heroScore(i, palette, favouriteIds) + mBoost(i) }))
+    .filter(({ s }) => s >= HERO_MIN_STATEMENT)
+    .sort((a, b) => b.s - a.s || (a.i.id < b.i.id ? -1 : 1));
+
+  let heroes: FitItem[] = [];
+  const seenTypes = new Set<string>();
+  for (const { i } of ranked) {
+    if (seenTypes.has(i.typeName)) continue; // ≤ 1 hero per type — diversify the feature
+    heroes.push(i);
+    seenTypes.add(i.typeName);
+    if (heroes.length >= HERO_CAP) break;
+  }
+
+  // Fallback: nothing clears the threshold → feature the single highest-scoring
+  // eligible item, but only when it is non-neutral OR architectural (a flat
+  // all-neutral basics wardrobe doesn't benefit from a hero → [] avoids a no-op).
+  if (heroes.length === 0) {
+    const best = eligible
+      .map(i => ({ i, s: heroScore(i, palette, favouriteIds) + mBoost(i) }))
+      .sort((a, b) => b.s - a.s || (a.i.id < b.i.id ? -1 : 1))[0];
+    if (best && (best.i.colorProfile.undertone !== 'neutral' || structuralPresence(best.i) >= 1.0)) {
+      heroes = [best.i];
+    } else {
+      return []; // fully neutral basics wardrobe — no hero treatment needed
+    }
+  }
+
+  const cats = categorize(items);
+  const allCandidates: FormulaCandidate[] = [];
+
+  for (const hero of heroes) {
+    const hid = hero.id;
+
+    // Build each pool from the full wardrobe, explicitly excluding the hero
+    // from whichever category it belongs to so it can't slip into an optional
+    // slot it's already anchoring as the fixed piece.
+    // The OPTIONAL flair slots (accessory / non-hero outerwear) stay QUIET — a
+    // loud accessory or statement jacket would fight the hero, not support it —
+    // so statement pieces (>= HERO_MIN_STATEMENT) are excluded from them. The
+    // core slots are left unfiltered; the hero already anchors the look.
+    const isQuiet = (i: FitItem) => i.statementStrength < HERO_MIN_STATEMENT;
+    const topsAll    = shuffle(cats.top    .filter(i => i.id !== hid), rand).map(i => i.id);
+    const bottomsAll = shuffle(cats.bottom .filter(i => i.id !== hid), rand).map(i => i.id);
+    const shoesAll   = shuffle(cats.shoes,                              rand).map(i => i.id);
+    const outwearAll = shuffle(cats.outwear.filter(i => i.id !== hid && isQuiet(i)), rand).map(i => i.id);
+    const accsAll    = shuffle(cats.accessory.filter(isQuiet),                        rand).map(i => i.id);
+
+    // Fix the hero into its own slot; leave the remaining core slots to the
+    // wardrobe (same contract as generatePinnedCandidates for a resident item).
+    let topPool    = topsAll;
+    let bottomPool = bottomsAll;
+    let shoePool   = shoesAll;
+    let fixedOutwear: string | undefined;
+    // fixedAccessory is always undefined — accessories are not eligible heroes.
+
+    switch (hero.category) {
+      case 'top':      topPool      = [hid]; break;
+      case 'bottom':   bottomPool   = [hid]; break;
+      case 'outwear':  fixedOutwear = hid;   break;
+      case 'onepiece': topPool = [hid]; bottomPool = [hid]; break;
+      default:         break; // unreachable: eligible filter blocks shoes/accessory
+    }
+
+    // If the wardrobe can't complete an outfit around this hero, skip it.
+    if (topPool.length === 0 || bottomPool.length === 0 || shoePool.length === 0) continue;
+
+    allCandidates.push(...buildAroundFixed(
+      topPool, bottomPool, shoePool,
+      outwearAll, accsAll,
+      fixedOutwear, undefined,
+      HERO_PER_CAP, rand,
+    ));
+  }
+
+  return allCandidates;
+}
+
+export function generateCandidates(
+  items: FitItem[], preferredFormulas?: FormulaId[], seed?: string, target?: TargetSilhouette,
+): FormulaCandidate[] {
   const rand = seed ? mulberry32(hashStr(seed)) : Math.random;
   const pools = getFormulaPools(items, preferredFormulas);
   const onepieceCandidates = generateOnepieceCandidates(items, rand);
@@ -494,7 +869,7 @@ export function generateCandidates(items: FitItem[], preferredFormulas?: Formula
 
   const allCandidates: FormulaCandidate[] = [...onepieceCandidates];
   for (const pool of pools) {
-    allCandidates.push(...generateFromPool(pool, rand));
+    allCandidates.push(...generateFromPool(pool, rand, target));
     if (allCandidates.length >= GENERATION_CAP) break;
   }
   return allCandidates.slice(0, GENERATION_CAP);

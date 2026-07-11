@@ -7,9 +7,11 @@ import {
   FitItem, ColorProfile, PrimaryColor, BodyMeasurements, BodyShape,
   StyleAttributes, StyleDef, Mood, ColorPalette, Silhouette,
   FabricWeight, ItemFit, Season, FitPoint, FitCategory, ItemFitResult,
+  TargetSilhouette,
 } from './types.ts';
 import { colorProfileOf } from './enrichment.ts';
 import { STYLE_CONFIGS } from './filtering.ts';
+import { CLASSIC_TRIPLES, CLASHING_PAIRS } from './taste-data.ts';
 
 // Colours that flatter each personal colour season.
 // Keyed by undertone ('warm'/'cool') and lightness ('light'/'dark'/'vivid').
@@ -29,6 +31,11 @@ const SEASON_FLATTERING: Record<string, { undertones: string[]; avoid: string[] 
   winter: {
     undertones: ['cool'],
     avoid: ['orange', 'brown', 'beige', 'camel'],
+  },
+  // Belt-and-suspenders alias: 'fall' resolves to the same rules as 'autumn'.
+  fall: {
+    undertones: ['warm'],
+    avoid: ['black', 'navy', 'pink', 'fuchsia'],
   },
 };
 
@@ -87,10 +94,23 @@ function undertoneConsistency(profiles: ColorProfile[]): number {
   return 0.45;
 }
 
-function lightnessContrast(profiles: ColorProfile[]): number {
+// Distinct tactile surfaces among the non-accessory items — the stylist's
+// substitute for tonal contrast in a deliberate single-tone look.
+function textureVariety(items: FitItem[]): number {
+  const visible = items.filter(i => i.category !== 'accessory');
+  return new Set(visible.map(i => i.fabricName ?? `${i.fabric.fabricWeight}_${i.fabric.pattern}`)).size;
+}
+
+function lightnessContrast(profiles: ColorProfile[], items?: FitItem[], formula?: string): number {
   const lums = profiles.map(p => p.lum);
   const range = Math.max(...lums) - Math.min(...lums);
-  if (range < 15) return 0.5;
+  if (range < 15) {
+    // Formula contract (monochrome): a tight tonal look is the CONCEPT, not a
+    // failure — provided texture carries the interest instead ("varied by
+    // texture and shade"). Same rule stylists apply to all-black dressing.
+    if (formula === 'monochrome' && items && textureVariety(items) >= 2) return 0.85;
+    return 0.5;
+  }
   if (range <= 50) return 1.0;
   if (range <= 70) return 0.85;
   return 0.7;
@@ -125,8 +145,13 @@ function graphicDensityPenalty(items: FitItem[]): number {
   return heavy > 1 ? 0.5 : 1.0;
 }
 
+/** Normalise season strings so both 'fall' and 'autumn' resolve to the same key. */
+function normSeason(s: string): string {
+  return s === 'fall' ? 'autumn' : s;
+}
+
 function seasonCompatibilityBonus(profiles: ColorProfile[], colorSeason: string): number {
-  const rule = SEASON_FLATTERING[colorSeason];
+  const rule = SEASON_FLATTERING[normSeason(colorSeason)];
   if (!rule) return 0;
   const total = profiles.length;
   if (total === 0) return 0;
@@ -143,10 +168,139 @@ function seasonCompatibilityBonus(profiles: ColorProfile[], colorSeason: string)
   return matchRatio * 0.07 - penaltyRatio * 0.10;
 }
 
+// ── Weather-season colour nudge (distinct from personal colour season above) ──
+// Convention: summer/spring favour LIGHT + BRIGHT colours; winter favours DARK
+// (and tolerates DEEP/saturated); autumn favours darker, MUTED/earthy tones.
+// Uses each colour's lightness (lum) and saturation (sat). Neutral-undertone
+// staples (black/white/grey/charcoal) are season-agnostic and exempt. Capped at
+// ±WEATHER_COLOR_MAX — slightly below the personal-season bonus so the user's
+// own palette stays primary. Tunable.
+const WEATHER_COLOR_MAX = 0.08;
+const WEATHER_COLOR_PREF: Record<Season, { lum: number; sat: number }> = {
+  summer:    { lum: 1.0,  sat: 0.6 },
+  spring:    { lum: 0.8,  sat: 0.6 },
+  fall:      { lum: -0.4, sat: -0.5 },
+  winter:    { lum: -1.0, sat: 0.2 },
+  allSeason: { lum: 0,    sat: 0 },
+};
+
+function weatherSeasonColorBonus(profiles: ColorProfile[], weatherSeason: Season): number {
+  const pref = WEATHER_COLOR_PREF[weatherSeason];
+  if (!pref || (pref.lum === 0 && pref.sat === 0)) return 0;
+  // Only chromatic (non-neutral) items carry a seasonal colour temperature.
+  const chromatic = profiles.filter(p => p.undertone !== 'neutral');
+  if (chromatic.length === 0) return 0;
+  let total = 0;
+  for (const p of chromatic) {
+    const normLum = (p.lum - 50) / 50;   // -1 dark .. +1 light
+    const normSat = (p.sat - 50) / 50;   // -1 muted .. +1 vivid
+    const align = Math.max(-1, Math.min(1, pref.lum * normLum + pref.sat * normSat));
+    total += align;
+  }
+  return (total / chromatic.length) * WEATHER_COLOR_MAX;
+}
+
+// ── 12-tone quality bonus (refines colorSeason with a lightness/clarity axis) ──
+// The 4-way colorSeason (spring/summer/autumn/winter) already encodes undertone
+// via seasonCompatibilityBonus above. The 12-tone system (color_tone12) adds an
+// orthogonal QUALITY dimension per season — light_*/deep_*/bright_*/soft_*/true_*
+// — describing which colour "temperature × depth × clarity" band actually
+// flatters the person. This bonus scores that quality dimension alone (using lum
+// for light/deep, sat for bright/soft), independent of undertone. 'true_*' has no
+// extra quality signal beyond the parent season, so it is a no-op (0). Includes
+// ALL items (unlike weatherSeasonColorBonus) — a neutral like black/white still
+// reads unambiguously deep/light, which is exactly the signal this bonus needs.
+// Magnitude CALIBRATION-PENDING: mirrors weatherSeasonColorBonus's structure and
+// is capped at the same ±TONE12_QUALITY_MAX, keeping both "secondary" colour
+// nudges in the same band and below the primary seasonCompatibilityBonus (±0.10).
+const TONE12_QUALITY_MAX = 0.08;
+
+type Tone12Quality = 'light' | 'deep' | 'bright' | 'soft' | 'true';
+const TONE12_QUALITIES = new Set<Tone12Quality>(['light', 'deep', 'bright', 'soft', 'true']);
+
+function tone12Quality(tone12: string): Tone12Quality | undefined {
+  const prefix = tone12.split('_')[0]?.toLowerCase();
+  return TONE12_QUALITIES.has(prefix as Tone12Quality) ? (prefix as Tone12Quality) : undefined;
+}
+
+// 12-tone "better to skip" colour lists — draft-curated by the design lead
+// (2026-07-06). Same data as the client copy in
+// src/features/personal-color/tone12.ts (TONE12_AVOID) — the two are
+// duplicated across runtimes INTENTIONALLY (client can't import this Deno-only
+// file; this file can't import a React Native module) and must stay in sync
+// manually. Typed as PrimaryColor[] so a name outside the engine's vocabulary
+// fails to compile here — the client reproduces the same drops via a runtime
+// filter (tone12.ts). 'mustard'/'rust'/'fuchsia' entries below were dead code
+// until the +11 vocabulary expansion (2026-07-06, types.ts) made them valid —
+// they now fire for real.
+export const TONE12_AVOID: Record<string, PrimaryColor[]> = {
+  light_spring:  ['black', 'charcoal', 'burgundy', 'navy'],
+  true_spring:   ['black', 'charcoal', 'burgundy', 'navy'],
+  bright_spring: ['olive', 'beige', 'brown', 'charcoal'],
+  light_summer:  ['orange', 'rust', 'mustard', 'camel', 'black'],
+  true_summer:   ['orange', 'rust', 'mustard', 'olive', 'black'],
+  soft_summer:   ['orange', 'rust', 'black', 'fuchsia'],
+  soft_autumn:   ['black', 'fuchsia', 'pink', 'navy'],
+  true_autumn:   ['black', 'navy', 'pink', 'fuchsia'],
+  deep_autumn:   ['pink', 'fuchsia', 'navy'],
+  bright_winter: ['beige', 'camel', 'mustard', 'olive', 'orange'],
+  true_winter:   ['orange', 'brown', 'beige', 'camel', 'mustard'],
+  deep_winter:   ['camel', 'orange', 'beige', 'mustard'],
+};
+
+// Deliberately below the parent-season penalty (seasonCompatibilityBonus,
+// ±0.10) — the 12-tone skip-list refines the 4-season one, it doesn't outrank
+// it. CALIBRATION-PENDING.
+const TONE12_AVOID_MAX = 0.06;
+
+// Additional penalty for items whose colour is on the tone12 skip-list but
+// NOT already covered by the parent season's SEASON_FLATTERING.avoid — avoids
+// double-penalising a colour the 4-season bonus already dings. Parent season
+// is derived from the tone12 suffix after the first '_' (e.g. 'deep_autumn'
+// → 'autumn'), independent of whether a colorSeason argument was passed.
+function tone12AvoidPenalty(profiles: ColorProfile[], tone12: string): number {
+  const avoidList = TONE12_AVOID[tone12];
+  if (!avoidList || avoidList.length === 0 || profiles.length === 0) return 0;
+
+  const parentSeason = normSeason(tone12.split('_')[1] ?? '');
+  const parentAvoid = new Set(SEASON_FLATTERING[parentSeason]?.avoid ?? []);
+  const dedupedAvoid = new Set(avoidList.filter(c => !parentAvoid.has(c)));
+  if (dedupedAvoid.size === 0) return 0;
+
+  const dedupedAvoidCount = profiles.filter(p => dedupedAvoid.has(p.primaryColor)).length;
+  if (dedupedAvoidCount === 0) return 0;
+
+  return -(dedupedAvoidCount / profiles.length) * TONE12_AVOID_MAX;
+}
+
+export function tone12QualityBonus(profiles: ColorProfile[], tone12: string): number {
+  const quality = tone12Quality(tone12);
+  // Unknown/absent prefix or 'true' (undertone-only, no extra quality signal) → no-op.
+  if (!quality || quality === 'true' || profiles.length === 0) return 0;
+
+  let total = 0;
+  for (const p of profiles) {
+    const normLum = (p.lum - 50) / 50; // -1 dark .. +1 light
+    const normSat = (p.sat - 50) / 50; // -1 muted .. +1 vivid
+    let align: number;
+    switch (quality) {
+      case 'light':  align = normLum;  break; // reward light, mirror-penalise very deep
+      case 'deep':   align = -normLum; break; // reward deep, mirror-penalise very light
+      case 'bright': align = normSat;  break; // reward clear/saturated, penalise muted
+      case 'soft':   align = -normSat; break; // reward muted, penalise very saturated
+    }
+    total += Math.max(-1, Math.min(1, align));
+  }
+  return (total / profiles.length) * TONE12_QUALITY_MAX;
+}
+
 export function scoreColorHarmony(
   items: FitItem[],
   userColorPreferences: string[],
   colorSeason?: string,
+  weatherSeason?: Season,
+  formula?: string,
+  colorTone12?: string,
 ): number {
   if (items.length === 0) return 0.5;
   const profiles = items.map(i => i.colorProfile);
@@ -155,20 +309,27 @@ export function scoreColorHarmony(
     0.20 * paletteAlignment(profiles, userPrimaries) +
     0.20 * colorRelationshipScore(profiles) +
     0.15 * undertoneConsistency(profiles) +
-    0.15 * lightnessContrast(profiles) +
+    0.15 * lightnessContrast(profiles, items, formula) +
     0.10 * saturationConsistency(profiles) +
     0.10 * colorCountScore(profiles) +
     0.10 * graphicDensityPenalty(items)
   );
-  if (!colorSeason) return base;
-  return Math.max(0, Math.min(1, base + seasonCompatibilityBonus(profiles, colorSeason)));
+  if (!colorSeason && !weatherSeason && !colorTone12) return base;
+  let result = base;
+  if (colorSeason) result += seasonCompatibilityBonus(profiles, colorSeason);
+  if (weatherSeason) result += weatherSeasonColorBonus(profiles, weatherSeason);
+  if (colorTone12) {
+    result += tone12QualityBonus(profiles, colorTone12);
+    result += tone12AvoidPenalty(profiles, colorTone12);
+  }
+  return Math.max(0, Math.min(1, result));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 2. STYLE COHERENCE
 // ═══════════════════════════════════════════════════════════════════════════
 
-function numericSim(a: number, b: number): number { return 1 - Math.abs(a - b) / 4; }
+function numericSim(a: number, b: number): number { return Math.max(0, Math.min(1, 1 - Math.abs(a - b) / 4)); }
 
 function jaccardSim<T>(a: T[], b: T[]): number {
   if (a.length === 0 && b.length === 0) return 1.0;
@@ -284,12 +445,28 @@ const FIT_THRESHOLDS: Record<string, Thresholds> = {
   thigh:           { ideal: [3,  8],  ok: [0,  14]  },
 };
 
-function easeScore(ease: number, t: Thresholds): number {
+/** Girth keys where "too tight" is unwearable (near-0 score below ideal). */
+const GIRTH_KEYS = new Set(['chest', 'shoulder_width', 'waist_top', 'waist', 'waist_outer', 'hip', 'upper_arm', 'thigh']);
+
+function easeScore(ease: number, t: Thresholds, isGirth = false): number {
+  // Below acceptable range → always unwearable for both girth and length.
   if (ease < t.ok[0]) return 0.0;
+  // Ideal range → perfect.
   if (ease >= t.ideal[0] && ease <= t.ideal[1]) return 1.0;
-  if (ease > t.ok[1]) return 0.2;
-  if (ease < t.ideal[0]) return 0.4 + 0.6 * ((ease - t.ok[0]) / (t.ideal[0] - t.ok[0] + 0.001));
-  return 0.7 + 0.3 * (1 - (ease - t.ideal[1]) / (t.ok[1] - t.ideal[1] + 0.001));
+  // Too loose (above ok upper bound) → still visible but clearly too big.
+  if (ease > t.ok[1]) return Math.max(0, Math.min(1, 0.2));
+  // Between ok[0] and ideal[0] — below ideal.
+  if (ease < t.ideal[0]) {
+    const ratio = (ease - t.ok[0]) / (t.ideal[0] - t.ok[0] + 0.001);
+    if (isGirth) {
+      // Girth too tight: near 0 at ok[0], rises steeply to ~1 at ideal[0].
+      return Math.max(0, Math.min(1, ratio * ratio));
+    }
+    // Length short: gentler curve — suboptimal but wearable.
+    return Math.max(0, Math.min(1, 0.4 + 0.6 * ratio));
+  }
+  // Between ideal[1] and ok[1] — a bit loose.
+  return Math.max(0, Math.min(1, 0.7 + 0.3 * (1 - (ease - t.ideal[1]) / (t.ok[1] - t.ideal[1] + 0.001))));
 }
 
 function fitCategory(ease: number): FitCategory {
@@ -334,13 +511,14 @@ function scoreMappings(body: BodyMeasurements, garment: Record<string, number | 
     if (bodyVal == null || garmentVal == null) continue;
     const ease = garmentVal - bodyVal;
     const t = FIT_THRESHOLDS[m.thresholdKey];
-    points.push({ key: m.label, ease, category: fitCategory(ease), score: easeScore(ease, t) });
+    const isGirth = GIRTH_KEYS.has(m.thresholdKey);
+    points.push({ key: m.label, ease, category: fitCategory(ease), score: easeScore(ease, t, isGirth) });
   }
   return points;
 }
 
 export function scoreItemFit(item: FitItem, body: BodyMeasurements): ItemFitResult {
-  if (!item.garmentMeasurements) return { itemId: item.id, points: [], score: 0.5, warnings: [] };
+  if (!item.garmentMeasurements) return { itemId: item.id, points: [], score: 0.5, warnings: [], measured: false };
 
   const g = item.garmentMeasurements as Record<string, number | undefined>;
   let points: FitPoint[] = [];
@@ -349,70 +527,159 @@ export function scoreItemFit(item: FitItem, body: BodyMeasurements): ItemFitResu
   if (item.category === 'bottom')   points = scoreMappings(body, g, PANTS_MAPPINGS);
   if (item.category === 'outwear')  points = scoreMappings(body, g, OUTER_MAPPINGS);
 
-  if (points.length === 0) return { itemId: item.id, points: [], score: 0.5, warnings: [] };
+  // No overlap between body measurements and garment keys → still unmeasured.
+  if (points.length === 0) return { itemId: item.id, points: [], score: 0.5, warnings: [], measured: false };
   const score = points.reduce((sum, p) => sum + p.score, 0) / points.length;
   const warnings = points.filter(p => p.category === 'tight').map(p => `${p.key} may be tight`);
-  return { itemId: item.id, points, score, warnings };
+  return { itemId: item.id, points, score, warnings, measured: true };
 }
 
-// Body shape bonus: certain silhouettes suit certain shapes better.
-// Returns a multiplier [0.85, 1.15] applied to the base fit score.
+// Body shape signal: certain silhouettes suit certain shapes better.
+// Returns a DELTA in [-0.10, +0.10] to be added to the base fit score.
+// Positive = good shape match, negative = poor shape match.
+// This avoids the clamping problem where base * multiplier collapses to 1.0
+// for any well-fitting outfit (base ≳ 0.87), erasing ranking separation.
 export function bodyShapeMultiplier(items: FitItem[], shape: BodyShape): number {
   const tops = items.filter(i => i.category === 'top' || i.category === 'outwear');
   const bottoms = items.filter(i => i.category === 'bottom');
-  let bonus = 1.0;
+  let delta = 0.0;
   switch (shape) {
     case 'triangle': {
-      // Pear — score up A-line / wide-leg bottoms (relaxed/oversized), score down fitted bottoms
+      // Pear — reward A-line / wide-leg bottoms, penalise fitted slim bottoms
       const wideBottom = bottoms.some(i => i.fit === 'relaxed' || i.fit === 'wide' || i.fit === 'oversized');
+      const slimBottom = bottoms.some(i => i.fit === 'slim');
       const broadTop = tops.some(i => i.fit === 'oversized' || i.fit === 'wide');
-      if (wideBottom) bonus += 0.10;
-      if (broadTop) bonus += 0.05;
+      if (wideBottom) delta += 0.07;
+      if (broadTop) delta += 0.03;
+      if (slimBottom) delta -= 0.07;
       break;
     }
     case 'inverted_triangle': {
-      // Wide shoulders — score down wide-shoulder tops, score up A-line bottoms
+      // Wide shoulders — penalise wide/oversized tops, reward A-line bottoms
       const wideTops = tops.filter(i => i.fit === 'oversized' || i.fit === 'wide').length;
-      if (wideTops > 0) bonus -= 0.10;
+      if (wideTops > 0) delta -= 0.08;
       const wideBtm = bottoms.some(i => i.fit === 'relaxed' || i.fit === 'wide');
-      if (wideBtm) bonus += 0.08;
+      const slimBtm = bottoms.some(i => i.fit === 'slim');
+      if (wideBtm) delta += 0.06;
+      if (slimBtm) delta -= 0.05;
       break;
     }
     case 'hourglass': {
-      // Defined waist — reward tailored/structured silhouettes
+      // Defined waist — reward tailored/structured silhouettes, penalise shapeless oversized
       const tailored = items.some(i => i.fit === 'slim' || i.fit === 'regular');
-      if (tailored) bonus += 0.08;
+      const shapeless = items.filter(i => i.fit === 'oversized').length >= 2;
+      if (tailored) delta += 0.07;
+      if (shapeless) delta -= 0.07;
       break;
     }
     case 'apple': {
-      // Score up loose/flowy tops, straight-leg bottoms
+      // Score up loose/flowy tops, penalise tight/slim tops
       const looseTops = tops.some(i => i.fit === 'relaxed' || i.fit === 'oversized');
-      if (looseTops) bonus += 0.08;
+      const tightTops = tops.some(i => i.fit === 'slim');
+      if (looseTops) delta += 0.07;
+      if (tightTops) delta -= 0.07;
       break;
     }
     case 'rectangle': {
-      // Score up structured/layered looks
+      // Score up structured/layered looks, slight penalty for plain single-layer
       const layered = items.length >= 3;
-      if (layered) bonus += 0.05;
+      const plain = items.length <= 2 && items.every(i => i.fit === 'regular');
+      if (layered) delta += 0.05;
+      if (plain) delta -= 0.03;
       break;
     }
   }
-  return Math.max(0.85, Math.min(1.15, bonus));
+  // Clamp delta to [-0.10, +0.10]
+  return Math.max(-0.10, Math.min(0.10, delta));
+}
+
+// How "body-specific" a garment fit is — how much its look depends on the wearer's
+// body geometry. Per ViBE (Hsiao & Grauman, CVPR 2020, Fig. 8): body-shape-aware
+// matching helps most for body-specific (fitted) garments and approaches zero for
+// versatile (loose) ones. Loose garments are safe on any shape, so shape signals
+// on them — bonus or penalty — carry little information.
+const FIT_SPECIFICITY: Record<ItemFit, number> = {
+  slim: 1.0, regular: 0.7, relaxed: 0.4, wide: 0.25, oversized: 0.15,
+};
+
+// Scale from the raw rule delta (±0.10) to the effective adjustment (±0.32).
+// Calibrated per docs/research/body-shape-importance-FINAL.md (2026-07-06):
+//   outfit composite: 0.32 × fit-weight 0.10 ≈ ±3 pts/100 (target band 2–4)
+//   purchase verdict: 0.32 × fit-weight 0.25 ≈ ±8 pts/100 (target band 5–8)
+// Both stay below the measurement-match influence (±9.5 and ±25 respectively).
+const SHAPE_GAIN = 3.2;
+const SHAPE_ADJ_MAX = 0.32;
+
+/**
+ * Body-shape adjustment, conditioned on how body-specific the outfit's garments
+ * are: rawRuleDelta × SHAPE_GAIN × meanFitSpecificity, clamped to ±SHAPE_ADJ_MAX.
+ * A fully fitted look feels the full adjustment; an oversized look barely any.
+ * Accessories are excluded from the specificity mean (their fit is meaningless).
+ */
+export function bodyShapeAdjustment(items: FitItem[], shape: BodyShape): number {
+  const raw = bodyShapeMultiplier(items, shape);
+  const core = items.filter(i => i.category !== 'accessory');
+  const specificity = core.length > 0
+    ? core.reduce((s, i) => s + (FIT_SPECIFICITY[i.fit] ?? 0.6), 0) / core.length
+    : 0.6;
+  const adj = raw * SHAPE_GAIN * specificity;
+  return Math.max(-SHAPE_ADJ_MAX, Math.min(SHAPE_ADJ_MAX, adj));
 }
 
 export function scoreOutfitFit(items: FitItem[], body: BodyMeasurements): number {
   if (items.length === 0) return 0.5;
   const results = items.map(item => scoreItemFit(item, body));
-  const base = results.reduce((sum, r) => sum + r.score, 0) / results.length;
+  // Average only items that produced a real measured fit score — items with no
+  // garment measurements or no key overlap default to 0.5 and are excluded so
+  // a single well-measured item is not diluted by flat-neutral non-measurements.
+  const measured = results.filter(r => r.measured);
+  const base = measured.length > 0
+    ? measured.reduce((sum, r) => sum + r.score, 0) / measured.length
+    : 0.5;
   if (!body.body_shape) return base;
-  return Math.min(1.0, base * bodyShapeMultiplier(items, body.body_shape));
+  const shapeDelta = bodyShapeAdjustment(items, body.body_shape);
+  return Math.max(0, Math.min(1, base + shapeDelta));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 4. PROPORTION BALANCE
 // ═══════════════════════════════════════════════════════════════════════════
 
-const VOLUME: Record<ItemFit, number> = { slim: 1, regular: 2, relaxed: 3, wide: 4, oversized: 5 };
+// Canonical volume scale — the single source of truth reused by generation.ts
+// (pairAffinity's proportion term) and silhouette.ts (target-silhouette match).
+export const VOLUME: Record<ItemFit, number> = { slim: 1, regular: 2, relaxed: 3, wide: 4, oversized: 5 };
+
+// ── Gender-aware styling nudge (opt-in; backlog #3) ───────────────────────────
+// A SOFT bias only — never filters items (the wardrobe is the user's own). Returns
+// a DELTA in [-0.05, +0.05] added to totalScore, deliberately smaller than the
+// body-shape delta so the user's style/colour signals stay dominant. Conventions
+// are gentle silhouette/proportion leanings, not hard rules; only WOMAN/MAN reach
+// here (NON-BINARY etc. never set ctx.gender, so this is never called for them).
+export function genderStylingDelta(items: FitItem[], gender: 'WOMAN' | 'MAN'): number {
+  const visible = items.filter(i => i.category !== 'accessory');
+  if (visible.length === 0) return 0;
+  const tops = items.filter(i => i.category === 'top' || i.category === 'outwear' || i.category === 'onepiece');
+  const bottoms = items.filter(i => i.category === 'bottom' || i.category === 'onepiece');
+  const topVol = tops.length ? Math.max(...tops.map(i => VOLUME[i.fit])) : undefined;
+  const bottomVol = bottoms.length ? Math.max(...bottoms.map(i => VOLUME[i.fit])) : undefined;
+  let delta = 0;
+
+  if (gender === 'WOMAN') {
+    // Reward a defined/tailored piece and deliberate proportion play (fitted vs
+    // volume), plus the effortless one-piece option.
+    if (visible.some(i => i.fit === 'slim' || i.fit === 'regular')) delta += 0.02;
+    if (topVol !== undefined && bottomVol !== undefined && Math.abs(topVol - bottomVol) >= 1) delta += 0.03;
+    if (items.some(i => i.category === 'onepiece')) delta += 0.02;
+  } else {
+    // MAN: reward a balanced, structured silhouette; gently discourage an
+    // all-tight (bodycon) read.
+    if (visible.every(i => VOLUME[i.fit] <= 3)) delta += 0.02;
+    if (topVol !== undefined && bottomVol !== undefined && Math.abs(topVol - bottomVol) <= 1) delta += 0.03;
+    if (visible.filter(i => i.fit === 'slim').length >= 2) delta -= 0.02;
+  }
+
+  return Math.max(-0.05, Math.min(0.05, delta));
+}
 
 export function scoreProportionBalance(items: FitItem[]): number {
   const tops = items.filter(i => i.category === 'top' || i.category === 'outwear' || i.category === 'onepiece');
@@ -432,14 +699,53 @@ export function scoreProportionBalance(items: FitItem[]): number {
   return 0.4;
 }
 
+// Silhouette-first resolution (2026-07-12): how well this outfit's top/bottom
+// volume realizes ctx.targetSilhouette — best (max) match across the target's
+// candidate (topVol, bottomVol) pairs, distance-based in [0,1]. Blended into
+// proportionBalance by ranking.ts, weighted by target.confidence, so a fully
+// guessed wardrobe (confidence 0) is unaffected. Mirrors the per-pair distance
+// math in silhouette.ts's pairSilhouetteMatch, but over the OUTFIT's resolved
+// top/bottom volumes (same aggregation scoreProportionBalance uses) rather
+// than two specific items.
+const TARGET_MAX_VOLUME_DIST = 8; // |Δtop| + |Δbottom|, each axis spans 1..5
+
+export function scoreTargetSilhouette(items: FitItem[], target: TargetSilhouette): number {
+  const tops = items.filter(i => i.category === 'top' || i.category === 'outwear' || i.category === 'onepiece');
+  const bottoms = items.filter(i => i.category === 'bottom' || i.category === 'onepiece');
+  if (tops.length === 0 || bottoms.length === 0 || target.targets.length === 0) return 0.5;
+
+  const topVolume = Math.max(...tops.map(i => VOLUME[i.fit]));
+  const bottomVolume = Math.max(...bottoms.map(i => VOLUME[i.fit]));
+
+  let best = 0;
+  for (const t of target.targets) {
+    const dist = Math.abs(topVolume - t.topVol) + Math.abs(bottomVolume - t.bottomVol);
+    const match = Math.max(0, 1 - dist / TARGET_MAX_VOLUME_DIST);
+    if (match > best) best = match;
+  }
+  return best;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 5. FORMALITY CONSISTENCY
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function scoreFormalityConsistency(items: FitItem[]): number {
+export function scoreFormalityConsistency(items: FitItem[], formula?: string): number {
   if (items.length <= 1) return 0.8;
   const formalities = items.map(i => i.formality);
   const gap = Math.max(...formalities) - Math.min(...formalities);
+
+  // high_low candidates are BUILT on register contrast — for them a healthy gap
+  // is the point, not a flaw. Reward the deliberate 1.5–3.0 window; a tiny gap
+  // means the mix didn't actually happen, a huge one is still a costume.
+  if (formula === 'high_low') {
+    if (gap >= 1.5 && gap <= 3.0) return 1.0;
+    if (gap >= 1.0 && gap < 1.5) return 0.8;
+    if (gap > 3.0 && gap <= 3.5) return 0.7;
+    if (gap < 1.0) return 0.6;
+    return 0.3;
+  }
+
   if (gap <= 1.0) return 1.0;
   if (gap <= 1.5) return 0.8;
   if (gap <= 2.0) return 0.55;
@@ -483,21 +789,85 @@ export function scoreSeasonMatch(items: FitItem[], targetSeason?: Season): numbe
   return internal;
 }
 
+// Calendar month (0–11) + hemisphere → meteorological Season. Used to derive the
+// current real-world season from the request date when the user hasn't set an
+// explicit seasonOverride. Southern hemisphere is the opposite season.
+const NORTH_SEASON: Season[] = [
+  'winter', 'winter', 'spring', 'spring', 'spring', 'summer', // Jan..Jun
+  'summer', 'summer', 'fall',   'fall',   'fall',   'winter', // Jul..Dec
+];
+const OPPOSITE_SEASON: Record<Season, Season> = {
+  winter: 'summer', summer: 'winter', spring: 'fall', fall: 'spring', allSeason: 'allSeason',
+};
+
+export function seasonForMonth(month: number, hemisphere: 'north' | 'south'): Season {
+  const s = NORTH_SEASON[((month % 12) + 12) % 12];
+  return hemisphere === 'south' ? OPPOSITE_SEASON[s] : s;
+}
+
+// Best-effort hemisphere from a free-text country name (we store no coordinates).
+// Lists the countries that are wholly/predominantly (by population) Southern; every
+// other name — including equatorial countries with weak seasons and the current VN
+// user base — defaults to Northern, which is harmless. Substring match tolerates
+// prefixes like "Republic of South Africa". Matched against a lowercased name.
+const SOUTHERN_COUNTRIES = [
+  // Oceania
+  'australia', 'new zealand', 'fiji', 'papua new guinea', 'samoa', 'tonga',
+  'vanuatu', 'solomon islands', 'new caledonia', 'timor',
+  // South America (predominantly south)
+  'argentina', 'chile', 'uruguay', 'paraguay', 'bolivia', 'peru', 'brazil',
+  // Southern Africa
+  'south africa', 'namibia', 'botswana', 'zimbabwe', 'mozambique', 'madagascar',
+  'zambia', 'angola', 'malawi', 'lesotho', 'eswatini', 'swaziland', 'tanzania',
+  'mauritius',
+];
+
+export function hemisphereForCountry(country?: string | null): 'north' | 'south' {
+  const c = (country ?? '').trim().toLowerCase();
+  if (!c) return 'north';
+  return SOUTHERN_COUNTRIES.some(s => c.includes(s)) ? 'south' : 'north';
+}
+
+// ISO 3166-1 alpha-2 codes of Southern-hemisphere countries (locale-independent).
+// Preferred over the name map when a code is stored — exact, never localised.
+const SOUTHERN_COUNTRY_CODES = new Set([
+  // Oceania
+  'AU', 'NZ', 'FJ', 'PG', 'WS', 'TO', 'VU', 'SB', 'NC', 'PF', 'TL', 'CK', 'TV', 'NR',
+  // South America
+  'AR', 'CL', 'UY', 'PY', 'BO', 'PE', 'BR',
+  // Southern Africa + Indian Ocean
+  'ZA', 'NA', 'BW', 'ZW', 'MZ', 'MG', 'ZM', 'AO', 'MW', 'LS', 'SZ', 'TZ', 'MU', 'RE', 'KM',
+]);
+
+// Resolve hemisphere from the best signal available: the ISO country code is exact
+// and locale-independent, so it wins; otherwise fall back to the country-name map.
+export function resolveHemisphere(
+  countryCode?: string | null,
+  countryName?: string | null,
+): 'north' | 'south' {
+  const code = (countryCode ?? '').trim().toUpperCase();
+  if (code) return SOUTHERN_COUNTRY_CODES.has(code) ? 'south' : 'north';
+  return hemisphereForCountry(countryName);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 7. TEXTURE HARMONY
 // ═══════════════════════════════════════════════════════════════════════════
 
 const WEIGHT_LEVEL: Record<FabricWeight, number> = { light: 0, medium: 1, heavy: 2 };
 
-export function scoreTextureHarmony(items: FitItem[]): number {
+export function scoreTextureHarmony(items: FitItem[], formula?: string): number {
   const weights = items.filter(i => i.category !== 'accessory').map(i => WEIGHT_LEVEL[i.fabric.fabricWeight]);
   if (weights.length <= 1) return 0.7;
 
   const spread = Math.max(...weights) - Math.min(...weights);
-  const consistencyScore = spread === 0 ? 0.6 : spread === 1 ? 1.0 : 0.4;
+  // Formula contract (texture_stack): stacking 3+ distinct textures IS the
+  // concept — a full light→heavy spread is deliberate depth, not inconsistency.
+  const stacking = formula === 'texture_stack';
+  const consistencyScore = spread === 0 ? 0.6 : spread === 1 ? 1.0 : (stacking ? 0.8 : 0.4);
 
   const distinct = new Set(weights).size;
-  const varietyScore = distinct === 1 ? 0.5 : distinct === 2 ? 1.0 : 0.7;
+  const varietyScore = distinct === 1 ? 0.5 : distinct === 2 ? 1.0 : (stacking ? 1.0 : 0.7);
 
   const breathabilities = items.filter(i => i.category !== 'accessory').map(i => i.fabric.breathability);
   const breathScore = new Set(breathabilities).size <= 2 ? 1.0 : 0.7;
@@ -536,44 +906,55 @@ export function scoreAnchorClarity(items: FitItem[]): number {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// HOUSE POV — MIEN luxury minimalism (S4, 2026-07-02)
+// ═══════════════════════════════════════════════════════════════════════════
+// The house has taste. A NAMED aesthetic bias (the Celine / The Row register
+// from CLAUDE.md's design philosophy): restraint, tonal dressing, natural
+// fabrics, precise silhouettes — and distrust of loudness that doesn't earn
+// its place. Deliberately SMALL (capped ±0.05): it breaks ties between
+// equally-valid looks so the feed "sounds like MIEN", it never overrides the
+// user's own signals — and it halves itself when the user's chosen styles pull
+// the opposite way (streetwear/y2k live on loudness; the house yields).
+
+const NATURAL_FABRICS = new Set(['wool', 'cashmere', 'cotton', 'linen', 'silk', 'leather', 'suede']);
+const HOUSE_OPPOSED_STYLES = new Set(['streetwear', 'y2k']);
+
+export function housePOVDelta(items: FitItem[], selectedStyles: string[] = []): number {
+  const visible = items.filter(i => i.category !== 'accessory');
+  if (visible.length === 0) return 0;
+  let delta = 0;
+
+  // Restraint — a tight palette reads intentional.
+  const families = new Set(visible.map(i => i.colorProfile.primaryColor));
+  if (families.size <= 2) delta += 0.02;
+  if (visible.every(i => i.colorProfile.undertone === 'neutral')) delta += 0.01;
+
+  // Material integrity — natural fabrics read expensive. Only judged when the
+  // fabric is actually known (no reward for defaulted metadata).
+  const known = visible.filter(i => i.fabricName);
+  if (known.length >= 2 && known.every(i => NATURAL_FABRICS.has(i.fabricName!))) delta += 0.02;
+
+  // Precision — controlled silhouettes over slouch.
+  if (visible.every(i => i.fit === 'slim' || i.fit === 'regular' || i.fit === 'relaxed')) delta += 0.01;
+  // Structured drape reads precise (đợt 2 — only when the image actually said so).
+  if (visible.filter(i => i.drape === 'structured').length >= 2) delta += 0.01;
+
+  // Distrust unearned loudness.
+  if (visible.some(i => i.graphics.graphicWeight === 'large_graphic' || i.graphics.graphicWeight === 'full_print')) delta -= 0.03;
+  if (visible.filter(i => i.colorProfile.colorSaturation === 'vivid').length >= 2) delta -= 0.02;
+
+  delta = Math.max(-0.05, Math.min(0.05, delta));
+  return selectedStyles.some(s => HOUSE_OPPOSED_STYLES.has(s)) ? delta * 0.5 : delta;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // TASTE ADJUSTMENT — pair affinity + aesthetic vetoes
 // ═══════════════════════════════════════════════════════════════════════════
 // A stylist thinks in vetoes and classics, not weighted averages. This layer
 // adds a flat bonus for recognized classic combinations and a multiplicative
 // penalty for combinations that are "valid but off" — a single fatal flaw
 // should sink an outfit, not be averaged away by six decent dimensions.
-
-// Classic core combos (top × bottom × shoes), keyed by garment type.
-const CLASSIC_TRIPLES: Record<string, number> = {
-  'SHIRT+TROUSERS+LOAFERS': 0.08,
-  'SHIRT+TROUSERS+OXFORDS': 0.08,
-  'SHIRT+CHINOS+LOAFERS': 0.06,
-  'KNIT+TROUSERS+LOAFERS': 0.07,
-  'SWEATER+TROUSERS+LOAFERS': 0.07,
-  'SWEATER+CHINOS+SNEAKERS': 0.05,
-  'TEE+JEANS+SNEAKERS': 0.06,
-  'TEE+CHINOS+SNEAKERS': 0.04,
-  'HOODIE+JEANS+SNEAKERS': 0.05,
-  'POLO+CHINOS+LOAFERS': 0.06,
-  'POLO+TROUSERS+LOAFERS': 0.05,
-  'SHIRT+JEANS+SNEAKERS': 0.04,
-  'KNIT+JEANS+BOOTS': 0.05,
-  'TEE+SHORTS+SANDALS': 0.04,
-  'TEE+SHORTS+SNEAKERS': 0.04,
-  'BLOUSE+SKIRT+HEELS': 0.06,
-  'BLOUSE+TROUSERS+HEELS': 0.06,
-};
-
-// Pairs that clash in dressiness or register, regardless of color/season.
-const CLASHING_PAIRS: Array<[string, string, number]> = [
-  ['SANDALS', 'TROUSERS', 0.45],
-  ['SANDALS', 'BLAZER', 0.5],
-  ['OXFORDS', 'SHORTS', 0.4],
-  ['HEELS', 'SHORTS', 0.55],
-  ['LOAFERS', 'SHORTS', 0.7],
-  ['PARKA', 'TROUSERS', 0.75],
-  ['HOODIE', 'TROUSERS', 0.7],
-];
+// The knowledge tables live in taste-data.ts (pure data, expanded 2026-07-02).
 
 export interface TasteAdjustment {
   bonus: number;       // flat addition to totalScore (classic combos)
@@ -586,11 +967,16 @@ export function scoreTasteAdjustment(items: FitItem[]): TasteAdjustment {
 
   const byCat = (cat: string) => items.find(i => i.category === cat);
   const top = byCat('top'), bottom = byCat('bottom'), shoes = byCat('shoes');
+  const outwear = byCat('outwear');
 
-  // Classic-combo bonus
-  if (top && bottom && shoes) {
-    const key = `${top.typeName}+${bottom.typeName}+${shoes.typeName}`;
-    bonus += CLASSIC_TRIPLES[key] ?? 0;
+  // Classic-combo bonus. Two lookups: the core top-led triple, and an
+  // outwear-led triple (hoodie/blazer/jacket outfits are DEFINED by the layer,
+  // not the base top — HOODIE+JEANS+SNEAKERS was dead data until this lookup
+  // existed because HOODIE is category 'outwear'). Take the stronger signal.
+  if (bottom && shoes) {
+    const topKey = top ? CLASSIC_TRIPLES[`${top.typeName}+${bottom.typeName}+${shoes.typeName}`] ?? 0 : 0;
+    const outerKey = outwear ? CLASSIC_TRIPLES[`${outwear.typeName}+${bottom.typeName}+${shoes.typeName}`] ?? 0 : 0;
+    bonus += Math.max(topKey, outerKey);
   }
 
   // Clashing-pair vetoes
@@ -599,11 +985,18 @@ export function scoreTasteAdjustment(items: FitItem[]): TasteAdjustment {
     if (types.has(a) && types.has(b)) multiplier *= mult;
   }
 
-  // Flat look: every non-accessory item dark AND muted — visually dead.
   const visible = items.filter(i => i.category !== 'accessory');
-  if (visible.length >= 3) {
+  const boldPatterns = visible.filter(i => i.fabric.pattern !== 'solid' && i.fabric.pattern !== 'checkered').length;
+
+  // Flat look: every non-accessory item dark AND muted — visually dead, UNLESS
+  // texture carries the look (the all-black rule: leather + wool + cotton in
+  // one dark outfit reads intentional, one flat fabric reads lifeless) OR two
+  // bold patterns already carry it (patterns ARE visual interest — stacking
+  // this with the pattern-mix multiplier double-punished streetwear looks;
+  // fixture finding 2026-07-03).
+  if (visible.length >= 3 && boldPatterns < 2) {
     const allDarkMuted = visible.every(i => i.colorProfile.lum < 35 && i.colorProfile.sat < 30);
-    if (allDarkMuted) multiplier *= 0.6;
+    if (allDarkMuted) multiplier *= textureVariety(items) >= 2 ? 0.85 : 0.6;
   }
 
   // Undertone clash: warm and cool fighting with no clear dominance.
@@ -617,6 +1010,11 @@ export function scoreTasteAdjustment(items: FitItem[]): TasteAdjustment {
   // Competing statements: three or more loud pieces is a costume, not an outfit.
   const loud = items.filter(i => i.statementStrength >= 2.5).length;
   if (loud >= 3) multiplier *= 0.5;
+
+  // Pattern-on-pattern: only reachable for pattern-friendly styles (the hard
+  // constraint caps everyone else at 1 bold pattern). Deliberate but risky —
+  // a mild multiplier keeps single-pattern versions slightly ahead by default.
+  if (boldPatterns >= 2) multiplier *= 0.85;
 
   return { bonus, multiplier };
 }
