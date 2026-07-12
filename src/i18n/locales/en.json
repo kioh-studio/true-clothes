@@ -377,6 +377,8 @@
   "measurements_shapeTriangle": "Triangle",
   "measurements_shapeRectangle": "Rectangle",
   "measurements_shapeOval": "Oval",
+  "measurements_shapeNudgeMissing": "Add your chest · waist · hip to let MIEN detect your body shape.",
+  "measurements_shapeNudgeConfirm": "We've detected your body shape. Tap to change it if it's not right.",
   "premium_upgradeTitle": "Upgrade to Premium",
   "premium_upgradeSubtitle": "Unlock unlimited AI scans and more.",
   "premium_creditsUsed": "{{used}} of {{limit}} free scans used this month",

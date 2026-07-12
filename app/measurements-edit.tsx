@@ -77,6 +77,16 @@ export default function MeasurementsEditScreen() {
   const bodyShape = shapeOverride ?? derivedShape;
   const dirty = JSON.stringify(v) !== JSON.stringify(initial) || shapeOverride !== initialShapeOverride;
 
+  // Nudge the user toward completing/confirming the auto-derived body shape.
+  // No nudge once they've manually overridden it — they already chose.
+  const girthsFilled = [v.chest, v.waist, v.hips]
+    .filter((s) => s?.trim() && !isNaN(parseFloat(s))).length;
+  const shapeNudgeKey = shapeOverride
+    ? null
+    : bodyShape
+      ? 'measurements_shapeNudgeConfirm'
+      : (girthsFilled < 3 ? 'measurements_shapeNudgeMissing' : null);
+
   // Consume pose-estimated values from the AI scan screen (measurements-scan.tsx).
   // pendingEstimate is set by the scan screen before router.back(), so it will be
   // non-null when this screen regains focus. Clearing it prevents double-apply.
@@ -237,6 +247,7 @@ export default function MeasurementsEditScreen() {
             <Tag key={s} selected={shapeOverride === s} onPress={() => setShapeOverride(s)}>{t(SHAPE_LABEL_KEYS[s]).toUpperCase()}</Tag>
           ))}
         </View>
+        {shapeNudgeKey && <Text style={[styles.caption, { marginTop: 10, fontSize: 11 }]}>{t(shapeNudgeKey)}</Text>}
 
         <View style={{ height: 40 }} />
         <Text style={styles.sectionLabel}>{t('measurementsEdit_preferredFitLabel')}</Text>

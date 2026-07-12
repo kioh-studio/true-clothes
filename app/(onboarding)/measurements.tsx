@@ -48,6 +48,17 @@ export default function MeasurementsScreen() {
   }, [pendingEstimate, setPendingEstimate, setField, setBodyShapeOverride]);
   const [weightUnit, setWeightUnit] = React.useState('KG');
 
+  // Nudge the user toward completing/confirming the auto-derived body shape.
+  // Shown only when there's something actionable: missing girths (no shape yet)
+  // or a fresh auto-derivation the user hasn't confirmed/overridden.
+  const girthsFilled = [values.body_bust, values.body_waist, values.body_hip]
+    .filter((s) => s?.trim() && !isNaN(parseFloat(s))).length;
+  const shapeNudgeKey = bodyShapeOverride
+    ? null
+    : bodyShape
+      ? 'measurements_shapeNudgeConfirm'
+      : (girthsFilled < 3 ? 'measurements_shapeNudgeMissing' : null);
+
   const handleContinue = async () => {
     // Toggle values are UI-only (label swap); convert to the stored units
     // (cm/kg) here using the same factors as the AI-capture branch below.
@@ -135,6 +146,7 @@ export default function MeasurementsScreen() {
               <Tag key={s} selected={bodyShapeOverride === s} onPress={() => setBodyShapeOverride(s)}>{t(SHAPE_LABEL_KEYS[s]).toUpperCase()}</Tag>
             ))}
           </View>
+          {shapeNudgeKey && <Text style={styles.shapeNudge}>{t(shapeNudgeKey)}</Text>}
         </View>
 
         <View style={{ height: 32 }} />
@@ -194,6 +206,7 @@ const styles = StyleSheet.create({
   colItem: { width: '47%' },
   bodyShapeBadge: { marginTop: 24, alignItems: 'flex-start' },
   bodyShapeLabel: { ...type.ui, fontSize: 10, color: T.color.tertiary, marginBottom: 4 },
+  shapeNudge: { ...type.caption, fontSize: 11, color: T.color.tertiary, marginTop: 12, lineHeight: 16 },
   bodyShapeValue: { fontFamily: T.font.serif, fontSize: 20, fontWeight: '300', color: T.color.primary },
   shapeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },

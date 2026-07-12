@@ -377,6 +377,8 @@
   "measurements_shapeTriangle": "Tam giác",
   "measurements_shapeRectangle": "Hình chữ nhật",
   "measurements_shapeOval": "Bầu dục",
+  "measurements_shapeNudgeMissing": "Nhập đủ vòng ngực · eo · mông để MIEN tự nhận diện dáng người của bạn.",
+  "measurements_shapeNudgeConfirm": "Đã nhận diện dáng của bạn. Chạm để chọn lại nếu chưa đúng.",
   "premium_upgradeTitle": "Nâng cấp Premium",
   "premium_upgradeSubtitle": "Quét AI không giới hạn và nhiều hơn nữa.",
   "premium_creditsUsed": "Đã dùng {{used}} / {{limit}} lần quét miễn phí tháng này",
