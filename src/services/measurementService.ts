@@ -24,6 +24,7 @@ interface MeasurementRow {
   body_foot_length: number | null;
   body_foot_width: number | null;
   preferred_fit: string | null;
+  body_shape: string | null;
 }
 
 // ── DB row → app shape ──────────────────────────────────────────────────────
@@ -45,6 +46,7 @@ function rowToBody(row: MeasurementRow): BodyMeasurements {
     body_foot_length:       row.body_foot_length ?? undefined,
     body_foot_width:        row.body_foot_width ?? undefined,
     preferredFit:           row.preferred_fit as BodyMeasurements['preferredFit'] ?? undefined,
+    bodyShape:              row.body_shape as BodyMeasurements['bodyShape'] ?? undefined,
   };
 }
 
@@ -67,6 +69,7 @@ function bodyToRow(m: Partial<BodyMeasurements>): Record<string, number | string
   if (m.body_foot_length !== undefined)       row.body_foot_length = m.body_foot_length ?? null;
   if (m.body_foot_width !== undefined)        row.body_foot_width = m.body_foot_width ?? null;
   if (m.preferredFit !== undefined)           row.preferred_fit = m.preferredFit ?? null;
+  if (m.bodyShape !== undefined)              row.body_shape = m.bodyShape ?? null;
   return row;
 }
 

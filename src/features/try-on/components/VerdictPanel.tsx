@@ -3,38 +3,48 @@
 // Handles the all-unavailable "complete your profile" empty state.
 
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { T, type } from '../../../design/tokens';
 import { Verdict, Recommendation } from '../../../types/tryOn';
 import { DimScore } from './DimScore';
+import { WardrobeFitRow } from './WardrobeFitRow';
+import type { WardrobeFitInfo } from '../wardrobeFit';
+import { useTranslation } from '../../../i18n';
 
 interface Props {
   verdict: Verdict;
+  /** Client-side wardrobe-fit signal (NOT part of the server /100 score). */
+  wardrobeFit?: WardrobeFitInfo | null;
+  wardrobeFitLoading?: boolean;
+  /** Invoked from the all-unavailable empty state so the user can jump straight
+   *  to the profile section that unblocks scoring (never a dead end). */
+  onCompleteProfile?: () => void;
 }
 
-// Human-readable labels for each recommendation band
-const RECOMMENDATION_LABELS: Record<Recommendation, string> = {
-  great:    'Great pick',
-  worth_it: 'Worth it',
-  maybe:    'Maybe',
-  skip:     'Pass on it',
+// Human-readable label keys for each recommendation band
+const RECOMMENDATION_LABEL_KEYS: Record<Recommendation, string> = {
+  great:    'verdictPanel_recGreat',
+  worth_it: 'verdictPanel_recWorthIt',
+  maybe:    'verdictPanel_recMaybe',
+  skip:     'verdictPanel_recSkip',
 };
 
-const RECOMMENDATION_DESCRIPTIONS: Record<Recommendation, string> = {
-  great:    'This item fits your profile exceptionally well.',
-  worth_it: 'A good match for your wardrobe and style.',
-  maybe:    'Could work, but there are a few trade-offs.',
-  skip:     'This item doesn\'t align with your profile.',
+const RECOMMENDATION_DESCRIPTION_KEYS: Record<Recommendation, string> = {
+  great:    'verdictPanel_recGreatDesc',
+  worth_it: 'verdictPanel_recWorthItDesc',
+  maybe:    'verdictPanel_recMaybeDesc',
+  skip:     'verdictPanel_recSkipDesc',
 };
 
-export function VerdictPanel({ verdict }: Props) {
+export function VerdictPanel({ verdict, wardrobeFit, wardrobeFitLoading, onCompleteProfile }: Props) {
+  const { t } = useTranslation();
   const allUnavailable = verdict.criteria.every((c) => !c.available);
   const { overallScore, recommendation, criteria } = verdict;
 
   return (
     <View style={styles.container}>
       {/* Section header */}
-      <Text style={styles.sectionLabel}>IS IT WORTH IT?</Text>
+      <Text style={styles.sectionLabel}>{t('verdictPanel_sectionLabel')}</Text>
 
       {/* Overall score + recommendation headline */}
       <View style={styles.summaryRow}>
@@ -42,21 +52,28 @@ export function VerdictPanel({ verdict }: Props) {
           {recommendation ? (
             <>
               <Text style={styles.recommendationHeadline}>
-                {RECOMMENDATION_LABELS[recommendation]}
+                {t(RECOMMENDATION_LABEL_KEYS[recommendation])}
               </Text>
               <Text style={styles.recommendationDesc}>
-                {RECOMMENDATION_DESCRIPTIONS[recommendation]}
+                {t(RECOMMENDATION_DESCRIPTION_KEYS[recommendation])}
               </Text>
             </>
           ) : (
             <Text style={styles.recommendationHeadline}>
-              {allUnavailable ? 'Complete your profile' : 'Evaluating…'}
+              {allUnavailable ? t('verdictPanel_completeProfile') : t('verdictPanel_evaluating')}
             </Text>
           )}
           {allUnavailable && (
-            <Text style={styles.profilePrompt}>
-              Add body measurements and style preferences to get a personalised verdict.
-            </Text>
+            <>
+              <Text style={styles.profilePrompt}>
+                {t('verdictPanel_profilePrompt')}
+              </Text>
+              {onCompleteProfile && (
+                <Pressable onPress={onCompleteProfile} hitSlop={8} style={styles.profileCta}>
+                  <Text style={styles.profileCtaText}>{t('verdictPanel_completeProfileCta')}</Text>
+                </Pressable>
+              )}
+            </>
           )}
         </View>
 
@@ -78,6 +95,25 @@ export function VerdictPanel({ verdict }: Props) {
           <DimScore key={criterion.key} criterion={criterion} />
         ))}
       </View>
+
+      {/* Wardrobe-fit signal — client-side, NOT part of the /100 server score.
+          Shown only when the prefetch has fired (loading or results present). */}
+      {(wardrobeFit || wardrobeFitLoading) ? (
+        <>
+          <View style={styles.divider} />
+          <Text style={styles.wardrobeSectionLabel}>{t('verdictPanel_wardrobeSectionLabel')}</Text>
+          <WardrobeFitRow fit={wardrobeFit ?? null} loading={wardrobeFitLoading} />
+        </>
+      ) : null}
+
+      {/* AI fit note — grounded summary of where it fits / doesn't, to aid the
+          buy decision. Only when the LLM produced one (best-effort, may be null). */}
+      {verdict.fitNote ? (
+        <View style={styles.noteBlock}>
+          <Text style={styles.noteLabel}>{t('verdictPanel_fitNoteLabel')}</Text>
+          <Text style={styles.noteBody}>{verdict.fitNote.trim()}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -118,6 +154,15 @@ const styles = StyleSheet.create({
     color: T.color.warning,
     marginTop: T.s(2),
   },
+  profileCta: {
+    alignSelf: 'flex-start',
+    marginTop: T.s(3),
+  },
+  profileCtaText: {
+    ...type.ui,
+    fontSize: 10,
+    color: T.color.primary,
+  },
   scoreDial: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -145,5 +190,29 @@ const styles = StyleSheet.create({
   },
   criteriaList: {
     gap: T.s(4),
+  },
+  wardrobeSectionLabel: {
+    ...type.ui,
+    fontSize: 10,
+    color: T.color.tertiary,
+    marginBottom: T.s(2),
+  },
+  noteBlock: {
+    marginTop: T.s(4),
+    paddingTop: T.s(4),
+    borderTopWidth: 0.5,
+    borderTopColor: T.color.hairline,
+  },
+  noteLabel: {
+    ...type.ui,
+    fontSize: 10,
+    color: T.color.tertiary,
+    marginBottom: T.s(2),
+  },
+  noteBody: {
+    ...type.caption,
+    fontSize: 13,
+    lineHeight: 20,
+    color: T.color.secondary,
   },
 });

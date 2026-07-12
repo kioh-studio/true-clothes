@@ -9,6 +9,7 @@ import { STYLES, StyleOption } from '../../src/data';
 import { useFitEngineStore } from '../../src/stores/fitEngineStore';
 import { StyleCatalogItem } from '../../src/services/stylesCatalogService';
 import { useGridCardWidth } from '../../src/design/layout';
+import { useTranslation } from '../../src/i18n';
 
 const RELATED_MAP: Record<string, string[]> = {
   oldmoney: ['preppy', 'smartcasual'],
@@ -17,17 +18,31 @@ const RELATED_MAP: Record<string, string[]> = {
   smartcasual: ['oldmoney', 'preppy'],
 };
 
-function StyleCard({ style: s, selected, onPress, small = false }: { style: StyleOption; selected: boolean; onPress: () => void; small?: boolean }) {
+// Fallback to the static catalog for image/description when the DB row
+// has NULL values (many live rows are missing image_url/description).
+function withStaticFallback(s: StyleCatalogItem | StyleOption): StyleOption {
+  if ('img' in s) return s;
+  const fallback = STYLES.find(x => x.id === s.id);
+  return {
+    id: s.id,
+    name: s.name,
+    desc: s.description ?? fallback?.desc ?? '',
+    img: s.imageUrl ?? fallback?.img ?? '',
+  };
+}
+
+function StyleCard({ style: s, selected, onPress, small = false }: { style: StyleCatalogItem | StyleOption; selected: boolean; onPress: () => void; small?: boolean }) {
   const CARD_W = useGridCardWidth();
   const w = small ? 130 : CARD_W;
   const h = w * (4 / 3);
+  const view = withStaticFallback(s);
   return (
     <Pressable onPress={onPress} style={[styles.card, { width: w, height: h }]}>
-      <Photo src={s.img} label={s.name} tone={selected ? 0 : 2} style={StyleSheet.absoluteFillObject} />
+      <Photo src={view.img} label={view.name} tone={selected ? 0 : 2} style={StyleSheet.absoluteFillObject} />
       <View style={styles.cardGradient} />
       <View style={styles.cardLabel}>
-        <Text style={styles.cardName}>{s.name}</Text>
-        <Text style={styles.cardDesc}>{s.desc}</Text>
+        <Text style={styles.cardName}>{view.name}</Text>
+        <Text style={styles.cardDesc}>{view.desc}</Text>
       </View>
       {selected && (
         <>
@@ -46,6 +61,7 @@ const MAX_STYLES = 5;
 export default function StylesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { setStyleProfile, styles: catalogStyles } = useFitEngineStore();
   const [selected, setSelected] = useState<string[]>([]);
 
@@ -66,18 +82,18 @@ export default function StylesScreen() {
     router.push('/(onboarding)/colors');
   };
 
-  // Build related from catalog relatedSlugs if available, else RELATED_MAP
+  // Build related from catalog neighbors (top by weight) if available, else RELATED_MAP
   const related = catalogStyles.length > 0
     ? [...new Set(
         selected
           .flatMap(id => {
-            const item = catalogStyles.find(s => s.id === id || s.slug === id);
-            return item?.relatedSlugs ?? [];
+            const item = catalogStyles.find(s => s.id === id);
+            return [...(item?.neighbors ?? [])]
+              .sort((a, b) => b.weight - a.weight)
+              .slice(0, 4)
+              .map(n => n.id);
           })
-          .filter(slug => !selected.some(id => {
-            const item = catalogStyles.find(s => s.id === id || s.slug === id);
-            return item?.slug === slug;
-          })),
+          .filter(id => !selected.includes(id)),
       )]
     : [...new Set(selected.flatMap(id => RELATED_MAP[id] || []).filter(id => !selected.includes(id)))];
 
@@ -92,7 +108,7 @@ export default function StylesScreen() {
           style={styles.skipBtn}
         >
           <Text style={[styles.skipText, selected.length > 0 && { color: T.color.primary }]}>
-            {selected.length > 0 ? `${selected.length} SELECTED` : 'SKIP'}
+            {selected.length > 0 ? t('onboardingCommon_selectedCount', { count: selected.length }) : t('onboarding_styles_skip')}
           </Text>
 
         </Pressable>
@@ -100,33 +116,32 @@ export default function StylesScreen() {
 
       <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
         <View style={{ height: 24 }} />
-        <Text style={styles.h1}>Find your styles.</Text>
-        <Text style={styles.caption}>Select what speaks to you. We'll learn as you go.</Text>
+        <Text style={styles.h1}>{t('onboarding_styles_title')}</Text>
+        <Text style={styles.caption}>{t('onboarding_styles_subtitle')}</Text>
         <View style={{ height: 24 }} />
 
         {selected.length >= MAX_STYLES && (
           <Text style={[styles.caption, { color: T.color.tertiary, fontSize: 11 }]}>
-            Maximum 5 styles selected
+            {t('onboarding_styles_maximumSelected')}
           </Text>
         )}
 
         {related.length > 0 && (
           <View style={styles.relatedSection}>
             <Text style={styles.relatedLabel}>
-              YOU MIGHT ALSO LIKE
+              {t('onboarding_styles_youMightAlsoLike')}
             </Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingHorizontal: 24 }}>
-              {related.slice(0, 4).map(slug => {
-                const s = styleList instanceof Array && styleList.length > 0 && 'slug' in styleList[0]
-                  ? (styleList as StyleCatalogItem[]).find(x => x.slug === slug)
-                  : STYLES.find(x => x.id === slug);
+              {related.slice(0, 4).map(id => {
+                const s = catalogStyles.length > 0
+                  ? catalogStyles.find(x => x.id === id)
+                  : STYLES.find(x => x.id === id);
                 if (!s) return null;
-                const id = 'slug' in s ? s.id : (s as StyleOption).id;
                 const isSelected = selected.includes(id);
                 return (
                   <StyleCard
                     key={id}
-                    style={s as StyleOption}
+                    style={s}
                     small
                     selected={isSelected}
                     onPress={() => toggle(id)}
@@ -143,7 +158,7 @@ export default function StylesScreen() {
             return (
               <StyleCard
                 key={id}
-                style={s as StyleOption}
+                style={s}
                 selected={selected.includes(id)}
                 onPress={() => toggle(id)}
               />
@@ -153,7 +168,7 @@ export default function StylesScreen() {
 
         <View style={{ height: 24 }} />
         <PrimaryButton onPress={handleContinue} disabled={selected.length === 0}>
-          {selected.length > 0 ? `CONTINUE (${selected.length} / ${MAX_STYLES})` : 'SELECT AT LEAST ONE'}
+          {selected.length > 0 ? t('onboardingStyles_continueWithCount', { count: selected.length, max: MAX_STYLES }) : t('onboarding_styles_selectAtLeastOne')}
         </PrimaryButton>
       </ScrollView>
     </View>

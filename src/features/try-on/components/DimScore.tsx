@@ -7,21 +7,23 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { T, type } from '../../../design/tokens';
 import { CriterionScore, CriterionKey } from '../../../types/tryOn';
+import { useTranslation } from '../../../i18n';
 
 interface Props {
   criterion: CriterionScore;
 }
 
-const LABELS: Record<CriterionKey, string> = {
-  color:       'COLOR',
-  style:       'STYLE',
-  fit:         'FIT',
-  measurement: 'MEASUREMENT',
-  fabric:      'FABRIC',
+const LABEL_KEYS: Record<CriterionKey, string> = {
+  color:       'dimScore_color',
+  style:       'dimScore_style',
+  fit:         'dimScore_fit',
+  measurement: 'dimScore_measurement',
+  fabric:      'dimScore_fabric',
 };
 
 export function DimScore({ criterion }: Props) {
-  const label = LABELS[criterion.key];
+  const { t } = useTranslation();
+  const label = t(LABEL_KEYS[criterion.key]);
   const { available, score, explanation } = criterion;
 
   return (
@@ -54,7 +56,7 @@ export function DimScore({ criterion }: Props) {
       <Text style={[styles.explanation, !available && styles.explanationUnavailable]}>
         {available
           ? explanation
-          : explanation || 'Not enough info — complete your profile to score this.'}
+          : explanation || t('dimScore_notEnoughInfo')}
       </Text>
     </View>
   );

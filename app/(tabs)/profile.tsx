@@ -9,31 +9,32 @@ import { IconChevronLeft, IconSettings, IconChevronRight } from '../../src/compo
 import { useAppStore } from '../../src/stores/appStore';
 import { useAuthStore } from '../../src/stores/authStore';
 import { OUTFITS } from '../../src/data';
+import { useTranslation } from '../../src/i18n';
 
-const SECTIONS = [
-  'Style preferences', 'Formula preferences', 'Color palette', 'Colour season',
-  'Body measurements', 'Location & weather', 'Connected accounts', 'Notifications', 'Subscription',
+const SECTIONS: Array<{ id: string; labelKey: string; route?: string }> = [
+  { id: 'style', labelKey: 'tabs_profile_stylePreferences', route: '/styles-edit' },
+  { id: 'formula', labelKey: 'tabs_profile_formulaPreferences', route: '/formulas-edit' },
+  { id: 'color', labelKey: 'tabs_profile_colorPalette', route: '/colors-edit' },
+  { id: 'colourSeason', labelKey: 'tabs_profile_colourSeason', route: '/personal-color-edit' },
+  { id: 'measurements', labelKey: 'tabs_profile_bodyMeasurements', route: '/measurements-edit' },
+  { id: 'location', labelKey: 'tabs_profile_locationWeather' },
+  { id: 'accounts', labelKey: 'tabs_profile_connectedAccounts' },
+  { id: 'notifications', labelKey: 'tabs_profile_notifications', route: '/notifications' },
+  { id: 'subscription', labelKey: 'tabs_profile_subscription', route: '/paywall' },
 ];
-
-const SECTION_ROUTES: Record<string, string> = {
-  'Style preferences': '/styles-edit',
-  'Formula preferences': '/formulas-edit',
-  'Color palette': '/colors-edit',
-  'Colour season': '/personal-color-edit',
-  'Body measurements': '/measurements-edit',
-};
 
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { items, collections, wardrobeItems } = useAppStore();
-  const { phone, email, location, displayName: storedName, avatarUrl, colorSeason } = useAuthStore();
+  const { phone, email, location, displayName: storedName, avatarUrl, colorSeason, logout } = useAuthStore();
 
   const itemCount = wardrobeItems.length > 0 ? wardrobeItems.length : items.length;
   const stats = [
-    { num: itemCount, label: 'ITEMS' },
-    { num: OUTFITS.length, label: 'OUTFITS' },
-    { num: collections.length, label: 'COLLECTIONS' },
+    { num: itemCount, label: t('tabs_profile_items') },
+    { num: OUTFITS.length, label: t('tabs_profile_outfits') },
+    { num: collections.length, label: t('tabs_profile_collections') },
   ];
 
   const displayName = storedName || (phone
@@ -67,7 +68,7 @@ export default function ProfileScreen() {
           </Pressable>
           <View style={{ height: 16 }} />
           <Text style={styles.h2}>{displayName}</Text>
-          <Text style={styles.handle}>{location || 'No location set'}</Text>
+          <Text style={styles.handle}>{location || t('tabs_profile_noLocationSet')}</Text>
           {colorSeason && (
             <View style={styles.seasonBadge}>
               <Text style={styles.seasonBadgeText}>{colorSeason.toUpperCase()}</Text>
@@ -97,11 +98,11 @@ export default function ProfileScreen() {
 
         {SECTIONS.map((s, i) => (
           <Pressable
-            key={s}
-            onPress={() => { const route = SECTION_ROUTES[s]; if (route) router.push(route as any); }}
+            key={s.id}
+            onPress={() => { if (s.route) router.push(s.route as any); }}
             style={[styles.sectionRow, { borderBottomWidth: i === SECTIONS.length - 1 ? 0 : 0.5, borderBottomColor: T.color.hairline }]}
           >
-            <Text style={styles.sectionText}>{s}</Text>
+            <Text style={styles.sectionText}>{t(s.labelKey)}</Text>
             <IconChevronRight size={12} color={T.color.tertiary} strokeWidth={1.4} />
           </Pressable>
         ))}
@@ -110,10 +111,10 @@ export default function ProfileScreen() {
         <Divider />
         <View style={{ height: 24 }} />
         <View style={{ alignItems: 'center' }}>
-          <TextLink onPress={() => router.replace('/(onboarding)')} color={T.color.tertiary}>Sign out</TextLink>
+          <TextLink onPress={() => logout().then(() => router.replace('/(onboarding)'))} color={T.color.tertiary}>{t('tabs_profile_signOut')}</TextLink>
         </View>
         <View style={{ height: 16 }} />
-        <Text style={[type.micro, { color: T.color.tertiary, textAlign: 'center' }]}>App version 1.0.0</Text>
+        <Text style={[type.micro, { color: T.color.tertiary, textAlign: 'center' }]}>{t('tabs_profile_appVersion')}</Text>
       </ScrollView>
 
       <BottomNav active="profile" onChange={(tab) => {

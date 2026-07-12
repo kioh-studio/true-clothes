@@ -6,10 +6,12 @@ import { PrimaryButton, Field } from '../../src/components/ui';
 import { IconChevronLeft } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAuthStore } from '../../src/stores/authStore';
+import { useTranslation } from '../../src/i18n';
 
 export default function AccountScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -22,7 +24,7 @@ export default function AccountScreen() {
     setSending(true); setError('');
     const res = await sendOtp('', email);
     setSending(false);
-    if (!res.ok) { setError(res.message || 'Could not send code. Please try again.'); return; }
+    if (!res.ok) { setError(res.message || t('onboarding_account_defaultError')); return; }
     router.push('/(onboarding)/otp');
   };
 
@@ -37,11 +39,11 @@ export default function AccountScreen() {
 
       <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
         <View style={{ height: 32 }} />
-        <Text style={styles.h1}>Let's begin.</Text>
-        <Text style={styles.caption}>Enter your email to get started.</Text>
+        <Text style={styles.h1}>{t('onboarding_account_title')}</Text>
+        <Text style={styles.caption}>{t('onboardingAccount_subtitle')}</Text>
         <View style={{ height: 48 }} />
 
-        <Field label="EMAIL" value={email} onChange={v => setEmail(v.toLowerCase().trim())} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} helper="We'll send a one-time code to this address." />
+        <Field label={t('onboarding_account_emailLabel')} value={email} onChange={v => setEmail(v.toLowerCase().trim())} placeholder={t('onboarding_account_emailPlaceholder')} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} helper={t('onboarding_account_emailHelper')} />
 
         {error ? (
           <>
@@ -52,12 +54,12 @@ export default function AccountScreen() {
 
         <View style={{ height: 64 }} />
         <PrimaryButton onPress={handleContinue} disabled={!canContinue || sending}>
-          {sending ? 'SENDING CODE…' : 'CONTINUE'}
+          {sending ? t('onboarding_account_continueSending') : t('onboarding_account_continueButton')}
         </PrimaryButton>
 
         <View style={{ height: 32 }} />
         <Text style={styles.terms}>
-          By continuing, you agree to our Terms and Privacy Policy.
+          {t('onboarding_account_terms')}
         </Text>
       </ScrollView>
     </View>

@@ -9,11 +9,13 @@ import { IconChevronLeft, IconPlus } from '../../src/components/icons';
 import { useAppStore } from '../../src/stores/appStore';
 import { useCollectionSheet } from '../../src/features/collections/useCollectionSheet';
 import { useGridCardWidth } from '../../src/design/layout';
+import { useTranslation } from '../../src/i18n';
 
 export default function CollectionsScreen() {
   const CARD_W = useGridCardWidth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { collections, wardrobeItems, createCollection, collectionsError } = useAppStore();
   const sheet = useCollectionSheet();
   const [saving, setSaving] = useState(false);
@@ -32,7 +34,7 @@ export default function CollectionsScreen() {
         <Pressable onPress={() => router.back()} style={styles.iconBtn}>
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.4} />
         </Pressable>
-        <Text style={styles.title}>Collections</Text>
+        <Text style={styles.title}>{t('tabs_menu_collections')}</Text>
         <Pressable onPress={sheet.openCreate} style={styles.iconBtn}>
           <IconPlus size={20} color={T.color.primary} strokeWidth={1.4} />
         </Pressable>
@@ -41,11 +43,11 @@ export default function CollectionsScreen() {
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
         {collections.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>No collections yet.</Text>
-            <Text style={styles.emptyCaption}>Group your wardrobe items by theme or occasion.</Text>
+            <Text style={styles.emptyTitle}>{t('collections_emptyTitle')}</Text>
+            <Text style={styles.emptyCaption}>{t('collections_emptyCaption')}</Text>
             <View style={{ height: 32 }} />
             <PrimaryButton onPress={sheet.openCreate} fullWidth={false} style={{ paddingHorizontal: 48 }}>
-              CREATE FIRST
+              {t('collections_createFirstButton')}
             </PrimaryButton>
           </View>
         ) : (
@@ -69,7 +71,9 @@ export default function CollectionsScreen() {
                   </View>
                   <View style={{ paddingTop: 12 }}>
                     <Text style={styles.collName}>{c.name}</Text>
-                    <Text style={styles.collMeta}>{c.itemIds.length} {c.itemIds.length === 1 ? 'item' : 'items'}</Text>
+                    <Text style={styles.collMeta}>
+                      {t('collections_itemCountLabel', { count: c.itemIds.length, suffix: c.itemIds.length === 1 ? '' : 's' })}
+                    </Text>
                   </View>
                 </Pressable>
               );
@@ -81,15 +85,15 @@ export default function CollectionsScreen() {
       {/* Create Collection Sheet */}
       <BottomSheet open={sheet.visible && sheet.mode === 'create'} onClose={sheet.close} maxHeight="60%">
         <View style={styles.sheetContent}>
-          <Text style={styles.sheetTitle}>New collection.</Text>
+          <Text style={styles.sheetTitle}>{t('collections_newSheetTitle')}</Text>
           <View style={{ height: 24 }} />
 
-          <Text style={styles.inputLabel}>NAME</Text>
+          <Text style={styles.inputLabel}>{t('collections_nameLabel')}</Text>
           <TextInput
             style={styles.input}
             value={sheet.name}
             onChangeText={sheet.setName}
-            placeholder="Workweek, Travel, Date night…"
+            placeholder={t('collections_namePlaceholderExample')}
             placeholderTextColor={T.color.tertiary}
             maxLength={60}
             autoFocus
@@ -97,12 +101,12 @@ export default function CollectionsScreen() {
 
           <View style={{ height: 16 }} />
 
-          <Text style={styles.inputLabel}>DESCRIPTION (OPTIONAL)</Text>
+          <Text style={styles.inputLabel}>{t('collections_descriptionLabel')}</Text>
           <TextInput
             style={[styles.input, styles.inputMultiline]}
             value={sheet.description}
             onChangeText={sheet.setDescription}
-            placeholder="What's this collection for?"
+            placeholder={t('collections_descriptionPlaceholder')}
             placeholderTextColor={T.color.tertiary}
             maxLength={200}
             multiline
@@ -114,11 +118,11 @@ export default function CollectionsScreen() {
 
           <View style={{ height: 24 }} />
           <PrimaryButton onPress={handleCreate} disabled={!sheet.name.trim() || saving}>
-            {saving ? 'CREATING…' : 'CREATE'}
+            {saving ? t('collections_creatingText') : t('collections_createButton')}
           </PrimaryButton>
           <View style={{ height: 12 }} />
           <View style={{ alignItems: 'center' }}>
-            <TextLink onPress={sheet.close} color={T.color.tertiary}>Cancel</TextLink>
+            <TextLink onPress={sheet.close} color={T.color.tertiary}>{t('common_cancel')}</TextLink>
           </View>
         </View>
       </BottomSheet>

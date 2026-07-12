@@ -13,12 +13,14 @@ import { useRouter } from 'expo-router';
 import { T, type } from '../../../design/tokens';
 import { IconChevronLeft } from '../../../components/icons';
 import { useTryOn } from '../useTryOn';
-import { MatchFeedCard } from './MatchFeedCard';
+import { MatchFeedCard, pieceIds } from './MatchFeedCard';
 import type { ScoredOutfit } from '../../../types/fitEngine';
+import { useTranslation } from '../../../i18n';
 
 export function MixMatchFeed() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { t } = useTranslation();
   const {
     scannedItem, mixMatchOutfits, mixMatchLoading, error, fetchMixMatch,
   } = useTryOn();
@@ -45,22 +47,57 @@ export function MixMatchFeed() {
 
   const goBack = () => router.back();
 
+  // AI "wear on you" for a Mix & Match outfit: pass the OWNED item ids as the
+  // outfit, and the scanned candidate as the `extra` garment (it has no cloud
+  // photo yet, so the generator receives it as a text-described piece).
+  const onWear = useCallback((outfit: ScoredOutfit, index: number) => {
+    if (!scannedItem) return;
+    const md = scannedItem.metadata;
+    const owned = pieceIds(outfit, scannedItem.id);
+    // A pinned WARDROBE item (build-around-item) has a real id + cloud photo —
+    // send it as a normal outfit item so the generator gets its actual image.
+    // A transient scan (not in the wardrobe yet) rides the `extra` param as a
+    // text-described garment instead.
+    const isOwnedPin = Boolean(scannedItem.sourceItemId);
+    const itemIds = isOwnedPin ? [scannedItem.sourceItemId!, ...owned] : owned;
+    router.push({
+      pathname: '/try-on/wear' as any,
+      params: {
+        id: `mixmatch-${index}`,
+        data: JSON.stringify({
+          id: `mixmatch-${index}`,
+          title: md.name || md.type,
+          style: 'MIX & MATCH',
+          context: isOwnedPin ? 'FROM CLOSET' : 'CONSIDERING',
+          itemIds,
+        }),
+        ...(isOwnedPin ? {} : {
+          extra: JSON.stringify({
+            type: md.type, name: md.name, color: md.color,
+            material: md.material, fit: md.fit,
+          }),
+        }),
+      },
+    });
+  }, [scannedItem, router]);
+
   const renderCard = useCallback(({ item, index }: { item: ScoredOutfit; index: number }) => (
     <MatchFeedCard
       scannedItem={scannedItem!}
       outfit={item}
       index={index}
       height={viewportH}
+      onWear={() => onWear(item, index)}
     />
-  ), [scannedItem, viewportH]);
+  ), [scannedItem, viewportH, onWear]);
 
   // No item (deep-link / lost session) → send back to scan.
   if (!scannedItem) {
     return (
       <View style={[styles.centered, { paddingTop: insets.top }]}>
-        <Text style={styles.caption}>No item to match yet.</Text>
+        <Text style={styles.caption}>{t('mixMatchFeed_noItem')}</Text>
         <Pressable onPress={goBack} hitSlop={8} style={styles.backLink}>
-          <Text style={styles.backLinkLabel}>GO BACK</Text>
+          <Text style={styles.backLinkLabel}>{t('mixMatchFeed_goBack')}</Text>
         </Pressable>
       </View>
     );
@@ -79,7 +116,7 @@ export function MixMatchFeed() {
         {showLoading ? (
           <View style={styles.stateCenter}>
             <ActivityIndicator size="large" color={T.color.primary} />
-            <Text style={styles.stateLabel}>Building outfits around this…</Text>
+            <Text style={styles.stateLabel}>{t('mixMatchFeed_building')}</Text>
           </View>
         ) : error && mixMatchOutfits.length === 0 ? (
           <View style={styles.stateCenter}>
@@ -89,15 +126,14 @@ export function MixMatchFeed() {
               hitSlop={8}
               style={styles.retryBtn}
             >
-              <Text style={styles.retryLabel}>TRY AGAIN</Text>
+              <Text style={styles.retryLabel}>{t('measurementsScan_tryAgain')}</Text>
             </Pressable>
           </View>
         ) : showSparse ? (
           <View style={styles.stateCenter}>
-            <Text style={styles.sparseTitle}>Nothing to pair yet</Text>
+            <Text style={styles.sparseTitle}>{t('mixMatchFeed_sparseTitle')}</Text>
             <Text style={styles.sparseBody}>
-              Add a few more pieces — a top, a bottom and shoes — and we'll build
-              complete outfits around this item.
+              {t('mixMatchFeed_sparseBody')}
             </Text>
           </View>
         ) : viewportH > 0 ? (
@@ -124,7 +160,7 @@ export function MixMatchFeed() {
             <IconChevronLeft size={18} strokeWidth={1.5} color={T.color.primary} />
           </Pressable>
           <View style={styles.matchingChip}>
-            <Text style={styles.matchingLabel}>MATCHING</Text>
+            <Text style={styles.matchingLabel}>{t('mixMatchFeed_matching')}</Text>
             <Text style={styles.matchingName} numberOfLines={1}>
               {scannedItem.metadata.name || scannedItem.metadata.type}
             </Text>
@@ -148,7 +184,7 @@ export function MixMatchFeed() {
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + T.s(3) }]}>
         <Pressable onPress={goBack} style={styles.backToResult} hitSlop={6}>
           <IconChevronLeft size={15} strokeWidth={1.5} color={T.color.primary} />
-          <Text style={styles.backToResultLabel}>BACK TO RESULT</Text>
+          <Text style={styles.backToResultLabel}>{t('mixMatchFeed_backToResult')}</Text>
         </Pressable>
       </View>
     </View>

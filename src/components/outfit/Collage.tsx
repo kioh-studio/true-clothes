@@ -9,23 +9,29 @@ import type { WardrobeItem } from '../../types/fitEngine';
 
 // ─── Item role classification ────────────────────────────────────────────────
 // Anchors: the tall/long bottom item that defines the outfit's scale
-const ANCHOR_PRIORITY = ['DRESS', 'OVERCOAT', 'COAT', 'TROUSERS', 'JEANS', 'CHINOS', 'SKIRT', 'SHORTS', 'BLAZER'];
-const OUTER_TOPS = new Set(['JACKET', 'BLAZER', 'COAT', 'OVERCOAT']);
-const INNER_TOPS = new Set(['TEE', 'SHIRT', 'KNIT', 'POLO', 'HENLEY']);
+const ANCHOR_PRIORITY = ['DRESS', 'OVERCOAT', 'COAT', 'TROUSERS', 'JEANS', 'CHINOS', 'SKIRT', 'LEGGINGS', 'SHORTS', 'BLAZER'];
+const OUTER_TOPS = new Set(['JACKET', 'BLAZER', 'COAT', 'OVERCOAT', 'CAPE', 'KIMONO']);
+const INNER_TOPS = new Set([
+  'TEE', 'SHIRT', 'KNIT', 'POLO', 'HENLEY',
+  'BLOUSE', 'CAMISOLE', 'CROP', 'BODYSUIT', 'TUNIC', 'CORSET',
+]);
 const ACCESSORY_TYPES = new Set([
-  'LOAFERS', 'SNEAKERS', 'BOOTS', 'MULES', 'SANDALS', 'SHOES', 'BAG', 'WATCH', 'NECKLACE', 'SUNGLASSES',
-  'BELT', 'SCARF', 'RING', 'BRACELET', 'HAT', 'CAP',
+  'LOAFERS', 'SNEAKERS', 'BOOTS', 'MULES', 'SANDALS', 'OXFORDS', 'HEELS', 'FLATS', 'WEDGES', 'SHOES',
+  'BAG', 'WATCH', 'NECKLACE', 'SUNGLASSES', 'EARRINGS', 'GLOVES', 'TIGHTS',
+  'BELT', 'SCARF', 'RING', 'BRACELET', 'HAT', 'CAP', 'TIE',
 ]);
 
 // Natural width/height ratios — < 1 = taller than wide
 const ASPECT: Record<string, number> = {
-  JEANS: 0.54,  TROUSERS: 0.50, CHINOS: 0.54, SHORTS: 0.80, SKIRT: 0.68,
-  DRESS: 0.44,  OVERCOAT: 0.50, COAT: 0.50,
+  JEANS: 0.54,  TROUSERS: 0.50, CHINOS: 0.54, SHORTS: 0.80, SKIRT: 0.68, LEGGINGS: 0.48,
+  DRESS: 0.44,  OVERCOAT: 0.50, COAT: 0.50,   CAPE: 0.70,    KIMONO: 0.68,
   TEE: 0.86,    SHIRT: 0.82,    KNIT: 0.88,   POLO: 0.84,    HENLEY: 0.84,
+  BLOUSE: 0.82, CAMISOLE: 0.82, CROP: 0.92,   BODYSUIT: 0.80, TUNIC: 0.80, CORSET: 0.86,
   BLAZER: 0.80, JACKET: 0.82,
   LOAFERS: 1.35, SNEAKERS: 1.55, BOOTS: 1.2, MULES: 1.35, SHOES: 1.35, BELT: 2.8,
-  BAG: 0.95,    WATCH: 1.0,     NECKLACE: 0.85,
-  SUNGLASSES: 1.9, SCARF: 1.6,  CAP: 1.25,    HAT: 1.2,
+  HEELS: 1.25,  FLATS: 1.5,     WEDGES: 1.35, OXFORDS: 1.35, SANDALS: 1.45,
+  BAG: 0.95,    WATCH: 1.0,     NECKLACE: 0.85, EARRINGS: 0.7, GLOVES: 0.9, TIGHTS: 0.5,
+  SUNGLASSES: 1.9, SCARF: 1.6,  CAP: 1.25,    HAT: 1.2,     TIE: 0.3,
 };
 
 // Fallback granular type for DB items that only carry a coarse `category`.
@@ -241,8 +247,9 @@ export function OutfitCollage({
     return buildLayout(entries);
   }, [outfit.itemIds, wardrobeById]);
 
+  const hasTip = showTitle && !!outfit.stylingTip;
   const titleY = titleTop != null ? titleTop : (compact ? 16 : 24);
-  const titleBlockH = compact ? 52 : 72;
+  const titleBlockH = (compact ? 52 : 72) + (hasTip ? 16 : 0);
   const itemsTop = showTitle ? titleY + titleBlockH : 0;
 
   return (
@@ -255,6 +262,11 @@ export function OutfitCollage({
           <Text style={[styles.subtitle, { fontSize: compact ? 12 : 14 }]}>
             {(outfit.subtitle || outfit.context).toLowerCase()}
           </Text>
+          {hasTip && (
+            <Text style={styles.tip} numberOfLines={1}>
+              {outfit.stylingTip!.toLowerCase()}
+            </Text>
+          )}
         </View>
       )}
 
@@ -296,6 +308,14 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     color: T.color.secondary,
     marginTop: 8,
+    textAlign: 'center',
+  },
+  tip: {
+    fontFamily: T.font.sans,
+    fontSize: 11,
+    letterSpacing: 0.6,
+    color: T.color.tertiary,
+    marginTop: 6,
     textAlign: 'center',
   },
   itemsArea: {

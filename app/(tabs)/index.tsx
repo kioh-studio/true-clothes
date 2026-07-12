@@ -1,83 +1,104 @@
 // Home — Outfit Feed (TikTok-style vertical pager)
-import React, { useRef, useState, useMemo, useEffect } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, Pressable, ScrollView, useWindowDimensions,
+  View, Text, StyleSheet, FlatList, Pressable, useWindowDimensions, Share,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../../src/design/tokens';
 import { OUTFITS, Outfit } from '../../src/data';
 import { OutfitCollage, OutfitItemThumb } from '../../src/components/outfit/Collage';
 import { BottomNav } from '../../src/components/ui/BottomNav';
-import { BottomSheet, TextLink, Tag } from '../../src/components/ui';
+import { BottomSheet, TextLink } from '../../src/components/ui';
 import { useAppStore } from '../../src/stores/appStore';
+import { useAuthStore } from '../../src/stores/authStore';
 import { useFitEngineStore } from '../../src/stores/fitEngineStore';
+import { useWardrobeCriticStore } from '../../src/stores/wardrobeCriticStore';
 import { useFitFeed } from '../../src/features/feed/useFitFeed';
 import {
-  IconBell, IconHeart, IconBookmark, IconCalendar, IconSparkle, IconShare, IconThermometer, IconMenu,
+  IconHeart, IconCalendar, IconSparkle, IconShare, IconThermometer, IconMenu, IconBook,
 } from '../../src/components/icons';
-
-// T021: Map temperature band → filter label
-const BAND_TO_FILTER: Record<string, string> = {
-  hot:  'HOT 28°+',
-  warm: 'WARM 22–27°',
-  mild: 'COOL 16–21°',
-  cold: 'COLD –15°',
-};
-
-const WEATHER_FILTERS = [
-  { label: 'ALL', min: -Infinity, max: Infinity },
-  { label: 'HOT 28°+', min: 28, max: Infinity },
-  { label: 'WARM 22–27°', min: 22, max: 27 },
-  { label: 'COOL 16–21°', min: 16, max: 21 },
-  { label: 'COLD –15°', min: -Infinity, max: 15 },
-];
+import { useTranslation } from '../../src/i18n';
 
 // T022: 2 curated demo outfits for empty wardrobe state
 const DEMO_OUTFITS = OUTFITS.slice(0, 2);
 
-function parseTemp(weather: string): number {
-  const match = weather.match(/(\d+)/);
-  return match ? parseInt(match[1], 10) : 24;
+// Display-tag helpers (2026-07-12) — silhouette + dominant colour on the feed
+// card meta line. Both are display-only (see ScoredOutfit.silhouette/colorTone,
+// engine/silhouette.ts + engine/scoring.ts) and never affect ranking.
+const SILHOUETTE_I18N_KEYS: Record<string, string> = {
+  fitted: 'outfitSilhouette_fitted',
+  straight: 'outfitSilhouette_straight',
+  relaxed: 'outfitSilhouette_relaxed',
+  'top-volume': 'outfitSilhouette_topVolume',
+  'bottom-volume': 'outfitSilhouette_bottomVolume',
+};
+
+// Silhouette family has a translated vocabulary; resolve + uppercase to match
+// the existing `outfit.style`/`outfit.weather` casing on the meta line.
+function silhouetteMetaLabel(t: (key: string) => string, silhouette?: string): string | undefined {
+  if (!silhouette) return undefined;
+  const key = SILHOUETTE_I18N_KEYS[silhouette];
+  if (!key) return undefined;
+  return t(key).toUpperCase();
+}
+
+// Geometric-shape tag for the RESULTING BODY silhouette (2026-07-12) — the
+// user's body_shape baseline as modified by the outfit's garment volume, NOT
+// a relabel of `silhouette` (see engine/silhouette.ts resultingBodySilhouette).
+// Shown as an additional chip right after the descriptive silhouette tag;
+// never replaces it.
+const SHAPE_I18N_KEYS: Record<string, string> = {
+  'hourglass': 'outfitShape_hourglass',
+  'rectangle': 'outfitShape_rectangle',
+  'oval': 'outfitShape_oval',
+  'inverted-triangle': 'outfitShape_invertedTriangle',
+  'triangle': 'outfitShape_triangle',
+};
+
+function silhouetteShapeMetaLabel(t: (key: string) => string, shape?: string): string | undefined {
+  if (!shape) return undefined;
+  const key = SHAPE_I18N_KEYS[shape];
+  if (!key) return undefined;
+  return t(key).toUpperCase();
+}
+
+// Colour NAMEs (PrimaryColor, ~37 values) don't have a translated vocabulary
+// yet (see backlog.md) — render capitalized in both locales for now.
+function colorToneMetaLabel(colorTone?: string): string | undefined {
+  if (!colorTone) return undefined;
+  return colorTone.toUpperCase();
 }
 
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [activeIdx, setActiveIdx] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
+  const listRef = useRef<FlatList<Outfit>>(null);
 
   const { savedSet, toggleSave, toggleSchedule, items, wardrobeItems, weatherContext } = useAppStore();
+  const { logout } = useAuthStore();
   const { feedError, fetchOutfits, fetchMoreOutfits, isFetchingMore } = useFitEngineStore();
   const { outfits: generatedOutfits, isGenerated } = useFitFeed();
 
-  // T021: Default filter to live weather band
-  const defaultFilter = weatherContext ? (BAND_TO_FILTER[weatherContext.temperatureBand] ?? 'ALL') : 'ALL';
-  const [weatherFilter, setWeatherFilter] = useState(defaultFilter);
+  // 010-wardrobe-critic: background refresh (cache-hit is a no-op — cheap) so
+  // the end-of-feed stylist card reflects the latest report without the user
+  // ever having to open Wardrobe Report first.
+  const wardrobeCriticFetchReport = useWardrobeCriticStore((s) => s.fetchReport);
+  const hasWardrobeGaps = useWardrobeCriticStore((s) => s.visibleRecommendations().length > 0);
+  useEffect(() => { wardrobeCriticFetchReport(); }, [wardrobeCriticFetchReport]);
 
-  // Keep filter in sync when weather loads after mount
-  useEffect(() => {
-    if (weatherContext && weatherFilter === 'ALL') {
-      const band = BAND_TO_FILTER[weatherContext.temperatureBand];
-      if (band) setWeatherFilter(band);
-    }
-  }, [weatherContext]);
-
-  // T022: Empty wardrobe → show 2 curated demo outfits
+  // T022: Empty wardrobe → show 2 curated demo outfits. The weather FILTER bar was
+  // removed (it gated on each outfit's `weather`, but generated outfits all carry a
+  // hardcoded '22°C', so the live-band default emptied the feed on hot/cold days for
+  // no real benefit). Live weather still drives the engine's seasonal scoring via
+  // fitEngineStore.weatherIntent() and the °C label below — only the UI filter is gone.
   const isDemo = wardrobeItems.length === 0;
-  const allOutfits: Outfit[] = isDemo
+  const feed: Outfit[] = isDemo
     ? DEMO_OUTFITS
     : isGenerated ? generatedOutfits : OUTFITS;
-
-  const feed = useMemo(() => {
-    if (weatherFilter === 'ALL') return allOutfits;
-    const range = WEATHER_FILTERS.find(f => f.label === weatherFilter);
-    if (!range) return allOutfits;
-    return allOutfits.filter(o => {
-      const temp = parseTemp(o.weather);
-      return temp >= range.min && temp <= range.max;
-    });
-  }, [allOutfits, weatherFilter]);
 
   // Page height must equal the FlatList's real viewport, or every snap leaves
   // a sliver of the neighbouring card visible. Window dimensions are
@@ -87,18 +108,28 @@ export default function HomeScreen() {
   const [pageH, setPageH] = useState(0);
   const CARD_H = pageH || winH - insets.bottom - 64;
 
-  const openOutfit = (outfit: Outfit) => {
+  // Guard against double-tap pushing the outfit detail route twice while the
+  // first navigation is still in flight.
+  const openOutfitInFlightRef = useRef(false);
+  const openOutfit = useCallback((outfit: Outfit) => {
+    if (openOutfitInFlightRef.current) return;
+    openOutfitInFlightRef.current = true;
     router.push({ pathname: '/outfit/[id]', params: { id: outfit.id, data: JSON.stringify(outfit) } });
-  };
+    setTimeout(() => { openOutfitInFlightRef.current = false; }, 400);
+  }, [router]);
+
+  const onAddItems = useCallback(() => {
+    router.replace('/(tabs)/wardrobe');
+  }, [router]);
 
   // T023: retry handler
   const handleRetry = () => { fetchOutfits(); };
 
   const weatherLabel = weatherContext
     ? `${Math.round(weatherContext.temperatureCelsius)}°C`
-    : '–';
+    : t('tabs_home_weatherLabel');
 
-  const renderCard = ({ item: outfit, index }: { item: Outfit; index: number }) => (
+  const renderCard = useCallback(({ item: outfit, index }: { item: Outfit; index: number }) => (
     <FeedCard
       outfit={outfit}
       active={index === activeIdx}
@@ -109,9 +140,10 @@ export default function HomeScreen() {
       onOpen={openOutfit}
       onToggleSave={toggleSave}
       onToggleSchedule={toggleSchedule}
-      onAddItems={() => router.replace('/(tabs)/wardrobe')}
+      onAddItems={onAddItems}
     />
-  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ), [activeIdx, CARD_H, savedSet, isDemo, insets.top, openOutfit, toggleSave, toggleSchedule, onAddItems]);
 
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
@@ -120,43 +152,29 @@ export default function HomeScreen() {
         {/* T023: Error retry banner */}
         {feedError && (
           <Pressable onPress={handleRetry} style={styles.errorBanner} pointerEvents="auto">
-            <Text style={styles.errorBannerText}>Couldn't refresh — tap to retry</Text>
+            <Text style={styles.errorBannerText}>{t('tabs_home_errorBanner')}</Text>
           </Pressable>
         )}
         <View style={styles.topRow}>
-          <Text style={styles.brand}>MIEN</Text>
+          <Text style={styles.brand}>{t('tabs_home_brand')}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <IconThermometer size={13} color={T.color.tertiary} strokeWidth={1.4} />
             <Text style={styles.weatherLabel}>{weatherLabel}</Text>
-            <Pressable style={styles.bellBtn}>
-              <IconBell size={18} color={T.color.tertiary} strokeWidth={1.4} />
-            </Pressable>
             <Pressable onPress={() => setMenuOpen(true)} style={styles.bellBtn}>
               <IconMenu size={18} color={T.color.tertiary} strokeWidth={1.4} />
             </Pressable>
           </View>
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}
-          style={styles.weatherBar}
-          contentContainerStyle={{ gap: 6, paddingRight: 24 }}
-          pointerEvents="auto"
-        >
-          {WEATHER_FILTERS.map(f => (
-            <Tag key={f.label} selected={weatherFilter === f.label}
-              onPress={() => { setWeatherFilter(f.label); setActiveIdx(0); }} size="sm">
-              {f.label}
-            </Tag>
-          ))}
-        </ScrollView>
       </View>
 
       {feed.length === 0 ? (
         <View style={styles.emptyFeed}>
-          <Text style={styles.emptyTitle}>No outfits for this weather.</Text>
-          <Text style={styles.emptyCaption}>Try a different filter or add more items to your wardrobe.</Text>
+          <Text style={styles.emptyTitle}>{t('tabs_home_emptyFeedTitle')}</Text>
+          <Text style={styles.emptyCaption}>{t('tabs_home_emptyFeedCaption')}</Text>
         </View>
       ) : (
         <FlatList
+          ref={listRef}
           data={feed}
           keyExtractor={o => o.id}
           renderItem={renderCard}
@@ -169,18 +187,46 @@ export default function HomeScreen() {
           snapToAlignment="start"
           disableIntervalMomentum
           decelerationRate="fast"
-          onScroll={e => {
+          // Track active index only after a snap settles — avoids setState on every
+          // scroll frame and eliminates redundant re-renders of all FeedCards.
+          onMomentumScrollEnd={e => {
             const i = Math.round(e.nativeEvent.contentOffset.y / CARD_H);
             if (i !== activeIdx) setActiveIdx(i);
           }}
-          scrollEventThrottle={16}
           style={{ flex: 1 }}
           getItemLayout={(_, index) => ({ length: CARD_H, offset: CARD_H * index, index })}
-          onEndReachedThreshold={3}
-          onEndReached={() => { if (!isFetchingMore) fetchMoreOutfits(); }}
-          ListFooterComponent={isFetchingMore ? (
-            <View style={{ height: 2, backgroundColor: T.color.hairline }} />
-          ) : null}
+          // Perf: only render 3 pages around the viewport; clip off-screen items.
+          removeClippedSubviews
+          windowSize={3}
+          initialNumToRender={2}
+          maxToRenderPerBatch={2}
+          // Threshold is a fraction (0–1), not a pixel count.
+          // Only fire on the real generated feed; demo/static paths don't paginate.
+          onEndReachedThreshold={0.5}
+          onEndReached={() => {
+            if (isGenerated && !isDemo && !isFetchingMore) fetchMoreOutfits();
+          }}
+          ListFooterComponent={
+            <>
+              {isFetchingMore && (
+                <View style={{ height: 2, backgroundColor: T.color.hairline }} />
+              )}
+              {/* T030: end-of-feed stylist card — the one touch point into Wardrobe
+                  Report from the daily feed (FR-009). Only shown once the report has
+                  at least one gap recommendation still visible (not dismissed). */}
+              {hasWardrobeGaps && (
+                <Pressable onPress={() => router.push('/wardrobe-report' as any)} style={styles.stylistNoteCard}>
+                  <Text style={styles.stylistNoteLabel}>
+                    {t('tabs_home_stylistNoteLabel')}
+                  </Text>
+                  <Text style={styles.stylistNoteBody}>
+                    {t('tabs_home_stylistNoteBody')}
+                  </Text>
+                  <Text style={styles.stylistNoteCta}>{t('tabs_home_stylistNoteCta')}</Text>
+                </Pressable>
+              )}
+            </>
+          }
         />
       )}
 
@@ -193,21 +239,28 @@ export default function HomeScreen() {
       <MenuSheet open={menuOpen} onClose={() => setMenuOpen(false)}
         onOpenProfile={() => { setMenuOpen(false); router.push('/(tabs)/profile'); }}
         onOpenCollections={() => { setMenuOpen(false); router.push('/collections'); }}
-        onSignOut={() => { setMenuOpen(false); router.replace('/(onboarding)'); }}
+        onSignOut={() => { setMenuOpen(false); logout().then(() => router.replace('/(onboarding)')); }}
       />
     </View>
   );
 }
 
-function FeedCard({ outfit, active, cardH, saved, isDemo, topInset, onOpen, onToggleSave, onToggleSchedule, onAddItems }: {
+function FeedCardInner({ outfit, active, cardH, saved, isDemo, topInset, onOpen, onToggleSave, onToggleSchedule, onAddItems }: {
   outfit: Outfit; active: boolean; cardH: number; saved: boolean; isDemo: boolean; topInset: number;
   onOpen: (o: Outfit) => void; onToggleSave: (id: string) => void;
   onToggleSchedule: (id: string) => void; onAddItems: () => void;
 }) {
+  const { t } = useTranslation();
   // The meta block sizes to its content (a stylist note adds up to two lines),
   // so the collage height must be measured, not assumed as a fixed share of
   // the card — a fixed split lets meta overflow onto the next card.
   const [collageH, setCollageH] = useState(cardH * 0.84);
+
+  // Display-only tags (silhouette + dominant colour) — absent on older/static
+  // outfits, so each segment is only appended when present.
+  const silhouetteTag = silhouetteMetaLabel(t, outfit.silhouette);
+  const silhouetteShapeTag = silhouetteShapeMetaLabel(t, outfit.silhouetteShape);
+  const colorToneTag = colorToneMetaLabel(outfit.colorTone);
 
   return (
     <View style={[styles.card, { height: cardH }]}>
@@ -218,13 +271,11 @@ function FeedCard({ outfit, active, cardH, saved, isDemo, topInset, onOpen, onTo
       >
         <OutfitCollage outfit={outfit} titleTop={topInset + 88} containerHeight={collageH} />
 
-        {/* Right actions */}
+        {/* Right actions — bookmark removed (duplicates heart/save); bell
+            removed (no notifications feature); share wired to native sheet. */}
         <View style={styles.actions}>
           <ActionBtn onPress={() => onToggleSave(outfit.id)}>
             <IconHeart filled={saved} size={22} color={T.color.primary} strokeWidth={1.4} />
-          </ActionBtn>
-          <ActionBtn onPress={() => {}}>
-            <IconBookmark size={22} color={T.color.primary} strokeWidth={1.4} />
           </ActionBtn>
           <ActionBtn onPress={() => onToggleSchedule(outfit.id)}>
             <IconCalendar size={22} color={T.color.primary} strokeWidth={1.4} />
@@ -232,7 +283,9 @@ function FeedCard({ outfit, active, cardH, saved, isDemo, topInset, onOpen, onTo
           <ActionBtn onPress={() => onOpen(outfit)}>
             <IconSparkle size={22} color={T.color.primary} strokeWidth={1.4} />
           </ActionBtn>
-          <ActionBtn onPress={() => {}}>
+          <ActionBtn onPress={() => {
+            Share.share({ message: t('tabs_home_shareMessage', { style: outfit.style, title: outfit.title }) });
+          }}>
             <IconShare size={20} color={T.color.primary} strokeWidth={1.4} />
           </ActionBtn>
         </View>
@@ -244,9 +297,15 @@ function FeedCard({ outfit, active, cardH, saved, isDemo, topInset, onOpen, onTo
           <Text style={styles.stylistNote} numberOfLines={2}>“{outfit.stylistNote}”</Text>
         ) : null}
         <View style={styles.metaTop}>
-          <Text style={styles.metaStyle}>{outfit.style} · {outfit.weather} · {outfit.itemIds.length} ITEMS</Text>
+          <Text style={styles.metaStyle}>
+            {outfit.style} · {outfit.weather}
+            {silhouetteTag ? ` · ${silhouetteTag}` : ''}
+            {silhouetteShapeTag ? ` · ${silhouetteShapeTag}` : ''}
+            {colorToneTag ? ` · ${colorToneTag}` : ''}
+            {' · '}{outfit.itemIds.length} {t('tabs_home_metaItems')}
+          </Text>
           <Pressable onPress={() => onOpen(outfit)}>
-            <Text style={styles.metaDetails}>DETAILS →</Text>
+            <Text style={styles.metaDetails}>{t('tabs_home_metaDetails')}</Text>
           </Pressable>
         </View>
         <View style={styles.thumbnails}>
@@ -266,13 +325,15 @@ function FeedCard({ outfit, active, cardH, saved, isDemo, topInset, onOpen, onTo
       {/* T022: Demo banner — sticky at bottom of card when showing demo outfits */}
       {isDemo && active && (
         <Pressable onPress={onAddItems} style={styles.demoBanner}>
-          <Text style={styles.demoBannerText}>Add your wardrobe to personalise your feed</Text>
-          <Text style={styles.demoBannerCta}>ADD ITEMS →</Text>
+          <Text style={styles.demoBannerText}>{t('tabs_home_demoBannerText')}</Text>
+          <Text style={styles.demoBannerCta}>{t('tabs_home_demoBannerCta')}</Text>
         </Pressable>
       )}
     </View>
   );
 }
+
+const FeedCard = React.memo(FeedCardInner);
 
 function ActionBtn({ onPress, children }: { onPress: () => void; children: React.ReactNode }) {
   return (
@@ -283,22 +344,24 @@ function ActionBtn({ onPress, children }: { onPress: () => void; children: React
 }
 
 function MenuSheet({ open, onClose, onOpenProfile, onOpenCollections, onSignOut }: any) {
-  const { IconDashedSquare, IconCalendar, IconLayers, IconPin, IconBook, IconUser, IconSettings, IconChat } = require('../../src/components/icons');
+  const { t } = useTranslation();
+  const { IconDashedSquare, IconCalendar, IconLayers, IconUser, IconSettings, IconChat, IconBookmark, IconClock } = require('../../src/components/icons');
   const menuItems = [
-    { icon: <IconDashedSquare size={22} color={T.color.primary} strokeWidth={1.4} />, title: 'Build an outfit manually', action: () => {} },
-    { icon: <IconCalendar size={22} color={T.color.primary} strokeWidth={1.4} />, title: 'Schedule outfits', action: () => {} },
-    { icon: <IconLayers size={22} color={T.color.primary} strokeWidth={1.4} />, title: 'Collections', action: onOpenCollections },
-    { icon: <IconPin size={22} color={T.color.primary} strokeWidth={1.4} />, title: 'Trending in your area', action: () => {} },
-    { icon: <IconBook size={22} color={T.color.primary} strokeWidth={1.4} />, title: 'Style guide', action: () => {} },
-    { icon: <IconUser size={22} color={T.color.primary} strokeWidth={1.4} />, title: 'Profile', action: onOpenProfile },
-    { icon: <IconSettings size={22} color={T.color.primary} strokeWidth={1.4} />, title: 'Settings', action: () => {} },
-    { icon: <IconChat size={22} color={T.color.primary} strokeWidth={1.4} />, title: 'Help & feedback', action: () => {} },
+    { icon: <IconDashedSquare size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_buildOutfit'), action: () => router.push('/build') },
+    { icon: <IconCalendar size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_scheduleOutfits'), action: () => router.push('/schedule') },
+    { icon: <IconLayers size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_collections'), action: onOpenCollections },
+    { icon: <IconBookmark size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_savedOutfits'), action: () => router.push('/saved') },
+    { icon: <IconClock size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_outfitHistory'), action: () => router.push('/history') },
+    { icon: <IconBook size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_wardrobeReport'), action: () => router.push('/wardrobe-report' as any) },
+    { icon: <IconUser size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_profile'), action: onOpenProfile },
+    { icon: <IconSettings size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_settings'), action: () => router.push('/settings') },
+    { icon: <IconChat size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_helpFeedback'), action: () => router.push('/help') },
   ];
 
   return (
     <BottomSheet open={open} onClose={onClose} maxHeight="80%">
       <View style={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 32 }}>
-        <Text style={{ fontFamily: T.font.serif, fontSize: 20, fontWeight: '400', color: T.color.primary, marginTop: 8 }}>Menu</Text>
+        <Text style={{ fontFamily: T.font.serif, fontSize: 20, fontWeight: '400', color: T.color.primary, marginTop: 8 }}>{t('tabs_menu_title')}</Text>
         <View style={{ height: 24 }} />
         {menuItems.map((item, i) => (
           <Pressable key={i} onPress={() => { item.action(); onClose(); }}
@@ -310,7 +373,7 @@ function MenuSheet({ open, onClose, onOpenProfile, onOpenCollections, onSignOut 
         ))}
         <View style={{ height: 32 }} />
         <View style={{ alignItems: 'center' }}>
-          <TextLink onPress={onSignOut} color={T.color.tertiary}>Sign out</TextLink>
+          <TextLink onPress={onSignOut} color={T.color.tertiary}>{t('tabs_menu_signOut')}</TextLink>
         </View>
       </View>
     </BottomSheet>
@@ -344,7 +407,6 @@ const styles = StyleSheet.create({
   brand: { fontFamily: T.font.serif, fontSize: 12, fontWeight: '400', color: T.color.tertiary, letterSpacing: 2.5, textTransform: 'uppercase' },
   weatherLabel: { ...type.micro, fontSize: 10, color: T.color.tertiary },
   bellBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  weatherBar: { marginTop: 8, marginHorizontal: -24, paddingLeft: 24 },
   card: { width: '100%', backgroundColor: T.color.canvas, overflow: 'hidden' },
   collageArea: { flex: 1, position: 'relative' },
   actions: {
@@ -400,6 +462,33 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   demoBannerCta: {
+    ...type.ui,
+    fontSize: 10,
+    color: T.color.primary,
+  },
+  // T030: end-of-feed stylist card (Wardrobe Report entry point)
+  stylistNoteCard: {
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+    borderTopWidth: 0.5,
+    borderTopColor: T.color.hairline,
+    alignItems: 'center',
+    gap: 8,
+  },
+  stylistNoteLabel: {
+    ...type.ui,
+    fontSize: 9,
+    color: T.color.tertiary,
+    letterSpacing: 2,
+  },
+  stylistNoteBody: {
+    fontFamily: T.font.serifLight,
+    fontSize: 18,
+    fontWeight: '300',
+    color: T.color.primary,
+    textAlign: 'center',
+  },
+  stylistNoteCta: {
     ...type.ui,
     fontSize: 10,
     color: T.color.primary,

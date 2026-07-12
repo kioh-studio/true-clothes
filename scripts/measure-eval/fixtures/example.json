@@ -1,0 +1,40 @@
+{
+  "_comment": "EXAMPLE TEMPLATE — subjectId starts with 'example' so the runner SKIPS this file. Copy it to a new file (e.g. khoi-01.json) with a real subjectId to add a fixture.",
+  "subjectId": "example-template",
+  "capturedAt": "2026-07-06",
+  "inputs": {
+    "heightCm": 176,
+    "weightKg": 76,
+    "sex": "male",
+    "ageYears": 33
+  },
+  "keypoints": [
+    { "name": "nose",          "x": 0.50, "y": 0.08, "score": 0.95 },
+    { "name": "leftEye",       "x": 0.53, "y": 0.07, "score": 0.93 },
+    { "name": "rightEye",      "x": 0.47, "y": 0.07, "score": 0.93 },
+    { "name": "leftEar",       "x": 0.56, "y": 0.09, "score": 0.88 },
+    { "name": "rightEar",      "x": 0.44, "y": 0.09, "score": 0.88 },
+    { "name": "leftShoulder",  "x": 0.66, "y": 0.22, "score": 0.94 },
+    { "name": "rightShoulder", "x": 0.34, "y": 0.22, "score": 0.94 },
+    { "name": "leftElbow",     "x": 0.70, "y": 0.42, "score": 0.90 },
+    { "name": "rightElbow",    "x": 0.30, "y": 0.42, "score": 0.90 },
+    { "name": "leftWrist",     "x": 0.69, "y": 0.60, "score": 0.85 },
+    { "name": "rightWrist",    "x": 0.31, "y": 0.60, "score": 0.85 },
+    { "name": "leftHip",       "x": 0.60, "y": 0.55, "score": 0.93 },
+    { "name": "rightHip",      "x": 0.40, "y": 0.55, "score": 0.93 },
+    { "name": "leftKnee",      "x": 0.58, "y": 0.74, "score": 0.89 },
+    { "name": "rightKnee",     "x": 0.42, "y": 0.74, "score": 0.89 },
+    { "name": "leftAnkle",     "x": 0.56, "y": 0.93, "score": 0.87 },
+    { "name": "rightAnkle",    "x": 0.44, "y": 0.93, "score": 0.87 }
+  ],
+  "silhouette": { "shoulderU": 0.34, "chestU": 0.30, "waistU": 0.26, "hipU": 0.31 },
+  "groundTruth": {
+    "body_shoulder_width": 45,
+    "body_bust": 96,
+    "body_waist": 82,
+    "body_hip": 98,
+    "body_inseam": 80,
+    "body_upper_body_length": 46,
+    "body_sleeve_length": 62
+  }
+}

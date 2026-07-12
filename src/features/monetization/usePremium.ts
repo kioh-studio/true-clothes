@@ -9,11 +9,15 @@ try {
   Purchases = require('react-native-purchases').default;
 } catch { /* not available in Expo Go */ }
 
+// 'cancelled' = user dismissed the system purchase sheet — not an error, the
+// caller should stay silent rather than show a failure message.
+export type PurchaseOutcome = 'success' | 'cancelled' | 'error';
+
 export interface PremiumState {
   isPremium: boolean;
   isLoading: boolean;
   offerings: import('react-native-purchases').PurchasesOfferings | null;
-  purchase: (pkg: import('react-native-purchases').PurchasesPackage) => Promise<boolean>;
+  purchase: (pkg: import('react-native-purchases').PurchasesPackage) => Promise<PurchaseOutcome>;
   restore: () => Promise<boolean>;
 }
 
@@ -46,14 +50,19 @@ export function usePremium(): PremiumState {
     return () => { cancelled = true; };
   }, []);
 
-  const purchase = useCallback(async (pkg: import('react-native-purchases').PurchasesPackage): Promise<boolean> => {
-    if (!Purchases) return false;
+  const purchase = useCallback(async (pkg: import('react-native-purchases').PurchasesPackage): Promise<PurchaseOutcome> => {
+    if (!Purchases) return 'error';
     try {
       const { customerInfo } = await Purchases.purchasePackage(pkg);
       const active = !!customerInfo.entitlements.active['premium'];
       setIsPremium(active);
-      return active;
-    } catch { return false; }
+      return active ? 'success' : 'error';
+    } catch (err) {
+      // RevenueCat SDK marks a user-dismissed purchase sheet with
+      // `userCancelled: true` on the thrown error — not a real failure.
+      const userCancelled = (err as { userCancelled?: boolean } | null)?.userCancelled === true;
+      return userCancelled ? 'cancelled' : 'error';
+    }
   }, []);
 
   const restore = useCallback(async (): Promise<boolean> => {

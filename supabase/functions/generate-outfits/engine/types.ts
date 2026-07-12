@@ -220,6 +220,18 @@ export interface ScoredOutfit {
   // Real warmth band derived from the outfit's fabrics/layers — replaces the
   // client's hardcoded '22°C'. One of '<15°C' | '15–22°C' | '22–28°C' | '28°C+'.
   weatherBand?: string;
+  // Display-only tags (2026-07-12). Not scoring inputs — assigned in index.ts's
+  // per-outfit tagging loop from engine/silhouette.ts (outfitSilhouetteTag) and
+  // engine/scoring.ts (outfitDominantColor). Inline union (not imported from
+  // silhouette.ts) to avoid a types.ts <-> silhouette.ts import cycle.
+  silhouette?: 'fitted' | 'straight' | 'relaxed' | 'top-volume' | 'bottom-volume';
+  // Geometric-shape tag for the RESULTING BODY silhouette — the user's
+  // body_shape baseline as modified by the outfit's garment volume, NOT a
+  // relabel of `silhouette` (2026-07-12, see engine/silhouette.ts
+  // resultingBodySilhouette). Display-only, additive — kept alongside
+  // `silhouette` (the garment-volume tag), never replacing it.
+  silhouetteShape?: 'hourglass' | 'rectangle' | 'oval' | 'inverted-triangle' | 'triangle';
+  colorTone?: PrimaryColor;
   styleCoherence: number;
   colorHarmony: number;
   fitScore: number;

@@ -1,16 +1,18 @@
 // Splash / Welcome screen
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Animated, Pressable, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Photo } from '../../src/components/ui';
 import { PrimaryButton, TextLink } from '../../src/components/ui';
 import { T, type } from '../../src/design/tokens';
 import { PHOTOS } from '../../src/data';
+import { useTranslation } from '../../src/i18n';
 
 export default function SplashScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(8)).current;
   const subtitleOpacity = useRef(new Animated.Value(0)).current;
@@ -39,23 +41,27 @@ export default function SplashScreen() {
 
       {/* Bottom brand area */}
       <View style={styles.brandArea}>
-        <Animated.Text style={[styles.brand, { opacity, transform: [{ translateY }] }]}>
-          MIEN
-        </Animated.Text>
+        <Animated.Image
+          source={require('../../assets/logo/MIEN-wordmark.png')}
+          style={[styles.brand, { opacity, transform: [{ translateY }] }]}
+          resizeMode="contain"
+          accessibilityRole="image"
+          accessibilityLabel="MIEN"
+        />
         <Animated.Text style={[styles.tagline, { opacity: subtitleOpacity }]}>
-          A more considered way to dress.
+          {t('onboarding_welcome_tagline')}
         </Animated.Text>
 
         <View style={{ flex: 1, minHeight: 24, maxHeight: 96 }} />
 
         <Animated.View style={[styles.cta, { opacity: ctaOpacity }]}>
           <PrimaryButton onPress={() => router.push('/(onboarding)/account')}>
-            BEGIN
+            {t('onboarding_welcome_begin')}
           </PrimaryButton>
           <View style={{ height: 16 }} />
           <View style={styles.signInRow}>
             <TextLink onPress={() => router.push('/(onboarding)/account')} color={T.color.primary}>
-              I already have an account →
+              {t('onboarding_welcome_signIn')}
             </TextLink>
           </View>
         </Animated.View>
@@ -81,10 +87,9 @@ const styles = StyleSheet.create({
     paddingTop: 48,
   },
   brand: {
-    ...type.hero,
-    fontSize: 44,
-    color: T.color.primary,
-    textAlign: 'center',
+    width: 220,
+    height: 82,
+    alignSelf: 'center',
   },
   tagline: {
     ...type.body,

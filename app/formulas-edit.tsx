@@ -9,6 +9,7 @@ import { PrimaryButton } from '../src/components/ui';
 import { IconChevronLeft, IconCheck } from '../src/components/icons';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { FormulaCatalogItem } from '../src/services/formulasCatalogService';
+import { useTranslation } from '../src/i18n';
 
 function FormulaCard({
   formula,
@@ -46,16 +47,52 @@ function FormulaCard({
 export default function FormulasEditScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { formulaPreferences, setFormulaPreferences, formulas, loadCatalogs } = useFitEngineStore();
+  const { t } = useTranslation();
+  const { formulaPreferences, setFormulaPreferences, formulas, loadCatalogs, hydrated } = useFitEngineStore();
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState(false);
 
   useEffect(() => {
-    if (formulas.length === 0) loadCatalogs();
+    if (formulas.length === 0) {
+      setCatalogLoading(true);
+      setCatalogError(false);
+      loadCatalogs().finally(() => {
+        // loadCatalogs swallows errors; detect failure by checking store after resolve
+        const stillEmpty = useFitEngineStore.getState().formulas.length === 0;
+        setCatalogError(stillEmpty);
+        setCatalogLoading(false);
+      });
+    }
   }, [formulas.length, loadCatalogs]);
 
   const [selected, setSelected] = useState<string[]>(() => [...formulaPreferences]);
-  const initialSelected = useRef([...selected]).current;
+  // Mutable "clean" baseline for the dirty check — re-anchored whenever a
+  // late store hydrate adopts fresh data below (see effect), so a genuine
+  // edit is never mistaken for a no-op just because it happened before or
+  // after hydrate landed.
+  const initialSelectedRef = useRef<string[]>([...selected]);
+  // Last store value we've reconciled against — lets the effect below tell
+  // "the store just changed" apart from "this screen just re-rendered".
+  const lastStoreRef = useRef<string[]>([...formulaPreferences]);
 
-  const dirty = JSON.stringify([...selected].sort()) !== JSON.stringify([...initialSelected].sort());
+  const dirty = JSON.stringify([...selected].sort()) !== JSON.stringify([...initialSelectedRef.current].sort());
+
+  // formulaPreferences hydrates asynchronously (fetched from Supabase, and
+  // can re-run on the auth listener). If this screen mounted before that
+  // finished, it arrives here later than useState's one-time snapshot above.
+  // Re-sync when it changes — but only while the user hasn't started editing
+  // yet (local selection still equals the previous store snapshot) so an
+  // in-progress edit is never clobbered.
+  useEffect(() => {
+    const storeChanged = JSON.stringify(formulaPreferences) !== JSON.stringify(lastStoreRef.current);
+    if (!storeChanged) return;
+    lastStoreRef.current = [...formulaPreferences];
+    const untouched = JSON.stringify([...selected].sort()) === JSON.stringify([...initialSelectedRef.current].sort());
+    if (untouched) {
+      setSelected([...formulaPreferences]);
+      initialSelectedRef.current = [...formulaPreferences];
+    }
+  }, [formulaPreferences, selected]);
 
   const toggle = (slug: string) => {
     setSelected((s) =>
@@ -64,6 +101,7 @@ export default function FormulasEditScreen() {
   };
 
   const handleSave = async () => {
+    if (!hydrated) return;
     await setFormulaPreferences(selected);
     router.back();
   };
@@ -75,7 +113,7 @@ export default function FormulasEditScreen() {
         <Pressable onPress={() => router.back()} style={styles.iconBtn}>
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.4} />
         </Pressable>
-        <Text style={styles.headerTitle}>Formula preferences</Text>
+        <Text style={styles.headerTitle}>{t('tabs_profile_formulaPreferences')}</Text>
         <View style={{ width: 44 }} />
       </View>
 
@@ -84,33 +122,47 @@ export default function FormulasEditScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.h1}>Your formulas.</Text>
+        <Text style={styles.h1}>{t('formulasEdit_title')}</Text>
         <Text style={styles.caption}>
-          Choose the outfit-building formulas you prefer. We'll generate outfits using these rules. Leave empty to use all.
+          {t('formulasEdit_caption')}
         </Text>
 
         <View style={styles.stepRow}>
           <Text style={[styles.stepNum, { color: T.color.primary }]}>01</Text>
-          <Text style={[styles.stepLabel, { color: T.color.primary }]}>FORMULAS</Text>
+          <Text style={[styles.stepLabel, { color: T.color.primary }]}>{t('formulasEdit_formulasLabel')}</Text>
           <View style={styles.stepLine} />
           <Text style={styles.stepCount}>{selected.length} / {formulas.length}</Text>
         </View>
 
-        <View style={styles.grid}>
-          {formulas.map((f) => (
-            <FormulaCard
-              key={f.id}
-              formula={f}
-              selected={selected.includes(f.slug)}
-              onPress={() => toggle(f.slug)}
-            />
-          ))}
-        </View>
+        {catalogLoading ? (
+          <View style={styles.stateBox}>
+            <Text style={styles.stateText}>{t('formulasEdit_loadingText')}</Text>
+          </View>
+        ) : catalogError || formulas.length === 0 ? (
+          <View style={styles.stateBox}>
+            <Text style={styles.stateText}>
+              {catalogError
+                ? t('formulasEdit_loadErrorText')
+                : t('formulasEdit_noFormulasText')}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.grid}>
+            {formulas.map((f) => (
+              <FormulaCard
+                key={f.id}
+                formula={f}
+                selected={selected.includes(f.slug)}
+                onPress={() => toggle(f.slug)}
+              />
+            ))}
+          </View>
+        )}
 
-        {selected.length === 0 && (
+        {!catalogLoading && !catalogError && selected.length === 0 && (
           <View style={styles.hintBox}>
             <Text style={styles.hintText}>
-              No formulas selected — your feed will use all formulas for maximum variety.
+              {t('formulasEdit_noneSelectedHint')}
             </Text>
           </View>
         )}
@@ -120,15 +172,15 @@ export default function FormulasEditScreen() {
       <View style={[styles.saveBar, { paddingBottom: insets.bottom + 12 }]}>
         {dirty && (
           <Pressable
-            onPress={() => setSelected([...initialSelected])}
+            onPress={() => setSelected([...initialSelectedRef.current])}
             style={styles.discardBtn}
           >
-            <Text style={styles.discardText}>DISCARD</Text>
+            <Text style={styles.discardText}>{t('common_discard')}</Text>
           </Pressable>
         )}
         <View style={{ flex: 1 }}>
-          <PrimaryButton onPress={dirty ? handleSave : undefined} disabled={!dirty}>
-            {dirty ? 'SAVE CHANGES' : 'NO CHANGES'}
+          <PrimaryButton onPress={hydrated && dirty ? handleSave : undefined} disabled={!hydrated || !dirty}>
+            {!hydrated ? t('common_loadingPreferences') : dirty ? t('profileEdit_saveButton') : t('common_noChanges')}
           </PrimaryButton>
         </View>
       </View>
@@ -213,6 +265,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  stateBox: {
+    paddingVertical: 48,
+    alignItems: 'center',
+  },
+  stateText: { ...type.caption, fontSize: 13, color: T.color.tertiary, textAlign: 'center' },
   hintBox: {
     marginTop: 20,
     padding: 20,

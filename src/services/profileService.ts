@@ -23,9 +23,11 @@ export interface ProfileRow {
   date_of_birth: string | null;     // ISO YYYY-MM-DD
   location_city: string | null;
   location_country: string | null;
+  location_country_code: string | null;  // ISO 3166-1 alpha-2 (GPS reverse-geocode)
   onboarding_complete: boolean;
   color_season: string | null;
   personal_palette: string[];
+  color_tone12: string | null;
 }
 
 // ── App-shaped data (what stores/screens use) ────────────────────────────────
@@ -35,10 +37,12 @@ export interface ProfilePatch {
   gender?: string;          // pass-through; caller should send the enum value
   dob?: string;             // "DD/MM/YYYY" (app format)
   location?: string;        // "City, Country" (combined)
+  locationCountryCode?: string | null;  // ISO 3166-1 alpha-2 (GPS reverse-geocode); locale-independent hemisphere
   fullName?: string;
   displayName?: string;
   colorSeason?: string | null;
   personalPalette?: string[];
+  colorTone12?: string | null;
 }
 
 // ── DD/MM/YYYY ↔ YYYY-MM-DD ──────────────────────────────────────────────────
@@ -76,7 +80,7 @@ function joinLocation(city: string | null, country: string | null): string {
 export async function fetchMyProfile(userId: string): Promise<ProfileRow | null> {
   const { data, error } = await sb
     .from('profiles')
-    .select('id, full_name, display_name, avatar_url, avatar_path, email, phone, gender, date_of_birth, location_city, location_country, onboarding_complete, color_season, personal_palette')
+    .select('id, full_name, display_name, avatar_url, avatar_path, email, phone, gender, date_of_birth, location_city, location_country, location_country_code, onboarding_complete, color_season, personal_palette, color_tone12')
     .eq('id', userId)
     .maybeSingle();
   if (error) {
@@ -97,6 +101,7 @@ export async function updateMyProfile(userId: string, patch: ProfilePatch): Prom
   if (patch.gender       !== undefined) row.gender       = patch.gender || null;
   if (patch.colorSeason  !== undefined) row.color_season = patch.colorSeason ?? null;
   if (patch.personalPalette !== undefined) (row as Record<string, unknown>).personal_palette = patch.personalPalette;
+  if (patch.colorTone12  !== undefined) row.color_tone12 = patch.colorTone12 ?? null;
 
   const iso = dobAppToIso(patch.dob);
   if (iso !== undefined) row.date_of_birth = iso;
@@ -105,6 +110,9 @@ export async function updateMyProfile(userId: string, patch: ProfilePatch): Prom
   if (loc) {
     row.location_city    = loc.city;
     row.location_country = loc.country;
+  }
+  if (patch.locationCountryCode !== undefined) {
+    row.location_country_code = patch.locationCountryCode ? patch.locationCountryCode.toUpperCase() : null;
   }
 
   if (Object.keys(row).length === 0) return { ok: true };

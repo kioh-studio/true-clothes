@@ -19,8 +19,10 @@ import { useShallow } from 'zustand/react/shallow';
 import { useAuthStore } from '../src/stores/authStore';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { useAppStore } from '../src/stores/appStore';
+import { useWardrobeCriticStore } from '../src/stores/wardrobeCriticStore';
 import { OfflineBanner } from '../src/components/ui';
 import { getCurrentUserId } from '../src/services/authService';
+import { useTranslation } from '../src/i18n';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -29,6 +31,7 @@ let Purchases: typeof import('react-native-purchases').default | null = null;
 try { Purchases = require('react-native-purchases').default; } catch { /* Expo Go */ }
 
 export default function RootLayout() {
+  const { t } = useTranslation();
   const [fontsLoaded] = useFonts({
     CormorantGaramond_300Light,
     CormorantGaramond_400Regular,
@@ -41,6 +44,7 @@ export default function RootLayout() {
   })));
   const { hydrate: hydrateFitEngine, loadCatalogs } = useFitEngineStore();
   const { hydrated: appHydrated, hydrate: hydrateApp, migrationProgress, refreshWeather } = useAppStore();
+  const hydrateWardrobeCritic = useWardrobeCriticStore((s) => s.hydrate);
   const router = useRouter();
   const didNavigate = useRef(false);
 
@@ -55,6 +59,7 @@ export default function RootLayout() {
     hydrateFitEngine();
     hydrateApp();
     loadCatalogs();
+    hydrateWardrobeCritic();
   }, []);
 
   // T020: Fire-and-forget weather refresh after auth hydration
@@ -121,9 +126,13 @@ export default function RootLayout() {
         <Stack.Screen name="add-item" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="try-on" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="history" options={{ animation: 'slide_from_right' }} />
+        {/* 010-wardrobe-critic: gap-analysis report, reached from the Menu + end-of-feed card */}
+        <Stack.Screen name="wardrobe-report" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="paywall" options={{ animation: 'slide_from_bottom', presentation: 'modal', headerShown: false }} />
         {/* T030: Settings and Help routes */}
-        <Stack.Screen name="settings" options={{ title: 'Settings', animation: 'slide_from_right' }} />
-        <Stack.Screen name="help" options={{ title: 'Help & Feedback', animation: 'slide_from_right' }} />
+        <Stack.Screen name="settings" options={{ title: t('settings_title'), animation: 'slide_from_right' }} />
+        <Stack.Screen name="help" options={{ title: t('help_title'), animation: 'slide_from_right' }} />
+        <Stack.Screen name="notifications" options={{ animation: 'slide_from_right' }} />
         {/* T019: Profile edit */}
         <Stack.Screen name="profile-edit" options={{ headerShown: false, animation: 'slide_from_right' }} />
         {/* T039: Personal colour edit */}

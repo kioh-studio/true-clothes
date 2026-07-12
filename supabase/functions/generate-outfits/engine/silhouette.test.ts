@@ -12,9 +12,10 @@
 
 import { assert, assertEquals } from 'https://deno.land/std@0.208.0/assert/mod.ts';
 import {
-  resolveTargetSilhouette, pairSilhouetteMatch, measurementPriorityBoost,
+  resolveTargetSilhouette, pairSilhouetteMatch, measurementPriorityBoost, outfitSilhouetteTag,
+  resultingBodySilhouette,
 } from './silhouette.ts';
-import { EngineContext, FitItem, ItemCategory, GarmentMeasurements } from './types.ts';
+import { EngineContext, FitItem, ItemCategory, GarmentMeasurements, TargetSilhouette } from './types.ts';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -227,4 +228,102 @@ Deno.test('pairSilhouetteMatch picks the BEST match across multiple target pairs
   const top = fi('top', 'top', { fit: 'oversized' });     // vol 5
   const bottom = fi('bottom', 'bottom', { fit: 'oversized' }); // vol 5
   assertEquals(pairSilhouetteMatch(top, bottom, target), 1); // matches the 'b' pair exactly
+});
+
+// ─── outfitSilhouetteTag (display-only, 2026-07-12) ─────────────────────────
+
+Deno.test('outfitSilhouetteTag: no target, slim top + slim bottom -> fitted', () => {
+  const items = [fi('t1', 'top', { fit: 'slim' }), fi('b1', 'bottom', { fit: 'slim' })];
+  assertEquals(outfitSilhouetteTag(items), 'fitted');
+});
+
+Deno.test('outfitSilhouetteTag: no target, oversized top + slim bottom -> top-volume', () => {
+  const items = [fi('t1', 'top', { fit: 'oversized' }), fi('b1', 'bottom', { fit: 'slim' })];
+  assertEquals(outfitSilhouetteTag(items), 'top-volume');
+});
+
+Deno.test('outfitSilhouetteTag: no target, slim top + wide bottom -> bottom-volume', () => {
+  const items = [fi('t1', 'top', { fit: 'slim' }), fi('b1', 'bottom', { fit: 'wide' })];
+  assertEquals(outfitSilhouetteTag(items), 'bottom-volume');
+});
+
+Deno.test('outfitSilhouetteTag: no target, regular top + relaxed bottom -> straight', () => {
+  const items = [fi('t1', 'top', { fit: 'regular' }), fi('b1', 'bottom', { fit: 'relaxed' })];
+  assertEquals(outfitSilhouetteTag(items), 'straight');
+});
+
+Deno.test('outfitSilhouetteTag: ignores target — reads only the outfit\'s own realized volumes', () => {
+  // Outfit realizes oversized top (5) + regular bottom (2) -> own volumes give
+  // 'top-volume' regardless of any target silhouette (no longer an input).
+  const items = [fi('t1', 'top', { fit: 'oversized' }), fi('b1', 'bottom', { fit: 'regular' })];
+  assertEquals(outfitSilhouetteTag(items), 'top-volume');
+});
+
+// ─── resultingBodySilhouette (resulting on-body shape, 2026-07-12) ──────────
+// Display-only — the geometric silhouette the USER'S BODY reads as after
+// wearing the outfit: body_shape baseline shifted by how much volume the
+// garments add over a neutral (regular) piece. Each expected value below is
+// hand-verified against the eTop/eBottom/diff/avg formula in silhouette.ts.
+
+Deno.test('resultingBodySilhouette: rectangle body + regular top + regular bottom -> rectangle', () => {
+  const items = [fi('t1', 'top', { fit: 'regular' }), fi('b1', 'bottom', { fit: 'regular' })];
+  assertEquals(resultingBodySilhouette(items, 'rectangle'), 'rectangle');
+});
+
+Deno.test('resultingBodySilhouette: rectangle body + wide bottom + regular top -> triangle', () => {
+  const items = [fi('t1', 'top', { fit: 'regular' }), fi('b1', 'bottom', { fit: 'wide' })];
+  assertEquals(resultingBodySilhouette(items, 'rectangle'), 'triangle');
+});
+
+Deno.test('resultingBodySilhouette: rectangle body + oversized top + regular bottom -> inverted-triangle', () => {
+  const items = [fi('t1', 'top', { fit: 'oversized' }), fi('b1', 'bottom', { fit: 'regular' })];
+  assertEquals(resultingBodySilhouette(items, 'rectangle'), 'inverted-triangle');
+});
+
+Deno.test('resultingBodySilhouette: triangle body + regular top + regular bottom -> triangle', () => {
+  const items = [fi('t1', 'top', { fit: 'regular' }), fi('b1', 'bottom', { fit: 'regular' })];
+  assertEquals(resultingBodySilhouette(items, 'triangle'), 'triangle');
+});
+
+Deno.test('resultingBodySilhouette: triangle body + oversized top + regular bottom -> rectangle (balances the pear)', () => {
+  const items = [fi('t1', 'top', { fit: 'oversized' }), fi('b1', 'bottom', { fit: 'regular' })];
+  assertEquals(resultingBodySilhouette(items, 'triangle'), 'rectangle');
+});
+
+Deno.test('resultingBodySilhouette: hourglass body + slim top + slim bottom -> hourglass', () => {
+  const items = [fi('t1', 'top', { fit: 'slim' }), fi('b1', 'bottom', { fit: 'slim' })];
+  assertEquals(resultingBodySilhouette(items, 'hourglass'), 'hourglass');
+});
+
+Deno.test('resultingBodySilhouette: hourglass body + oversized top + oversized bottom -> oval', () => {
+  const items = [fi('t1', 'top', { fit: 'oversized' }), fi('b1', 'bottom', { fit: 'oversized' })];
+  assertEquals(resultingBodySilhouette(items, 'hourglass'), 'oval');
+});
+
+Deno.test('resultingBodySilhouette: inverted_triangle body + wide bottom + regular top -> rectangle', () => {
+  const items = [fi('t1', 'top', { fit: 'regular' }), fi('b1', 'bottom', { fit: 'wide' })];
+  assertEquals(resultingBodySilhouette(items, 'inverted_triangle'), 'rectangle');
+});
+
+Deno.test('resultingBodySilhouette: apple body + regular top + regular bottom -> oval', () => {
+  const items = [fi('t1', 'top', { fit: 'regular' }), fi('b1', 'bottom', { fit: 'regular' })];
+  assertEquals(resultingBodySilhouette(items, 'apple'), 'oval');
+});
+
+Deno.test('resultingBodySilhouette: no body_shape + relaxed top + wide bottom -> rectangle (neutral baseline)', () => {
+  // Neutral 3/3 baseline: eTop = 3+(3-2)=4, eBottom = 3+(4-2)=5, diff=-1 (not
+  // <=-2), avg=4.5 (<5) -> balanced, no waist/rounded on neutral -> rectangle.
+  const items = [fi('t1', 'top', { fit: 'relaxed' }), fi('b1', 'bottom', { fit: 'wide' })];
+  assertEquals(resultingBodySilhouette(items, undefined), 'rectangle');
+});
+
+Deno.test('resultingBodySilhouette: rectangle body + regular top/bottom + oversized outerwear -> inverted-triangle', () => {
+  // Outer layer wins the top-volume max: topGarmentVol = max(regular=2, oversized=5) = 5.
+  // eTop = 3+(5-2)=6, eBottom = 3+0=3, diff=3 -> inverted-triangle.
+  const items = [
+    fi('t1', 'top', { fit: 'regular' }),
+    fi('b1', 'bottom', { fit: 'regular' }),
+    fi('o1', 'outwear', { fit: 'oversized' }),
+  ];
+  assertEquals(resultingBodySilhouette(items, 'rectangle'), 'inverted-triangle');
 });

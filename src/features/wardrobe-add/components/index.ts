@@ -9,5 +9,6 @@ export { DoneStep } from './DoneStep';
 export { ItemCard } from './ItemCard';
 export { FieldRow } from './FieldRow';
 export { Picker } from './Picker';
-export { MeasureField } from './MeasureField';
+// MeasureField moved to shared src/components/measurements/ (used by try-on too).
+export { MeasureField } from '../../../components/measurements/MeasureField';
 export { TagEditor } from './TagEditor';

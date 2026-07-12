@@ -7,39 +7,45 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
 import { BottomSheet, Photo } from '../src/components/ui';
 import { IconChevronLeft, IconCalendar, IconPlus, IconBookmark } from '../src/components/icons';
-import { useAppStore } from '../src/stores/appStore';
+import { useAppStore, OutfitSnapshot } from '../src/stores/appStore';
 import { Outfit } from '../src/data';
 import { useFitFeed } from '../src/features/feed/useFitFeed';
 import { useGridCardWidth } from '../src/design/layout';
+import i18n, { useTranslation } from '../src/i18n';
 
-const FORECASTS = [
-  '24°C · clear', '22°C · partly cloudy', '26°C · sun',
-  '19°C · overcast', '28°C · humid', '21°C · breeze', '23°C · sun',
+// Mock/demo forecast copy — cycles regardless of the actual scheduled day;
+// real weather integration is a future enhancement (see CLAUDE.md feature flags).
+const FORECAST_KEYS = [
+  'schedule_forecast1', 'schedule_forecast2', 'schedule_forecast3',
+  'schedule_forecast4', 'schedule_forecast5', 'schedule_forecast6', 'schedule_forecast7',
 ];
 
 function fmtKey(d: Date) {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 function fmtMonth(d: Date) {
-  return d.toLocaleDateString('en', { month: 'short' }).toUpperCase();
+  const locale = i18n.language?.startsWith('vi') ? 'vi-VN' : 'en';
+  return d.toLocaleDateString(locale, { month: 'short' }).toUpperCase();
 }
 function fmtWeekday(d: Date) {
-  return d.toLocaleDateString('en', { weekday: 'short' }).toUpperCase();
+  const locale = i18n.language?.startsWith('vi') ? 'vi-VN' : 'en';
+  return d.toLocaleDateString(locale, { weekday: 'short' }).toUpperCase();
 }
 
-function scorePercent(outfit: Outfit): string {
-  if (!outfit.scores) return '';
-  return `${Math.round(outfit.scores.totalScore * 100)}%`;
+function scorePercent(outfit: Outfit): number | null {
+  if (!outfit.scores) return null;
+  return Math.round(outfit.scores.totalScore * 100);
 }
 
 function DayCard({
-  date, weather, outfit, isToday, onPlan, onOpen, onSwap, onClear,
+  date, weather, snapshot, isToday, onPlan, onOpen, onSwap, onClear,
 }: {
-  date: Date; weather: string; outfit: Outfit | null;
+  date: Date; weather: string; snapshot: OutfitSnapshot | null;
   isToday: boolean;
   onPlan: () => void; onOpen: () => void;
   onSwap: () => void; onClear: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <View style={[styles.dayCard, isToday && styles.dayCardToday]}>
       {/* Date column */}
@@ -51,7 +57,7 @@ function DayCard({
         <Text style={styles.monthLbl}>{fmtMonth(date)}</Text>
         {isToday && (
           <View style={styles.todayBadge}>
-            <Text style={styles.todayBadgeText}>TODAY</Text>
+            <Text style={styles.todayBadgeText}>{t('schedule_todayBadge')}</Text>
           </View>
         )}
       </View>
@@ -61,25 +67,24 @@ function DayCard({
         <View style={styles.weatherRow}>
           <Text style={styles.weatherText}>{weather}</Text>
         </View>
-        {outfit ? (
+        {snapshot ? (
           <View style={styles.outfitRow}>
             <Pressable onPress={onOpen} style={styles.outfitThumb}>
-              <Photo src={outfit.img} label={outfit.title} tone={outfit.tone} />
+              <Photo src={snapshot.imageUri} label={snapshot.title} tone={1} />
             </Pressable>
             <View style={styles.outfitInfo}>
               <Pressable onPress={onOpen}>
-                <Text style={styles.outfitStyle}>{outfit.style}</Text>
-                <Text style={styles.outfitTitle} numberOfLines={2}>{outfit.title}</Text>
-                {outfit.scores && (
-                  <Text style={styles.outfitScore}>MATCH {scorePercent(outfit)}</Text>
-                )}
+                {snapshot.styleTag ? (
+                  <Text style={styles.outfitStyle}>{snapshot.styleTag}</Text>
+                ) : null}
+                <Text style={styles.outfitTitle} numberOfLines={2}>{snapshot.title}</Text>
               </Pressable>
               <View style={styles.outfitActions}>
                 <Pressable onPress={onSwap} style={styles.textBtn}>
-                  <Text style={styles.textBtnPrimary}>SWAP</Text>
+                  <Text style={styles.textBtnPrimary}>{t('schedule_swap')}</Text>
                 </Pressable>
                 <Pressable onPress={onClear} style={styles.textBtn}>
-                  <Text style={styles.textBtnMuted}>CLEAR</Text>
+                  <Text style={styles.textBtnMuted}>{t('schedule_clear')}</Text>
                 </Pressable>
               </View>
             </View>
@@ -89,7 +94,7 @@ function DayCard({
             <View style={styles.emptySlotIcon}>
               <IconPlus size={14} color={T.color.tertiary} strokeWidth={1.4} />
             </View>
-            <Text style={styles.emptySlotText}>PLAN OUTFIT</Text>
+            <Text style={styles.emptySlotText}>{t('schedule_planOutfit')}</Text>
           </Pressable>
         )}
       </View>
@@ -105,6 +110,7 @@ function OutfitPickerSheet({
   onPick: (id: string) => void;
 }) {
   const CARD_W = useGridCardWidth();
+  const { t } = useTranslation();
   // Surface saved outfits first, then engine-generated ones
   const ordered = [
     ...outfits.filter((o) => savedIds.includes(o.id)),
@@ -114,9 +120,9 @@ function OutfitPickerSheet({
   return (
     <BottomSheet open={open} onClose={onClose} maxHeight="80%">
       <View style={styles.pickerHeader}>
-        <Text style={styles.pickerTitle}>Pick an outfit</Text>
+        <Text style={styles.pickerTitle}>{t('schedule_pickerTitle')}</Text>
         <Text style={styles.pickerSub}>
-          {savedIds.length > 0 ? 'Saved outfits surface first.' : 'Ranked by your style, fit & color preferences.'}
+          {savedIds.length > 0 ? t('schedule_pickerSubtitleSaved') : t('schedule_pickerSubtitleRanked')}
         </Text>
       </View>
       <ScrollView contentContainerStyle={styles.pickerGrid} showsVerticalScrollIndicator={false}>
@@ -133,8 +139,8 @@ function OutfitPickerSheet({
             <View style={styles.pickerLabel}>
               <Text style={styles.pickerOutfitStyle}>{o.style}</Text>
               <Text style={styles.pickerOutfitTitle} numberOfLines={1}>{o.title}</Text>
-              {o.scores && (
-                <Text style={styles.pickerOutfitScore}>{scorePercent(o)} MATCH</Text>
+              {o.scores && scorePercent(o) !== null && (
+                <Text style={styles.pickerOutfitScore}>{t('schedule_matchPercent', { percent: scorePercent(o) })}</Text>
               )}
             </View>
             {savedIds.includes(o.id) && (
@@ -152,7 +158,12 @@ function OutfitPickerSheet({
 export default function ScheduleOutfitsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { savedSet, scheduleMap, setScheduleOutfit, clearScheduleOutfit } = useAppStore();
+  const { t } = useTranslation();
+  const {
+    savedSet,
+    scheduleMap, setScheduleOutfit, clearScheduleOutfit,
+    scheduledOutfits, setScheduledOutfit, clearScheduledOutfit,
+  } = useAppStore();
   const { outfits: engineOutfits } = useFitFeed();
   const [weekOffset, setWeekOffset] = useState(0);
 
@@ -167,9 +178,10 @@ export default function ScheduleOutfitsScreen() {
 
   const [pickerFor, setPickerFor] = useState<string | null>(null);
 
-  const filledCount = days.filter((d) => scheduleMap[fmtKey(d)]).length;
+  const filledCount = days.filter((d) => scheduledOutfits[fmtKey(d)]).length;
 
-  // Build lookup: all available outfits (engine-generated)
+  // Engine outfit map — used only for the picker sheet display, not for
+  // resolving already-scheduled days (those use the durable snapshot).
   const outfitMap = new Map(engineOutfits.map(o => [o.id, o]));
 
   return (
@@ -179,7 +191,7 @@ export default function ScheduleOutfitsScreen() {
         <Pressable onPress={() => router.back()} style={styles.iconBtn}>
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.4} />
         </Pressable>
-        <Text style={styles.headerTitle}>Schedule</Text>
+        <Text style={styles.headerTitle}>{t('schedule_title')}</Text>
         <Pressable onPress={() => setWeekOffset(0)} style={styles.iconBtn}>
           <IconCalendar size={20} color={T.color.primary} strokeWidth={1.4} />
         </Pressable>
@@ -190,40 +202,57 @@ export default function ScheduleOutfitsScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.h1}>This week.</Text>
-        <Text style={styles.caption}>Plan ahead — we'll surface each day's outfit in the morning.</Text>
+        <Text style={styles.h1}>{t('schedule_heading')}</Text>
+        <Text style={styles.caption}>{t('schedule_subtitle')}</Text>
 
         {/* Week pager */}
         <View style={styles.weekPager}>
           <Pressable onPress={() => setWeekOffset((o) => o - 1)}>
-            <Text style={styles.weekBtn}>← PREV WEEK</Text>
+            <Text style={styles.weekBtn}>{t('schedule_prevWeek')}</Text>
           </Pressable>
           <Text style={styles.weekRange}>
             {fmtMonth(days[0])} {days[0].getDate()} – {fmtMonth(days[6])} {days[6].getDate()}
           </Text>
           <Pressable onPress={() => setWeekOffset((o) => o + 1)}>
-            <Text style={styles.weekBtn}>NEXT WEEK →</Text>
+            <Text style={styles.weekBtn}>{t('schedule_nextWeek')}</Text>
           </Pressable>
         </View>
 
-        <Text style={styles.plannedCount}>{filledCount} / 7 PLANNED</Text>
+        <Text style={styles.plannedCount}>{t('schedule_plannedCount', { count: filledCount })}</Text>
 
         <View style={styles.dayList}>
           {days.map((d, i) => {
             const k = fmtKey(d);
-            const outfitId = scheduleMap[k];
-            const outfit = outfitId ? outfitMap.get(outfitId) ?? null : null;
+            // Render from the durable snapshot — survives feed regeneration.
+            const snapshot = scheduledOutfits[k] ?? null;
+            // Resolve the live outfit for the "open" action (navigate to detail).
+            // Use the snapshot id as the route param so detail screen can decode it.
+            const snapshotId = snapshot?.id ?? scheduleMap[k];
             return (
               <DayCard
                 key={k}
                 date={d}
-                weather={FORECASTS[i]}
-                outfit={outfit}
+                weather={t(FORECAST_KEYS[i])}
+                snapshot={snapshot}
                 isToday={fmtKey(d) === fmtKey(today)}
                 onPlan={() => setPickerFor(k)}
-                onOpen={() => outfit && router.push(`/outfit/${outfit.id}`)}
+                onOpen={() => {
+                  if (!snapshotId) return;
+                  // Generated outfits (gen_…) aren't in the static OUTFITS list —
+                  // the detail screen needs the full outfit serialized as `data`
+                  // or it renders "Outfit not found". Static/demo outfits resolve
+                  // by id alone, so omit data when we don't have a live match
+                  // (e.g. the feed regenerated since this day was scheduled).
+                  const live = outfitMap.get(snapshotId);
+                  router.push(live
+                    ? { pathname: '/outfit/[id]', params: { id: snapshotId, data: JSON.stringify(live) } }
+                    : `/outfit/${snapshotId}`);
+                }}
                 onSwap={() => setPickerFor(k)}
-                onClear={() => clearScheduleOutfit(k)}
+                onClear={() => {
+                  clearScheduleOutfit(k);
+                  clearScheduledOutfit(k);
+                }}
               />
             );
           })}
@@ -236,7 +265,19 @@ export default function ScheduleOutfitsScreen() {
         outfits={engineOutfits}
         savedIds={[...savedSet]}
         onPick={(id) => {
-          if (pickerFor) setScheduleOutfit(pickerFor, id);
+          if (pickerFor) {
+            // Persist the id in scheduleMap to keep scheduledSet badge in sync.
+            setScheduleOutfit(pickerFor, id);
+            // Also capture a durable snapshot so the day survives feed reload.
+            const picked = outfitMap.get(id);
+            const snapshot: OutfitSnapshot = {
+              id,
+              title:    picked?.title    ?? t('schedule_outfitFallback'),
+              imageUri: picked?.img      ?? undefined,
+              styleTag: picked?.style    ?? undefined,
+            };
+            setScheduledOutfit(pickerFor, snapshot);
+          }
           setPickerFor(null);
         }}
       />

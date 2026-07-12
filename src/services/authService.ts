@@ -62,8 +62,8 @@ export async function signInWithPassword(email: string, password: string): Promi
 }
 
 export async function getCurrentUserId(): Promise<string | null> {
-  const { data } = await sb.auth.getSession();
-  return data.session?.user?.id ?? null;
+  const { data } = await sb.auth.getUser();
+  return data.user?.id ?? null;
 }
 
 export async function signOut(): Promise<void> {

@@ -18,6 +18,15 @@ const mockFs = {
 };
 jest.mock('expo-file-system/legacy', () => mockFs);
 
+jest.mock('expo-image-manipulator', () => ({
+  manipulateAsync: async (uri: string) => ({ uri: uri.startsWith('file://') ? uri : `file://${uri}` }),
+  SaveFormat: { JPEG: 'jpeg', PNG: 'png' },
+}));
+
+// i18n pulls in expo-localization (ESM, untransformed by Jest) — stub it, same
+// as tryOnStore.test.ts. The store only reads i18n.language for note locale.
+jest.mock('../../i18n', () => ({ __esModule: true, default: { language: 'en' } }));
+
 let _isAvailable = false;
 jest.mock('../../services/extractByItemService', () => ({
   get isExtractByItemAvailable() { return _isAvailable; },
@@ -33,7 +42,7 @@ jest.mock('../../services/imageGenerationService', () => ({
 const mockCheckCredit = jest.fn();
 jest.mock('../../services/usageCreditService', () => ({
   checkCredit: (t: unknown) => mockCheckCredit(t),
-  incrementCredit: jest.fn(async () => {}),
+  isCreditExhausted: jest.fn(async () => false),
 }));
 
 jest.mock('../../services/profileService', () => ({ hasPremiumAccountType: jest.fn(async () => false) }));

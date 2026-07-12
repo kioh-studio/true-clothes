@@ -10,13 +10,16 @@ import { T, type } from '../../../design/tokens';
 import {
   TYPE_OPTIONS, COLOR_OPTIONS, MATERIAL_OPTIONS, FIT_OPTIONS,
   PATTERN_OPTIONS, WARMTH_OPTIONS, swatchFor, titleCase, warmthLabel,
+  isLayerableTopType, CAN_LAYER_OPTIONS, canLayerToLabel, labelToCanLayer,
 } from '../vocab';
 import { measureGroupForType, MEASURE_FIELDS } from '../measureSchema';
 import { MKey } from '../../../types/fitEngine';
 import type { ExtractedItem } from '../types';
 import { FieldRow } from './FieldRow';
-import { MeasureField } from './MeasureField';
+import { MeasureField } from '../../../components/measurements/MeasureField';
 import { TagEditor } from './TagEditor';
+import { MeasurementAIMap } from '../../../components/measurements/MeasurementAIMap';
+import { useTranslation } from '../../../i18n';
 
 interface Props {
   item: ExtractedItem;
@@ -26,6 +29,7 @@ interface Props {
 }
 
 export function ItemCard({ item, index, onEdit, onRemove }: Props) {
+  const { t } = useTranslation();
   const group = measureGroupForType(item.type);
   const measureFields = MEASURE_FIELDS[group];
 
@@ -40,9 +44,9 @@ export function ItemCard({ item, index, onEdit, onRemove }: Props) {
   };
 
   const groupLabel: Record<typeof group, string> = {
-    top: 'TOP',
-    bottom: 'BOTTOM',
-    shoe: 'FOOTWEAR',
+    top: t('itemCard_groupTop'),
+    bottom: t('itemCard_groupBottom'),
+    shoe: t('tabs_wardrobe_filterFootwear'),
     other: '',
   };
 
@@ -50,7 +54,7 @@ export function ItemCard({ item, index, onEdit, onRemove }: Props) {
     <View style={styles.card}>
       {item.usedFallback && (
         <Text style={styles.fallbackHint}>
-          Couldn't isolate cleanly — check the image, or retry on a plainer background.
+          {t('itemCard_fallbackHint')}
         </Text>
       )}
       {/* top: photo + name + fields */}
@@ -77,23 +81,23 @@ export function ItemCard({ item, index, onEdit, onRemove }: Props) {
               onChangeText={(v) => onEdit({ name: v })}
               style={styles.nameInput}
               placeholderTextColor={T.color.tertiary}
-              placeholder="Item name"
+              placeholder={t('itemCard_namePlaceholder')}
             />
             <Pressable onPress={onRemove} hitSlop={8}>
-              <Text style={styles.removeText}>REMOVE</Text>
+              <Text style={styles.removeText}>{t('uploadStep_remove')}</Text>
             </Pressable>
           </View>
 
           <FieldRow
             mode="picker"
-            label="CATEGORY"
+            label={t('resultScreen_chipCategory')}
             value={item.type}
             options={TYPE_OPTIONS}
             onChange={(v) => onEdit({ type: v })}
           />
           <FieldRow
             mode="picker"
-            label="COLOUR"
+            label={t('itemCard_colourLabel')}
             value={item.color}
             options={COLOR_OPTIONS}
             swatch={swatchFor}
@@ -101,7 +105,7 @@ export function ItemCard({ item, index, onEdit, onRemove }: Props) {
           />
           <FieldRow
             mode="picker"
-            label="FABRIC"
+            label={t('dimScore_fabric')}
             value={item.material ?? ''}
             options={MATERIAL_OPTIONS}
             onChange={(v) => onEdit({ material: v || null })}
@@ -109,7 +113,7 @@ export function ItemCard({ item, index, onEdit, onRemove }: Props) {
           {item.fit !== null && (
             <FieldRow
               mode="picker"
-              label="FIT"
+              label={t('dimScore_fit')}
               value={item.fit ? titleCase(item.fit) : ''}
               options={FIT_OPTIONS.map(titleCase)}
               onChange={(v) => onEdit({ fit: v.toLowerCase() || null })}
@@ -118,7 +122,7 @@ export function ItemCard({ item, index, onEdit, onRemove }: Props) {
           {item.pattern !== null && (
             <FieldRow
               mode="picker"
-              label="PATTERN"
+              label={t('resultScreen_chipPattern')}
               value={item.pattern ? titleCase(item.pattern) : ''}
               options={PATTERN_OPTIONS.map(titleCase)}
               onChange={(v) => onEdit({ pattern: v.toLowerCase() || null })}
@@ -127,7 +131,7 @@ export function ItemCard({ item, index, onEdit, onRemove }: Props) {
           {item.warmthSeason !== null && (
             <FieldRow
               mode="picker"
-              label="SEASON"
+              label={t('resultScreen_chipSeason')}
               value={item.warmthSeason ? warmthLabel(item.warmthSeason) : ''}
               options={WARMTH_OPTIONS.map(warmthLabel)}
               onChange={(v) => {
@@ -136,18 +140,27 @@ export function ItemCard({ item, index, onEdit, onRemove }: Props) {
               }}
             />
           )}
+          {isLayerableTopType(item.type) && (
+            <FieldRow
+              mode="picker"
+              label={t('itemCard_layerLabel')}
+              value={canLayerToLabel(item.canLayer)}
+              options={CAN_LAYER_OPTIONS}
+              onChange={(v) => onEdit({ canLayer: labelToCanLayer(v) })}
+            />
+          )}
           <FieldRow
             mode="text"
-            label="BRAND"
+            label={t('itemCard_brandLabel')}
             value={item.brand}
-            placeholder="Add brand"
+            placeholder={t('itemCard_brandPlaceholder')}
             onChange={(v) => onEdit({ brand: v })}
           />
           <FieldRow
             mode="text"
-            label="LINK"
+            label={t('itemCard_linkLabel')}
             value={item.link}
-            placeholder="Paste product link"
+            placeholder={t('itemCard_linkPlaceholder')}
             onChange={(v) => onEdit({ link: v })}
           />
         </View>
@@ -157,7 +170,7 @@ export function ItemCard({ item, index, onEdit, onRemove }: Props) {
       {measureFields.length > 0 && (
         <View style={styles.measureSection}>
           <View style={styles.measureHeader}>
-            <Text style={styles.sectionLabel}>MEASUREMENTS</Text>
+            <Text style={styles.sectionLabel}>{t('itemDetail_measurementsLabel')}</Text>
             <Text style={styles.sectionLabel}>{groupLabel[group]}</Text>
           </View>
           <View style={styles.measureGrid}>
@@ -167,16 +180,24 @@ export function ItemCard({ item, index, onEdit, onRemove }: Props) {
                   label={label}
                   value={item.measurements[key]}
                   onCommit={(v) => setMeasure(key, v)}
+                  unit={key === 'm_shoe_size' ? 'EU' : 'cm'}
                 />
               </View>
             ))}
           </View>
+
+          {/* Inline AI mapping — paste shop sizes; AI fills the fields above. */}
+          <MeasurementAIMap
+            garmentType={item.type}
+            currentMeasurements={item.measurements}
+            onApply={(m) => onEdit({ measurements: { ...item.measurements, ...m } })}
+          />
         </View>
       )}
 
       {/* tags */}
       <View style={styles.tagsSection}>
-        <Text style={styles.sectionLabel}>TAGS</Text>
+        <Text style={styles.sectionLabel}>{t('itemCard_tagsLabel')}</Text>
         <View style={{ height: 10 }} />
         <TagEditor tags={item.tags} onChange={(t) => onEdit({ tags: t })} />
       </View>

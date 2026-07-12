@@ -48,18 +48,63 @@ Deno.serve(async (req: Request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  try {
-    // 2. Delete all Storage objects in wardrobe-photos/{userId}/
-    const { data: storageFiles } = await adminClient.storage
-      .from('wardrobe-photos')
-      .list(userId);
+  // 2. Guard shared/system accounts. Demo login (OTP 000000) and any admin
+  // account resolve to a small set of stable, shared uids — never let a
+  // regular delete-account request destroy them.
+  const { data: profile, error: profileError } = await adminClient
+    .from('profiles')
+    .select('account_type')
+    .eq('id', userId)
+    .single();
+  if (profileError) {
+    console.error('[delete-user] profile lookup failed', userId, profileError.message);
+    return new Response(JSON.stringify({ error: 'Failed to verify account' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+  if (profile?.account_type === 'demo' || profile?.account_type === 'admin') {
+    return new Response(JSON.stringify({ error: 'This account cannot be deleted' }), {
+      status: 403,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
 
-    if (storageFiles && storageFiles.length > 0) {
-      const paths = storageFiles.map((f: { name: string }) => `${userId}/${f.name}`);
-      await adminClient.storage.from('wardrobe-photos').remove(paths);
+  // Lists every object under `${userId}/` in a bucket, paginating past the
+  // default 100-object page so accounts with >100 photos don't leave orphans.
+  async function listAllPaths(bucket: string): Promise<string[]> {
+    const paths: string[] = [];
+    const pageSize = 100;
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await adminClient.storage
+        .from(bucket)
+        .list(userId, { limit: pageSize, offset });
+      if (error) {
+        console.error(`[delete-user] storage.list(${bucket}) failed for ${userId}:`, error.message);
+        break;
+      }
+      if (!data || data.length === 0) break;
+      paths.push(...data.map((f: { name: string }) => `${userId}/${f.name}`));
+      if (data.length < pageSize) break;
+    }
+    return paths;
+  }
+
+  try {
+    // 3. Delete all Storage objects in wardrobe-photos/{userId}/ and avatars/{userId}/.
+    // Storage errors are logged (not swallowed) but don't block account deletion —
+    // the right-to-delete-account guarantee takes priority over best-effort cleanup.
+    for (const bucket of ['wardrobe-photos', 'avatars']) {
+      const paths = await listAllPaths(bucket);
+      if (paths.length > 0) {
+        const { error: removeError } = await adminClient.storage.from(bucket).remove(paths);
+        if (removeError) {
+          console.error(`[delete-user] storage.remove(${bucket}) failed for ${userId}:`, removeError.message);
+        }
+      }
     }
 
-    // 3. Delete the auth user — all DB rows cascade-delete via FK
+    // 4. Delete the auth user — all DB rows cascade-delete via FK
     const { error: deleteError } = await adminClient.auth.admin.deleteUser(userId);
     if (deleteError) throw deleteError;
 

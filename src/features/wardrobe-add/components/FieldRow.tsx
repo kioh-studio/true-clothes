@@ -6,6 +6,7 @@ import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { T, type } from '../../../design/tokens';
 import { IconEdit } from '../../../components/icons';
 import { Picker } from './Picker';
+import { useTranslation } from '../../../i18n';
 
 interface BaseProps {
   label: string;
@@ -30,6 +31,7 @@ interface TextProps extends BaseProps {
 type Props = PickerProps | TextProps;
 
 export function FieldRow(props: Props) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   if (props.mode === 'picker') {
@@ -48,7 +50,7 @@ export function FieldRow(props: Props) {
         </Pressable>
         {open && (
           <Picker
-            label={`CHOOSE ${label}`}
+            label={t('fieldRow_choosePrefix', { label })}
             value={value}
             options={options}
             swatch={swatch}

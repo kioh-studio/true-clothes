@@ -53,6 +53,13 @@ export interface AddItemInput {
   link?: string;              // product URL → source_url
   graphics?: LogoSignal | null;  // logo signals (feature 006)
   source?: string;            // provenance: 'ai' | 'item' | 'personal' (defaults to DB default)
+  canLayer?: boolean | null;  // dual-role layering (feature 008); null → AUTO (engine derives)
+  // Measured-hex color layer (2026-07-06): pixel-derived dominant colour(s) of
+  // the isolated image, computed at ingest (server-side for the AI method,
+  // on-device colorCluster for extract-by-item). Absent/null → columns stay
+  // NULL and the backfill-item-metadata admin run fills them later.
+  primaryHex?: string | null;
+  secondaryHex?: string | null;
 }
 
 export interface UpdateItemInput {
@@ -70,6 +77,7 @@ export interface UpdateItemInput {
   measurements?: Partial<Record<MKey, number>>;
   link?: string;
   graphics?: LogoSignal | null;
+  canLayer?: boolean | null;  // dual-role layering (feature 008); null → AUTO (engine derives)
 }
 
 // ─── Legacy type (pre-sync AsyncStorage items) ───────────────────────────────
@@ -105,6 +113,9 @@ interface ClothingItemRow {
   source: string | null;
   source_url: string | null;
   graphics: LogoSignal | null;
+  can_layer: boolean | null;
+  primary_hex: string | null;
+  secondary_hex: string | null;
   photo_url: string | null;
   photo_storage: PhotoStorageKind | null;
   times_worn: number;
@@ -128,10 +139,14 @@ interface ClothingItemRow {
 
 function inferCategory(type: string | null): WardrobeItem['category'] {
   const t = (type ?? '').toUpperCase();
-  if (['TEE', 'POLO', 'SHIRT', 'KNIT', 'SWEATER', 'HENLEY'].includes(t)) return 'top';
-  if (['JEANS', 'CHINOS', 'TROUSERS', 'SHORTS'].includes(t))             return 'bottom';
-  if (['JACKET', 'COAT', 'BLAZER'].includes(t))                          return 'outerwear';
-  if (['SNEAKERS', 'LOAFERS', 'BOOTS', 'SHOES', 'MULES'].includes(t))   return 'footwear';
+  if (['TEE', 'POLO', 'SHIRT', 'KNIT', 'SWEATER', 'HENLEY', 'BLOUSE', 'VEST', 'CARDIGAN',
+       'CAMISOLE', 'CROP', 'BODYSUIT', 'TUNIC', 'CORSET'].includes(t))   return 'top';
+  if (['JEANS', 'CHINOS', 'TROUSERS', 'SHORTS', 'SKIRT', 'LEGGINGS'].includes(t)) return 'bottom';
+  if (['JACKET', 'COAT', 'BLAZER', 'OVERCOAT', 'PARKA', 'HOODIE', 'CAPE', 'KIMONO'].includes(t)) return 'outerwear';
+  if (['SNEAKERS', 'LOAFERS', 'BOOTS', 'SHOES', 'MULES', 'HEELS', 'SANDALS', 'OXFORDS',
+       'FLATS', 'WEDGES'].includes(t))                                   return 'footwear';
+  if (['DRESS', 'JUMPSUIT', 'OVERALLS', 'GOWN'].includes(t))             return 'dress';
+  if (['HAT', 'CAP'].includes(t))                                        return 'headwear';
   return 'accessory';
 }
 
@@ -174,6 +189,9 @@ function rowToItem(row: ClothingItemRow, userId: string): WardrobeItem {
       : [],
     measurements: collectMeasurements(row),
     graphics: row.graphics ?? null,
+    canLayer: row.can_layer ?? null,
+    primaryHex: row.primary_hex ?? null,
+    secondaryHex: row.secondary_hex ?? null,
   };
 }
 
@@ -188,6 +206,8 @@ function collectMeasurements(row: ClothingItemRow): Partial<Record<MKey, number>
 }
 
 // Spread a measurements object into individual m_* DB columns (cm).
+// Used on INSERT: absent/invalid keys are simply omitted (a fresh row already
+// defaults those columns to NULL), so there's no "clear" concept here.
 function measurementColumns(
   m: Partial<Record<MKey, number>> | undefined,
 ): Record<string, number> {
@@ -196,6 +216,23 @@ function measurementColumns(
   for (const k of M_KEYS) {
     const v = m[k];
     if (typeof v === 'number' && !Number.isNaN(v) && v > 0) cols[k] = v;
+  }
+  return cols;
+}
+
+// Same as measurementColumns, but for UPDATE. The edit UI always submits the
+// *complete* desired measurements object (clearing a field deletes its key —
+// see ItemCard.setMeasure), so once the caller opts into touching measurements
+// at all, every M_KEY missing from `m` must be written as an explicit NULL.
+// Otherwise a cleared field would silently keep its old DB value forever,
+// since `undefined` columns are never included in a Supabase update payload.
+function measurementColumnsForUpdate(
+  m: Partial<Record<MKey, number>>,
+): Record<string, number | null> {
+  const cols: Record<string, number | null> = {};
+  for (const k of M_KEYS) {
+    const v = m[k];
+    cols[k] = (typeof v === 'number' && !Number.isNaN(v) && v > 0) ? v : null;
   }
   return cols;
 }
@@ -321,6 +358,9 @@ export async function addItem(input: AddItemInput, tier: StorageTier = 'free'): 
       brand:        input.brand ?? null,
       source_url:   input.link ?? null,
       graphics:     input.graphics ?? null,
+      can_layer:    input.canLayer ?? null,
+      primary_hex:  input.primaryHex ?? null,
+      secondary_hex: input.secondaryHex ?? null,
       ...(input.source ? { source: input.source } : {}),
       ...measurementColumns(input.measurements),
       photo_url:    photoPath,
@@ -444,7 +484,8 @@ export async function updateItem(id: string, patch: UpdateItemInput): Promise<Wa
   if (patch.pattern !== undefined)     dbPatch.pattern       = patch.pattern;
   if (patch.link !== undefined)        dbPatch.source_url    = patch.link;
   if (patch.graphics !== undefined)    dbPatch.graphics      = patch.graphics;
-  if (patch.measurements !== undefined) Object.assign(dbPatch, measurementColumns(patch.measurements));
+  if (patch.canLayer !== undefined)    dbPatch.can_layer     = patch.canLayer;
+  if (patch.measurements !== undefined) Object.assign(dbPatch, measurementColumnsForUpdate(patch.measurements));
   if (patch.warmthSeason !== undefined) {
     dbPatch.warmth_season = patch.warmthSeason?.length ? patch.warmthSeason.join(',') : null;
   }
@@ -462,16 +503,15 @@ export async function updateItem(id: string, patch: UpdateItemInput): Promise<Wa
 
 /**
  * Delete a clothing item by ID.
+ *
+ * Order matters: delete the DB row FIRST, then clean up its photo. If the row
+ * delete fails we stop immediately and leave the photo untouched — the item is
+ * still alive and must keep its picture. Deleting the photo first (the old
+ * order) risked a dangling, image-less item whenever the DB delete failed
+ * after storage cleanup had already succeeded.
  */
 export async function deleteItem(id: string): Promise<void> {
-  // Clean up the item's photo (device + cloud) so no orphan storage remains (FR-014).
   const row = await fetchRow(id);
-  if (row?.photo_url) {
-    await removePhoto({
-      relativePath: row.photo_storage === 'local' ? row.photo_url : null,
-      storagePath:  row.photo_storage === 'cloud' ? row.photo_url : null,
-    });
-  }
 
   const { error } = await sb
     .from('clothing_items')
@@ -479,6 +519,16 @@ export async function deleteItem(id: string): Promise<void> {
     .eq('id', id);
 
   if (error) throw new WardrobeDbError('Failed to delete clothing item', error);
+
+  // Row is gone — now safe to clean up the photo (device + cloud) so no orphan
+  // storage remains (FR-014). Best-effort: the row delete already succeeded,
+  // so a photo cleanup failure here is a storage leak, not a data-integrity bug.
+  if (row?.photo_url) {
+    await removePhoto({
+      relativePath: row.photo_storage === 'local' ? row.photo_url : null,
+      storagePath:  row.photo_storage === 'cloud' ? row.photo_url : null,
+    });
+  }
 }
 
 /**

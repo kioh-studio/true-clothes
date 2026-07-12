@@ -649,6 +649,24 @@ export function scoreOutfitFit(items: FitItem[], body: BodyMeasurements): number
 // (pairAffinity's proportion term) and silhouette.ts (target-silhouette match).
 export const VOLUME: Record<ItemFit, number> = { slim: 1, regular: 2, relaxed: 3, wide: 4, oversized: 5 };
 
+// Dominant colour of an outfit = the colour of its ANCHOR piece (the "loudest
+// piece leads" rule generation.ts uses: highest statementStrength, id tie-break).
+// Shoes/accessories excluded — the anchor is a top/bottom/outerwear garment.
+// Display-only (2026-07-12) — not a scoring input.
+export function outfitDominantColor(items: FitItem[]): PrimaryColor {
+  const eligible = items.filter(i => i.category !== 'shoes' && i.category !== 'accessory');
+  const pool = eligible.length > 0 ? eligible : items;
+  if (pool.length === 0) return 'black';
+  let anchor = pool[0];
+  for (const i of pool) {
+    if (i.statementStrength > anchor.statementStrength ||
+        (i.statementStrength === anchor.statementStrength && i.id < anchor.id)) {
+      anchor = i;
+    }
+  }
+  return anchor.colorProfile.primaryColor;
+}
+
 // ── Gender-aware styling nudge (opt-in; backlog #3) ───────────────────────────
 // A SOFT bias only — never filters items (the wardrobe is the user's own). Returns
 // a DELTA in [-0.05, +0.05] added to totalScore, deliberately smaller than the

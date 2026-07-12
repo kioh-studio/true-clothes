@@ -45,7 +45,7 @@ All state and async logic lives in `useAddWizard()`. Components are pure views.
   - `FieldRow` for CATEGORY / COLOUR / FABRIC / FIT / PATTERN / SEASON — `mode="picker"` opens inline chip grid
   - COLOUR picker shows swatch dot `11 × 11` from `swatchFor()` (COLOR_SWATCH hex values — vocab data, not styling hex)
   - BRAND / LINK as `mode="text"` right-aligned `TextInput`
-  - Measurements grid (2-col): type-aware via `measureGroupForType()` + `MEASURE_FIELDS`; each field `MeasureField` (decimal-pad, blur → parse to number)
+  - Measurements grid (2-col): type-aware via `measureGroupForType()` + `MEASURE_FIELDS`; each field `MeasureField` (decimal-pad, blur → parse to number). Directly below the grid (shown only when the garment type has measurable fields) sits the inline **`MeasurementAIMap`** field (feature 009): an `AI MAPPING MEASUREMENT` text box where the user pastes one size's raw shop measurements (any naming/language/unit). On `MAP WITH AI`, Gemini maps them onto canonical `m_*` keys and auto-fills the grid above; a short summary lists what was filled (with conversion notes like ×2 from flat / in→cm) and any unmapped leftovers. Filled values merge into the measurements object via `onEdit({ measurements: {...} })`; the user can still tweak any field by hand. Reused by `item-edit.tsx` since it renders the same `ItemCard`.
   - Tags: `TagEditor` — filled `primary` chips with `×`, dashed "Add tag…" input
 - "REMOVE" in `error` colour top-right of each card
 - Empty state when all items removed: dashed border, serif "Nothing to save."

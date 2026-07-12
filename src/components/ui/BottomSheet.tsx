@@ -10,7 +10,6 @@ interface Props {
   onClose: () => void;
   children: React.ReactNode;
   maxHeight?: number | string;
-  height?: number | string;
   style?: ViewStyle;
 }
 

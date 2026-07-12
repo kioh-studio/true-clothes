@@ -5,13 +5,13 @@ const CACHE_KEY = 'styles-cache';
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
 
 export interface StyleCatalogItem {
-  id: string;
-  slug: string;
+  id: string;              // also the slug, e.g. 'oldmoney'
   name: string;
-  nameVi: string | null;
-  description: string;
-  relatedSlugs: string[];
-  displayOrder: number;
+  description: string | null;
+  imageUrl: string | null;
+  popularity: number;
+  neighbors: { id: string; weight: number }[];
+  niches: string[];
 }
 
 interface CacheEntry { data: StyleCatalogItem[]; fetchedAt: number }
@@ -27,20 +27,20 @@ export async function fetchStyles(): Promise<StyleCatalogItem[]> {
 
   const { data, error } = await sb
     .from('styles')
-    .select('id, slug, name, name_vi, description, related_slugs, display_order')
-    .eq('is_active', true)
-    .order('display_order');
+    .select('id, name, description, image_url, popularity, neighbors, niches')
+    .eq('active', true)
+    .order('popularity', { ascending: false });
 
   if (error) throw error;
 
   const items: StyleCatalogItem[] = (data ?? []).map((r: Record<string, unknown>) => ({
-    id:           r.id as string,
-    slug:         r.slug as string,
-    name:         r.name as string,
-    nameVi:       (r.name_vi as string | null) ?? null,
-    description:  r.description as string,
-    relatedSlugs: (r.related_slugs as string[]) ?? [],
-    displayOrder: (r.display_order as number) ?? 0,
+    id:          r.id as string,
+    name:        r.name as string,
+    description: (r.description as string | null) ?? null,
+    imageUrl:    (r.image_url as string | null) ?? null,
+    popularity:  (r.popularity as number) ?? 0,
+    neighbors:   (r.neighbors as { id: string; weight: number }[]) ?? [],
+    niches:      (r.niches as string[]) ?? [],
   }));
 
   AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ data: items, fetchedAt: Date.now() })).catch(() => {});

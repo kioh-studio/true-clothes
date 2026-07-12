@@ -10,7 +10,9 @@ import {
   BodyMeasurements, ClothingItemRow,
 } from '../generate-outfits/engine/types.ts';
 import { toFitItem, registerColors } from '../generate-outfits/engine/enrichment.ts';
+import { seasonForMonth, resolveHemisphere } from '../generate-outfits/engine/scoring.ts';
 import { computeVerdict } from './scoring.ts';
+import { buildNoteContext, generateFitNote, resolveLocale } from './note.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -64,12 +66,17 @@ Deno.serve(async (req) => {
     }
 
     let rawItem: Record<string, unknown> | undefined;
+    let localeRaw: unknown;
+    let bodyNeutral = false; // opt-in body-neutral styling (recommendation #6)
     try {
       const body = await req.json() as Record<string, unknown>;
       rawItem = body.item as Record<string, unknown> | undefined;
+      localeRaw = body.locale;
+      if (body.body_neutral === true) bodyNeutral = true;
     } catch {
       return jsonResponse({ error: 'Invalid JSON body' }, 400);
     }
+    const locale = resolveLocale(typeof localeRaw === 'string' ? localeRaw : undefined);
 
     if (!rawItem || typeof rawItem !== 'object' || Object.keys(rawItem).length === 0) {
       return jsonResponse({ error: 'Missing or empty item in request body' }, 400);
@@ -82,13 +89,21 @@ Deno.serve(async (req) => {
 
     // ── Load user profile from DB (mirrors generate-outfits pattern) ──────
     const [profileRes, measurementsRes, styleRes] = await Promise.all([
-      supabase.from('profiles').select('color_season, personal_palette').eq('id', userId).single(),
+      supabase.from('profiles').select('color_season, color_tone12, personal_palette, location_country, location_country_code, gender').eq('id', userId).single(),
       supabase.from('body_measurements').select('*').eq('user_id', userId).single(),
       supabase.from('style_profiles').select('selected_styles, color_preferences').eq('user_id', userId).single(),
     ]);
 
     // ── Map DB rows to engine types ───────────────────────────────────────
     const bodyMeasurements: BodyMeasurements = measurementsRes.data ?? {};
+    // Body-neutral styling (recommendation #6): suppress body_shape BEFORE it
+    // reaches computeVerdict — the fit criterion's shape delta and
+    // fitExplanation's shapePart are already guarded by `if (bodyShape)`, so
+    // nulling it here removes both the scoring effect and the rationale text.
+    if (bodyNeutral) {
+      bodyMeasurements.body_shape = undefined;
+      console.log('[evaluate-item] body-neutral: body_shape suppressed');
+    }
 
     const styleData = styleRes.data as
       | { selected_styles?: string[]; color_preferences?: string[] }
@@ -96,13 +111,21 @@ Deno.serve(async (req) => {
     const selectedStyles: string[] = styleData?.selected_styles ?? [];
 
     const profileData = profileRes.data as
-      | { color_season?: string; personal_palette?: string[] }
+      | { color_season?: string; color_tone12?: string; personal_palette?: string[]; location_country?: string; location_country_code?: string; gender?: string }
       | null;
     const personalPalette: string[] = profileData?.personal_palette ?? [];
     const colorPreferences: string[] = [
       ...new Set([...(styleData?.color_preferences ?? []), ...personalPalette]),
     ];
     const colorSeason = profileData?.color_season?.toLowerCase() || undefined;
+    const colorTone12 = profileData?.color_tone12?.toLowerCase() || undefined;
+
+    // Current real-world season (date + best-effort hemisphere from country), used
+    // for the Verdict's seasonal colour + fabric criteria — mirrors the feed engine.
+    const weatherSeason = seasonForMonth(
+      new Date().getUTCMonth(),
+      resolveHemisphere(profileData?.location_country_code, profileData?.location_country),
+    );
 
     // ── Build ClothingItemRow from request item ────────────────────────────
     // Convert the flat m_* measurements map to the label/value array format.
@@ -145,11 +168,43 @@ Deno.serve(async (req) => {
     const verdict = computeVerdict(fitItem, {
       colorPreferences,
       colorSeason,
+      colorTone12,
       selectedStyles,
       bodyMeasurements,
+      weatherSeason,
+      gender: profileData?.gender,
     });
 
-    return jsonResponse(verdict, 200);
+    // ── AI fit note (shown under the measurement bars) ────────────────────────
+    // Best-effort: a Gemini-written, GROUNDED note paraphrasing the verdict above
+    // — where it fits, where it doesn't — so the user can decide buy/skip. Never
+    // blocks or fails the verdict: on missing key / rate-limit / LLM error the
+    // note is simply null and the scores still render. No cache (the scan flow
+    // calls this once per item; see plan.md changelog).
+    let fitNote: string | null = null;
+    const apiKey = Deno.env.get('GOOGLE_API_KEY');
+    if (apiKey) {
+      let allowed = true;
+      try {
+        const { data: ok } = await supabase.rpc('consume_rate_limit', {
+          p_bucket: 'verdict_note', p_max: 30, p_window_secs: 60,
+        });
+        if (ok === false) allowed = false; // over budget → skip note, keep verdict
+      } catch (_e) { /* fail open — note is best-effort */ }
+
+      if (allowed) {
+        const context = buildNoteContext(
+          verdict, fitItem, bodyMeasurements,
+          { type: itemRow.type, color: itemRow.color, material: itemRow.material, fit: itemRow.fit, pattern: itemRow.pattern },
+          { gender: profileData?.gender, colorSeason, styles: selectedStyles },
+          locale,
+        );
+        const note = await generateFitNote(apiKey, context, locale);
+        fitNote = note || null;
+      }
+    }
+
+    return jsonResponse({ ...verdict, fit_note: fitNote }, 200);
 
   } catch (err) {
     console.error('[evaluate-item] Error:', err);

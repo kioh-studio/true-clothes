@@ -11,16 +11,19 @@
 
 import { create } from 'zustand';
 import * as FileSystem from 'expo-file-system/legacy';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { ScannedItem, Verdict } from '../types/tryOn';
-import { ScoredOutfit, WardrobeItem } from '../types/fitEngine';
+import { ScoredOutfit, WardrobeItem, MKey } from '../types/fitEngine';
 import { GarmentMetadata } from '../services/imageGenerationService';
 import { cutoutOnDevice } from '../services/extractByItemService';
 import { extractItemsWithImages } from '../services/imageGenerationService';
-import { checkCredit, incrementCredit } from '../services/usageCreditService';
+import { checkCredit, isCreditExhausted } from '../services/usageCreditService';
 import { hasPremiumAccountType } from '../services/profileService';
 import { evaluateItem } from '../services/tryOnService';
+import i18n from '../i18n';
 import { AddItemInput } from '../services/wardrobeService';
 import { categoryForType } from '../features/wardrobe-add/vocab';
+import { dominantHexesFromUri } from '../features/wardrobe-add/colorClusterUri';
 import { useFitEngineStore } from './fitEngineStore';
 import { useAppStore } from './appStore';
 import type { ExtractMethod } from '../types/tryOn';
@@ -105,19 +108,41 @@ export interface TryOnState {
    * store, so the screen resolves the photo and passes the uri in for the card.
    */
   pinWardrobeItem: (item: WardrobeItem, imageUri?: string | null) => void;
+
+  /**
+   * Feature 009 — Replace the current scannedItem's garment measurements with
+   * `next` and re-evaluate so the Verdict's Measurement criterion reflects the new
+   * values. No-op when there is no scannedItem. The caller passes the FULL next map
+   * of canonical m_* keys (cm; EU number for shoe size) — used both by manual
+   * per-field edits (which may also clear a key) and by the AI mapper (which merges
+   * its result over the current map before calling this).
+   */
+  applyMeasurements: (next: Partial<Record<MKey, number>>) => Promise<void>;
+
+  /**
+   * Populate mixMatchOutfits in the background WITHOUT changing status, so the
+   * Result screen can show a "wardrobe fit" signal and the Mix & Match feed opens
+   * instantly. Best-effort: failures are swallowed (the verdict is the primary
+   * content). No credit consumed (curate:false, same as fetchMixMatch).
+   */
+  prefetchMixMatch: () => Promise<void>;
 }
 
 // ─── file uri → base64 data URI (same helper as useAddWizard) ─────────────────
 
 async function toDataUri(uri: string): Promise<string> {
   if (uri.startsWith('data:')) return uri;
-  const b64 = await FileSystem.readAsStringAsync(uri, {
+  // ALWAYS run through the manipulator (a no-op transform with no actions):
+  // it normalises the platform picker URIs (Android `content://`, iOS `ph://`)
+  // into a readable `file://` JPEG. `readAsStringAsync` cannot read a raw
+  // `content://` on Android, so picking a library photo there would throw
+  // before the scan ever reached the edge function (same class of bug fixed
+  // in tryOnWearService.toScaledDataUri).
+  const out = await manipulateAsync(uri, [], { compress: 0.92, format: SaveFormat.JPEG });
+  const b64 = await FileSystem.readAsStringAsync(out.uri, {
     encoding: FileSystem.EncodingType.Base64,
   });
-  const ext = uri.split('.').pop()?.toLowerCase();
-  const mime =
-    ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-  return `data:${mime};base64,${b64}`;
+  return `data:image/jpeg;base64,${b64}`;
 }
 
 // Best-effort deletion of the transient cut-out file. On Add, wardrobeService
@@ -134,7 +159,7 @@ async function cleanupTempImage(uri: string | null): Promise<void> {
 
 const INITIAL: Omit<
   TryOnState,
-  'reset' | 'scan' | 'evaluate' | 'fetchMixMatch' | 'addToWardrobe' | 'pinWardrobeItem'
+  'reset' | 'scan' | 'evaluate' | 'fetchMixMatch' | 'addToWardrobe' | 'pinWardrobeItem' | 'applyMeasurements' | 'prefetchMixMatch'
 > = {
   status: 'idle',
   scannedItem: null,
@@ -145,12 +170,33 @@ const INITIAL: Omit<
   needsUpgrade: false,
 };
 
-export const useTryOnStore = create<TryOnState>((set, get) => ({
+export const useTryOnStore = create<TryOnState>((set, get) => {
+  // Bumped by reset(), pinWardrobeItem() and every new scan() call — i.e.
+  // whenever the CURRENT ITEM identity changes. A scan() invocation captures
+  // the value at its start and checks it before every `set(...)` — if reset()
+  // or a newer scan() ran in the meantime, this run is stale and must not
+  // clobber the (possibly already-idle) store, nor leak the file it
+  // generated. Fixes: cancelling mid-scan (back button) then re-opening Try On
+  // no longer resurrects a scan the user already discarded.
+  //
+  // evaluate()/fetchMixMatch()/prefetchMixMatch() do NOT bump this counter
+  // themselves (they act on the CURRENT item, they don't start a new one) —
+  // they only CAPTURE it at call start and compare at resolve time, so a
+  // late-resolving call is dropped if the item changed underneath it (e.g.
+  // evaluate() for item A resolving after scan()/pinWardrobeItem() already
+  // moved on to item B). Bumping it from those three would be wrong: they
+  // can legitimately run concurrently for the SAME item (e.g. evaluate() and
+  // prefetchMixMatch() both fire on Result-screen mount) and must not
+  // invalidate each other.
+  let scanGeneration = 0;
+
+  return {
   ...INITIAL,
 
   // T034 — discard/cleanup. Fire-and-forget the temp-file delete so the UI can
   // reset synchronously; nothing is ever persisted before Add (FR-013/FR-015).
   reset: () => {
+    scanGeneration++;
     const current = get().scannedItem;
     // Never delete an image we don't own (e.g. a wardrobe item reused as a pin).
     const uri = current && !current.keepImage ? current.localImageUri : null;
@@ -161,6 +207,8 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
   // ── T013: scan ─────────────────────────────────────────────────────────────
 
   scan: async (photoUri: string, _method: ExtractMethod) => {
+    const myGeneration = ++scanGeneration;
+    const isStale = () => myGeneration !== scanGeneration;
     set({ status: 'scanning', error: null, needsUpgrade: false, scannedItem: null, verdict: null });
 
     try {
@@ -171,23 +219,30 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
       if (!isPremium) {
         const creditStatus = await checkCredit('ai_extraction');
         if (creditStatus.remaining < 1) {
-          set({ status: 'idle', needsUpgrade: true, error: null });
+          if (!isStale()) set({ status: 'idle', needsUpgrade: true, error: null });
           return;
         }
       }
 
       const dataUri = await toDataUri(photoUri);
-      const results = await extractItemsWithImages(dataUri);
-
-      if (!isPremium && results.length > 0) {
-        await incrementCredit('ai_extraction');
+      let results: Awaited<ReturnType<typeof extractItemsWithImages>>;
+      try {
+        results = await extractItemsWithImages(dataUri);
+      } catch (invokeErr) {
+        if (await isCreditExhausted(invokeErr)) {
+          if (!isStale()) set({ status: 'idle', needsUpgrade: true, error: null });
+          return;
+        }
+        throw invokeErr;
       }
 
       if (!results || results.length === 0) {
-        set({
-          status: 'idle',
-          error: 'No item detected. Try a clearer photo on a plain background.',
-        });
+        if (!isStale()) {
+          set({
+            status: 'idle',
+            error: i18n.t('tryOnStore_noItemDetected'),
+          });
+        }
         return;
       }
 
@@ -199,6 +254,7 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
       // (no-op when native ML is absent → graceful background-kept fallback).
       let localImageUri = extracted.localImageUri ?? null;
       let resolvedUsedFallback = extracted.usedFallback ?? false;
+      let metadata = extracted.metadata;
       if (localImageUri && !extracted.keyed) {
         const cut = await cutoutOnDevice(localImageUri);
         if (cut.uri !== localImageUri) {
@@ -208,12 +264,32 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
           localImageUri = cut.uri;
           resolvedUsedFallback = cut.usedFallback;
         }
+        // Measured-hex hygiene (2026-07-06, same rationale as useAddWizard's
+        // refineAiCutout): the server computed primaryHex/secondaryHex on the
+        // FINAL keyed image — keyed:false means the chroma background is still
+        // in those pixels, so its hex is unreliable. Recompute from the refined
+        // transparent cut-out when we made one, else null the hex out.
+        if (localImageUri && localImageUri !== extracted.localImageUri) {
+          const hexes = await dominantHexesFromUri(localImageUri);
+          metadata = { ...metadata, primaryHex: hexes.primaryHex, secondaryHex: hexes.secondaryHex };
+        } else {
+          metadata = { ...metadata, primaryHex: null, secondaryHex: null };
+        }
+      }
+
+      if (isStale()) {
+        // Superseded by reset()/a newer scan() while this one was in flight —
+        // drop the result and clean up the file it produced so it doesn't leak.
+        if (localImageUri && localImageUri.startsWith('file://')) {
+          FileSystem.deleteAsync(localImageUri, { idempotent: true }).catch(() => {});
+        }
+        return;
       }
 
       const scannedItem: ScannedItem = {
         id: 'scanned',
         localImageUri,
-        metadata: extracted.metadata,
+        metadata,
         method: 'ai',
         usedFallback: resolvedUsedFallback,
       };
@@ -222,10 +298,12 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
       // so the screen can navigate and trigger evaluate() on mount.
       set({ status: 'evaluating', scannedItem, error: null });
     } catch (err) {
-      set({
-        status: 'idle',
-        error: err instanceof Error ? err.message : 'Scan failed. Please try again.',
-      });
+      if (!isStale()) {
+        set({
+          status: 'idle',
+          error: err instanceof Error ? err.message : i18n.t('tryOnStore_scanFailed'),
+        });
+      }
     }
   },
 
@@ -235,17 +313,26 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
     const { scannedItem } = get();
     if (!scannedItem) return;
 
+    // Capture (not bump — see comment on `scanGeneration` above) so a late
+    // resolution after the item changed (scan()/pinWardrobeItem()/reset())
+    // is dropped instead of stomping the newer item's verdict.
+    const myGeneration = scanGeneration;
+    const isStale = () => myGeneration !== scanGeneration;
+
     set({ status: 'evaluating', error: null });
 
     try {
-      const verdict = await evaluateItem(scannedItem);
-      set({ status: 'result', verdict });
+      const locale = i18n.language?.startsWith('vi') ? 'vi' : 'en';
+      const verdict = await evaluateItem(scannedItem, locale);
+      if (!isStale()) set({ status: 'result', verdict });
     } catch (err) {
       // Recoverable: user stays on result screen and can retry
-      set({
-        status: 'result',
-        error: err instanceof Error ? err.message : 'Evaluation failed. Try again.',
-      });
+      if (!isStale()) {
+        set({
+          status: 'result',
+          error: err instanceof Error ? err.message : i18n.t('tryOnStore_evaluationFailed'),
+        });
+      }
     }
   },
 
@@ -255,17 +342,24 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
     const { scannedItem } = get();
     if (!scannedItem) return;
 
+    // Capture (not bump — see comment on `scanGeneration` above): drop this
+    // result if the item changed underneath it while the fetch was in flight.
+    const myGeneration = scanGeneration;
+    const isStale = () => myGeneration !== scanGeneration;
+
     set({ mixMatchLoading: true, error: null });
 
     try {
       const outfits = await useFitEngineStore.getState().fetchMixMatchOutfits(scannedItem);
-      set({ mixMatchOutfits: outfits, status: 'mixMatch', mixMatchLoading: false });
+      if (!isStale()) set({ mixMatchOutfits: outfits, status: 'mixMatch', mixMatchLoading: false });
     } catch (err) {
       // Recoverable: the feed shows a retry; the scanned item stays unsaved.
-      set({
-        mixMatchLoading: false,
-        error: err instanceof Error ? err.message : 'Mix & match failed. Try again.',
-      });
+      if (!isStale()) {
+        set({
+          mixMatchLoading: false,
+          error: err instanceof Error ? err.message : i18n.t('tryOnStore_mixMatchFailed'),
+        });
+      }
     }
   },
 
@@ -296,6 +390,10 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
       // Reuse the existing extraction provenance ('ai' | 'item') so we don't have
       // to touch the possibly-constrained clothing_items.source column (plan/R).
       source: scannedItem.method,
+      // Measured-hex color layer (2026-07-06): carried from the scan metadata
+      // (server-computed for keyed images; recomputed/nulled in scan() otherwise).
+      primaryHex: meta.primaryHex ?? null,
+      secondaryHex: meta.secondaryHex ?? null,
     };
 
     set({ error: null });
@@ -318,7 +416,9 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
   // ── pinWardrobeItem: build outfits around an item the user already owns ───────
 
   pinWardrobeItem: (item: WardrobeItem, imageUri?: string | null) => {
-    // Drop any prior transient scan first so its temp cut-out doesn't leak.
+    // Invalidate any in-flight scan() (this replaces the whole store state
+    // below, same as reset()) and drop any prior transient scan's cut-out.
+    scanGeneration++;
     const prev = get().scannedItem;
     if (prev && !prev.keepImage) cleanupTempImage(prev.localImageUri).catch(() => {});
 
@@ -337,6 +437,10 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
       graphics: item.graphics ?? null,
       tags: [],
       confidence: 1,
+      // Measured-hex color layer (2026-07-06): carry the stored hex through so
+      // downstream consumers of the pinned metadata see the same colour signal.
+      primaryHex: item.primaryHex ?? null,
+      secondaryHex: item.secondaryHex ?? null,
     };
 
     const scannedItem: ScannedItem = {
@@ -348,6 +452,7 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
       method: 'ai',
       usedFallback: false,
       keepImage: true,        // durable wardrobe photo — never delete on cleanup
+      sourceItemId: item.id,  // real id → wear-on-you can use the real photo
     };
 
     set({
@@ -356,7 +461,45 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
       scannedItem,
     });
   },
-}));
+  // ── applyMeasurements: merge shop measurements + re-evaluate (feature 009) ─────
+
+  applyMeasurements: async (next: Partial<Record<MKey, number>>) => {
+    const { scannedItem } = get();
+    if (!scannedItem) return;
+
+    const updated: ScannedItem = {
+      ...scannedItem,
+      metadata: { ...scannedItem.metadata, measurements: { ...next } },
+    };
+
+    set({ scannedItem: updated });
+    await get().evaluate();
+  },
+
+  // ── prefetchMixMatch: background wardrobe-fit signal (feature 008) ─────────────
+
+  prefetchMixMatch: async () => {
+    const { scannedItem, mixMatchOutfits, mixMatchLoading } = get();
+    if (!scannedItem || mixMatchOutfits.length > 0 || mixMatchLoading) return;
+
+    // Capture (not bump — see comment on `scanGeneration` above): if the item
+    // changes (new scan/pin/reset) before this resolves, drop the result
+    // instead of stuffing the OLD item's Mix & Match into the CURRENT state.
+    const myGeneration = scanGeneration;
+    const isStale = () => myGeneration !== scanGeneration;
+
+    set({ mixMatchLoading: true });
+    try {
+      const outfits = await useFitEngineStore.getState().fetchMixMatchOutfits(scannedItem);
+      if (!isStale()) set({ mixMatchOutfits: outfits, mixMatchLoading: false });
+    } catch (err) {
+      console.warn('[tryOnStore] prefetchMixMatch failed:', err);
+      // leave outfits empty → band weak/none; no error surfaced
+      if (!isStale()) set({ mixMatchLoading: false });
+    }
+  },
+  };
+});
 
 // Reverse of categoryForType: a sensible default garment type when a wardrobe
 // item has no granular `type` (older/manual items). The engine slots the pin by

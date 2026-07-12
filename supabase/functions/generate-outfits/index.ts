@@ -13,10 +13,10 @@ import { toFitItem, registerColors, colorProfileOf } from './engine/enrichment.t
 import { filterByStyle, styleConfigById } from './engine/filtering.ts';
 import { generateCandidates, generatePinnedCandidates, generateHeroCandidates, GENERATION_CAP, FormulaId } from './engine/generation.ts';
 import { resolveIntent, applyIntent, rankCandidates, dailyShuffle } from './engine/ranking.ts';
-import { resolveTargetSilhouette } from './engine/silhouette.ts';
+import { resolveTargetSilhouette, outfitSilhouetteTag, resultingBodySilhouette } from './engine/silhouette.ts';
 import { deriveStylingTips } from './engine/styling-tips.ts';
 import { buildTasteVector } from './engine/taste.ts';
-import { seasonForMonth, resolveHemisphere } from './engine/scoring.ts';
+import { seasonForMonth, resolveHemisphere, outfitDominantColor } from './engine/scoring.ts';
 import { curateOutfits, curatorEnabled, CuratorImage } from './engine/curator.ts';
 
 const corsHeaders = {
@@ -521,6 +521,10 @@ Deno.serve(async (req) => {
       o.story = storyOf(its);
       o.stylingTips = deriveStylingTips(its, o.formula, { top: o.slots.top, outwear: o.slots.outwear });
       o.weatherBand = weatherBandOf(its, o.slots.outwear !== undefined);
+      // Display-only tags (2026-07-12) — no scoring impact.
+      o.silhouette = outfitSilhouetteTag(its);
+      o.silhouetteShape = resultingBodySilhouette(its, ctx.bodyMeasurements.body_shape);
+      o.colorTone = outfitDominantColor(its);
     }
     outfits = [...outfits].sort(
       (a, b) => storySequence.indexOf(a.story!) - storySequence.indexOf(b.story!),

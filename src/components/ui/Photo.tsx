@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Image, StyleSheet, Text, ViewStyle } from 'react-native';
 import { T, type } from '../../design/tokens';
 
@@ -35,13 +35,21 @@ export function PhotoFallback({ label = 'IMAGE', tone = 0, children }: { label?:
 export function Photo({ src, label = 'IMAGE', tone = 0, style, fit = 'cover', children }: Props) {
   const [errored, setErrored] = useState(false);
 
+  // Component instances get recycled inside lists (FlatList/ScrollView) — without
+  // this, a new `src` on a recycled instance would keep the previous item's
+  // error state and get stuck showing the fallback forever.
+  useEffect(() => {
+    setErrored(false);
+  }, [src]);
+
   return (
     <View style={[styles.container, style]}>
       {src && !errored ? (
         <Image
           source={{ uri: src }}
           onError={() => setErrored(true)}
-          style={[StyleSheet.absoluteFill, { resizeMode: fit }]}
+          style={StyleSheet.absoluteFill}
+          resizeMode={fit}
         />
       ) : (
         <PhotoFallback label={label} tone={tone} />

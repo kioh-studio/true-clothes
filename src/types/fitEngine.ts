@@ -46,6 +46,16 @@ export interface WardrobeItem {
   warmthSeason: string[]
   measurements: Partial<Record<MKey, number>> | null  // garment measurements in cm (feature 006)
   graphics: LogoSignal | null   // logo signals — captured, not scored in MVP (feature 006)
+  // Dual-role layering (feature 008): this top can be worn OPEN/OVER another top
+  // as a layer (overshirt/cardigan/knit-over). NULL = AUTO (engine derives by
+  // rule); true/false = explicit user/AI override.
+  canLayer?: boolean | null
+  // Measured-hex color layer (2026-07-06) — deterministic pixel-derived
+  // dominant colour(s) of the item's isolated photo (colorCluster.ts, server-
+  // side). Read-only here: set by generate-item-image at ingest or by the
+  // backfill-item-metadata admin tool; null until that has run for this item.
+  primaryHex: string | null
+  secondaryHex: string | null
 }
 
 
@@ -56,6 +66,8 @@ export interface WardrobeItem {
 // ─── Body Measurements ───────────────────────────────────────────────────────
 
 export type PreferredFit = 'SLIM' | 'REGULAR' | 'RELAXED' | 'OVERSIZED';
+
+export type { BodyShape } from './measurements';
 
 export interface BodyMeasurements {
   body_height?: number;
@@ -73,6 +85,9 @@ export interface BodyMeasurements {
   body_rise?: number;
   body_foot_length?: number;
   body_foot_width?: number;
+  // Derived from bust/waist/hip via computeBodyShape() at save time; persisted
+  // so the try-on prompt and future features can read it without re-deriving.
+  bodyShape?: import('./measurements').BodyShape;
   preferredFit?: PreferredFit;
 }
 
@@ -86,6 +101,16 @@ export interface UserStyleProfile {
 export type ColorPalette = 'neutral' | 'earth' | 'bold' | 'pastel' | 'dark' | 'monochrome';
 export type Silhouette = 'relaxed' | 'structured' | 'bodycon' | 'oversized' | 'tailored';
 export type Mood = 'playful' | 'serious' | 'romantic' | 'edgy' | 'clean' | 'artistic';
+
+// Mirrors engine/types.ts PrimaryColor (generate-outfits Edge Function) — kept
+// in sync manually. Only used client-side for ScoredOutfit.colorTone (display).
+export type PrimaryColor =
+  | 'black' | 'white' | 'navy' | 'beige' | 'gray' | 'brown' | 'olive'
+  | 'blue' | 'red' | 'purple' | 'green' | 'yellow' | 'pink' | 'orange'
+  | 'cream' | 'ivory' | 'camel' | 'tan' | 'taupe' | 'khaki' | 'charcoal'
+  | 'burgundy' | 'teal' | 'metallic' | 'multicolor' | 'natural'
+  | 'mustard' | 'rust' | 'coral' | 'mint' | 'lavender' | 'sage'
+  | 'terracotta' | 'mauve' | 'wine' | 'fuchsia' | 'denim';
 
 export interface StyleAttributes {
   formality: number;
@@ -111,6 +136,27 @@ export interface ScoredOutfit {
   formula: string;
   tier: 1 | 2;
   stylistNote?: string;
+  /** Story brief this outfit belongs to in today's feed (S3):
+   *  'REFINED' | 'EVERYDAY' | 'OFF DUTY'. Optional for older responses. */
+  story?: string;
+  /** Deterministic rule-derived styling tips (Way to Wear Phase B) — both
+   *  locales inline; the client picks one. Max 2. Optional for older responses. */
+  stylingTips?: Array<{ key: string; en: string; vi: string }>;
+  /** Real warmth band derived from the outfit's fabrics/layers — replaces the
+   *  client's hardcoded '22°C'. One of '<15°C' | '15–22°C' | '22–28°C' | '28°C+'. */
+  weatherBand?: string;
+  /** Display-only tags (2026-07-12), mirrors engine/types.ts ScoredOutfit —
+   *  not scoring inputs. `silhouette` is the target silhouette family the
+   *  engine built this outfit toward; `colorTone` is the outfit's anchor
+   *  (dominant) colour. Optional for older responses. */
+  silhouette?: 'fitted' | 'straight' | 'relaxed' | 'top-volume' | 'bottom-volume';
+  /** Geometric-shape tag for the RESULTING BODY silhouette — the user's
+   *  body_shape baseline as modified by the outfit's garment volume, NOT a
+   *  relabel of `silhouette` (2026-07-12, see engine/silhouette.ts
+   *  resultingBodySilhouette). Display-only, additive — kept alongside
+   *  `silhouette` (the garment-volume tag), never replacing it. */
+  silhouetteShape?: 'hourglass' | 'rectangle' | 'oval' | 'inverted-triangle' | 'triangle';
+  colorTone?: PrimaryColor;
   styleCoherence: number;
   colorHarmony: number;
   fitScore: number;

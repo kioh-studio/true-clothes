@@ -6,6 +6,7 @@
 import React from 'react';
 import { View, Image, StyleSheet, Text } from 'react-native';
 import { T, type } from '../../../design/tokens';
+import { useTranslation } from '../../../i18n';
 
 interface Props {
   /** Background-removed cut-out URI. Null → shows placeholder. */
@@ -14,7 +15,9 @@ interface Props {
   label?: string;
 }
 
-export function ItemOnWhite({ localImageUri, label = 'ITEM' }: Props) {
+export function ItemOnWhite({ localImageUri, label }: Props) {
+  const { t } = useTranslation();
+  const displayLabel = label ?? t('itemOnWhite_defaultLabel');
   return (
     <View style={styles.container}>
       {/* Faint studio vignette — "placed on white" feel */}
@@ -25,11 +28,11 @@ export function ItemOnWhite({ localImageUri, label = 'ITEM' }: Props) {
           source={{ uri: localImageUri }}
           style={styles.image}
           resizeMode="contain"
-          accessibilityLabel={label}
+          accessibilityLabel={displayLabel}
         />
       ) : (
         <View style={styles.placeholder}>
-          <Text style={styles.placeholderLabel}>{label}</Text>
+          <Text style={styles.placeholderLabel}>{displayLabel}</Text>
         </View>
       )}
 
@@ -44,7 +47,7 @@ export function ItemOnWhite({ localImageUri, label = 'ITEM' }: Props) {
 
       {/* Extraction tag — top-left chip */}
       <View style={styles.extractionTag}>
-        <Text style={styles.extractionTagText}>AI · ISOLATED</Text>
+        <Text style={styles.extractionTagText}>{t('itemOnWhite_extractionTag')}</Text>
       </View>
     </View>
   );

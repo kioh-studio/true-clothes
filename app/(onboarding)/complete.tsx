@@ -1,17 +1,39 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated } from 'react-native';
+import { View, Text, StyleSheet, Animated, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PrimaryButton, TextLink, Photo } from '../../src/components/ui';
 import { T, type } from '../../src/design/tokens';
 import { PHOTOS } from '../../src/data';
 import { useAuthStore } from '../../src/stores/authStore';
+import { useTranslation } from '../../src/i18n';
 
 export default function CompleteScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { completeOnboarding } = useAuthStore();
   const opacity = useRef(new Animated.Value(0)).current;
+
+  // completeOnboarding() can fail (network/DB) — if we navigate anyway, the
+  // server row is never marked complete, so the next cold start bounces the
+  // user back to Welcome/OTP even though they finished onboarding once already.
+  const finish = async (dest: string) => {
+    const res = await completeOnboarding();
+    if (!res.ok) {
+      Alert.alert(t('onboardingCommon_couldNotFinishSetupAlertTitle'), res.message ?? t('onboardingCommon_pleaseTryAgain'));
+      return;
+    }
+    router.replace(dest as never);
+  };
+  const finishThenPush = async (dest: string) => {
+    const res = await completeOnboarding();
+    if (!res.ok) {
+      Alert.alert(t('onboardingCommon_couldNotFinishSetupAlertTitle'), res.message ?? t('onboardingCommon_pleaseTryAgain'));
+      return;
+    }
+    router.push(dest as never);
+  };
 
   useEffect(() => {
     Animated.timing(opacity, { toValue: 1, duration: 600, delay: 80, useNativeDriver: true }).start();
@@ -24,15 +46,15 @@ export default function CompleteScreen() {
           <Photo src={PHOTOS.detail_2} label="DETAIL" tone={3} />
         </View>
         <View style={{ height: 48 }} />
-        <Text style={styles.h1}>All set.</Text>
-        <Text style={styles.body}>Your feed is waiting.</Text>
+        <Text style={styles.h1}>{t('onboarding_complete_title')}</Text>
+        <Text style={styles.body}>{t('onboarding_complete_body')}</Text>
       </View>
       <View style={styles.actions}>
-        <PrimaryButton onPress={async () => { await completeOnboarding(); router.replace('/(tabs)'); }}>ENTER</PrimaryButton>
+        <PrimaryButton onPress={() => finish('/(tabs)')}>{t('onboarding_complete_enter')}</PrimaryButton>
         <View style={{ height: 24 }} />
         <View style={{ alignItems: 'center' }}>
-          <TextLink onPress={async () => { await completeOnboarding(); router.push('/(onboarding)/wardrobe-intro' as any); }} color={T.color.primary} arrow>
-            Add items to wardrobe first
+          <TextLink onPress={() => finishThenPush('/(onboarding)/wardrobe-intro')} color={T.color.primary} arrow>
+            {t('onboarding_complete_addWardrobe')}
           </TextLink>
         </View>
       </View>

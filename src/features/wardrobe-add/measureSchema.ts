@@ -5,11 +5,12 @@ import { MKey } from '../../types/fitEngine';
 
 export type MeasureGroup = 'top' | 'bottom' | 'shoe' | 'other';
 
-const BOTTOM_TYPES = new Set(['JEANS', 'TROUSERS', 'CHINOS', 'SHORTS', 'SKIRT']);
-const SHOE_TYPES = new Set(['LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES']);
+const BOTTOM_TYPES = new Set(['JEANS', 'TROUSERS', 'CHINOS', 'SHORTS', 'SKIRT', 'LEGGINGS']);
+const SHOE_TYPES = new Set(['LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES', 'FLATS', 'WEDGES']);
 // Accessories carry no useful body measurements.
 const NO_MEASURE_TYPES = new Set([
   'BAG', 'BELT', 'SCARF', 'WATCH', 'CAP', 'NECKLACE', 'SUNGLASSES', 'HAT', 'RING', 'BRACELET',
+  'EARRINGS', 'GLOVES', 'TIGHTS', 'TIE',
 ]);
 
 export function measureGroupForType(type: string): MeasureGroup {
@@ -24,6 +25,7 @@ export function measureGroupForType(type: string): MeasureGroup {
 export const MEASURE_FIELDS: Record<MeasureGroup, Array<{ key: MKey; label: string }>> = {
   top: [
     { key: 'm_chest', label: 'Chest' },
+    { key: 'm_waist', label: 'Waist' },
     { key: 'm_shoulder_width', label: 'Shoulder' },
     { key: 'm_body_length', label: 'Length' },
     { key: 'm_sleeves', label: 'Sleeve' },
@@ -44,7 +46,7 @@ export const MEASURE_FIELDS: Record<MeasureGroup, Array<{ key: MKey; label: stri
 // Used by the on-device "Extract by item" method (007) and as 006-consistent fallbacks.
 // Returns {} for accessories / blank type.
 const GROUP_DEFAULTS: Record<MeasureGroup, Partial<Record<MKey, number>>> = {
-  top: { m_chest: 54, m_shoulder_width: 46, m_body_length: 70, m_sleeves: 62 },
+  top: { m_chest: 102, m_waist: 96, m_shoulder_width: 46, m_body_length: 70, m_sleeves: 62 },
   bottom: { m_waist: 82, m_hip: 102, m_inseam: 78, m_thigh: 58 },
   shoe: { m_shoe_size: 42 },
   other: {},

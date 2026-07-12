@@ -8,6 +8,7 @@ import { T, type } from '../../src/design/tokens';
 import { COLORS } from '../../src/data';
 import { useFitEngineStore } from '../../src/stores/fitEngineStore';
 import { useGridCardWidth } from '../../src/design/layout';
+import { useTranslation } from '../../src/i18n';
 
 const PAD = 24;
 const GAP = 12;
@@ -18,6 +19,7 @@ export default function ColorsScreen() {
   const SWATCH = useGridCardWidth(3);
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { setColorPreferences } = useFitEngineStore();
   const [selected, setSelected] = useState<string[]>([]);
   const toggle = (name: string) => setSelected(s => s.includes(name) ? s.filter(x => x !== name) : [...s, name]);
@@ -38,15 +40,15 @@ export default function ColorsScreen() {
           style={styles.skipBtn}
         >
           <Text style={[styles.skipText, selected.length > 0 && { color: T.color.primary }]}>
-            {selected.length > 0 ? `${selected.length} SELECTED` : 'SKIP'}
+            {selected.length > 0 ? t('onboardingCommon_selectedCount', { count: selected.length }) : t('onboarding_colors_skip')}
           </Text>
         </Pressable>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
         <View style={{ height: 24 }} />
-        <Text style={styles.h1}>Your palette.</Text>
-        <Text style={styles.caption}>Which tones do you reach for?</Text>
+        <Text style={styles.h1}>{t('onboarding_colors_title')}</Text>
+        <Text style={styles.caption}>{t('onboarding_colors_subtitle')}</Text>
         <View style={{ height: 32 }} />
 
         <View style={styles.grid}>
@@ -70,7 +72,7 @@ export default function ColorsScreen() {
         <View style={{ height: 24 }} />
         <View style={{ alignItems: 'center' }}>
           <TextLink onPress={handleContinue} color={T.color.primary}>
-            I'm open to anything — surprise me.
+            {t('onboarding_colors_openToAnything')}
           </TextLink>
         </View>
 
@@ -82,14 +84,14 @@ export default function ColorsScreen() {
           style={styles.detectRow}
         >
           <View style={styles.detectInner}>
-            <Text style={styles.detectTitle}>DETECT MY COLOUR SEASON</Text>
-            <Text style={styles.detectCaption}>4 questions · under a minute</Text>
+            <Text style={styles.detectTitle}>{t('onboardingColors_detectTitle')}</Text>
+            <Text style={styles.detectCaption}>{t('onboardingColors_detectCaption')}</Text>
           </View>
           <Text style={styles.detectArrow}>→</Text>
         </Pressable>
 
         <View style={{ height: 24 }} />
-        <PrimaryButton onPress={handleContinue}>CONTINUE</PrimaryButton>
+        <PrimaryButton onPress={handleContinue}>{t('onboarding_colors_continue')}</PrimaryButton>
       </ScrollView>
     </View>
   );

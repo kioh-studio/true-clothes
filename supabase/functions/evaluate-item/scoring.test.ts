@@ -142,6 +142,49 @@ Deno.test('measurement criterion unavailable when user has no body measurements'
   assertEquals(measurementCriterion.score, null);
 });
 
+// ─── T3b: Coarse height/weight estimate fallback (backlog #4) ─────────────────
+
+Deno.test('measurement criterion uses a coarse estimate when only height+weight are present', () => {
+  const item = makeFitItem({ measurements: [{ label: 'chest', value: 96, unit: 'cm' }] });
+  const profileHW = {
+    colorPreferences: [], colorSeason: undefined, selectedStyles: [],
+    bodyMeasurements: { body_height: 170, body_weight: 65 } as BodyMeasurements,
+    gender: 'MAN',
+  };
+  const measurementCriterion = computeVerdict(item, profileHW).criteria.find(c => c.key === 'measurement')!;
+  assertEquals(measurementCriterion.available, true);
+  assert(
+    measurementCriterion.score !== null &&
+    measurementCriterion.score >= 0 && measurementCriterion.score <= 100,
+    'estimated score should be an integer in [0,100]',
+  );
+  // Down-weighted vs the real-measurement weight (0.25) so the estimate never dominates.
+  assertEquals(measurementCriterion.weight, 0.10);
+  assert(measurementCriterion.explanation.includes('Estimated'), 'explanation should flag the estimate');
+});
+
+Deno.test('measurement estimate does not apply without both height and weight', () => {
+  const item = makeFitItem(); // has garment measurements
+  const profileHeightOnly = {
+    colorPreferences: [], colorSeason: undefined, selectedStyles: [],
+    bodyMeasurements: { body_height: 170 } as BodyMeasurements, // weight missing
+  };
+  const measurementCriterion = computeVerdict(item, profileHeightOnly).criteria.find(c => c.key === 'measurement')!;
+  assertEquals(measurementCriterion.available, false);
+  assertEquals(measurementCriterion.score, null);
+});
+
+Deno.test('a height+weight-only profile yields a scored verdict, not an all-unavailable dead end', () => {
+  const item = makeFitItem({ measurements: [{ label: 'chest', value: 96, unit: 'cm' }] });
+  const profileHW = {
+    colorPreferences: [], colorSeason: undefined, selectedStyles: [],
+    bodyMeasurements: { body_height: 170, body_weight: 65 } as BodyMeasurements,
+  };
+  const verdict = computeVerdict(item, profileHW);
+  assertNotEquals(verdict.overall_score, null);
+  assert(verdict.criteria.some(c => c.available), 'at least one criterion should be available');
+});
+
 // ─── T4: Criteria always have all five keys ───────────────────────────────────
 
 Deno.test('response always contains exactly five criteria in specified order', () => {

@@ -565,3 +565,6 @@ edge functions / chưa chạy eas build — chờ anh Khôi duyệt riêng.
   existing `wFit` 0.18 floor in `engine/ranking.ts` (2026-07-12) — spec called this out as
   optional ("only if it doesn't destabilize existing tests"); skipped to keep risk low for
   this pass.
+- [ ] **Dịch ~37 tên màu primaryColor sang vi cho colorTone tag trên feed card** (2026-07-12)
+  — tạm hiển thị tên EN viết hoa (không có namespace màu i18n sẵn có để tái dùng, xem
+  `app/(tabs)/index.tsx` `colorToneMetaLabel` + `src/design/feed/design.md`).

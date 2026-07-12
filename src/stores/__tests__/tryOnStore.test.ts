@@ -19,6 +19,18 @@ const mockFs = {
 };
 jest.mock('expo-file-system/legacy', () => mockFs);
 
+const mockManipulateAsync = jest.fn(async (uri: string, _actions?: unknown[], _opts?: unknown) => ({
+  uri: uri.startsWith('file://') ? uri : `file://${uri}`,
+}));
+jest.mock('expo-image-manipulator', () => ({
+  manipulateAsync: (uri: string, actions?: unknown[], opts?: unknown) => mockManipulateAsync(uri, actions, opts),
+  SaveFormat: { JPEG: 'jpeg', PNG: 'png' },
+}));
+
+// i18n pulls in expo-localization (ESM, untransformed by Jest) — stub it. The store
+// only reads i18n.language to pick the verdict-note locale.
+jest.mock('../../i18n', () => ({ __esModule: true, default: { language: 'en' } }));
+
 // Shared stores + vocab the store now depends on (US2/US3).
 const mockFetchMixMatchOutfits = jest.fn(async () => []);
 jest.mock('../fitEngineStore', () => ({
@@ -54,13 +66,10 @@ jest.mock('../../services/imageGenerationService', () => ({
 
 // Credit service
 const mockCheckCredit = jest.fn();
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockIncrementCredit = jest.fn(async (_type?: any) => {});
 jest.mock('../../services/usageCreditService', () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   checkCredit: (type: any) => mockCheckCredit(type),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  incrementCredit: (type: any) => mockIncrementCredit(type),
+  isCreditExhausted: jest.fn(async () => false),
   InsufficientCreditsError: class InsufficientCreditsError extends Error {
     constructor(public creditType: string) { super(`No credits for ${creditType}`); }
   },
@@ -126,6 +135,7 @@ const VERDICT = {
     { key: 'measurement' as const, available: false, score: null, weight: 0.25, explanation: 'Add measurements.' },
     { key: 'fabric' as const,      available: true,  score: 70, weight: 0.10, explanation: 'Cotton all-season.' },
   ],
+  fitNote: null,
 };
 
 function getState() {
@@ -212,15 +222,6 @@ describe('tryOnStore.scan()', () => {
     expect(mockCheckCredit).toHaveBeenCalledWith('ai_extraction');
   });
 
-  it('increments credit after successful AI extraction (non-premium)', async () => {
-    _isAvailable = false;
-    mockExtractItemsWithImages.mockResolvedValueOnce([EXTRACTED_ITEM]);
-
-    await getState().scan('file://photo.jpg', 'ai');
-
-    expect(mockIncrementCredit).toHaveBeenCalledWith('ai_extraction');
-  });
-
   it('sets needsUpgrade:true and does NOT extract when credits exhausted', async () => {
     _isAvailable = false;
     mockCheckCredit.mockResolvedValueOnce({ used: 2, limit: 2, remaining: 0, periodStart: '2026-06-01' });
@@ -241,7 +242,6 @@ describe('tryOnStore.scan()', () => {
     await getState().scan('file://photo.jpg', 'ai');
 
     expect(mockCheckCredit).not.toHaveBeenCalled();
-    expect(mockIncrementCredit).not.toHaveBeenCalled();
     expect(getState().scannedItem).not.toBeNull();
   });
 

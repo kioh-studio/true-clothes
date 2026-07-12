@@ -81,6 +81,21 @@ Deno.serve(async (req) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return json({ error: 'Unauthorized' }, 401);
 
+    // Rate-limit (audit 2026-07-03): this endpoint had no gate at all — a
+    // scripted free account could burn unbounded Gemini vision calls, since
+    // the real credit gate only lives in tryon-generate downstream. Hard-gate
+    // here (unlike generate-outfits' curate_feed, which falls back silently,
+    // there's no cheaper fallback for a validation call — reject on budget).
+    // RPC failure fails open (best-effort limiter, not the primary defense).
+    try {
+      const { data: ok } = await supabase.rpc('consume_rate_limit', {
+        p_bucket: 'tryon_validate', p_max: 30, p_window_secs: 3600,
+      });
+      if (ok === false) {
+        return json({ error: 'Too many validation requests. Please try again later.' }, 429);
+      }
+    } catch (_e) { /* fail open — best-effort limiter */ }
+
     const apiKey = Deno.env.get('GOOGLE_API_KEY');
     if (!apiKey) return json({ error: 'GOOGLE_API_KEY not configured' }, 503);
 

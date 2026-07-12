@@ -172,6 +172,10 @@ export interface Outfit {
   formula?: string; // formula ID that generated this outfit
   tier?: 1 | 2;     // 1 = matches user style, 2 = flex/discovery
   stylistNote?: string; // one-line LLM curator note — why this works for the user
+  stylingTip?: string;  // one resolved-locale "way to wear" tip (feature 008)
+  silhouette?: string; // display tag: engine's target silhouette for this outfit
+  silhouetteShape?: string; // display tag: parallel geometric-shape name (1-to-1 from silhouette)
+  colorTone?: string;  // display tag: outfit's dominant (anchor) colour
   // Fit engine scores (0.0–1.0) — present on generated outfits
   scores?: {
     totalScore: number;

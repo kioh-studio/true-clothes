@@ -5,12 +5,14 @@
 import { WardrobeItem } from '../../types/fitEngine';
 
 export const TYPE_OPTIONS = [
-  'TEE', 'POLO', 'KNIT', 'SHIRT', 'BLOUSE', 'VEST', 'SWEATER', 'CARDIGAN', 'HENLEY',
-  'JACKET', 'BLAZER', 'COAT', 'HOODIE', 'PARKA', 'OVERCOAT',
-  'JEANS', 'TROUSERS', 'CHINOS', 'SHORTS', 'SKIRT',
+  'TEE', 'POLO', 'KNIT', 'SHIRT', 'BLOUSE', 'CAMISOLE', 'CROP', 'BODYSUIT', 'TUNIC', 'CORSET',
+  'VEST', 'SWEATER', 'CARDIGAN', 'HENLEY',
+  'JACKET', 'BLAZER', 'COAT', 'HOODIE', 'PARKA', 'OVERCOAT', 'CAPE', 'KIMONO',
+  'JEANS', 'TROUSERS', 'CHINOS', 'SHORTS', 'SKIRT', 'LEGGINGS',
   'DRESS', 'JUMPSUIT', 'OVERALLS', 'GOWN',
-  'LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES',
+  'LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES', 'FLATS', 'WEDGES',
   'BAG', 'BELT', 'SCARF', 'WATCH', 'CAP', 'NECKLACE', 'SUNGLASSES', 'HAT', 'RING', 'BRACELET',
+  'EARRINGS', 'GLOVES', 'TIGHTS', 'TIE',
 ];
 
 export const COLOR_OPTIONS = [
@@ -61,16 +63,37 @@ export const warmthLabel = (w: string): string =>
 const CATEGORY_BY_TYPE: Record<string, WardrobeItem['category']> = {
   TEE: 'top', POLO: 'top', KNIT: 'top', SHIRT: 'top', BLOUSE: 'top', VEST: 'top',
   SWEATER: 'top', CARDIGAN: 'top', HENLEY: 'top',
+  CAMISOLE: 'top', CROP: 'top', BODYSUIT: 'top', TUNIC: 'top', CORSET: 'top',
   JACKET: 'outerwear', BLAZER: 'outerwear', COAT: 'outerwear', HOODIE: 'outerwear',
-  PARKA: 'outerwear', OVERCOAT: 'outerwear',
-  JEANS: 'bottom', TROUSERS: 'bottom', CHINOS: 'bottom', SHORTS: 'bottom', SKIRT: 'bottom',
+  PARKA: 'outerwear', OVERCOAT: 'outerwear', CAPE: 'outerwear', KIMONO: 'outerwear',
+  JEANS: 'bottom', TROUSERS: 'bottom', CHINOS: 'bottom', SHORTS: 'bottom', SKIRT: 'bottom', LEGGINGS: 'bottom',
   DRESS: 'dress', JUMPSUIT: 'dress', OVERALLS: 'dress', GOWN: 'dress',
   LOAFERS: 'footwear', SNEAKERS: 'footwear', BOOTS: 'footwear', HEELS: 'footwear',
-  SANDALS: 'footwear', OXFORDS: 'footwear', MULES: 'footwear',
+  SANDALS: 'footwear', OXFORDS: 'footwear', MULES: 'footwear', FLATS: 'footwear', WEDGES: 'footwear',
   CAP: 'headwear', HAT: 'headwear',
   BAG: 'accessory', BELT: 'accessory', SCARF: 'accessory', WATCH: 'accessory',
   NECKLACE: 'accessory', SUNGLASSES: 'accessory', RING: 'accessory', BRACELET: 'accessory',
+  EARRINGS: 'accessory', GLOVES: 'accessory', TIGHTS: 'accessory', TIE: 'accessory',
 };
 
 export const categoryForType = (type: string): WardrobeItem['category'] =>
   CATEGORY_BY_TYPE[(type ?? '').toUpperCase()] ?? 'accessory';
+
+// Garment types the "wear as a layer" control applies to (feature 008 dual-role
+// layering) — inner/mid tops only. Bottoms/shoes/accessories/outerwear never show it.
+const LAYERABLE_TOP_TYPES = new Set([
+  'TEE', 'SHIRT', 'KNIT', 'SWEATER', 'CARDIGAN', 'VEST', 'BLOUSE', 'HENLEY',
+  'POLO', 'CAMISOLE', 'CROP', 'BODYSUIT', 'TUNIC', 'CORSET',
+]);
+
+export const isLayerableTopType = (type: string): boolean =>
+  LAYERABLE_TOP_TYPES.has((type ?? '').toUpperCase());
+
+// AUTO / YES / NO ↔ null / true / false for the layering picker.
+export const CAN_LAYER_OPTIONS = ['Auto', 'Yes', 'No'];
+
+export const canLayerToLabel = (v: boolean | null | undefined): string =>
+  v === true ? 'Yes' : v === false ? 'No' : 'Auto';
+
+export const labelToCanLayer = (label: string): boolean | null =>
+  label === 'Yes' ? true : label === 'No' ? false : null;

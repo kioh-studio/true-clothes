@@ -284,6 +284,99 @@ export function resolveTargetSilhouette(ctx: EngineContext, items: FitItem[]): T
   return { targets: resolved.targets, confidence, source: resolved.source };
 }
 
+// ─── Display-only outfit silhouette tag (2026-07-12) ────────────────────────
+// Not a scoring input — purely a feed-card label naming which silhouette
+// family THIS outfit realizes. Mirrors the ScoredOutfit.silhouette union
+// defined inline in types.ts (kept there, not re-exported from here, to avoid
+// a types.ts <-> silhouette.ts import cycle).
+export type OutfitSilhouette = 'fitted' | 'straight' | 'relaxed' | 'top-volume' | 'bottom-volume';
+
+// Canonical silhouette family from a (topVol, bottomVol) pair (each 1..5).
+function silhouetteFamily(topVol: number, bottomVol: number): OutfitSilhouette {
+  const d = topVol - bottomVol;
+  if (d >= 2) return 'top-volume';
+  if (d <= -2) return 'bottom-volume';
+  const avg = (topVol + bottomVol) / 2;
+  if (avg < 2) return 'fitted';
+  if (avg >= 4) return 'relaxed';
+  return 'straight';
+}
+
+/**
+ * Descriptive silhouette family of an outfit, from its OWN top/bottom garment
+ * volumes (VOLUME map on item.fit). A pure description of the actual outfit —
+ * it deliberately does NOT consult the target silhouette (that drives
+ * generation/scoring, not what the finished outfit visually IS). onepiece fills
+ * both roles. Missing top/bottom defaults to regular volume (2).
+ */
+export function outfitSilhouetteTag(items: FitItem[]): OutfitSilhouette {
+  const topItem = items.find(i => i.category === 'top' || i.category === 'onepiece');
+  const bottomItem = items.find(i => i.category === 'bottom' || i.category === 'onepiece');
+  const outfitTop = topItem ? (VOLUME[topItem.fit] ?? 2) : 2;
+  const outfitBottom = bottomItem ? (VOLUME[bottomItem.fit] ?? 2) : 2;
+  return silhouetteFamily(outfitTop, outfitBottom);
+}
+
+// ─── Display-only geometric-shape tag (2026-07-12) ──────────────────────────
+// Parallel to OutfitSilhouette above (descriptive/volume-based) — this maps
+// each descriptive family 1-to-1 onto the standard fashion GEOMETRIC-SHAPE
+// name, shown as an additional chip alongside (never instead of) the
+// descriptive tag. Purely presentational — no scoring impact.
+export type OutfitSilhouetteShape = 'hourglass' | 'rectangle' | 'oval' | 'inverted-triangle' | 'triangle';
+
+// Body-shape baseline as a coarse (top width, bottom width) pair on the same
+// 1..5 volume scale as garments, plus whether the shape carries a defined waist
+// and whether it reads rounded. Used to model the silhouette the user's body
+// takes ON after an outfit adds volume — see resultingBodySilhouette.
+const BODY_BASELINE: Record<BodyShape, { top: number; bottom: number; waist: boolean; rounded: boolean }> = {
+  hourglass:         { top: 3, bottom: 3, waist: true,  rounded: false },
+  rectangle:         { top: 3, bottom: 3, waist: false, rounded: false },
+  triangle:          { top: 2, bottom: 4, waist: false, rounded: false },
+  inverted_triangle: { top: 4, bottom: 2, waist: false, rounded: false },
+  apple:             { top: 3, bottom: 3, waist: false, rounded: true  },
+};
+const NEUTRAL_BASELINE = { top: 3, bottom: 3, waist: false, rounded: false };
+
+/**
+ * The geometric silhouette the USER'S BODY reads as AFTER putting this outfit on.
+ * Starts from the body_shape baseline (or a neutral 3/3 column when body_shape is
+ * unknown) and shifts it by how much volume the garments add over a neutral
+ * (regular) piece: a voluminous top widens the top read, a voluminous bottom
+ * widens the bottom read. Outerwear counts toward the TOP read (max with the top
+ * garment) since an open/worn coat defines the outer top volume. onepiece fills
+ * both roles. Fully deterministic; no scoring impact.
+ *
+ * Volume scale (VOLUME): slim=1 … regular=2 … oversized=5; neutral garment = 2.
+ */
+export function resultingBodySilhouette(items: FitItem[], bodyShape?: BodyShape): OutfitSilhouetteShape {
+  const base = bodyShape ? BODY_BASELINE[bodyShape] : NEUTRAL_BASELINE;
+
+  const topItem    = items.find(i => i.category === 'top' || i.category === 'onepiece');
+  const outerItem  = items.find(i => i.category === 'outwear');
+  const bottomItem = items.find(i => i.category === 'bottom' || i.category === 'onepiece');
+
+  // Outer layer defines the top read when it's the more voluminous piece; 0 so an
+  // absent outer never wins the max.
+  const topGarmentVol = Math.max(
+    topItem  ? (VOLUME[topItem.fit]  ?? 2) : 2,
+    outerItem ? (VOLUME[outerItem.fit] ?? 2) : 0,
+  );
+  const bottomGarmentVol = bottomItem ? (VOLUME[bottomItem.fit] ?? 2) : 2;
+
+  const eTop    = base.top    + (topGarmentVol - 2);
+  const eBottom = base.bottom + (bottomGarmentVol - 2);
+  const diff = eTop - eBottom;
+  const avg  = (eTop + eBottom) / 2;
+
+  if (diff >= 2) return 'inverted-triangle';  // top read clearly wider
+  if (diff <= -2) return 'triangle';          // bottom read clearly wider
+  // Balanced top/bottom read:
+  if (avg >= 5) return 'oval';                 // voluminous all over → cocoon/round
+  if (base.rounded) return 'oval';             // apple midsection reads rounded
+  if (base.waist) return 'hourglass';          // defined waist survives a balanced look
+  return 'rectangle';                          // straight column
+}
+
 // ─── Match / affinity helpers ────────────────────────────────────────────────
 
 /**

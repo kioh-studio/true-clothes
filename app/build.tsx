@@ -6,7 +6,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
-import { BottomSheet, PrimaryButton, TextLink, Tag, Field } from '../src/components/ui';
+import { BottomSheet, PrimaryButton, SecondaryButton, TextLink, Tag, Field } from '../src/components/ui';
 import {
   IconChevronLeft, IconShuffle, IconPlus, IconCheck,
   IconSparkle, IconX,
@@ -14,20 +14,51 @@ import {
 import { useAppStore } from '../src/stores/appStore';
 import { STYLES, COLORS, OCCASIONS, ClothingItem } from '../src/data';
 import { OutfitCollage } from '../src/components/outfit/Collage';
+import { useTranslation } from '../src/i18n';
 
 
 const BUILDER_BUCKETS = [
-  { key: 'TOPS',      types: ['TEE', 'KNIT', 'POLO', 'SHIRT'] },
-  { key: 'BOTTOMS',   types: ['JEANS', 'TROUSERS', 'CHINOS'] },
-  { key: 'OUTERWEAR', types: ['JACKET', 'BLAZER', 'COAT'] },
-  { key: 'SHOES',     types: ['LOAFERS', 'SNEAKERS'] },
+  { key: 'TOPS',      types: ['TEE', 'KNIT', 'POLO', 'SHIRT', 'BLOUSE', 'HENLEY', 'SWEATER', 'CARDIGAN', 'VEST', 'CAMISOLE', 'CROP', 'BODYSUIT', 'TUNIC', 'CORSET'] },
+  { key: 'BOTTOMS',   types: ['JEANS', 'TROUSERS', 'CHINOS', 'SHORTS', 'SKIRT', 'LEGGINGS'] },
+  { key: 'DRESS',     types: ['DRESS', 'JUMPSUIT', 'OVERALLS', 'GOWN'] },
+  { key: 'OUTERWEAR', types: ['JACKET', 'BLAZER', 'COAT', 'OVERCOAT', 'HOODIE', 'PARKA', 'CAPE', 'KIMONO'] },
+  { key: 'SHOES',     types: ['LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES', 'FLATS', 'WEDGES'] },
   { key: 'BAGS',      types: ['BAG'] },
 ] as const;
 
 type BucketKey = typeof BUILDER_BUCKETS[number]['key'];
 type Selection = Record<BucketKey, string | null>;
 
-const EMPTY_SEL: Selection = { TOPS: null, BOTTOMS: null, OUTERWEAR: null, SHOES: null, BAGS: null };
+// Bucket keys above are stable internal ids (Selection type keys, pool lookups)
+// — this maps each to its translated display label, same pattern as the
+// FILTER_LABEL_KEYS / SHAPE_LABEL_KEYS maps in earlier batches.
+const BUCKET_LABEL_KEYS: Record<BucketKey, string> = {
+  TOPS: 'build_bucketTops',
+  BOTTOMS: 'build_bucketBottoms',
+  DRESS: 'build_bucketDress',
+  OUTERWEAR: 'build_bucketOuterwear',
+  SHOES: 'build_bucketShoes',
+  BAGS: 'build_bucketBags',
+};
+
+// Color-lean filter values are stable ids matching COLORS[].tag in src/data
+// (used to bucket wardrobe items by tag) — keep the id, translate the label.
+const COLOR_FILTER_LABEL_KEYS: Record<string, string> = {
+  'WARM NEUTRAL': 'build_colorWarmNeutral',
+  'EARTH': 'build_colorEarth',
+  'NEUTRAL': 'build_colorNeutral',
+  'DARK NEUTRAL': 'build_colorDarkNeutral',
+  'COOL': 'build_colorCool',
+};
+
+const TITLE_WORD_KEYS = [
+  'build_titleWordEdit', 'build_titleWordCompose', 'build_titleWordRotation',
+  'build_titleWordLayered', 'build_titleWordQuiet',
+];
+
+// A one-piece (DRESS) fills the top+bottom roles, so it is mutually exclusive
+// with TOPS/BOTTOMS — the slot picker enforces this in `pick`/`generateOutfits`.
+const EMPTY_SEL: Selection = { TOPS: null, BOTTOMS: null, DRESS: null, OUTERWEAR: null, SHOES: null, BAGS: null };
 
 function BuilderTile({ item, selected, onPress }: { item: ClothingItem; selected: boolean; onPress: () => void }) {
   return (
@@ -56,11 +87,12 @@ function CategoryStrip({
   label: string; items: ClothingItem[];
   selectedId: string | null; onSelect: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <View style={{ marginBottom: 12 }}>
       <View style={styles.stripHeader}>
         <Text style={styles.stripLabel}>{label}</Text>
-        <Text style={styles.stripCount}>{items.length} AVAILABLE</Text>
+        <Text style={styles.stripCount}>{t('build_stripCount', { count: items.length })}</Text>
       </View>
       <FlatList
         horizontal
@@ -82,13 +114,14 @@ function CategoryStrip({
 
 // Simple outfit suggestion engine
 function generateOutfits({
-  items, anchorIds, styleFilter, colorFilter, occasionFilter,
+  items, anchorIds, styleFilter, colorFilter, occasionFilter, t,
 }: {
   items: ClothingItem[];
   anchorIds: string[];
   styleFilter: string | null;
   colorFilter: string | null;
   occasionFilter: string | null;
+  t: (key: string, opts?: Record<string, unknown>) => string;
 }) {
   const colorBuckets = COLORS.reduce<Record<string, string[]>>((acc, c) => {
     (acc[c.tag] ||= []).push(c.name);
@@ -110,8 +143,19 @@ function generateOutfits({
       const b = BUILDER_BUCKETS.find((bb) => (bb.types as readonly string[]).includes(a.type));
       if (b) sel[b.key] = a.id;
     }
+    // A one-piece replaces the top+bottom pair. Honor the anchor: if a dress is
+    // pinned use it; if a top/bottom is pinned never use a dress; otherwise build
+    // some variants as dresses when the wardrobe has any (every 3rd option).
+    const anchorHasDress = !!sel.DRESS;
+    const anchorHasTwoPiece = !!sel.TOPS || !!sel.BOTTOMS;
+    const useDress = anchorHasDress
+      || (!anchorHasTwoPiece && (pools.DRESS?.length ?? 0) > 0 && i % 3 === 0);
     for (const b of BUILDER_BUCKETS) {
       if (sel[b.key]) continue;
+      // Skip the role the chosen composition doesn't use, so a dress and a
+      // top/bottom never coexist in the same suggestion.
+      if (useDress && (b.key === 'TOPS' || b.key === 'BOTTOMS')) continue;
+      if (!useDress && b.key === 'DRESS') continue;
       const pool = pools[b.key] || [];
       if (pool.length === 0) continue;
       const optional = b.key === 'OUTERWEAR' || b.key === 'BAGS';
@@ -124,25 +168,26 @@ function generateOutfits({
     if (itemIds.length < 2) continue;
 
     const styleName = styleFilter ? STYLES.find((s) => s.id === styleFilter)?.name : null;
+    const colorLabel = colorFilter ? t(COLOR_FILTER_LABEL_KEYS[colorFilter] ?? colorFilter) : null;
     const titleParts: string[] = [];
     if (styleName) titleParts.push(styleName);
-    if (anchorItems.length) titleParts.push(`with ${anchorItems[0].color || anchorItems[0].name}`);
-    else titleParts.push(['Edit', 'Compose', 'Rotation', 'Layered', 'Quiet'][i % 5]);
+    if (anchorItems.length) titleParts.push(t('build_titleWith', { item: anchorItems[0].color || anchorItems[0].name }));
+    else titleParts.push(t(TITLE_WORD_KEYS[i % 5]));
 
     const rationaleParts: string[] = [];
-    if (anchorItems.length) rationaleParts.push(`Built around ${anchorItems.slice(0, 2).map((a) => a.name.toLowerCase()).join(' and ')}`);
-    if (colorFilter) rationaleParts.push(`leaning ${colorFilter.toLowerCase()}`);
+    if (anchorItems.length) rationaleParts.push(t('build_rationaleBuiltAround', { items: anchorItems.slice(0, 2).map((a) => a.name.toLowerCase()).join(` ${t('build_and')} `) }));
+    if (colorLabel) rationaleParts.push(t('build_rationaleLeaning', { color: colorLabel.toLowerCase() }));
     if (styleName) rationaleParts.push(styleName.toLowerCase());
 
     const tags: string[] = [];
     if (occasionFilter) tags.push(occasionFilter);
-    if (colorFilter) tags.push(colorFilter);
+    if (colorLabel) tags.push(colorLabel);
     if (styleName) tags.push(styleName.toUpperCase());
-    if (tags.length === 0) tags.push('SUGGESTED', 'DAYTIME');
+    if (tags.length === 0) tags.push(t('build_tagSuggested'), t('build_tagDaytime'));
 
     results.push({
       id: `sug_${i}`,
-      title: titleParts.join(' · ') || 'Composed outfit',
+      title: titleParts.join(' · ') || t('build_composedFallbackTitle'),
       rationale: rationaleParts.join(' · ') + '.',
       tags,
       style: styleName || 'CUSTOM',
@@ -168,6 +213,7 @@ function SuggestSheet({
   items: ClothingItem[]; anchorIds: string[];
   onApply: (itemIds: string[]) => void;
 }) {
+  const { t } = useTranslation();
   const [styleFilter, setStyleFilter] = useState<string | null>(null);
   const [colorFilter, setColorFilter] = useState<string | null>(null);
   const [occasionFilter, setOccasionFilter] = useState<string | null>(null);
@@ -179,7 +225,7 @@ function SuggestSheet({
   const generate = () => {
     setPhase('generating');
     setTimeout(() => {
-      setResults(generateOutfits({ items, anchorIds, styleFilter, colorFilter, occasionFilter }));
+      setResults(generateOutfits({ items, anchorIds, styleFilter, colorFilter, occasionFilter, t }));
       setPhase('results');
     }, 1400);
   };
@@ -198,19 +244,19 @@ function SuggestSheet({
         <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
           <View style={styles.sheetTitleRow}>
             <IconSparkle size={18} color={T.color.primary} strokeWidth={1.4} />
-            <Text style={styles.sheetTitle}>Suggest outfits.</Text>
+            <Text style={styles.sheetTitle}>{t('build_suggestSheetTitle')}</Text>
           </View>
           <Text style={styles.sheetSub}>
-            We'll compose outfits that work with what you've picked. Filters are optional.
+            {t('build_suggestSheetSub')}
           </Text>
 
           <Text style={[styles.filterLabel, { marginTop: 28 }]}>
-            ANCHOR PIECES {anchors.length === 0 ? '(NONE — WE\'LL START FROM SCRATCH)' : ''}
+            {t('build_anchorPiecesLabel')} {anchors.length === 0 ? t('build_anchorPiecesNone') : ''}
           </Text>
           {anchors.length === 0 ? (
             <View style={styles.anchorEmpty}>
               <Text style={styles.anchorEmptyText}>
-                Tip — pick a piece on the canvas first, and we'll build around it.
+                {t('build_anchorEmptyText')}
               </Text>
             </View>
           ) : (
@@ -228,11 +274,11 @@ function SuggestSheet({
           {/* Style filter */}
           <View style={{ marginTop: 24 }}>
             <View style={styles.filterRow}>
-              <Text style={styles.filterLabel}>STYLE</Text>
-              <Text style={styles.filterHint}>OPTIONAL</Text>
+              <Text style={styles.filterLabel}>{t('build_styleLabel')}</Text>
+              <Text style={styles.filterHint}>{t('build_optional')}</Text>
             </View>
             <View style={[styles.tagRow, { marginTop: 10 }]}>
-              <Tag size="sm" selected={styleFilter === null} onPress={() => setStyleFilter(null)}>ANY</Tag>
+              <Tag size="sm" selected={styleFilter === null} onPress={() => setStyleFilter(null)}>{t('build_any')}</Tag>
               {STYLES.slice(0, 6).map((s) => (
                 <Tag key={s.id} size="sm" selected={styleFilter === s.id} onPress={() => setStyleFilter(s.id)}>
                   {s.name.toUpperCase()}
@@ -244,13 +290,13 @@ function SuggestSheet({
           {/* Color filter */}
           <View style={{ marginTop: 24 }}>
             <View style={styles.filterRow}>
-              <Text style={styles.filterLabel}>COLOR LEAN</Text>
-              <Text style={styles.filterHint}>OPTIONAL</Text>
+              <Text style={styles.filterLabel}>{t('build_colorLeanLabel')}</Text>
+              <Text style={styles.filterHint}>{t('build_optional')}</Text>
             </View>
             <View style={[styles.tagRow, { marginTop: 10 }]}>
-              {[null, 'WARM NEUTRAL', 'EARTH', 'NEUTRAL', 'DARK NEUTRAL', 'COOL'].map((t) => (
-                <Tag key={t ?? 'any'} size="sm" selected={colorFilter === t} onPress={() => setColorFilter(t ?? null)}>
-                  {t ?? 'ANY'}
+              {[null, 'WARM NEUTRAL', 'EARTH', 'NEUTRAL', 'DARK NEUTRAL', 'COOL'].map((ct) => (
+                <Tag key={ct ?? 'any'} size="sm" selected={colorFilter === ct} onPress={() => setColorFilter(ct ?? null)}>
+                  {ct ? t(COLOR_FILTER_LABEL_KEYS[ct]) : t('build_any')}
                 </Tag>
               ))}
             </View>
@@ -259,11 +305,11 @@ function SuggestSheet({
           {/* Occasion filter */}
           <View style={{ marginTop: 24 }}>
             <View style={styles.filterRow}>
-              <Text style={styles.filterLabel}>OCCASION</Text>
-              <Text style={styles.filterHint}>OPTIONAL</Text>
+              <Text style={styles.filterLabel}>{t('build_occasionLabel')}</Text>
+              <Text style={styles.filterHint}>{t('build_optional')}</Text>
             </View>
             <View style={[styles.tagRow, { marginTop: 10 }]}>
-              <Tag size="sm" selected={occasionFilter === null} onPress={() => setOccasionFilter(null)}>ANY</Tag>
+              <Tag size="sm" selected={occasionFilter === null} onPress={() => setOccasionFilter(null)}>{t('build_any')}</Tag>
               {OCCASIONS.map((o) => (
                 <Tag key={o} size="sm" selected={occasionFilter === o} onPress={() => setOccasionFilter(o)}>
                   {o}
@@ -273,10 +319,10 @@ function SuggestSheet({
           </View>
 
           <View style={{ height: 32 }} />
-          <PrimaryButton onPress={generate}>GENERATE OUTFITS</PrimaryButton>
+          <PrimaryButton onPress={generate}>{t('build_generateOutfitsButton')}</PrimaryButton>
           <View style={{ height: 12 }} />
           <View style={{ alignItems: 'center' }}>
-            <TextLink onPress={() => { reset(); onClose(); }} color={T.color.tertiary}>Cancel</TextLink>
+            <TextLink onPress={() => { reset(); onClose(); }} color={T.color.tertiary}>{t('common_cancel')}</TextLink>
           </View>
           <View style={{ height: 16 }} />
         </ScrollView>
@@ -288,24 +334,24 @@ function SuggestSheet({
             <IconSparkle size={24} color={T.color.primary} strokeWidth={1.2} />
           </View>
           <View style={{ height: 24 }} />
-          <Text style={styles.generatingTitle}>Composing outfits…</Text>
-          <Text style={styles.generatingSub}>Matching anchor pieces to your style and palette.</Text>
+          <Text style={styles.generatingTitle}>{t('build_generatingTitle')}</Text>
+          <Text style={styles.generatingSub}>{t('build_generatingSub')}</Text>
         </View>
       )}
 
       {phase === 'results' && (
         <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
           <View style={styles.resultsHeader}>
-            <Text style={styles.sheetTitle}>{results.length} composed</Text>
+            <Text style={styles.sheetTitle}>{t('build_composedCount', { count: results.length })}</Text>
             <Pressable onPress={() => setPhase('configure')}>
-              <Text style={styles.editFilters}>EDIT FILTERS</Text>
+              <Text style={styles.editFilters}>{t('build_editFilters')}</Text>
             </Pressable>
           </View>
-          <Text style={styles.sheetSub}>Tap "Use this" to load an outfit into the canvas.</Text>
+          <Text style={styles.sheetSub}>{t('build_useThisHint')}</Text>
           {results.length === 0 ? (
             <View style={styles.noResults}>
-              <Text style={styles.noResultsTitle}>Nothing matches.</Text>
-              <Text style={styles.sheetSub}>Loosen a filter and try again.</Text>
+              <Text style={styles.noResultsTitle}>{t('build_noResultsTitle')}</Text>
+              <Text style={styles.sheetSub}>{t('build_looseFilterHint')}</Text>
             </View>
           ) : (
             results.map((r, i) => (
@@ -317,18 +363,18 @@ function SuggestSheet({
                   </View>
                 </View>
                 <View style={styles.suggInfo}>
-                  <Text style={styles.suggOption}>OPTION {String(i + 1).padStart(2, '0')}</Text>
+                  <Text style={styles.suggOption}>{t('build_optionLabel', { num: String(i + 1).padStart(2, '0') })}</Text>
                   <Text style={styles.suggTitle}>{r.title}</Text>
                   <Text style={styles.suggRationale} numberOfLines={2}>{r.rationale}</Text>
                   <View style={{ flex: 1 }} />
                   <View style={styles.suggTags}>
-                    {r.tags.slice(0, 3).map((t) => (
-                      <Text key={t} style={styles.suggTag}>{t}</Text>
+                    {r.tags.slice(0, 3).map((tag) => (
+                      <Text key={tag} style={styles.suggTag}>{tag}</Text>
                     ))}
                   </View>
                   <View style={{ height: 10 }} />
                   <Pressable onPress={() => { onApply(r.itemIds); reset(); onClose(); }} style={styles.useBtn}>
-                    <Text style={styles.useBtnText}>USE THIS →</Text>
+                    <Text style={styles.useBtnText}>{t('build_useThisButton')}</Text>
                   </Pressable>
                 </View>
               </View>
@@ -336,7 +382,7 @@ function SuggestSheet({
           )}
           <View style={{ height: 8 }} />
           <View style={{ alignItems: 'center' }}>
-            <TextLink onPress={generate} color={T.color.primary} arrow>Re-generate</TextLink>
+            <TextLink onPress={generate} color={T.color.primary} arrow>{t('build_regenerateLink')}</TextLink>
           </View>
           <View style={{ height: 24 }} />
         </ScrollView>
@@ -348,7 +394,8 @@ function SuggestSheet({
 export default function OutfitBuilderScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { items } = useAppStore();
+  const { t } = useTranslation();
+  const { items, createCollection, addItemToCollection, collectionsError } = useAppStore();
 
   const buckets = BUILDER_BUCKETS.map((b) => ({
     ...b,
@@ -359,27 +406,44 @@ export default function OutfitBuilderScreen() {
     items.find((i) => types.includes(i.type) && i.png)?.id || null;
 
   const [sel, setSel] = useState<Selection>({
+    ...EMPTY_SEL,
     TOPS:      findFirst(['TEE', 'KNIT', 'POLO']),
     BOTTOMS:   findFirst(['JEANS', 'TROUSERS', 'CHINOS']),
-    OUTERWEAR: null,
     SHOES:     findFirst(['LOAFERS', 'SNEAKERS']),
-    BAGS:      null,
   });
 
+  // Picking a one-piece clears the top+bottom pair (and vice versa) — they fill
+  // the same body region and can't both be worn.
   const pick = (cat: BucketKey, id: string) =>
-    setSel((s) => ({ ...s, [cat]: s[cat] === id ? null : id }));
+    setSel((s) => {
+      const togglingOff = s[cat] === id;
+      const next: Selection = { ...s, [cat]: togglingOff ? null : id };
+      if (!togglingOff) {
+        if (cat === 'DRESS') { next.TOPS = null; next.BOTTOMS = null; }
+        else if (cat === 'TOPS' || cat === 'BOTTOMS') next.DRESS = null;
+      }
+      return next;
+    });
 
   const selectedIds = Object.values(sel).filter(Boolean) as string[];
   const canSave = selectedIds.length >= 2;
 
+  const listFor = (key: BucketKey) => buckets.find((b) => b.key === key)?.list ?? [];
+
   const shuffle = () => {
     const r = (arr: ClothingItem[]) => arr[Math.floor(Math.random() * arr.length)]?.id || null;
+    // Build a one-piece look ~35% of the time when dresses exist; otherwise a
+    // two-piece top+bottom look. The two are never combined.
+    const dresses = listFor('DRESS');
+    const useDress = dresses.length > 0 && Math.random() < 0.35;
     setSel({
-      TOPS:      r(buckets[0].list),
-      BOTTOMS:   r(buckets[1].list),
-      OUTERWEAR: Math.random() > 0.55 ? r(buckets[2].list) : null,
-      SHOES:     r(buckets[3].list),
-      BAGS:      Math.random() > 0.55 ? r(buckets[4].list) : null,
+      ...EMPTY_SEL,
+      TOPS:      useDress ? null : r(listFor('TOPS')),
+      BOTTOMS:   useDress ? null : r(listFor('BOTTOMS')),
+      DRESS:     useDress ? r(dresses) : null,
+      OUTERWEAR: Math.random() > 0.55 ? r(listFor('OUTERWEAR')) : null,
+      SHOES:     r(listFor('SHOES')),
+      BAGS:      Math.random() > 0.55 ? r(listFor('BAGS')) : null,
     });
   };
 
@@ -387,6 +451,7 @@ export default function OutfitBuilderScreen() {
 
   const [nameOpen, setNameOpen] = useState(false);
   const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
 
   const applySuggestion = (itemIds: string[]) => {
@@ -400,10 +465,18 @@ export default function OutfitBuilderScreen() {
     setSel(next);
   };
 
+  // Shared by the name-sheet hint and the saved collection description — both
+  // render "N piece(s) · bucket, bucket" from the current selection.
+  const pieceSummary = () => t('build_pieceHint', {
+    count: selectedIds.length,
+    suffix: selectedIds.length === 1 ? '' : 's',
+    list: Object.entries(sel).filter(([, v]) => v).map(([k]) => t(BUCKET_LABEL_KEYS[k as BucketKey]).toLowerCase()).join(' · '),
+  });
+
   const tempOutfit = {
     id: 'builder_preview',
-    title: name || 'New outfit',
-    subtitle: 'in progress',
+    title: name || t('build_defaultOutfitNameNew'),
+    subtitle: t('build_inProgress'),
     style: 'CUSTOM',
     context: 'NEW',
     weather: '',
@@ -421,7 +494,7 @@ export default function OutfitBuilderScreen() {
         <Pressable onPress={() => router.back()} style={styles.iconBtn}>
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.4} />
         </Pressable>
-        <Text style={styles.headerTitle}>Build</Text>
+        <Text style={styles.headerTitle}>{t('build_title')}</Text>
         <Pressable onPress={shuffle} style={styles.iconBtn}>
           <IconShuffle size={20} color={T.color.primary} strokeWidth={1.4} />
         </Pressable>
@@ -434,17 +507,19 @@ export default function OutfitBuilderScreen() {
             <View style={styles.emptyCanvasIcon}>
               <IconPlus size={18} color={T.color.tertiary} strokeWidth={1.4} />
             </View>
-            <Text style={styles.emptyCanvasLabel}>EMPTY CANVAS</Text>
-            <Text style={styles.emptyCanvasHint}>Pick items below to compose an outfit</Text>
+            <Text style={styles.emptyCanvasLabel}>{t('build_emptyCanvasLabel')}</Text>
+            <Text style={styles.emptyCanvasHint}>{t('build_emptyCanvasHint')}</Text>
           </View>
         ) : (
           <OutfitCollage outfit={tempOutfit} showTitle={false} containerHeight={220} />
         )}
         {selectedIds.length > 0 && (
           <>
-            <Text style={styles.canvasPieceCount}>{selectedIds.length} PIECE{selectedIds.length === 1 ? '' : 'S'}</Text>
+            <Text style={styles.canvasPieceCount}>
+              {t('build_pieceCount', { count: selectedIds.length, suffix: selectedIds.length === 1 ? '' : 'S' })}
+            </Text>
             <Pressable onPress={clear} style={styles.clearBtn}>
-              <Text style={styles.clearBtnText}>CLEAR ALL</Text>
+              <Text style={styles.clearBtnText}>{t('build_clearAll')}</Text>
             </Pressable>
           </>
         )}
@@ -456,7 +531,7 @@ export default function OutfitBuilderScreen() {
           b.list.length > 0 ? (
             <CategoryStrip
               key={b.key}
-              label={b.key}
+              label={t(BUCKET_LABEL_KEYS[b.key])}
               items={b.list}
               selectedId={sel[b.key]}
               onSelect={(id) => pick(b.key, id)}
@@ -471,38 +546,94 @@ export default function OutfitBuilderScreen() {
           <IconSparkle size={14} color={T.color.primary} strokeWidth={1.4} />
           <Text style={styles.suggestBtnText}>
             {selectedIds.length === 0
-              ? 'SUGGEST OUTFITS FOR ME'
-              : `SUGGEST OUTFITS WITH ${selectedIds.length} ANCHOR${selectedIds.length === 1 ? '' : 'S'}`}
+              ? t('build_suggestForMe')
+              : t('build_suggestWithAnchors', { count: selectedIds.length, suffix: selectedIds.length === 1 ? '' : 'S' })}
           </Text>
         </Pressable>
       </View>
 
-      {/* Save */}
+      {/* Save + AI try-on */}
       <View style={[styles.saveRow, { paddingBottom: insets.bottom + 8 }]}>
+        {canSave && (
+          <>
+            <SecondaryButton
+              onPress={() => router.push({
+                pathname: '/try-on/wear' as any,
+                params: {
+                  id: 'builder_preview',
+                  data: JSON.stringify({
+                    id: 'builder_preview',
+                    title: name || t('build_defaultOutfitNameNew'),
+                    style: 'CUSTOM',
+                    context: 'BUILDER',
+                    itemIds: selectedIds,
+                  }),
+                },
+              })}
+            >
+              {t('build_seeItOnYouButton')}
+            </SecondaryButton>
+            <View style={{ height: 8 }} />
+          </>
+        )}
         <PrimaryButton onPress={() => canSave && setNameOpen(true)} disabled={!canSave}>
-          {canSave ? 'SAVE OUTFIT' : 'PICK AT LEAST 2 PIECES'}
+          {canSave ? t('build_saveOutfitButton') : t('build_pickAtLeast2')}
         </PrimaryButton>
       </View>
 
       {/* Name sheet */}
       <BottomSheet open={nameOpen} onClose={() => setNameOpen(false)} maxHeight="58%">
         <View style={styles.nameSheetContent}>
-          <Text style={styles.nameTitle}>Name your outfit.</Text>
-          <Text style={styles.nameSub}>A short title you'll recognize in your collections.</Text>
+          <Text style={styles.nameTitle}>{t('build_nameYourOutfitTitle')}</Text>
+          <Text style={styles.nameSub}>{t('build_nameYourOutfitSub')}</Text>
           <View style={{ height: 32 }} />
-          <Field label="OUTFIT NAME" value={name} onChange={setName} placeholder="Monday rotation" />
+          <Field label={t('build_outfitNameLabel')} value={name} onChange={setName} placeholder={t('build_outfitNamePlaceholder')} />
           <View style={{ height: 16 }} />
           <Text style={styles.nameHint}>
-            {selectedIds.length} piece{selectedIds.length === 1 ? '' : 's'} ·{' '}
-            {Object.entries(sel).filter(([, v]) => v).map(([k]) => k.toLowerCase()).join(' · ')}
+            {pieceSummary()}
           </Text>
           <View style={{ height: 32 }} />
-          <PrimaryButton onPress={() => { setNameOpen(false); setName(''); router.back(); }}>
-            SAVE TO COLLECTION
+          <PrimaryButton
+            disabled={saving}
+            onPress={async () => {
+              setSaving(true);
+              try {
+                const label = name.trim() || t('build_defaultOutfitName');
+                const description = pieceSummary();
+                // createCollection returns the collection it actually created (or
+                // null on failure) — never fall back to collections[0], which is
+                // the OLD first collection and would silently receive these items.
+                const created = await createCollection(label, description);
+                if (!created) {
+                  // collectionsError in the store holds the user-facing message;
+                  // keep the sheet open so the user can see it and retry.
+                  return;
+                }
+                for (const id of selectedIds) {
+                  const ok = await addItemToCollection(created.id, id);
+                  if (!ok) {
+                    // Abort — keep the sheet open so the collectionsError banner
+                    // (set by the store) is visible instead of closing silently.
+                    return;
+                  }
+                }
+                setNameOpen(false);
+                setName('');
+                router.back();
+              } finally {
+                setSaving(false);
+              }
+            }}
+          >
+            {saving ? t('addItem_savingText') : t('build_saveToCollectionButton')}
           </PrimaryButton>
-          <View style={{ height: 12 }} />
+          {collectionsError ? (
+            <Text style={{ ...type.caption, fontSize: 12, color: T.color.warning, textAlign: 'center', marginTop: 8 }}>
+              {collectionsError}
+            </Text>
+          ) : <View style={{ height: 12 }} />}
           <View style={{ alignItems: 'center' }}>
-            <TextLink onPress={() => setNameOpen(false)} color={T.color.tertiary}>Keep editing</TextLink>
+            <TextLink onPress={() => setNameOpen(false)} color={T.color.tertiary}>{t('build_keepEditingLink')}</TextLink>
           </View>
         </View>
       </BottomSheet>

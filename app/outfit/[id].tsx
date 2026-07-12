@@ -1,36 +1,96 @@
 // Outfit Detail screen
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Image, Share, useWindowDimensions } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OUTFITS, itemById } from '../../src/data';
 import { OutfitCollage } from '../../src/components/outfit/Collage';
-import { PrimaryButton, SecondaryButton, TextLink, Tag, BottomSheet, Divider, Photo } from '../../src/components/ui';
+import { PrimaryButton, SecondaryButton, Tag, BottomSheet, Divider } from '../../src/components/ui';
 import { IconX, IconHeart, IconShare, IconSparkle, IconChevronRight } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAppStore } from '../../src/stores/appStore';
 import { useOutfitDescription } from '../../src/features/outfit/useOutfitDescription';
 import type { DescribeItem } from '../../src/services/outfitDescriptionService';
+import i18n, { useTranslation } from '../../src/i18n';
+
+// View-model for the "ITEMS IN THIS OUTFIT" row — normalizes demo catalogue
+// items (ClothingItem) and real cloud wardrobe items (WardrobeItem) to one shape.
+interface ItemDisplay {
+  id: string;
+  type: string;
+  name: string;
+  addedLabel: string;
+  imageSource: number | { uri: string } | null;
+}
+
+function formatAdded(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const locale = i18n.language?.startsWith('vi') ? 'vi-VN' : 'en-US';
+  return date.toLocaleDateString(locale, { month: 'short', year: 'numeric' });
+}
 
 export default function OutfitDetailScreen() {
+  const { t } = useTranslation();
   const { width: W } = useWindowDimensions();
   const { id, data } = useLocalSearchParams<{ id: string; data?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { savedSet, wornSet, scheduledSet, toggleSave, toggleWorn, toggleSchedule, collections, addItemToCollection } = useAppStore();
-  const [variationOpen, setVariationOpen] = useState(false);
+  const { savedSet, wornSet, toggleSave, toggleWorn, toggleSchedule, collections, addItemToCollection, collectionsError } = useAppStore();
   const [collectionPickerOpen, setCollectionPickerOpen] = useState(false);
   const [addedToCollectionSuccess, setAddedToCollectionSuccess] = useState(false);
+  // In-flight guard — disables the collection rows while an add is pending so a
+  // double-tap can't fire the same sequential-await loop twice.
+  const [addingToCollection, setAddingToCollection] = useState(false);
 
-  const outfit = (data ? JSON.parse(data) : null) ?? OUTFITS.find(o => o.id === id) ?? OUTFITS[0];
-  const items = outfit.itemIds.map(itemById).filter(Boolean) as NonNullable<ReturnType<typeof itemById>>[];
-  const saved = savedSet.has(outfit.id);
+  // Guard against malformed/oversized nav params — JSON.parse throws on
+  // invalid JSON; falling through to the OUTFITS lookup prevents a crash.
+  let parsedOutfit: ReturnType<typeof JSON.parse> | null = null;
+  if (data) {
+    try { parsedOutfit = JSON.parse(data); } catch { /* fall through */ }
+  }
+  const outfit = parsedOutfit ?? OUTFITS.find(o => o.id === id) ?? null;
+
+  const saved = outfit ? savedSet.has(outfit.id) : false;
 
   // Resolve the outfit's garments from the REAL cloud wardrobe (same source the
   // collage uses), falling back to mock items — `itemById` alone misses generated
   // outfits whose ids are DB ids. Feeds the lazy description.
   const wardrobeItems = useAppStore(s => s.wardrobeItems);
+
+  // "ITEMS IN THIS OUTFIT" list — same dual-source resolution as describeItems
+  // below: demo catalogue OR the real cloud wardrobe. Using itemById alone left
+  // outfits built from the cloud wardrobe showing 0 items here.
+  const items: ItemDisplay[] = useMemo(() => {
+    if (!outfit) return [];
+    const byId = new Map(wardrobeItems.map(w => [w.id, w]));
+    return (outfit.itemIds as string[]).map((iid): ItemDisplay | null => {
+      const w = byId.get(iid);
+      if (w) {
+        return {
+          id: iid,
+          type: (w.type || w.category || '').toUpperCase(),
+          name: w.name || w.notes || (w.category ? w.category.charAt(0).toUpperCase() + w.category.slice(1) : t('outfitDetail_itemFallbackName')),
+          addedLabel: formatAdded(w.createdAt),
+          imageSource: w.photoUrl ? { uri: w.photoUrl } : null,
+        };
+      }
+      const m = itemById(iid);
+      if (m) {
+        return {
+          id: iid,
+          type: m.type,
+          name: m.name,
+          addedLabel: m.addedDate,
+          imageSource: m.png ?? (m.img ? { uri: m.img } : null),
+        };
+      }
+      return null;
+    }).filter((x): x is ItemDisplay => x !== null);
+  }, [outfit, wardrobeItems]);
+
   const describeItems: DescribeItem[] = useMemo(() => {
+    if (!outfit) return [];
     const byId = new Map(wardrobeItems.map(w => [w.id, w]));
     return (outfit.itemIds as string[]).map((iid): DescribeItem | null => {
       const w = byId.get(iid);
@@ -38,33 +98,48 @@ export default function OutfitDetailScreen() {
       const m = itemById(iid);
       return m ? { name: m.name, type: m.type, color: m.color, material: m.material, fit: m.fit } : null;
     }).filter((x): x is DescribeItem => x !== null);
-  }, [outfit.itemIds, wardrobeItems]);
+  }, [outfit, wardrobeItems]);
 
   // Lazy AI description for generated outfits. Fallback is the resolved item names
   // (longDescription is empty for cloud-wardrobe outfits).
-  const fallbackDesc = outfit.longDescription || describeItems.map(i => i.name).filter(Boolean).join(', ');
-  const { description: outfitDescription, loading: descLoading } = useOutfitDescription(
-    outfit.id, describeItems, fallbackDesc,
+  const fallbackDesc = outfit
+    ? (outfit.longDescription || describeItems.map(i => i.name).filter(Boolean).join(', '))
+    : '';
+  const { description: outfitDescription, wayToWear, loading: descLoading } = useOutfitDescription(
+    outfit?.id ?? '', describeItems, fallbackDesc,
+    { occasion: outfit?.context, weather: outfit?.weather },
   );
 
-  useEffect(() => {
-    console.log('[OutfitDetail] Opened outfit:', { id: outfit.id, title: outfit.title, style: outfit.style, tags: outfit.tags });
-    console.log(`[OutfitDetail] Items (${items.length}):`);
-    items.forEach((item, i) => {
-      const itemTags = [item.color, item.material, item.fit].filter(Boolean).join(', ');
-      console.log(`  [${i + 1}] id=${item.id} | type=${item.type} | name=${item.name} | tags=${itemTags}`);
-    });
-  }, [outfit.id]);
-  const worn = wornSet.has(outfit.id);
+  // Removed per-open debug console.log loop — would ship to production.
+
+  const worn = outfit ? wornSet.has(outfit.id) : false;
 
   const HERO_H = W * (5 / 4);
 
   // T029: Share outfit via native share sheet
   const shareOutfit = () => {
+    if (!outfit) return;
     const itemNames = items.slice(0, 3).map(i => i.name).join(', ');
     const message = `${outfit.style} look — ${itemNames} | MIEN`;
     Share.share({ message });
   };
+
+  // Not-found guard — render after all hooks are safely called.
+  if (!outfit) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={styles.nav}>
+          <Pressable onPress={() => router.back()} style={styles.iconBtn}>
+            <IconX size={20} color={T.color.primary} strokeWidth={1.4} />
+          </Pressable>
+        </View>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 48 }}>
+          <Text style={[type.h2, { color: T.color.primary, textAlign: 'center' }]}>{t('outfitDetail_notFoundTitle')}</Text>
+          <Text style={[type.caption, { marginTop: 12, textAlign: 'center' }]}>{t('outfitDetail_notFoundBody')}</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -96,10 +171,10 @@ export default function OutfitDetailScreen() {
             style={styles.tryOnBtn}
           >
             <IconSparkle size={16} color={T.color.primary} strokeWidth={1.4} />
-            <Text style={styles.tryOnText}>GENERATE ON YOU</Text>
+            <Text style={styles.tryOnText}>{t('outfitDetail_tryOnGenerate')}</Text>
           </Pressable>
           <Text style={[type.caption, { fontSize: 11, color: T.color.tertiary, textAlign: 'center', marginTop: 8 }]}>
-            Render this outfit on your frame using your measurements.
+            {t('outfitDetail_tryOnHint')}
           </Text>
         </View>
 
@@ -112,22 +187,36 @@ export default function OutfitDetailScreen() {
           <Text style={[styles.desc, descLoading && { opacity: 0.5 }]}>{outfitDescription}</Text>
           <View style={{ height: 24 }} />
           <View style={styles.tags}>
-            {outfit.tags.map((t: string) => <Tag key={t}>{t}</Tag>)}
+            {outfit.tags.map((tag: string) => <Tag key={tag}>{tag}</Tag>)}
           </View>
         </View>
+
+        {/* How to wear — AI styling tips (generated outfits only) */}
+        {wayToWear.length > 0 && (
+          <View style={{ paddingHorizontal: 24, marginTop: 32 }}>
+            <Text style={styles.sectionLabel}>{t('outfit_howToWear')}</Text>
+            <View style={{ height: 16 }} />
+            {wayToWear.map((tip, i) => (
+              <View key={`${i}-${tip}`} style={styles.tipRow}>
+                <Text style={styles.tipBullet}>—</Text>
+                <Text style={styles.tipText}>{tip}</Text>
+              </View>
+            ))}
+          </View>
+        )}
 
         <View style={{ height: 32 }} />
 
         {/* Items */}
         <View style={{ paddingHorizontal: 24 }}>
-          <Text style={styles.sectionLabel}>ITEMS IN THIS OUTFIT ({items.length})</Text>
+          <Text style={styles.sectionLabel}>{t('outfitDetail_itemsInOutfit', { count: items.length })}</Text>
           <View style={{ height: 16 }} />
           {items.map((item, i) => (
             <React.Fragment key={item.id}>
               <Pressable onPress={() => router.push(`/item/${item.id}`)} style={styles.itemRow}>
                 <View style={styles.itemThumb}>
-                  {item.png ? (
-                    <Image source={item.png} style={styles.itemThumbImg} resizeMode="contain" />
+                  {item.imageSource != null ? (
+                    <Image source={item.imageSource as any} style={styles.itemThumbImg} resizeMode="contain" />
                   ) : (
                     <Text style={styles.itemType}>{item.type}</Text>
                   )}
@@ -137,7 +226,7 @@ export default function OutfitDetailScreen() {
                   <View style={{ height: 4 }} />
                   <Text style={styles.itemName}>{item.name}</Text>
                   <View style={{ height: 4 }} />
-                  <Text style={styles.itemDate}>Owned · Added {item.addedDate}</Text>
+                  <Text style={styles.itemDate}>{t('outfitDetail_ownedAdded', { date: item.addedLabel })}</Text>
                 </View>
                 <IconChevronRight size={12} color={T.color.tertiary} strokeWidth={1.4} />
               </Pressable>
@@ -151,83 +240,72 @@ export default function OutfitDetailScreen() {
         {/* Actions */}
         <View style={{ paddingHorizontal: 24 }}>
           <PrimaryButton onPress={() => toggleWorn(outfit.id)}>
-            {worn ? '✓  WORN TODAY' : 'WEAR TODAY'}
+            {worn ? t('outfitDetail_wornToday') : t('outfitDetail_wearToday')}
           </PrimaryButton>
           <View style={{ height: 12 }} />
           <SecondaryButton onPress={() => setCollectionPickerOpen(true)}>
-            {addedToCollectionSuccess ? 'ADDED TO COLLECTION ✓' : 'ADD TO COLLECTION'}
+            {addedToCollectionSuccess ? t('outfitDetail_addedToCollection') : t('outfitDetail_addToCollection')}
           </SecondaryButton>
           <View style={{ height: 12 }} />
-          <SecondaryButton onPress={() => toggleSchedule(outfit.id)}>SCHEDULE FOR ANOTHER DAY</SecondaryButton>
-          <View style={{ height: 24 }} />
-          <View style={{ alignItems: 'center' }}>
-            <TextLink onPress={() => setVariationOpen(true)} color={T.color.primary} arrow>Generate a variation</TextLink>
-          </View>
+          <SecondaryButton onPress={() => toggleSchedule(outfit.id)}>{t('outfitDetail_scheduleForAnotherDay')}</SecondaryButton>
+          {/* "Generate a variation" (item swap) is not yet implemented — hidden
+              until the regenerate feature is built to avoid dead UI. */}
         </View>
 
         <View style={{ height: insets.bottom + 48 }} />
       </ScrollView>
 
-      {/* Variation sheet */}
-      <BottomSheet open={variationOpen} onClose={() => setVariationOpen(false)} maxHeight="78%">
-        <View style={{ padding: 24 }}>
-          <Text style={styles.h3}>Swap an item.</Text>
-          <Text style={[type.caption, { marginTop: 8 }]}>Tap any item to see alternatives from your wardrobe.</Text>
-          <View style={{ height: 24 }} />
-          {items.map(item => (
-            <View key={item.id} style={styles.swapRow}>
-              <View style={[styles.swapThumb, { alignItems: 'center', justifyContent: 'center', padding: 6 }]}>
-                {item.png ? (
-                  <Image source={item.png} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                ) : (
-                  <Text style={styles.itemCat}>{item.type}</Text>
-                )}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.itemCat}>{item.type}</Text>
-                <Text style={[styles.itemName, { marginTop: 4 }]}>{item.name}</Text>
-              </View>
-              <TextLink color={T.color.primary}>SWAP</TextLink>
-            </View>
-          ))}
-          <View style={{ height: 24 }} />
-          <PrimaryButton onPress={() => setVariationOpen(false)}>APPLY CHANGES</PrimaryButton>
-        </View>
-      </BottomSheet>
-
       {/* Collection picker sheet */}
       <BottomSheet open={collectionPickerOpen} onClose={() => setCollectionPickerOpen(false)} maxHeight="70%">
         <View style={{ padding: 24 }}>
-          <Text style={styles.h3}>Save to collection.</Text>
+          <Text style={styles.h3}>{t('outfitDetail_saveToCollectionTitle')}</Text>
           <Text style={[type.caption, { marginTop: 8, marginBottom: 24 }]}>
-            Wardrobe items from this outfit will be added.
+            {t('outfitDetail_saveToCollectionHint')}
           </Text>
           {collections.length === 0 ? (
             <View style={{ alignItems: 'center', paddingVertical: 32 }}>
-              <Text style={[type.caption, { textAlign: 'center' }]}>No collections yet. Create one from Your Wardrobe.</Text>
+              <Text style={[type.caption, { textAlign: 'center' }]}>{t('outfitDetail_noCollectionsYet')}</Text>
             </View>
           ) : (
             collections.map(col => (
               <Pressable
                 key={col.id}
+                disabled={addingToCollection}
                 onPress={async () => {
-                  const uuidItems = outfit.itemIds.filter((id: string) => /^[0-9a-f]{8}-/.test(id));
-                  for (const itemId of uuidItems) {
-                    await addItemToCollection(col.id, itemId);
+                  setAddingToCollection(true);
+                  try {
+                    const uuidItems = outfit.itemIds.filter((id: string) => /^[0-9a-f]{8}-/.test(id));
+                    let ok = true;
+                    for (const itemId of uuidItems) {
+                      if (!(await addItemToCollection(col.id, itemId))) { ok = false; break; }
+                    }
+                    // Only report success — and only close the sheet — when every
+                    // item actually landed. On failure, keep the sheet open so the
+                    // collectionsError banner below is visible instead of a false
+                    // "ADDED ✓".
+                    if (ok) {
+                      setCollectionPickerOpen(false);
+                      setAddedToCollectionSuccess(true);
+                    }
+                  } finally {
+                    setAddingToCollection(false);
                   }
-                  setCollectionPickerOpen(false);
-                  setAddedToCollectionSuccess(true);
                 }}
-                style={[styles.itemRow, { borderBottomWidth: 0.5, borderBottomColor: T.color.hairline }]}
+                style={[styles.itemRow, { borderBottomWidth: 0.5, borderBottomColor: T.color.hairline, opacity: addingToCollection ? 0.5 : 1 }]}
               >
                 <View style={{ flex: 1 }}>
                   <Text style={styles.itemName}>{col.name}</Text>
-                  <Text style={[type.caption, { marginTop: 2, fontSize: 11 }]}>{col.itemIds.length} items</Text>
+                  <Text style={[type.caption, { marginTop: 2, fontSize: 11 }]}>{t('collections_itemCountLabel', { count: col.itemIds.length, suffix: col.itemIds.length === 1 ? '' : 's' })}</Text>
                 </View>
                 <IconChevronRight size={12} color={T.color.tertiary} strokeWidth={1.4} />
               </Pressable>
             ))
           )}
+          {collectionsError ? (
+            <Text style={{ ...type.caption, fontSize: 12, color: T.color.warning, textAlign: 'center', marginTop: 16 }}>
+              {collectionsError}
+            </Text>
+          ) : null}
         </View>
       </BottomSheet>
 
@@ -248,6 +326,9 @@ const styles = StyleSheet.create({
   desc: { ...type.body, color: T.color.secondary },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   sectionLabel: { ...type.ui, fontSize: 10, color: T.color.tertiary },
+  tipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 6 },
+  tipBullet: { ...type.body, color: T.color.tertiary, lineHeight: 24 },
+  tipText: { ...type.body, color: T.color.secondary, flex: 1 },
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 12 },
   itemThumb: { width: 80, height: 100, backgroundColor: T.color.elevated, borderWidth: 0.5, borderColor: T.color.hairline, alignItems: 'center', justifyContent: 'center', padding: 8 },
   itemThumbImg: { width: '100%', height: '100%' },

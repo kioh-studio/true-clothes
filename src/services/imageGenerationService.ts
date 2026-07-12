@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { sb } from './supabase';
 import { LogoSignal, MKey } from '../types/fitEngine';
+import i18n from '../i18n';
 
 // ─── Contract types (camelCase mirror of the generate-item-image output) ──────
 
@@ -18,6 +19,14 @@ export interface GarmentMetadata {
   graphics: LogoSignal | null;        // captured, not scored (MVP)
   tags: string[];                     // UI/filter only
   confidence: number;
+  // Measured-hex color layer (2026-07-06) — deterministic pixel-derived
+  // dominant colour(s) of the isolated item image. AI path: computed server-
+  // side by generate-item-image; on-device extract-by-item path: computed by
+  // colorClusterUri at ingest. Optional so older construction sites (try-on
+  // scan, test fixtures) stay valid; absent/null → hex arrives later via the
+  // backfill-item-metadata admin run.
+  primaryHex?: string | null;
+  secondaryHex?: string | null;
 }
 
 /** One extracted item: isolated product image (local file) + controlled-vocab metadata. */
@@ -35,6 +44,7 @@ interface RawMetadata {
   material: string | null; fit: string | null; pattern: string | null;
   warmth_season: string | null; measurements?: Partial<Record<MKey, number>>;
   brand: string | null; graphics: LogoSignal | null; tags?: string[]; confidence?: number;
+  primary_hex?: string | null; secondary_hex?: string | null;
 }
 
 function toDomain(m: RawMetadata): GarmentMetadata {
@@ -52,6 +62,8 @@ function toDomain(m: RawMetadata): GarmentMetadata {
     graphics: m.graphics ?? null,
     tags: Array.isArray(m.tags) ? m.tags : [],
     confidence: typeof m.confidence === 'number' ? m.confidence : 0.5,
+    primaryHex: m.primary_hex ?? null,
+    secondaryHex: m.secondary_hex ?? null,
   };
 }
 
@@ -86,7 +98,7 @@ export async function extractItemsWithImages(
   const res = data as {
     items?: Array<{ image_data: string; mime_type: string; metadata: RawMetadata; keyed?: boolean }>;
   };
-  if (!Array.isArray(res?.items)) throw new Error('Unexpected response from generate-item-image');
+  if (!Array.isArray(res?.items)) throw new Error(i18n.t('extraction_extractionFailed'));
 
   const dir = `${FileSystem.documentDirectory}wardrobe/`;
   await FileSystem.makeDirectoryAsync(dir, { intermediates: true });

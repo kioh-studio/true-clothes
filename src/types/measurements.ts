@@ -1,5 +1,32 @@
 export type BodyShape = 'hourglass' | 'rectangle' | 'triangle' | 'inverted_triangle' | 'apple';
 
+/**
+ * Estimated body circumferences returned by the on-device pose scan.
+ * These are rough values (±5–10 cm) intended for user-review pre-fill only.
+ * Fields absent if the estimate fell outside a sane human range.
+ */
+export interface EstimatedMeasurements {
+  // Circumferences (rough — front-view width + guessed depth)
+  body_bust?: number;
+  body_waist?: number;
+  body_hip?: number;
+  // Lengths (more reliable — direct keypoint distance × height scale)
+  body_inseam?: number;
+  body_shoulder_width?: number;
+  body_sleeve_length?: number;
+  body_upper_body_length?: number;
+  /** Min keypoint confidence score (0–1) of the landmarks used. */
+  confidence: number;
+  /**
+   * Multi-frame scale-agreement coefficient of variation (0 = perfectly
+   * stable across frames, higher = frames disagreed on apparent scale).
+   * Distinct from `confidence`: this reflects measurement CONSISTENCY across
+   * the aggregated frames, not per-frame detector certainty. Optional —
+   * absent when only a single frame was available to compare.
+   */
+  stability?: number;
+}
+
 export interface BodyMeasurements {
   // Required
   body_height?: number;

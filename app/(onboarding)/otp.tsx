@@ -7,10 +7,12 @@ import { IconChevronLeft } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAuthStore } from '../../src/stores/authStore';
 import { sanitizeDigit, digitAction } from '../../src/utils/otpInput';
+import { useTranslation } from '../../src/i18n';
 
 export default function OTPScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [digits, setDigits] = useState(['', '', '', '', '', '']);
   const [countdown, setCountdown] = useState(45);
   const [verifying, setVerifying] = useState(false);
@@ -53,16 +55,20 @@ export default function OTPScreen() {
   const filled = digits.every(d => d !== '');
 
   const handleVerify = async () => {
+    if (verifying || !filled) return;
     setVerifying(true); setError('');
-    const res = await verifyOtp(digits.join(''));
-    setVerifying(false);
-    if (!res.ok) {
-      setError(res.message || 'Invalid code. Try again.');
-      return;
+    try {
+      const res = await verifyOtp(digits.join(''));
+      if (!res.ok) {
+        setError(res.message || t('onboardingOtp_invalidCodeError'));
+        return;
+      }
+      // Demo account has onboarding pre-seeded — go straight to the app.
+      const { onboardingComplete } = useAuthStore.getState();
+      router.replace(onboardingComplete ? '/(tabs)' : '/(onboarding)/basics');
+    } finally {
+      setVerifying(false);
     }
-    // Demo account has onboarding pre-seeded — go straight to the app.
-    const { onboardingComplete } = useAuthStore.getState();
-    router.replace(onboardingComplete ? '/(tabs)' : '/(onboarding)/basics');
   };
 
   const handleResend = async () => {
@@ -73,7 +79,7 @@ export default function OTPScreen() {
       setCountdown(45);
       setDigits(['', '', '', '', '', '']);
     } else {
-      setError(res.message || 'Could not resend code.');
+      setError(res.message || t('onboardingOtp_resendError'));
     }
   };
 
@@ -89,13 +95,13 @@ export default function OTPScreen() {
 
       <View style={styles.content}>
         <View style={{ height: 32 }} />
-        <Text style={styles.h2}>Enter the code.</Text>
+        <Text style={styles.h2}>{t('onboardingOtp_title')}</Text>
         <Text style={styles.caption}>
           {pendingAuthMethod === 'email'
-            ? `Sent to ${pendingEmail}.`
+            ? t('onboardingOtp_sentTo', { contact: pendingEmail })
             : pendingPhone
-              ? `Sent to ${pendingPhone}.`
-              : 'Sent to your contact.'}
+              ? t('onboardingOtp_sentTo', { contact: pendingPhone })
+              : t('onboardingOtp_sentToGeneric')}
         </Text>
         <View style={{ height: 48 }} />
 
@@ -108,6 +114,8 @@ export default function OTPScreen() {
                 onChangeText={v => onDigit(i, v)}
                 onKeyPress={e => onKey(i, e)}
                 keyboardType="number-pad"
+                autoComplete="one-time-code"
+                textContentType="oneTimeCode"
                 maxLength={1}
                 style={styles.digitInput}
               />
@@ -127,14 +135,14 @@ export default function OTPScreen() {
         <Pressable onPress={handleResend} disabled={countdown > 0}>
           <Text style={[styles.resend, countdown > 0 && styles.resendDisabled]}>
             {countdown > 0
-              ? `Resend code in 0:${String(countdown).padStart(2, '0')}`
-              : 'Resend code'}
+              ? t('onboardingOtp_resendCountdown', { seconds: String(countdown).padStart(2, '0') })
+              : t('onboardingOtp_resendCode')}
           </Text>
         </Pressable>
 
         <View style={{ flex: 1, minHeight: 32 }} />
-        <PrimaryButton onPress={handleVerify}>
-          {verifying ? 'VERIFYING…' : 'VERIFY'}
+        <PrimaryButton onPress={handleVerify} disabled={verifying || !filled}>
+          {verifying ? t('onboardingOtp_verifying') : t('onboardingOtp_verifyButton')}
         </PrimaryButton>
       </View>
     </View>

@@ -1,9 +1,11 @@
 import { sb } from './supabase';
 
-// Lazy outfit description (feature 008). The feed's curation pass only ranks and
-// writes the one-line stylist note (generating 10 full descriptions at once takes
-// ~10s and blocks the feed). The detail screen calls this for the ONE outfit being
-// viewed (~1–2s). Results are cached in-memory by outfit id so reopening is instant.
+// Lazy outfit description + "how to wear" tips (feature 008 / Way to Wear Phase A).
+// The feed's curation pass only ranks and writes the one-line stylist note
+// (generating 10 full descriptions at once takes ~10s and blocks the feed). The
+// detail screen calls this for the ONE outfit being viewed (~1–2s). It returns
+// both an editorial description and a short list of styling tips (wayToWear).
+// Results are cached in-memory by (outfit id, locale) so reopening is instant.
 
 export interface DescribeItem {
   name?: string | null;
@@ -13,20 +15,26 @@ export interface DescribeItem {
   fit?: string | null;
 }
 
-const cache = new Map<string, string>();
+export interface OutfitDescription {
+  description: string;
+  wayToWear: string[];
+}
+
+const cache = new Map<string, OutfitDescription>();
 
 /**
- * Returns a 2–3 sentence AI description for the outfit, or '' on any failure
- * (the caller should fall back to its own item-list text). Cached by `outfitId`.
+ * Returns the AI description + wayToWear tips for the outfit, or empty values on
+ * any failure (the caller should fall back to its own item-list text). Cached by
+ * `(outfitId, locale)`.
  */
 export async function describeOutfit(
   outfitId: string,
   items: DescribeItem[],
-  opts: { styles?: string[]; locale?: 'vi' | 'en'; occasion?: string } = {},
-): Promise<string> {
+  opts: { styles?: string[]; locale?: 'vi' | 'en'; occasion?: string; weather?: string } = {},
+): Promise<OutfitDescription> {
   const locale = opts.locale ?? 'vi';
-  // Cache per (outfit, locale) — the description language depends on locale, so a
-  // VI result must not be served when EN is requested (and vice-versa).
+  // Cache per (outfit, locale) — the copy language depends on locale, so a VI
+  // result must not be served when EN is requested (and vice-versa).
   const cacheKey = `${outfitId}::${locale}`;
   const cached = cache.get(cacheKey);
   if (cached !== undefined) return cached;
@@ -44,13 +52,21 @@ export async function describeOutfit(
         styles: opts.styles,
         locale,
         occasion: opts.occasion,
+        weather: opts.weather,
       },
     });
     if (error) throw error;
-    const description = (data as { description?: string })?.description ?? '';
-    if (description) cache.set(cacheKey, description);  // only cache real results
-    return description;
+    const d = data as { description?: string; wayToWear?: string[] };
+    const result: OutfitDescription = {
+      description: d?.description ?? '',
+      wayToWear: Array.isArray(d?.wayToWear)
+        ? d.wayToWear.filter(x => typeof x === 'string' && x.trim().length > 0)
+        : [],
+    };
+    // Only cache real results (description OR tips present).
+    if (result.description || result.wayToWear.length > 0) cache.set(cacheKey, result);
+    return result;
   } catch {
-    return '';
+    return { description: '', wayToWear: [] };
   }
 }

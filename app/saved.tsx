@@ -8,14 +8,21 @@ import { IconChevronLeft, IconBookmark } from '../src/components/icons';
 import { useAppStore } from '../src/stores/appStore';
 import { OUTFITS } from '../src/data';
 import { useGridCardWidth } from '../src/design/layout';
+import { useFitFeed } from '../src/features/feed/useFitFeed';
+import { useTranslation } from '../src/i18n';
 
 export default function SavedOutfitsScreen() {
   const CARD_W = useGridCardWidth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { savedSet, toggleSave } = useAppStore();
+  // Include engine-generated outfits (gen_…) — a save can target one of those,
+  // and filtering on the static OUTFITS list alone would hide it forever.
+  const { outfits: generatedOutfits, isGenerated } = useFitFeed();
+  const allOutfits = isGenerated ? [...OUTFITS, ...generatedOutfits] : OUTFITS;
 
-  const saved = OUTFITS.filter((o) => savedSet.has(o.id));
+  const saved = allOutfits.filter((o) => savedSet.has(o.id));
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -24,7 +31,7 @@ export default function SavedOutfitsScreen() {
         <Pressable onPress={() => router.back()} style={styles.iconBtn}>
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.4} />
         </Pressable>
-        <Text style={styles.headerTitle}>Saved</Text>
+        <Text style={styles.headerTitle}>{t('saved_title')}</Text>
         <View style={{ width: 44 }} />
       </View>
 
@@ -39,24 +46,24 @@ export default function SavedOutfitsScreen() {
               <IconBookmark size={22} color={T.color.primary} strokeWidth={1.2} />
             </View>
             <View style={{ height: 24 }} />
-            <Text style={styles.emptyTitle}>Nothing saved yet.</Text>
+            <Text style={styles.emptyTitle}>{t('saved_emptyTitle')}</Text>
             <Text style={styles.emptyCaption}>
-              Tap the bookmark on any outfit in your feed to keep it for later.
+              {t('saved_emptyCaption')}
             </Text>
           </View>
         ) : (
           <>
             <View style={styles.listHeader}>
-              <Text style={styles.h1}>Saved</Text>
+              <Text style={styles.h1}>{t('saved_title')}</Text>
               <Text style={styles.count}>
-                {saved.length} OUTFIT{saved.length === 1 ? '' : 'S'}
+                {t('saved_countLabel', { count: saved.length, suffix: saved.length === 1 ? '' : 'S' })}
               </Text>
             </View>
             <View style={styles.grid}>
               {saved.map((o) => (
                 <Pressable
                   key={o.id}
-                  onPress={() => router.push(`/outfit/${o.id}`)}
+                  onPress={() => router.push({ pathname: '/outfit/[id]', params: { id: o.id, data: JSON.stringify(o) } })}
                   style={[styles.card, { width: CARD_W }]}
                 >
                   <View style={StyleSheet.absoluteFillObject}>

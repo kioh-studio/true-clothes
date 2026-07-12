@@ -4,6 +4,8 @@
 
 import { sb } from './supabase';
 import { ScannedItem, Verdict, CriterionScore, CriterionKey, Recommendation } from '../types/tryOn';
+import i18n from '../i18n';
+import { useAppStore } from '../stores/appStore';
 
 // ─── snake_case response shape from the edge function ─────────────────────────
 
@@ -19,6 +21,7 @@ interface RawVerdictResponse {
   overall_score: number | null;
   recommendation: string | null;
   criteria: RawCriterionScore[];
+  fit_note?: string | null;
 }
 
 // ─── Fixed order the spec mandates (contract: evaluate-item.md) ──────────────
@@ -76,6 +79,7 @@ export async function evaluateItem(item: ScannedItem, locale = 'en'): Promise<Ve
       measurements: m.measurements ?? {},
     },
     locale,
+    ...(useAppStore.getState().bodyNeutralMode ? { body_neutral: true } : {}),
   };
 
   const { data, error } = await sb.functions.invoke('evaluate-item', {
@@ -87,12 +91,13 @@ export async function evaluateItem(item: ScannedItem, locale = 'en'): Promise<Ve
   const raw = data as RawVerdictResponse;
 
   if (!raw || !Array.isArray(raw.criteria)) {
-    throw new Error('evaluate-item: unexpected response shape');
+    throw new Error(i18n.t('tryOnStore_evaluationFailed'));
   }
 
   return {
     overallScore: typeof raw.overall_score === 'number' ? raw.overall_score : null,
     recommendation: mapRecommendation(raw.recommendation),
     criteria: mapCriteria(raw.criteria),
+    fitNote: typeof raw.fit_note === 'string' && raw.fit_note.trim() ? raw.fit_note : null,
   };
 }

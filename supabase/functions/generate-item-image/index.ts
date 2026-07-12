@@ -19,8 +19,13 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { Image } from 'https://deno.land/x/imagescript@1.2.17/mod.ts';
 import {
   EXTRACTION_SYSTEM, buildUserPrompt, buildIsolationPrompt, snapGarment, GarmentMetadata,
-  pickChromaBg, ChromaBg,
+  pickChromaBg, ChromaBg, formatBodyScale, BodyScale,
 } from './prompt.ts';
+// Measured-hex color layer (2026-07-06) — deterministic pixel-derived dominant
+// colour(s) of the ISOLATED item image, distinct from the model's own
+// color_hex text guess. Cross-function import from generate-outfits/engine is
+// an established pattern (wardrobe-critic, evaluate-item already do this).
+import { dominantHexes } from '../generate-outfits/engine/colorCluster.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -45,28 +50,40 @@ interface GeminiResponse { candidates?: Array<{ content?: { parts?: GeminiPart[]
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const TRANSIENT = new Set([429, 500, 502, 503, 504]);
+// AbortController timeouts (pattern mirrors evaluate-item/note.ts's generateFitNote).
+// Without these, a hung Gemini call burns the whole edge-function wall-clock — the
+// platform can kill the function before any credit refund logic runs.
+const DETECT_TIMEOUT_MS = 15000;  // single image in, TEXT out — vision detect is fast
+const ISOLATE_TIMEOUT_MS = 30000; // image OUT (nano banana 2) — much slower than text
 
-async function geminiDetect(apiKey: string, image: GeminiPart, notes?: string): Promise<string> {
+async function geminiDetect(
+  apiKey: string, image: GeminiPart, notes?: string, bodyScale?: string | null,
+): Promise<string> {
   const body = JSON.stringify({
     system_instruction: { parts: [{ text: EXTRACTION_SYSTEM }] },
-    contents: [{ parts: [image, { text: buildUserPrompt(notes) }] }],
+    contents: [{ parts: [image, { text: buildUserPrompt(notes, bodyScale) }] }],
     generationConfig: { responseModalities: ['TEXT'], temperature: 0.2 },
   });
   // Retry transient Gemini failures (overload/429/5xx/network) — these were the
   // cause of intermittent 500s on the scan path.
   let lastErr = 'Gemini vision failed';
   for (let attempt = 0; attempt < 3; attempt++) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), DETECT_TIMEOUT_MS);
     let res: Response;
     try {
       res = await fetch(`${GEMINI_BASE}/${VISION_MODEL}:generateContent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
+        signal: ctrl.signal,
         body,
       });
     } catch (e) {
       lastErr = `Gemini vision network: ${(e as Error).message}`;
       await sleep(600 * (attempt + 1));
       continue;
+    } finally {
+      clearTimeout(t);
     }
     if (res.ok) {
       const data: GeminiResponse = await res.json();
@@ -88,10 +105,13 @@ async function geminiIsolate(
     generationConfig: { responseModalities: ['IMAGE'] },
   });
   for (let attempt = 0; attempt < 3; attempt++) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ISOLATE_TIMEOUT_MS);
     try {
       const res = await fetch(`${GEMINI_BASE}/${IMAGE_GEN_MODEL}:generateContent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
+        signal: ctrl.signal,
         body,
       });
       if (!res.ok) {
@@ -107,6 +127,8 @@ async function geminiIsolate(
       console.warn('[generate-item-image] isolate threw:', (e as Error).message);
       if (attempt < 2) { await sleep(700 * (attempt + 1)); continue; }
       return null;
+    } finally {
+      clearTimeout(t);
     }
   }
   return null;
@@ -116,9 +138,15 @@ async function geminiIsolate(
 // The AI returns the item on a uniform chroma background; we key that colour out
 // into a transparent PNG deterministically (no on-device ML needed). Robust:
 //   1. Refine the reference colour from the 4 corners (tolerates the model's drift).
-//   2. FLOOD-FILL from the borders — only background connected to the edge is
-//      removed, so a near-chroma pixel INSIDE the garment never punches a hole.
-//   3. Soft alpha + despill on the 1px boundary to kill jaggies and colour halo.
+//   2. FLOOD-FILL from the borders with a LOOSE tolerance — only background
+//      connected to the edge is removed (so a near-chroma pixel INSIDE the garment
+//      never punches a hole), but loose enough to follow the AI's slightly uneven
+//      lighting/gradient instead of stopping mid-background.
+//   3. Compute an edge BAND (a few px wide) just inside the cut, and across the
+//      WHOLE band — not only the 1px boundary — feather the alpha by how strongly
+//      each pixel still reads as the chroma colour AND despill (clamp the key
+//      channels). This kills the magenta/green halo on the anti-aliased fringe,
+//      which the old 1px pass left behind.
 //   4. Sanity check: if we removed ~everything or ~nothing, treat as failure.
 
 function b64ToU8(b64: string): Uint8Array {
@@ -152,10 +180,28 @@ function chromaKeyBitmap(buf: Uint8Array | Uint8ClampedArray, W: number, H: numb
 
   const dist = (p: number) => { const o = p * 4; return Math.abs(buf[o] - ref.r) + Math.abs(buf[o + 1] - ref.g) + Math.abs(buf[o + 2] - ref.b); };
 
-  const TOL = 72;   // connected-background distance
-  const SOFT = 135; // boundary pixels up to this distance get soft alpha
+  // Key channels = the bright ones in the chroma colour (magenta → R+B; green → G).
+  const isKey = [ref.r > 180, ref.g > 180, ref.b > 180];
 
-  // 2. Flood-fill from the borders.
+  // Signed "chroma-ness": how strongly a pixel leans toward the key colour.
+  //   magenta: min(R,B) − G ;  green: G − max(R,B). High positive → background-like.
+  // Robust to lighting (it tracks the colour cast, not absolute brightness), and a
+  // garment that gets a magenta bg is never magenta-dominant (pickChromaBg), so a
+  // real garment edge reads ~0 or negative here.
+  const chroma = (o: number): number => {
+    let keyMin = 255, nonMax = 0;
+    for (let c = 0; c < 3; c++) {
+      if (isKey[c]) keyMin = Math.min(keyMin, buf[o + c]);
+      else nonMax = Math.max(nonMax, buf[o + c]);
+    }
+    return keyMin - nonMax;
+  };
+
+  // 2. Flood-fill bg from the borders. TOL is loose so the fill follows the AI's
+  //    uneven background lighting instead of stalling and leaving a magenta plate
+  //    (the old TOL=72 was the main cause of keyed:false fallbacks). Connectivity
+  //    from the border still protects every interior garment pixel.
+  const TOL = 110;
   const isBg = new Uint8Array(N);
   const stack: number[] = [];
   const seed = (x: number, y: number) => {
@@ -164,43 +210,82 @@ function chromaKeyBitmap(buf: Uint8Array | Uint8ClampedArray, W: number, H: numb
   };
   for (let x = 0; x < W; x++) { seed(x, 0); seed(x, H - 1); }
   for (let y = 0; y < H; y++) { seed(0, y); seed(W - 1, y); }
-  while (stack.length) {
-    const p = stack.pop()!;
+  const drain = () => {
+    while (stack.length) {
+      const p = stack.pop()!;
+      const x = p % W, y = (p / W) | 0;
+      if (x > 0) seed(x - 1, y);
+      if (x < W - 1) seed(x + 1, y);
+      if (y > 0) seed(x, y - 1);
+      if (y < H - 1) seed(x, y + 1);
+    }
+  };
+  drain();
+
+  // 2b. Enclosed background pools the border flood can't reach. The AI fills the
+  //     WHOLE background with the chroma colour — including gaps the garment
+  //     encloses (handle loops, the space between an arm and the torso, the hole
+  //     in the middle of a buckle, …). The border-connected flood stops at the
+  //     first garment pixel, so those interior pools stay opaque and a magenta/
+  //     green plate survives in the MIDDLE of the item. Re-seed the flood from any
+  //     pixel that STRICTLY matches the bg colour but wasn't reached, then grow it
+  //     with the same loose TOL. pickChromaBg guarantees the garment never matches
+  //     the chroma colour, so a strict-core match is always background — this can't
+  //     punch a hole in the garment itself. The band step below then feathers +
+  //     despills the rim of each interior hole exactly like the outer cut.
+  const TOL_CORE = 60; // strict: only near-pure bg colour seeds an interior pool
+  for (let p = 0; p < N; p++) {
+    if (!isBg[p] && dist(p) <= TOL_CORE) { isBg[p] = 1; stack.push(p); }
+  }
+  drain();
+
+  // 3. Edge BAND: BFS distance (in px) from the cut into the foreground, capped at
+  //    BAND. Every pixel in the band gets despilled + alpha-feathered — not just the
+  //    1px boundary — so the anti-aliased halo (2–4px of garment⊕chroma) is removed.
+  const BAND = Math.max(2, Math.round(Math.min(W, H) / 350)); // ~3px at 1K
+  const band = new Int16Array(N); // 0 = interior/unknown; >0 = px distance from cut
+  let frontier: number[] = [];
+  for (let p = 0; p < N; p++) {
+    if (isBg[p]) continue;
     const x = p % W, y = (p / W) | 0;
-    if (x > 0) seed(x - 1, y);
-    if (x < W - 1) seed(x + 1, y);
-    if (y > 0) seed(x, y - 1);
-    if (y < H - 1) seed(x, y + 1);
+    if ((x > 0 && isBg[p - 1]) || (x < W - 1 && isBg[p + 1]) ||
+        (y > 0 && isBg[p - W]) || (y < H - 1 && isBg[p + W])) {
+      band[p] = 1; frontier.push(p);
+    }
+  }
+  for (let d = 1; d < BAND; d++) {
+    const next: number[] = [];
+    for (const p of frontier) {
+      const x = p % W, y = (p / W) | 0;
+      const nb = [x > 0 ? p - 1 : -1, x < W - 1 ? p + 1 : -1, y > 0 ? p - W : -1, y < H - 1 ? p + W : -1];
+      for (const q of nb) { if (q >= 0 && !isBg[q] && band[q] === 0) { band[q] = d + 1; next.push(q); } }
+    }
+    frontier = next;
   }
 
-  // 3. Alpha + boundary despill.
-  const keyCh: number[] = [];
-  if (ref.r > 180) keyCh.push(0);
-  if (ref.g > 180) keyCh.push(1);
-  if (ref.b > 180) keyCh.push(2);
+  // 4. Compose: bg → transparent; interior → opaque untouched; band → feather by the
+  //    ORIGINAL chroma-ness, then despill the colour so no chroma tint survives.
+  const C_HI = 120;   // chroma ≥ this in the band → treat as residual bg (alpha 0)
+  const C_LO = 20;    // chroma ≤ this → fully opaque
+  const MARGIN = 12;  // despill: a key channel may exceed the non-key max by ≤ this
 
   let opaque = 0;
   for (let p = 0; p < N; p++) {
     const o = p * 4;
     if (isBg[p]) { buf[o + 3] = 0; continue; }
-    const x = p % W, y = (p / W) | 0;
-    const boundary =
-      (x > 0 && isBg[p - 1]) || (x < W - 1 && isBg[p + 1]) ||
-      (y > 0 && isBg[p - W]) || (y < H - 1 && isBg[p + W]);
-    if (boundary) {
-      const d = dist(p);
-      let a = 255;
-      if (d < SOFT) a = Math.max(0, Math.min(255, Math.round(((d - TOL) / (SOFT - TOL)) * 255)));
-      // Despill: clamp the key channels so the chroma can't bleed onto the edge.
-      let nonKeyMax = 0;
-      for (let c = 0; c < 3; c++) if (keyCh.indexOf(c) < 0) nonKeyMax = Math.max(nonKeyMax, buf[o + c]);
-      for (let k = 0; k < keyCh.length; k++) { const c = keyCh[k]; if (buf[o + c] > nonKeyMax + 16) buf[o + c] = nonKeyMax + 16; }
-      buf[o + 3] = a;
-      if (a > 0) opaque++;
-    } else {
-      buf[o + 3] = 255;
-      opaque++;
-    }
+    if (band[p] === 0) { buf[o + 3] = 255; opaque++; continue; } // interior garment
+
+    const ch = chroma(o);
+    let a = 255;
+    if (ch > C_LO) a = ch >= C_HI ? 0 : Math.round((255 * (C_HI - ch)) / (C_HI - C_LO));
+
+    // Despill: pull the key channels down to the non-key level so the halo can't tint.
+    let nonMax = 0;
+    for (let c = 0; c < 3; c++) if (!isKey[c]) nonMax = Math.max(nonMax, buf[o + c]);
+    for (let c = 0; c < 3; c++) if (isKey[c] && buf[o + c] > nonMax + MARGIN) buf[o + c] = nonMax + MARGIN;
+
+    buf[o + 3] = a;
+    if (a > 0) opaque++;
   }
   return opaque / N;
 }
@@ -373,6 +458,63 @@ function parseGarments(rawJson: string): GarmentMetadata[] {
   return parsed.map((p) => snapGarment(p)).filter((g): g is GarmentMetadata => g !== null);
 }
 
+// ─── Credit gate helper ───────────────────────────────────────────────────────
+
+interface MinimalClient {
+  from: (table: string) => { select: (col: string) => { single: () => Promise<{ data: unknown }> } };
+  rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+}
+
+function monthPeriod(): string {
+  return new Date(
+    Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1),
+  ).toISOString().slice(0, 10);
+}
+
+// Atomically consume one credit (premium/demo bypass). Returns a 402 Response
+// when exhausted, plus whether a credit was actually consumed so the caller can
+// refund it if the generation later fails/yields nothing.
+async function gateCredit(
+  supabase: MinimalClient,
+  type: string,
+  period: string,
+): Promise<{ response: Response | null; consumed: boolean }> {
+  try {
+    const { data: prof } = await supabase.from('profiles').select('account_type').single();
+    const accountType = (prof as { account_type?: string } | null)?.account_type;
+    if (accountType === 'premium' || accountType === 'demo') return { response: null, consumed: false };
+  } catch {
+    // profile fetch failure → fail open
+  }
+
+  const { data: gate, error: gateErr } = await supabase.rpc('consume_usage_credit', {
+    p_type: type,
+    p_period: period,
+    p_limit: 2,
+  });
+  if (gateErr) {
+    console.warn('[generate-item-image] credit gate RPC error (fail open):', gateErr.message);
+    return { response: null, consumed: false };
+  }
+  const g = gate as { allowed: boolean; used: number; limit: number } | null;
+  if (g && g.allowed === false) {
+    return {
+      response: jsonResponse({ error: 'credit_exhausted', credit_type: type, used: g.used, limit: g.limit }, 402),
+      consumed: false,
+    };
+  }
+  return { response: null, consumed: true };
+}
+
+// Best-effort refund of a previously consumed credit (generation failed/empty).
+async function refundCredit(supabase: MinimalClient, type: string, period: string): Promise<void> {
+  try {
+    await supabase.rpc('refund_usage_credit', { p_type: type, p_period: period });
+  } catch (e) {
+    console.warn('[generate-item-image] credit refund failed:', (e as Error).message);
+  }
+}
+
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
@@ -393,7 +535,7 @@ Deno.serve(async (req) => {
     const apiKey = Deno.env.get('GOOGLE_API_KEY');
     if (!apiKey) return jsonResponse({ error: 'GOOGLE_API_KEY not configured' }, 503);
 
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { photo_uri, notes } = body as { photo_uri?: string; notes?: string };
     if (!photo_uri || typeof photo_uri !== 'string') {
       return jsonResponse({ error: 'photo_uri required (base64 data URI)' }, 400);
@@ -403,37 +545,84 @@ Deno.serve(async (req) => {
     try { image = parseImage(photo_uri); }
     catch (e) { return jsonResponse({ error: (e as Error).message }, 400); }
 
-    // Step 1 — detect + snap to controlled vocab
-    const rawJson = await geminiDetect(apiKey, image, notes);
-    const garments = parseGarments(rawJson);
-    if (garments.length === 0) return jsonResponse({ items: [] }, 200);
+    // Credit gate AFTER input validation so a malformed request never burns a
+    // credit. The credit is consumed atomically here (before the slow Gemini
+    // call, so the monthly cap can't be raced) and refunded below if the
+    // generation yields nothing or throws.
+    const period = monthPeriod();
+    const gate = await gateCredit(supabase, 'ai_extraction', period);
+    if (gate.response) return gate.response;
 
-    // Ensure any new colours the AI used exist in the `colors` lookup table so the
-    // client can Add the item without an FK violation and the engine can score it.
-    // Uses the service role (the table is read-only to users via RLS). Best-effort.
-    await ensureColors(garments);
+    // Load the user's OWN body measurements (best-effort, RLS-scoped to them) so
+    // the detector can use the wearer's body as a real-world scale when the photo
+    // shows the user wearing the items — far better garment-size estimates. Absent
+    // profile / any failure → null (the prompt simply omits the scale reference).
+    let bodyScale: string | null = null;
+    try {
+      const { data: bm } = await supabase
+        .from('body_measurements').select('*').eq('user_id', user.id).single();
+      bodyScale = formatBodyScale(bm as BodyScale | null);
+    } catch (_e) { /* no measurements → estimate from typical sizing */ }
 
-    // Step 2 — isolate each garment in parallel; preserve order (pairing contract).
-    // The item is generated on a uniform chroma background (colour chosen to
-    // contrast with the garment) and keyed out server-side into a transparent PNG.
-    const items: ExtractedItemWithImage[] = await Promise.all(
-      garments.map(async (metadata) => {
-        const bg = pickChromaBg(metadata.color);
-        const img = await geminiIsolate(apiKey, image, metadata, bg, notes);
-        if (!img?.data) {
-          return { image_data: '', mime_type: 'image/png', metadata, keyed: false };
-        }
-        const keyed = await keyChroma(img.data, bg);
-        return {
-          image_data: keyed.data,
-          mime_type: keyed.keyed ? 'image/png' : img.mimeType,
-          metadata,
-          keyed: keyed.keyed,
-        };
-      }),
-    );
+    try {
+      // Step 1 — detect + snap to controlled vocab
+      const rawJson = await geminiDetect(apiKey, image, notes, bodyScale);
+      const garments = parseGarments(rawJson);
+      if (garments.length === 0) {
+        // Nothing detected → not a result the user can use; don't charge for it.
+        if (gate.consumed) await refundCredit(supabase, 'ai_extraction', period);
+        return jsonResponse({ items: [] }, 200);
+      }
 
-    return jsonResponse({ items }, 200);
+      // Ensure any new colours the AI used exist in the `colors` lookup table so the
+      // client can Add the item without an FK violation and the engine can score it.
+      // Uses the service role (the table is read-only to users via RLS). Best-effort.
+      await ensureColors(garments);
+
+      // Step 2 — isolate each garment in parallel; preserve order (pairing contract).
+      // The item is generated on a uniform chroma background (colour chosen to
+      // contrast with the garment) and keyed out server-side into a transparent PNG.
+      const items: ExtractedItemWithImage[] = await Promise.all(
+        garments.map(async (metadata) => {
+          const bg = pickChromaBg(metadata.color);
+          const img = await geminiIsolate(apiKey, image, metadata, bg, notes);
+          if (!img?.data) {
+            return { image_data: '', mime_type: 'image/png', metadata, keyed: false };
+          }
+          const keyed = await keyChroma(img.data, bg);
+
+          // Measured-hex color layer (2026-07-06, additive): decode the FINAL
+          // isolated image (background already keyed out when possible) and
+          // extract deterministic dominant hex(es) from its real pixels. Never
+          // fails the request — any decode error or an ambiguous/empty result
+          // simply leaves both hex fields null.
+          let primaryHex: string | null = null;
+          let secondaryHex: string | null = null;
+          try {
+            const decoded = await Image.decode(b64ToU8(keyed.data));
+            const hexes = dominantHexes(decoded.bitmap, decoded.width, decoded.height);
+            primaryHex = hexes.primaryHex;
+            secondaryHex = hexes.secondaryHex;
+          } catch (e) {
+            console.warn('[generate-item-image] hex extraction failed:', (e as Error).message);
+          }
+
+          return {
+            image_data: keyed.data,
+            mime_type: keyed.keyed ? 'image/png' : img.mimeType,
+            metadata: { ...metadata, primary_hex: primaryHex, secondary_hex: secondaryHex },
+            keyed: keyed.keyed,
+          };
+        }),
+      );
+
+      return jsonResponse({ items }, 200);
+    } catch (e) {
+      // Generation threw after the credit was consumed → refund, then rethrow to
+      // the outer handler for the error response.
+      if (gate.consumed) await refundCredit(supabase, 'ai_extraction', period);
+      throw e;
+    }
   } catch (err) {
     // Surface the real cause (Gemini status/body, payload issue, etc.) so the
     // client and logs show something actionable instead of a generic 500.

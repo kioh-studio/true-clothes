@@ -8,6 +8,7 @@ import {
 import { T, type } from '../../../design/tokens';
 import { IconCheck } from '../../../components/icons';
 import type { PhotoEntry } from '../types';
+import { useTranslation } from '../../../i18n';
 
 interface Props {
   photos: PhotoEntry[];
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export function ProcessingStep({ photos, processingIndex }: Props) {
+  const { t } = useTranslation();
   const [dots, setDots] = useState(1);
   const scanAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(0.35)).current;
@@ -119,11 +121,15 @@ export function ProcessingStep({ photos, processingIndex }: Props) {
 
       <View style={{ height: 24 }} />
       <Text style={styles.photoLabel}>
-        PHOTO {Math.min(processingIndex + 1, photos.length)} OF {photos.length} · {isAI ? 'BY AI' : 'ON-DEVICE'}
+        {t('processingStep_photoLabel', {
+          current: Math.min(processingIndex + 1, photos.length),
+          total: photos.length,
+          method: isAI ? t('methodBadge_byAi') : t('processingStep_onDevice'),
+        })}
       </Text>
       <View style={{ height: 10 }} />
       <Text style={styles.h2}>
-        {isAI ? 'Finding every piece' : 'Removing background'}{'.'.repeat(dots)}
+        {(isAI ? t('processingStep_findingPieces') : t('processingStep_removingBackground'))}{'.'.repeat(dots)}
       </Text>
 
       {/* skeleton rows */}

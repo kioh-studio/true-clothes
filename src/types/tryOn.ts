@@ -23,6 +23,13 @@ export interface ScannedItem {
    * existing item). Default/undefined = transient temp cut-out (safe to delete).
    */
   keepImage?: boolean;
+  /**
+   * REAL wardrobe item id when the pin wraps an item the user already owns
+   * (pinWardrobeItem). Lets downstream flows (e.g. AI wear-on-you) reference
+   * the item by id — with its real cloud photo — instead of a text description.
+   * Undefined for transient scans (item not in the wardrobe yet).
+   */
+  sourceItemId?: string;
 }
 
 export type CriterionKey = 'color' | 'style' | 'fit' | 'measurement' | 'fabric';
@@ -49,6 +56,9 @@ export interface Verdict {
   recommendation: Recommendation | null;
   /** Always exactly five entries, fixed order: color, style, fit, measurement, fabric. */
   criteria: CriterionScore[];
+  /** AI-written grounded note shown under the bars (where it fits / doesn't), to aid
+   *  the buy decision. null when the LLM is unavailable/rate-limited/errored. */
+  fitNote: string | null;
 }
 
 // ─── Wear-on-you (feature 009 — AI try-on rendering the outfit on the user) ────

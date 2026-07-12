@@ -11,6 +11,7 @@ import { colorMatch } from '../utils/colorMatch';
 import { labelToType } from './itemTypeMap';
 import { measureDefaults } from '../features/wardrobe-add/measureSchema';
 import { titleCase } from '../features/wardrobe-add/vocab';
+import { dominantHexesFromUri } from '../features/wardrobe-add/colorClusterUri';
 
 export class ExtractByItemUnavailableError extends Error {
   constructor(message = 'On-device item extraction needs a custom dev build (unavailable here).') {
@@ -39,6 +40,13 @@ export async function extractItemOnDevice(
   const type = labelToType(res.labels);                 // controlled type, or '' (user picks)
   const ocr = (res.ocrText ?? []).map((t) => t.trim()).filter(Boolean);
 
+  // Measured-hex color layer (2026-07-06): deterministic dominant hex(es) from
+  // the transparent cut-out's real pixels — the on-device twin of what
+  // generate-item-image computes server-side for the AI path, so BOTH ingest
+  // paths carry hex at save time. Best-effort: dominantHexesFromUri never
+  // throws (resolves to nulls on any failure) and nulls never block the add.
+  const { primaryHex, secondaryHex } = await dominantHexesFromUri(res.cutoutUri);
+
   const metadata: GarmentMetadata = {
     type,
     name: type ? `${color} ${titleCase(type)}` : `${color} item`,
@@ -58,6 +66,8 @@ export async function extractItemOnDevice(
     },
     tags: [],
     confidence: res.labels?.[0]?.confidence ?? 0.5,
+    primaryHex,
+    secondaryHex,
   };
 
   return [{ localImageUri: res.cutoutUri, usedFallback: res.usedFallback, metadata }];

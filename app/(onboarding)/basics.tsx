@@ -1,13 +1,35 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, Pressable, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PrimaryButton, Tag } from '../../src/components/ui';
 import { IconChevronLeft } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAuthStore } from '../../src/stores/authStore';
+import { useTranslation } from '../../src/i18n';
 
-const GENDERS = ['WOMAN', 'MAN', 'NON-BINARY', 'PREFER NOT TO SAY'];
+const GENDERS = ['WOMAN', 'MAN', 'NON-BINARY', 'PREFER NOT TO SAY'] as const;
+const GENDER_KEYS: Record<typeof GENDERS[number], string> = {
+  'WOMAN': 'onboarding_basics_genderWoman',
+  'MAN': 'onboarding_basics_genderMan',
+  'NON-BINARY': 'onboarding_basics_genderNonBinary',
+  'PREFER NOT TO SAY': 'onboarding_basics_genderPreferNotToSay',
+};
+
+/** Zero-pad DD/MM and validate the date is real (rejects e.g. 31/02) before it
+ * reaches dobAppToIso (which requires exactly 2/2/4 digits) and Postgres. */
+function buildDob(dd: string, mm: string, yyyy: string, invalidError: string): { dob: string } | { error: string } {
+  const d = dd.padStart(2, '0');
+  const m = mm.padStart(2, '0');
+  const y = yyyy.padStart(4, '0');
+  const day = Number(d), month = Number(m), year = Number(y);
+  const date = new Date(year, month - 1, day);
+  const valid =
+    date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day &&
+    year >= 1900 && year <= new Date().getFullYear();
+  if (!valid) return { error: invalidError };
+  return { dob: `${d}/${m}/${y}` };
+}
 
 function DateField({ value, onChange, placeholder, maxLength }: { value: string; onChange: (v: string) => void; placeholder: string; maxLength: number }) {
   return (
@@ -26,15 +48,39 @@ function DateField({ value, onChange, placeholder, maxLength }: { value: string;
 export default function BasicsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { setProfile } = useAuthStore();
   const [dd, setDd] = useState('');
   const [mm, setMm] = useState('');
   const [yyyy, setYyyy] = useState('');
   const [gender, setGender] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   const handleContinue = async () => {
-    const dob = dd && mm && yyyy ? `${dd}/${mm}/${yyyy}` : '';
-    await setProfile({ dob, gender: gender ?? '' });
+    if (saving) return;
+    setError('');
+
+    let dob = '';
+    if (dd && mm && yyyy) {
+      const built = buildDob(dd, mm, yyyy, t('onboardingBasics_invalidDobError'));
+      if ('error' in built) {
+        setError(built.error);
+        Alert.alert(t('onboardingCommon_couldNotSaveAlertTitle'), built.error);
+        return;
+      }
+      dob = built.dob;
+    }
+
+    setSaving(true);
+    const result = await setProfile({ dob, gender: gender ?? '' });
+    setSaving(false);
+    if (!result.ok) {
+      const msg = result.message || t('addItem_errorMessage');
+      setError(msg);
+      Alert.alert(t('onboardingCommon_couldNotSaveAlertTitle'), msg);
+      return;
+    }
     router.push('/(onboarding)/location');
   };
 
@@ -45,38 +91,40 @@ export default function BasicsScreen() {
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.2} />
         </Pressable>
         <Pressable onPress={() => router.push('/(onboarding)/location')} style={styles.skipBtn}>
-          <Text style={styles.skipText}>SKIP</Text>
+          <Text style={styles.skipText}>{t('onboarding_basics_skip')}</Text>
         </Pressable>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
         <View style={{ height: 32 }} />
-        <Text style={styles.h1}>About you.</Text>
-        <Text style={styles.caption}>This helps us tailor suggestions. You can change it anytime.</Text>
+        <Text style={styles.h1}>{t('onboarding_basics_title')}</Text>
+        <Text style={styles.caption}>{t('onboarding_basics_subtitle')}</Text>
         <View style={{ height: 48 }} />
 
-        <Text style={styles.sectionLabel}>DATE OF BIRTH</Text>
+        <Text style={styles.sectionLabel}>{t('onboarding_basics_dateOfBirth')}</Text>
         <View style={styles.dateRow}>
-          <DateField value={dd} onChange={setDd} placeholder="DD" maxLength={2} />
+          <DateField value={dd} onChange={setDd} placeholder={t('onboarding_basics_dobPlaceholderDD')} maxLength={2} />
           <Text style={styles.dateSep}>/</Text>
-          <DateField value={mm} onChange={setMm} placeholder="MM" maxLength={2} />
+          <DateField value={mm} onChange={setMm} placeholder={t('onboarding_basics_dobPlaceholderMM')} maxLength={2} />
           <Text style={styles.dateSep}>/</Text>
-          <DateField value={yyyy} onChange={setYyyy} placeholder="YYYY" maxLength={4} />
+          <DateField value={yyyy} onChange={setYyyy} placeholder={t('onboarding_basics_dobPlaceholderYYYY')} maxLength={4} />
         </View>
-        <Text style={styles.hint}>We use this for age-appropriate suggestions only.</Text>
+        <Text style={styles.hint}>{t('onboarding_basics_dobHint')}</Text>
 
         <View style={{ height: 40 }} />
-        <Text style={styles.sectionLabel}>GENDER</Text>
+        <Text style={styles.sectionLabel}>{t('onboarding_basics_gender')}</Text>
         <View style={{ height: 12 }} />
         <View style={styles.tagRow}>
           {GENDERS.map(g => (
-            <Tag key={g} selected={gender === g} onPress={() => setGender(g)}>{g}</Tag>
+            <Tag key={g} selected={gender === g} onPress={() => setGender(g)}>{t(GENDER_KEYS[g])}</Tag>
           ))}
         </View>
-        <Text style={styles.hint}>Affects body type silhouette options. Doesn't restrict style choices.</Text>
+        <Text style={styles.hint}>{t('onboarding_basics_genderHint')}</Text>
 
         <View style={{ height: 48 }} />
-        <PrimaryButton onPress={handleContinue}>CONTINUE</PrimaryButton>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {error ? <View style={{ height: 12 }} /> : null}
+        <PrimaryButton onPress={handleContinue} disabled={saving}>{t('onboarding_basics_continue')}</PrimaryButton>
       </ScrollView>
     </View>
   );
@@ -102,4 +150,5 @@ const styles = StyleSheet.create({
   dateSep: { color: T.color.hairlineStrong, fontSize: 17 },
   hint: { ...type.caption, fontSize: 12, color: T.color.tertiary, marginTop: 8 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  error: { ...type.caption, fontSize: 12, color: '#A33' },
 });

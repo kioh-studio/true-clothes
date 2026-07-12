@@ -15,6 +15,9 @@ import { useAuthStore } from '../../src/stores/authStore';
 import { buildWearGarments } from '../../src/services/tryOnWearService';
 import { useWearOnYou } from '../../src/features/try-on/useWearOnYou';
 import type { WearGarment, WearFrame, WearProfile } from '../../src/types/tryOn';
+import type { BodyShape, BodyMeasurements } from '../../src/types/measurements';
+import type { PreferredFit } from '../../src/types/fitEngine';
+import { useTranslation } from '../../src/i18n';
 
 // "DD/MM/YYYY" → age in years (best-effort; undefined when unparseable).
 function ageFromDob(dob: string | undefined, now: Date): number | undefined {
@@ -37,10 +40,48 @@ const MEASUREMENT_LABELS: Record<string, string> = {
   body_rise: 'rise', body_foot_length: 'foot_length', body_foot_width: 'foot_width',
 };
 
+// Detail measurements shown on the "Your Frame" card, in display order — reuses
+// the same i18n label keys as onboarding/measurements-edit (no new label keys).
+const DETAIL_FIELDS: { key: keyof BodyMeasurements; labelKey: string }[] = [
+  { key: 'body_bust', labelKey: 'onboarding_measurements_chestLabel' },
+  { key: 'body_waist', labelKey: 'onboarding_measurements_waistLabel' },
+  { key: 'body_hip', labelKey: 'onboarding_measurements_hipsLabel' },
+  { key: 'body_shoulder_width', labelKey: 'measurements_shoulderLabel' },
+  { key: 'body_sleeve_length', labelKey: 'measurements_sleeveLabel' },
+  { key: 'body_upper_body_length', labelKey: 'measurements_upperBodyLabel' },
+  { key: 'body_upper_arm', labelKey: 'measurements_upperArmLabel' },
+  { key: 'body_neck', labelKey: 'measurements_neckLabel' },
+  { key: 'body_inseam', labelKey: 'onboarding_measurements_inseamLabel' },
+  { key: 'body_thigh', labelKey: 'onboarding_measurements_thighLabel' },
+  { key: 'body_rise', labelKey: 'onboarding_measurements_riseLabel' },
+  { key: 'body_foot_length', labelKey: 'measurements_footLengthLabel' },
+  { key: 'body_foot_width', labelKey: 'measurements_footWidthLabel' },
+];
+
+// Same maps as measurements-edit.tsx (kept local — screens are thin and this
+// is display-only; no shared export exists for these small label lookups).
+const SHAPE_LABEL_KEYS: Record<BodyShape, string> = {
+  hourglass: 'measurements_shapeHourglass',
+  rectangle: 'measurements_shapeRectangle',
+  triangle: 'measurements_shapeTriangle',
+  inverted_triangle: 'measurements_shapeInvertedTriangle',
+  apple: 'measurements_shapeApple',
+};
+const FIT_LABEL_KEYS: Record<PreferredFit, string> = {
+  SLIM: 'measurementsEdit_fitSlim',
+  REGULAR: 'measurementsEdit_fitRegular',
+  RELAXED: 'measurementsEdit_fitRelaxed',
+  OVERSIZED: 'measurementsEdit_fitOversized',
+};
+
 export default function WearOnYouScreen() {
-  const { id, data } = useLocalSearchParams<{ id: string; data?: string }>();
+  // `extra` (optional) — one garment NOT in the wardrobe, e.g. the scanned
+  // Mix & Match candidate. It has no cloud photo, so it reaches the generator
+  // as a text-described garment (type/color/material/fit) — supported server-side.
+  const { id, data, extra } = useLocalSearchParams<{ id: string; data?: string; extra?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
 
   const wardrobeItems = useAppStore(s => s.wardrobeItems);
   const measurements = useAuthStore(s => s.measurements);
@@ -57,6 +98,29 @@ export default function WearOnYouScreen() {
     height: measurements?.body_height ? `${measurements.body_height} cm` : undefined,
     weight: measurements?.body_weight ? `${measurements.body_weight} kg` : undefined,
   }), [measurements?.body_height, measurements?.body_weight]);
+
+  // Detail measurements present on the profile (chest/waist/hips/…), in display
+  // order — only the ones the user actually filled in, for the "Your Frame" card.
+  const detailRows = useMemo(() => {
+    if (!measurements) return [];
+    return DETAIL_FIELDS
+      .map(({ key, labelKey }) => {
+        const v = measurements[key];
+        return typeof v === 'number' && v > 0 ? { key, labelKey, value: v } : null;
+      })
+      .filter((r): r is { key: keyof BodyMeasurements; labelKey: string; value: number } => r !== null);
+  }, [measurements]);
+
+  // The three girths that most affect garment drape. When ALL are missing, a
+  // detail grid would be near-empty — show the add-measurements CTA instead.
+  const sparse = useMemo(() => {
+    const has = (v: number | undefined) => typeof v === 'number' && v > 0;
+    return !has(measurements?.body_bust) && !has(measurements?.body_waist) && !has(measurements?.body_hip);
+  }, [measurements?.body_bust, measurements?.body_waist, measurements?.body_hip]);
+
+  // Some (but not all) detail fields present → a soft, low-emphasis nudge to
+  // fill in the rest, without competing with the sparse-state CTA.
+  const hasMoreToAdd = !sparse && detailRows.length < DETAIL_FIELDS.length;
 
   // Detailed profile sent to the generator for accurate proportions & fit.
   const profile: WearProfile = useMemo(() => {
@@ -84,6 +148,14 @@ export default function WearOnYouScreen() {
   // Tracks whether garment resolution has finished, so the "no items" notice only
   // shows after the async resolve completes (never flashes while it's still loading).
   const [garmentsReady, setGarmentsReady] = useState(false);
+  const extraGarment = useMemo(() => {
+    if (!extra) return null;
+    try {
+      const e = JSON.parse(extra);
+      return e && typeof e.type === 'string' && e.type.trim() ? e : null;
+    } catch { return null; }
+  }, [extra]);
+
   useEffect(() => {
     let cancelled = false;
     setGarmentsReady(false);
@@ -94,9 +166,18 @@ export default function WearOnYouScreen() {
       const m = itemById(iid);
       return m ? { type: m.type, name: m.name, primaryColor: m.color, material: m.material, fit: m.fit, photoStorage: 'none' as const, photoPath: null } : null;
     }).filter(Boolean) as Parameters<typeof buildWearGarments>[0];
+    // The scanned candidate leads the look — describe it first.
+    if (extraGarment) {
+      sources.unshift({
+        type: extraGarment.type, name: extraGarment.name ?? undefined,
+        primaryColor: extraGarment.color ?? undefined,
+        material: extraGarment.material ?? undefined, fit: extraGarment.fit ?? undefined,
+        photoStorage: 'none' as const, photoPath: null,
+      });
+    }
     buildWearGarments(sources).then((g) => { if (!cancelled) { setGarments(g); setGarmentsReady(true); } });
     return () => { cancelled = true; };
-  }, [outfit.itemIds, wardrobeItems]);
+  }, [outfit.itemIds, wardrobeItems, extraGarment]);
 
   // No garment in this outfit resolved to a wardrobe item → WEAR ON would stay
   // greyed out with no explanation. Surface a clear reason instead.
@@ -108,7 +189,7 @@ export default function WearOnYouScreen() {
     context: { title: outfit.title, style: outfit.style, occasion: outfit.context },
   });
 
-  const itemCount = (outfit.itemIds as string[]).length;
+  const itemCount = (outfit.itemIds as string[]).length + (extraGarment ? 1 : 0);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -117,7 +198,7 @@ export default function WearOnYouScreen() {
         <Pressable onPress={() => router.back()} style={styles.iconBtn}>
           <IconX size={20} color={T.color.primary} strokeWidth={1.4} />
         </Pressable>
-        <Text style={styles.navTitle}>AI TRY-ON</Text>
+        <Text style={styles.navTitle}>{t('wearOnYou_navTitle')}</Text>
         <View style={styles.iconBtn} />
       </View>
 
@@ -126,11 +207,11 @@ export default function WearOnYouScreen() {
           {/* ── Header copy (hidden on result for a cleaner reveal) ── */}
           {w.phase !== 'result' && (
             <>
-              <Text style={styles.label}>SEE IT ON YOU</Text>
+              <Text style={styles.label}>{t('wearOnYou_seeItOnYou')}</Text>
               <View style={{ height: 8 }} />
               <Text style={styles.h2}>{outfit.title}</Text>
               <Text style={[type.caption, { marginTop: 12 }]}>
-                Tải lên ảnh của bạn, chúng tôi sẽ ghép bộ trang phục này lên người bạn theo số đo thật.
+                {t('wearOnYou_intro')}
               </Text>
               <View style={{ height: 24 }} />
             </>
@@ -139,13 +220,13 @@ export default function WearOnYouScreen() {
           {/* ── Your frame ── */}
           {w.phase !== 'result' && (
             <View style={styles.card}>
-              <Text style={styles.label}>YOUR FRAME</Text>
+              <Text style={styles.label}>{t('wearOnYou_yourFrame')}</Text>
               <View style={{ height: 12 }} />
               <View style={{ flexDirection: 'row', gap: 16 }}>
                 {[
-                  { label: 'HEIGHT', value: frame.height ?? '—' },
-                  { label: 'WEIGHT', value: frame.weight ?? '—' },
-                  { label: 'ITEMS', value: String(itemCount) },
+                  { label: t('wearOnYou_height'), value: frame.height ?? '—' },
+                  { label: t('wearOnYou_weight'), value: frame.weight ?? '—' },
+                  { label: t('wearOnYou_items'), value: String(itemCount) },
                 ].map(s => (
                   <View key={s.label} style={{ flex: 1 }}>
                     <Text style={styles.miniLabel}>{s.label}</Text>
@@ -153,6 +234,51 @@ export default function WearOnYouScreen() {
                   </View>
                 ))}
               </View>
+
+              {sparse ? (
+                <>
+                  <View style={{ height: 16 }} />
+                  <Text style={[type.caption, { fontSize: 11, color: T.color.secondary }]}>
+                    {t('wearOnYou_framePartialCta')}
+                  </Text>
+                  <View style={{ height: 12 }} />
+                  <SecondaryButton onPress={() => router.push('/measurements-edit')}>
+                    {t('wearOnYou_frameAddButton')}
+                  </SecondaryButton>
+                </>
+              ) : (
+                <>
+                  <View style={{ height: 16 }} />
+                  <View style={styles.detailGrid}>
+                    {detailRows.map(r => (
+                      <View key={r.key} style={styles.detailItem}>
+                        <Text style={styles.miniLabel}>{t(r.labelKey)}</Text>
+                        <Text style={styles.detailValue}>{r.value} cm</Text>
+                      </View>
+                    ))}
+                    {measurements?.bodyShape && (
+                      <View style={styles.detailItem}>
+                        <Text style={styles.miniLabel}>{t('measurements_bodyShapeLabel')}</Text>
+                        <Text style={styles.detailValue}>{t(SHAPE_LABEL_KEYS[measurements.bodyShape])}</Text>
+                      </View>
+                    )}
+                    {measurements?.preferredFit && (
+                      <View style={styles.detailItem}>
+                        <Text style={styles.miniLabel}>{t('measurementsEdit_preferredFitLabel')}</Text>
+                        <Text style={styles.detailValue}>{t(FIT_LABEL_KEYS[measurements.preferredFit])}</Text>
+                      </View>
+                    )}
+                  </View>
+                  {hasMoreToAdd && (
+                    <>
+                      <View style={{ height: 12 }} />
+                      <TextLink onPress={() => router.push('/measurements-edit')} color={T.color.tertiary}>
+                        {t('wearOnYou_frameUpdateLink')}
+                      </TextLink>
+                    </>
+                  )}
+                </>
+              )}
             </View>
           )}
 
@@ -166,7 +292,7 @@ export default function WearOnYouScreen() {
               <View style={styles.photoEmpty}>
                 <IconImage size={32} color={T.color.tertiary} strokeWidth={1.2} />
                 <Text style={[type.caption, { marginTop: 12, color: T.color.tertiary, textAlign: 'center' }]}>
-                  Ảnh rõ mặt, thấy phần thân trên,{'\n'}chỉ một mình bạn trong khung hình.
+                  {t('wearOnYou_photoHint')}
                 </Text>
               </View>
             )}
@@ -176,13 +302,13 @@ export default function WearOnYouScreen() {
               <View style={styles.overlay}>
                 <ActivityIndicator color={T.color.canvas} />
                 <Text style={styles.overlayText}>
-                  {w.phase === 'validating' ? 'ĐANG KIỂM TRA ẢNH…' : 'ĐANG TẠO ẢNH THỬ ĐỒ…'}
+                  {w.phase === 'validating' ? t('wearOnYou_checkingPhoto') : t('wearOnYou_generating')}
                 </Text>
               </View>
             )}
             {w.phase === 'result' && (
               <View style={styles.resultBadge}>
-                <Text style={styles.resultBadgeText}>AI · {outfit.title}</Text>
+                <Text style={styles.resultBadgeText}>{t('wearOnYou_resultBadge', { title: outfit.title })}</Text>
               </View>
             )}
           </View>
@@ -198,7 +324,7 @@ export default function WearOnYouScreen() {
           {w.phase === 'result' && w.result && (
             <>
               <View style={{ height: 16 }} />
-              <Text style={styles.h2}>{outfit.title} on you.</Text>
+              <Text style={styles.h2}>{t('wearOnYou_resultTitle', { title: outfit.title })}</Text>
             </>
           )}
 
@@ -213,7 +339,7 @@ export default function WearOnYouScreen() {
           {w.creditBlocked && (
             <View style={styles.notice}>
               <Text style={styles.noticeText}>
-                Bạn đã dùng hết lượt thử đồ miễn phí tháng này. Nâng cấp Premium để thử không giới hạn.
+                {t('wearOnYou_creditBlocked')}
               </Text>
             </View>
           )}
@@ -222,7 +348,7 @@ export default function WearOnYouScreen() {
           {noGarments && w.phase !== 'result' && (
             <View style={styles.notice}>
               <Text style={styles.noticeText}>
-                Không tìm thấy món đồ nào trong tủ cho bộ này. Hãy thêm đồ vào tủ rồi thử lại.
+                {t('wearOnYou_noGarments')}
               </Text>
             </View>
           )}
@@ -232,40 +358,40 @@ export default function WearOnYouScreen() {
           {/* ── Actions (state machine) ── */}
           {(w.phase === 'upload' || w.phase === 'invalid') && (
             <>
-              <PrimaryButton onPress={w.pickFromCamera}>CHỤP ẢNH</PrimaryButton>
+              <PrimaryButton onPress={w.pickFromCamera}>{t('wearOnYou_takePhoto')}</PrimaryButton>
               <View style={{ height: 12 }} />
-              <SecondaryButton onPress={w.pickFromLibrary}>CHỌN TỪ THƯ VIỆN</SecondaryButton>
+              <SecondaryButton onPress={w.pickFromLibrary}>{t('wearOnYou_pickFromLibrary')}</SecondaryButton>
             </>
           )}
 
           {w.phase === 'validating' && (
-            <PrimaryButton disabled>ĐANG KIỂM TRA…</PrimaryButton>
+            <PrimaryButton disabled>{t('wearOnYou_checking')}</PrimaryButton>
           )}
 
           {w.phase === 'ready' && (
             <>
-              <PrimaryButton onPress={w.generate} disabled={garments.length === 0 || w.creditBlocked}>WEAR ON</PrimaryButton>
+              <PrimaryButton onPress={w.generate} disabled={garments.length === 0 || w.creditBlocked}>{t('wearOnYou_wearOn')}</PrimaryButton>
               <View style={{ height: 12 }} />
-              <SecondaryButton onPress={w.pickAnother}>CHỌN ẢNH KHÁC</SecondaryButton>
+              <SecondaryButton onPress={w.pickAnother}>{t('wearOnYou_pickAnother')}</SecondaryButton>
               <View style={{ height: 12 }} />
               <Text style={[type.caption, { fontSize: 11, color: T.color.tertiary, textAlign: 'center' }]}>
-                Mất ~10 giây. Ảnh của bạn không được lưu lên máy chủ.
+                {t('wearOnYou_generateHint')}
               </Text>
             </>
           )}
 
           {w.phase === 'rendering' && (
-            <PrimaryButton disabled>ĐANG TẠO ẢNH…</PrimaryButton>
+            <PrimaryButton disabled>{t('wearOnYou_generatingButton')}</PrimaryButton>
           )}
 
           {(w.phase === 'result' || w.phase === 'error') && (
             <>
-              <PrimaryButton onPress={w.regenerate} disabled={w.creditBlocked}>TẠO LẠI</PrimaryButton>
+              <PrimaryButton onPress={w.regenerate} disabled={w.creditBlocked}>{t('wearOnYou_regenerate')}</PrimaryButton>
               <View style={{ height: 12 }} />
-              <SecondaryButton onPress={w.pickAnother}>THỬ ẢNH KHÁC</SecondaryButton>
+              <SecondaryButton onPress={w.pickAnother}>{t('wearOnYou_tryAnotherPhoto')}</SecondaryButton>
               <View style={{ height: 16 }} />
               <View style={{ alignItems: 'center' }}>
-                <TextLink onPress={() => router.back()} color={T.color.tertiary}>Xong</TextLink>
+                <TextLink onPress={() => router.back()} color={T.color.tertiary}>{t('wearOnYou_done')}</TextLink>
               </View>
             </>
           )}
@@ -286,6 +412,9 @@ const styles = StyleSheet.create({
   h2: { ...type.h2, color: T.color.primary },
   card: { borderWidth: 0.5, borderColor: T.color.hairline, padding: 20 },
   frameValue: { fontFamily: T.font.serif, fontSize: 18, color: T.color.primary, marginTop: 4 },
+  detailGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  detailItem: { flexBasis: '28%', flexGrow: 1 },
+  detailValue: { fontFamily: T.font.serif, fontSize: 14, color: T.color.primary, marginTop: 3 },
   photoZone: {
     width: '100%', aspectRatio: 3 / 4, backgroundColor: T.color.elevated,
     borderWidth: 0.5, borderColor: T.color.hairline, overflow: 'hidden',

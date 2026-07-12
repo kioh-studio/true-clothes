@@ -1,23 +1,37 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Alert } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../../src/design/tokens';
 import { PrimaryButton, TextLink } from '../../src/components/ui';
 import { useAuthStore } from '../../src/stores/authStore';
-
-const STEPS = [
-  { n: '01', label: 'SNAP A PHOTO' },
-  { n: '02', label: 'WE EXTRACT DETAILS' },
-  { n: '03', label: 'OUTFITS APPEAR' },
-];
+import { useTranslation } from '../../src/i18n';
 
 export default function WardrobeIntroScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { completeOnboarding } = useAuthStore();
   const [show, setShow] = useState(false);
+
+  const STEPS = [
+    { n: '01', label: t('onboardingWardrobeIntro_step1') },
+    { n: '02', label: t('onboardingWardrobeIntro_step2') },
+    { n: '03', label: t('onboardingWardrobeIntro_step3') },
+  ];
+
+  // See app/(onboarding)/complete.tsx — completeOnboarding() can fail, and
+  // navigating anyway leaves the server row unmarked, bouncing the user back
+  // to Welcome/OTP on the next cold start.
+  const finish = async (dest: string, replace: boolean) => {
+    const res = await completeOnboarding();
+    if (!res.ok) {
+      Alert.alert(t('onboardingCommon_couldNotFinishSetupAlertTitle'), res.message ?? t('onboardingCommon_pleaseTryAgain'));
+      return;
+    }
+    if (replace) router.replace(dest as never); else router.push(dest as never);
+  };
 
   useEffect(() => {
     const t = setTimeout(() => setShow(true), 80);
@@ -51,15 +65,15 @@ export default function WardrobeIntroScreen() {
               </React.Fragment>
             ))}
           </Svg>
-          <Text style={styles.illustrationLabel}>YOUR CLOSET · EMPTY</Text>
+          <Text style={styles.illustrationLabel}>{t('onboardingWardrobeIntro_closetEmptyLabel')}</Text>
         </View>
       </View>
 
       {/* Content */}
       <View style={[styles.content, { paddingBottom: insets.bottom + 32 }]}>
-        <Text style={styles.h1}>Your wardrobe.</Text>
+        <Text style={styles.h1}>{t('onboardingWardrobeIntro_title')}</Text>
         <Text style={styles.body}>
-          Add what you already own. We'll build outfits from real pieces — not generic suggestions.
+          {t('onboardingWardrobeIntro_body')}
         </Text>
 
         <View style={{ height: 24 }} />
@@ -74,13 +88,13 @@ export default function WardrobeIntroScreen() {
         </View>
 
         <View style={{ flex: 1, minHeight: 32 }} />
-        <PrimaryButton onPress={async () => { await completeOnboarding(); router.push('/add-item' as any); }}>
-          ADD FIRST ITEM
+        <PrimaryButton onPress={() => finish('/add-item', false)}>
+          {t('tabs_wardrobe_addFirstItem')}
         </PrimaryButton>
         <View style={{ height: 16 }} />
         <View style={{ alignItems: 'center' }}>
-          <TextLink onPress={async () => { await completeOnboarding(); router.replace('/(tabs)'); }} color={T.color.tertiary} arrow>
-            Skip for now
+          <TextLink onPress={() => finish('/(tabs)', true)} color={T.color.tertiary} arrow>
+            {t('onboardingCommon_skipForNow')}
           </TextLink>
         </View>
       </View>

@@ -13,10 +13,13 @@
 
 import { useCallback, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { validatePersonPhoto, generateWearOn } from '../../services/tryOnWearService';
-import { checkCredit, incrementCredit } from '../../services/usageCreditService';
+import { checkCredit, isCreditExhausted } from '../../services/usageCreditService';
 import { hasPremiumAccountType } from '../../services/profileService';
+import { compositeFace } from './faceComposite';
 import type { WearGarment, WearProfile, WearOnResult } from '../../types/tryOn';
+import i18n from '../../i18n';
 
 export type WearPhase = 'upload' | 'validating' | 'invalid' | 'ready' | 'rendering' | 'result' | 'error';
 
@@ -39,6 +42,15 @@ export function useWearOnYou({ garments, profile, context }: UseWearOnYouArgs) {
 
   // Guards against a stale validate/generate resolving after the user moved on.
   const runId = useRef(0);
+  // In-flight guard for generate(): checked SYNCHRONOUSLY as the very first
+  // thing, before the premium/credit `await`s. Without it, a double-tap on
+  // "WEAR ON" fires generate() twice while the first call is still awaiting
+  // the premium check — both calls pass the credit gate and both call the
+  // server, consuming 2 credits for 1 user action. `phase !== 'rendering'`
+  // isn't enough on its own because `setPhase('rendering')` only happens
+  // AFTER the awaited premium/credit check, i.e. after the window this needs
+  // to close.
+  const generating = useRef(false);
 
   const runValidation = useCallback(async (uri: string) => {
     const id = ++runId.current;
@@ -52,12 +64,12 @@ export function useWearOnYou({ garments, profile, context }: UseWearOnYouArgs) {
       if (v.valid) {
         setPhase('ready');
       } else {
-        setReason(v.reason || 'Ảnh chưa phù hợp. Hãy chọn ảnh khác.');
+        setReason(v.reason || i18n.t('wearOnYou_photoNotSuitable'));
         setPhase('invalid');
       }
     } catch {
       if (id !== runId.current) return;
-      setReason('Không kiểm tra được ảnh. Kiểm tra kết nối và thử lại.');
+      setReason(i18n.t('wearOnYou_validationFailed'));
       setPhase('invalid');
     }
   }, []);
@@ -86,50 +98,87 @@ export function useWearOnYou({ garments, profile, context }: UseWearOnYouArgs) {
 
   const generate = useCallback(async () => {
     if (!photoUri || garments.length === 0) return;
+    // In-flight guard FIRST, before any await — closes the double-tap window
+    // during the premium/credit check (see comment on `generating` above).
+    if (generating.current) return;
+    generating.current = true;
+
     const id = ++runId.current;
     setErrorMsg('');
     setCreditBlocked(false);
 
-    // Credit gate (skip for premium).
     try {
-      const premium = await hasPremiumAccountType();
-      if (!premium) {
-        const status = await checkCredit('try_on');
-        if (id !== runId.current) return;
-        if (status.remaining < 1) {
-          setCreditsRemaining(0);
-          setCreditBlocked(true);
-          return;
-        }
-      }
-    } catch {
-      // Credit check failure shouldn't hard-block; proceed (best-effort like scan).
-    }
-
-    setPhase('rendering');
-    try {
-      const out = await generateWearOn({
-        personUri: photoUri,
-        garments,
-        profile,
-        context,
-      });
-      if (id !== runId.current) return;
-      setResult(out);
-      setPhase('result');
-      // Consume a credit only on success (don't charge for failures).
+      // Credit gate (skip for premium).
       try {
         const premium = await hasPremiumAccountType();
         if (!premium) {
-          await incrementCredit('try_on');
           const status = await checkCredit('try_on');
-          setCreditsRemaining(status.remaining);
+          if (id !== runId.current) return;
+          if (status.remaining < 1) {
+            setCreditsRemaining(0);
+            setCreditBlocked(true);
+            return;
+          }
         }
-      } catch { /* best-effort accounting */ }
-    } catch {
-      if (id !== runId.current) return;
-      setErrorMsg('Không tạo được ảnh thử đồ. Vui lòng thử lại.');
-      setPhase('error');
+      } catch {
+        // Credit check failure shouldn't hard-block; proceed (best-effort like scan).
+      }
+
+      setPhase('rendering');
+      try {
+        const out = await generateWearOn({
+          personUri: photoUri,
+          garments,
+          profile,
+          context,
+        });
+        if (id !== runId.current) return;
+
+        // Face compositing (feature 010): paste the user's REAL face from
+        // their source photo onto the generated studio image so identity is
+        // guaranteed. Best-effort — any failure/no-detect/implausible
+        // alignment falls back to the raw generated image (pre-existing
+        // behaviour). Never blocks or throws into the result flow.
+        let finalResult = out;
+        try {
+          const compositeUri = await compositeFace(photoUri, out.localImageUri);
+          if (id !== runId.current) return;
+          if (compositeUri) {
+            finalResult = { localImageUri: compositeUri };
+            // The raw generated file is superseded by the composite — drop it
+            // so we don't leak a duplicate image per generation.
+            FileSystem.deleteAsync(out.localImageUri, { idempotent: true }).catch(() => {});
+            if (__DEV__) console.log('[wearOnYou] face composite applied');
+          } else if (__DEV__) {
+            console.log('[wearOnYou] face composite skipped (no face / implausible alignment) — using raw generated image');
+          }
+        } catch (compositeErr) {
+          if (__DEV__) console.log('[wearOnYou] face composite failed, using raw generated image:', compositeErr);
+        }
+
+        setResult(finalResult);
+        setPhase('result');
+        // Re-check remaining credits so the UI stays up-to-date after the server consumed one.
+        try {
+          const premium = await hasPremiumAccountType();
+          if (!premium) {
+            const status = await checkCredit('try_on');
+            setCreditsRemaining(status.remaining);
+          }
+        } catch { /* best-effort */ }
+      } catch (err) {
+        if (id !== runId.current) return;
+        if (await isCreditExhausted(err)) {
+          setCreditsRemaining(0);
+          setCreditBlocked(true);
+          setPhase('ready');
+          return;
+        }
+        setErrorMsg(i18n.t('wearOnYou_generationFailed'));
+        setPhase('error');
+      }
+    } finally {
+      generating.current = false;
     }
   }, [photoUri, garments, profile, context]);
 

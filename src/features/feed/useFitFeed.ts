@@ -4,6 +4,7 @@ import { Outfit } from '../../data';
 import { ScoredOutfit, OutfitSlots } from '../../types/fitEngine';
 import { useAppStore } from '../../stores/appStore';
 import { usePremium } from '../monetization/usePremium';
+import i18n from '../../i18n';
 
 // Stable deep-comparison hook
 function useStableValue<T>(value: T): T {
@@ -46,25 +47,75 @@ function scoredToOutfit(scored: ScoredOutfit, items: ReturnType<typeof useAppSto
 
   const dominantStyle = userStyles[0] ?? 'minimalist';
   const title = OUTFIT_TITLES[index % OUTFIT_TITLES.length];
-  const subtitle = SUBTITLES[dominantStyle] ?? dominantStyle;
+  // Story-aware subtitle (S3): the engine groups the feed into story briefs
+  // (REFINED / EVERYDAY / OFF DUTY); the card kicker reads "story · style".
+  // Older responses without a story fall back to the static style subtitle.
+  const styleLabel = (SUBTITLES[dominantStyle] ?? dominantStyle).split(' · ')[0];
+  const subtitle = scored.story
+    ? `${scored.story.toLowerCase()} · ${styleLabel}`
+    : SUBTITLES[dominantStyle] ?? dominantStyle;
   const description = outfitItems.map(i => i!.name).join(', ');
 
+  // Real warmth band from the engine, falling back to the legacy static value
+  // for older responses. Resolve one styling tip in the user's locale.
+  const weather = scored.weatherBand ?? '22°C';
+  const tip = scored.stylingTips?.[0];
+  const stylingTip = tip ? (i18n.language.startsWith('vi') ? tip.vi : tip.en) : undefined;
+
+  // Use the full slot set (same order as fitEngineStore's outfitKey) so two
+  // outfits sharing core items but differing in outwear/accessory get distinct
+  // ids. Absent optional slots are represented by an empty string so the key
+  // remains stable regardless of undefined vs. omitted.
+  const fullKey = [
+    scored.slots.top    ?? '',
+    scored.slots.bottom ?? '',
+    scored.slots.shoes  ?? '',
+    scored.slots.outwear   ?? '',
+    scored.slots.accessory ?? '',
+  ].join('|');
+
+  const SIL_KEY: Record<string, string> = {
+    fitted: 'outfitSilhouette_fitted',
+    straight: 'outfitSilhouette_straight',
+    relaxed: 'outfitSilhouette_relaxed',
+    'top-volume': 'outfitSilhouette_topVolume',
+    'bottom-volume': 'outfitSilhouette_bottomVolume',
+  };
+  const silhouetteTag = scored.silhouette && SIL_KEY[scored.silhouette]
+    ? i18n.t(SIL_KEY[scored.silhouette]).toUpperCase()
+    : undefined;
+  const SHAPE_KEY: Record<string, string> = {
+    'hourglass': 'outfitShape_hourglass',
+    'rectangle': 'outfitShape_rectangle',
+    'oval': 'outfitShape_oval',
+    'inverted-triangle': 'outfitShape_invertedTriangle',
+    'triangle': 'outfitShape_triangle',
+  };
+  const silhouetteShapeTag = scored.silhouetteShape && SHAPE_KEY[scored.silhouetteShape]
+    ? i18n.t(SHAPE_KEY[scored.silhouetteShape]).toUpperCase()
+    : undefined;
+  const colorToneTag = scored.colorTone ? scored.colorTone.toUpperCase() : undefined;
+
   return {
-    id: `gen_${ids.join('_')}`,
+    id: `gen_${fullKey}`,
     title,
     subtitle,
     style: dominantStyle.toUpperCase().replace('_', ' '),
-    context: 'DAILY',
-    weather: '22°C',
+    context: scored.story ?? 'DAILY',
+    weather,
     description,
     // Item-list fallback; the detail screen swaps in a lazy AI description on open.
     longDescription: description,
-    tags: ['22°C', 'DAILY', scored.formula.toUpperCase()],
+    tags: [weather, scored.story ?? 'DAILY', silhouetteTag, silhouetteShapeTag, colorToneTag, scored.formula.toUpperCase()].filter(Boolean) as string[],
     tone: Math.round(outfitItems.reduce((sum, i) => sum + (i?.tone ?? 1), 0) / Math.max(outfitItems.length, 1)),
     itemIds: ids,
     formula: scored.formula,
     tier: scored.tier,
     stylistNote: scored.stylistNote,
+    stylingTip,
+    silhouette: scored.silhouette,
+    silhouetteShape: scored.silhouetteShape,
+    colorTone: scored.colorTone,
     scores: {
       totalScore: scored.totalScore,
       styleCoherence: scored.styleCoherence,
@@ -85,8 +136,14 @@ function scoredToOutfit(scored: ScoredOutfit, items: ReturnType<typeof useAppSto
 // it to view models, so infinite-scroll pagination (which calls fetchMoreOutfits)
 // renders without the hook holding a second, stale copy of the list.
 export function useFitFeed(): { outfits: Outfit[]; isGenerated: boolean; loading: boolean; refresh: () => void } {
-  const { items } = useAppStore();
-  const { fetchOutfits, styleProfile, setPremium } = useFitEngineStore();
+  // Per-field selectors (not a full-store destructure): both stores are
+  // written to from many unrelated screens/actions, and a full-store
+  // subscription here would re-render this full-screen pager on every one
+  // of those writes.
+  const items = useAppStore(s => s.items);
+  const fetchOutfits  = useFitEngineStore(s => s.fetchOutfits);
+  const styleProfile  = useFitEngineStore(s => s.styleProfile);
+  const setPremium    = useFitEngineStore(s => s.setPremium);
   const scored = useFitEngineStore(s => s.outfits);
   const { isPremium } = usePremium();
 

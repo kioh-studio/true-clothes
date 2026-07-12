@@ -1,4 +1,9 @@
 import type { ColorSeason } from '../../types/profile';
+import {
+  computeAxes, classifyTone12, TONE12_PARENT, TONE12_PALETTES, TONE12_LABELS,
+  TONE12_BOARDS, TONE12_AVOID,
+  type ColorTone12, type ToneAxes, type Tone12Inputs, type Tone12Board,
+} from './tone12';
 
 // ─── Season palette hex swatches (display only) ────────────────────────────
 
@@ -158,29 +163,66 @@ function addScores(a: Scores, b: Scores): Scores {
 
 export interface PersonalColorAnswers {
   skinUndertone: SkinOption['key'];
-  hairKey: string;
-  eyeKey: EyeOption['key'];
-  metalKey: MetalOption['key'];
+  hairKey?: string;
+  eyeKey?: EyeOption['key'];
+  metalKey?: MetalOption['key'];
 }
 
 export interface PersonalColorResult {
+  /** Parent 4-season of the classified 12-tone (`TONE12_PARENT[tone12]`). */
   season: ColorSeason;
+  /** Legacy 4-season point scores — still computed from whichever quiz
+   *  answers are present, for continuity with anything that reads it. The
+   *  winning `season`/`palette` come from the 12-tone axes model, not from
+   *  this scorer, so the two can occasionally disagree on a close call. */
   scores: Scores;
   palette: string[];
+  /** Grouped 8/12/6 board (neutrals/core/accents) `palette` is flattened from. */
+  board: Tone12Board;
+  /** Lowercase colour names this tone should generally avoid (engine vocabulary). */
+  avoidColors: string[];
+  tone12: ColorTone12;
+  axes: ToneAxes;
+  label: { en: string; vi: string };
 }
 
+/** Full 12-tone classification — quiz answers plus optional photo metrics
+ *  (skin/hair LAB, wrist hue) and colour-drape adjustments. */
+export function scorePersonalColorDetailed(inputs: Tone12Inputs): PersonalColorResult {
+  // Legacy 4-season scoring, kept for continuity — computed from whichever
+  // answers are present, same logic as before the 12-tone model.
+  const parts: Scores[] = [scoreSkin(inputs.skinUndertone)];
+  if (inputs.hairKey != null) parts.push(scoreHair(inputs.hairKey));
+  if (inputs.eyeKey != null) parts.push(scoreEye(inputs.eyeKey as EyeOption['key']));
+  if (inputs.metalKey != null) parts.push(scoreMetal(inputs.metalKey as MetalOption['key']));
+  const scores = parts.reduce(addScores, initScores());
+
+  const axes = computeAxes(inputs);
+  const tone12 = classifyTone12(axes);
+  const season = TONE12_PARENT[tone12];
+
+  return {
+    season,
+    scores,
+    palette: TONE12_PALETTES[tone12],
+    board: TONE12_BOARDS[tone12],
+    avoidColors: TONE12_AVOID[tone12],
+    tone12,
+    axes,
+    label: TONE12_LABELS[tone12],
+  };
+}
+
+/** Thin wrapper over `scorePersonalColorDetailed` for manual-quiz-only
+ *  callers (no photo metrics/drape) — kept so existing callers/tests don't
+ *  need to change shape. */
 export function scorePersonalColor(answers: PersonalColorAnswers): PersonalColorResult {
-  const scores = [
-    scoreSkin(answers.skinUndertone),
-    scoreHair(answers.hairKey),
-    scoreEye(answers.eyeKey),
-    scoreMetal(answers.metalKey),
-  ].reduce(addScores, initScores());
-
-  const season = (Object.keys(scores) as ColorSeason[])
-    .reduce((best, s) => (scores[s] > scores[best] ? s : best), 'spring' as ColorSeason);
-
-  return { season, scores, palette: SEASON_PALETTES[season] };
+  return scorePersonalColorDetailed({
+    skinUndertone: answers.skinUndertone,
+    hairKey: answers.hairKey,
+    eyeKey: answers.eyeKey,
+    metalKey: answers.metalKey,
+  });
 }
 
 // ─── Season descriptions ───────────────────────────────────────────────────

@@ -19,6 +19,19 @@ jest.mock('../supabase', () => ({
   },
 }));
 
+// Avoid pulling in expo-localization (ESM, not transformed under ts-jest) via
+// the real i18n module — same stub used by the store tests.
+jest.mock('../../i18n', () => ({
+  __esModule: true,
+  default: { language: 'en', t: (key: string) => key },
+}));
+
+// Avoid pulling in the full appStore module graph (NetInfo, wardrobeService,
+// weatherService, …) — same stub pattern used by fitEngineStore's tests.
+jest.mock('../../stores/appStore', () => ({
+  useAppStore: { getState: () => ({ bodyNeutralMode: false }) },
+}));
+
 import { evaluateItem } from '../tryOnService';
 import { ScannedItem } from '../../types/tryOn';
 
@@ -191,6 +204,6 @@ describe('tryOnService.evaluateItem — error handling', () => {
 
   it('throws when the response shape is unexpected (no criteria array)', async () => {
     _mockResponse = { data: { overall_score: 50, recommendation: 'maybe' }, error: null };
-    await expect(evaluateItem(ITEM)).rejects.toThrow('evaluate-item: unexpected response shape');
+    await expect(evaluateItem(ITEM)).rejects.toThrow('tryOnStore_evaluationFailed');
   });
 });

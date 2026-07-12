@@ -6,10 +6,12 @@ import {
   View, Text, TextInput, Image, Pressable,
   ScrollView, StyleSheet,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { T, type } from '../../../design/tokens';
 import { PrimaryButton } from '../../../components/ui/PrimaryButton';
 import { IconPlus, IconSparkle, IconDashedSquare, IconX } from '../../../components/icons';
 import type { PhotoEntry, ExtractMethod } from '../types';
+import { useTranslation } from '../../../i18n';
 
 interface Props {
   photos: PhotoEntry[];
@@ -22,6 +24,7 @@ interface Props {
 }
 
 function MethodBadge({ method }: { method: ExtractMethod }) {
+  const { t } = useTranslation();
   const isAI = method === 'ai';
   return (
     <View style={[styles.badge, isAI ? styles.badgeAI : styles.badgeItem]}>
@@ -29,7 +32,7 @@ function MethodBadge({ method }: { method: ExtractMethod }) {
         ? <IconSparkle size={10} strokeWidth={1.6} color={T.color.canvas} />
         : <IconDashedSquare size={10} strokeWidth={1.6} color={T.color.primary} />}
       <Text style={[styles.badgeText, isAI ? styles.badgeTextAI : styles.badgeTextItem]}>
-        {isAI ? 'BY AI' : 'BY ITEM'}
+        {isAI ? t('methodBadge_byAi') : t('methodBadge_byItem')}
       </Text>
     </View>
   );
@@ -43,6 +46,7 @@ function PhotoRow({
   onRemove: () => void;
   onSetNote: (note: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.photoRow}>
       {/* thumbnail */}
@@ -58,13 +62,13 @@ function PhotoRow({
         <View style={styles.photoMetaTop}>
           <MethodBadge method={entry.method} />
           <Pressable onPress={onRemove} hitSlop={8}>
-            <Text style={styles.removeText}>REMOVE</Text>
+            <Text style={styles.removeText}>{t('uploadStep_remove')}</Text>
           </Pressable>
         </View>
         <TextInput
           value={entry.note}
           onChangeText={onSetNote}
-          placeholder={entry.method === 'ai' ? 'e.g. the jacket is vintage…' : 'e.g. brand, fit notes…'}
+          placeholder={entry.method === 'ai' ? t('uploadStep_notePlaceholderAi') : t('uploadStep_notePlaceholderItem')}
           placeholderTextColor={T.color.tertiary}
           multiline
           style={styles.noteInput}
@@ -78,9 +82,11 @@ function PhotoRow({
 export function UploadStep({
   photos, upgrade, error, onSetNote, onRemovePhoto, onAddPhoto, onAnalyse,
 }: Props) {
+  const { t } = useTranslation();
   const n = photos.length;
   const aiCount = photos.filter((p) => p.method === 'ai').length;
   const itemCount = n - aiCount;
+  const router = useRouter();
 
   return (
     <View style={styles.container}>
@@ -89,19 +95,23 @@ export function UploadStep({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.h1}>Your photos.</Text>
+        <Text style={styles.h1}>{t('uploadStep_title')}</Text>
         <Text style={styles.caption}>
-          Add as many as you like — each one extracted by AI or as a single item.
+          {t('uploadStep_caption')}
         </Text>
         <View style={{ height: 20 }} />
 
         {/* upgrade notice */}
         {upgrade && (
-          <View style={styles.upgradeBanner}>
+          <Pressable
+            onPress={() => router.push('/paywall')}
+            style={styles.upgradeBanner}
+          >
             <Text style={styles.upgradeText}>
-              You're out of free AI extractions. Upgrade to continue using AI on photos.
+              {t('uploadStep_upgradeText')}
             </Text>
-          </View>
+            <Text style={styles.upgradeLink}>{t('scanScreen_upgradeLink')}</Text>
+          </Pressable>
         )}
 
         {/* error notice */}
@@ -115,14 +125,14 @@ export function UploadStep({
           <View style={styles.emptyState}>
             <IconPlus size={26} strokeWidth={1.3} color={T.color.tertiary} />
             <View style={{ height: 14 }} />
-            <Text style={styles.emptyTitle}>No photos yet</Text>
-            <Text style={styles.emptyCaption}>Tap below to add your first photo.</Text>
+            <Text style={styles.emptyTitle}>{t('uploadStep_emptyTitle')}</Text>
+            <Text style={styles.emptyCaption}>{t('uploadStep_emptyCaption')}</Text>
           </View>
         ) : (
           <>
             <Text style={styles.photoCount}>
-              {n} {n === 1 ? 'PHOTO' : 'PHOTOS'}
-              {aiCount > 0 && itemCount > 0 ? ` · ${aiCount} AI · ${itemCount} ITEM` : ''}
+              {t('uploadStep_photoCount', { count: n, suffix: n === 1 ? '' : 'S' })}
+              {aiCount > 0 && itemCount > 0 ? t('uploadStep_photoCountBreakdown', { aiCount, itemCount }) : ''}
             </Text>
             <View style={{ height: 12 }} />
             {photos.map((entry, i) => (
@@ -140,11 +150,13 @@ export function UploadStep({
         {/* add button */}
         <Pressable onPress={onAddPhoto} style={styles.addBtn}>
           <IconPlus size={16} strokeWidth={1.5} color={T.color.primary} />
-          <Text style={styles.addBtnText}>ADD {n === 0 ? 'A' : 'ANOTHER'} PHOTO</Text>
+          <Text style={styles.addBtnText}>
+            {n === 0 ? t('uploadStep_addFirstPhoto') : t('uploadStep_addAnotherPhoto')}
+          </Text>
         </Pressable>
 
         <Text style={styles.hint}>
-          Notes help label colours and brands more accurately.
+          {t('uploadStep_hint')}
         </Text>
         <View style={{ height: 16 }} />
       </ScrollView>
@@ -155,7 +167,7 @@ export function UploadStep({
           <View style={styles.ctaInner}>
             <IconSparkle size={15} strokeWidth={1.5} color={T.color.canvas} />
             <Text style={styles.ctaText}>
-              {n === 0 ? 'ADD A PHOTO TO START' : `ANALYSE ${n} ${n === 1 ? 'PHOTO' : 'PHOTOS'}`}
+              {n === 0 ? t('uploadStep_addPhotoToStart') : t('uploadStep_analyseCount', { count: n, suffix: n === 1 ? '' : 'S' })}
             </Text>
           </View>
         </PrimaryButton>
@@ -191,6 +203,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: T.color.warning,
     lineHeight: 18,
+  },
+  upgradeLink: {
+    ...type.ui,
+    fontSize: 10,
+    color: T.color.warning,
+    marginTop: 8,
   },
   errorBanner: {
     backgroundColor: T.color.elevated,

@@ -6,18 +6,20 @@ import { useTryOnStore } from '../../stores/tryOnStore';
 import type { ExtractMethod } from '../../types/tryOn';
 
 export function useTryOn() {
-  const status          = useTryOnStore((s) => s.status);
-  const scannedItem     = useTryOnStore((s) => s.scannedItem);
-  const verdict         = useTryOnStore((s) => s.verdict);
-  const mixMatchOutfits = useTryOnStore((s) => s.mixMatchOutfits);
-  const mixMatchLoading = useTryOnStore((s) => s.mixMatchLoading);
-  const error           = useTryOnStore((s) => s.error);
-  const needsUpgrade    = useTryOnStore((s) => s.needsUpgrade);
-  const reset           = useTryOnStore((s) => s.reset);
-  const scan            = useTryOnStore((s) => s.scan);
-  const evaluate        = useTryOnStore((s) => s.evaluate);
-  const fetchMixMatch   = useTryOnStore((s) => s.fetchMixMatch);
-  const addToWardrobe   = useTryOnStore((s) => s.addToWardrobe);
+  const status             = useTryOnStore((s) => s.status);
+  const scannedItem        = useTryOnStore((s) => s.scannedItem);
+  const verdict            = useTryOnStore((s) => s.verdict);
+  const mixMatchOutfits    = useTryOnStore((s) => s.mixMatchOutfits);
+  const mixMatchLoading    = useTryOnStore((s) => s.mixMatchLoading);
+  const error              = useTryOnStore((s) => s.error);
+  const needsUpgrade       = useTryOnStore((s) => s.needsUpgrade);
+  const reset              = useTryOnStore((s) => s.reset);
+  const scan               = useTryOnStore((s) => s.scan);
+  const evaluate           = useTryOnStore((s) => s.evaluate);
+  const fetchMixMatch      = useTryOnStore((s) => s.fetchMixMatch);
+  const prefetchMixMatch   = useTryOnStore((s) => s.prefetchMixMatch);
+  const addToWardrobe      = useTryOnStore((s) => s.addToWardrobe);
+  const applyMeasurements  = useTryOnStore((s) => s.applyMeasurements);
 
   return {
     status,
@@ -34,9 +36,14 @@ export function useTryOn() {
     evaluate,
     /** T028: build Mix & Match outfits pinned around the scanned item */
     fetchMixMatch,
+    /** Background wardrobe-fit prefetch (feature 008): populates mixMatchOutfits
+     *  without changing status, enabling the wardrobe-fit signal and instant feed. */
+    prefetchMixMatch,
     /** T033: commit the scanned item to the wardrobe */
     addToWardrobe,
     /** T034: discard the scanned item (deletes the temp cut-out) and reset */
     discard: reset,
+    /** Feature 009: merge AI-mapped shop measurements and re-evaluate */
+    applyMeasurements,
   };
 }

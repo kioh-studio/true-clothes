@@ -9,15 +9,18 @@
 // slots — owned pieces — via OutfitItemThumb. Thin & token-only (Constitution I/II).
 
 import React from 'react';
-import { View, Text, Image, StyleSheet } from 'react-native';
+import { View, Text, Image, StyleSheet, Pressable } from 'react-native';
 import { T, type } from '../../../design/tokens';
 import { OutfitItemThumb } from '../../../components/outfit/Collage';
 import type { ScannedItem } from '../../../types/tryOn';
 import type { ScoredOutfit } from '../../../types/fitEngine';
+import { useTranslation } from '../../../i18n';
 
-const TITLES = [
-  'The Considered Buy', 'A New Anchor', 'Earns Its Place', 'Built Around It',
-  'The Easy Win', 'Worth the Closet', 'Quietly Versatile', 'Three Ways In',
+const TITLE_KEYS = [
+  'matchFeedCard_titleConsideredBuy', 'matchFeedCard_titleNewAnchor',
+  'matchFeedCard_titleEarnsItsPlace', 'matchFeedCard_titleBuiltAroundIt',
+  'matchFeedCard_titleEasyWin', 'matchFeedCard_titleWorthTheCloset',
+  'matchFeedCard_titleQuietlyVersatile', 'matchFeedCard_titleThreeWaysIn',
 ];
 
 // Closet-cutout float positions around the framed candidate (percentages of the
@@ -28,7 +31,7 @@ const FLOAT_SLOTS = [
   { bottom: '6%' as const, right: '20%' as const, width: '30%' as const, height: '30%' as const },
 ];
 
-function pieceIds(outfit: ScoredOutfit, pinId: string): string[] {
+export function pieceIds(outfit: ScoredOutfit, pinId: string): string[] {
   const { top, bottom, shoes, outwear, accessory } = outfit.slots;
   return [...new Set([top, bottom, shoes, outwear, accessory])]
     .filter((id): id is string => !!id && id !== pinId);
@@ -40,15 +43,18 @@ interface Props {
   index: number;
   /** Page height for the full-bleed card (set by the pager). */
   height: number;
+  /** Open the AI "wear on you" flow for this outfit (scanned item included). */
+  onWear?: () => void;
 }
 
-export function MatchFeedCard({ scannedItem, outfit, index, height }: Props) {
+export function MatchFeedCard({ scannedItem, outfit, index, height, onWear }: Props) {
+  const { t } = useTranslation();
   const pieces = pieceIds(outfit, scannedItem.id);
   const score = Math.round(Math.max(0, Math.min(1, outfit.totalScore)) * 100);
-  const title = TITLES[index % TITLES.length];
+  const title = t(TITLE_KEYS[index % TITLE_KEYS.length]);
   const rationale =
     outfit.stylistNote ||
-    `Pairs with ${pieces.length} piece${pieces.length === 1 ? '' : 's'} you already own.`;
+    t('matchFeedCard_rationale', { count: pieces.length, suffix: pieces.length === 1 ? '' : 's' });
 
   return (
     <View style={[styles.card, { height }]}>
@@ -70,7 +76,7 @@ export function MatchFeedCard({ scannedItem, outfit, index, height }: Props) {
             </View>
           )}
           <View style={styles.consideringTag}>
-            <Text style={styles.consideringText}>CONSIDERING</Text>
+            <Text style={styles.consideringText}>{t('matchFeedCard_considering')}</Text>
           </View>
         </View>
 
@@ -87,7 +93,7 @@ export function MatchFeedCard({ scannedItem, outfit, index, height }: Props) {
 
         {/* Match score, bottom-left */}
         <View style={styles.scoreBlock}>
-          <Text style={styles.scoreLabel}>MATCH SCORE</Text>
+          <Text style={styles.scoreLabel}>{t('matchFeedCard_matchScore')}</Text>
           <Text style={styles.scoreValue}>{score}</Text>
         </View>
       </View>
@@ -97,12 +103,12 @@ export function MatchFeedCard({ scannedItem, outfit, index, height }: Props) {
         <View style={styles.metaHeader}>
           <Text style={styles.metaTitle} numberOfLines={1}>{title}</Text>
           <Text style={styles.metaCount}>
-            {pieces.length} FROM CLOSET
+            {t('matchFeedCard_fromCloset', { count: pieces.length })}
           </Text>
         </View>
         <Text style={styles.metaRationale} numberOfLines={2}>{rationale}</Text>
 
-        {/* Candidate + closet thumbnails */}
+        {/* Candidate + closet thumbnails, with the AI try-on action at the end */}
         <View style={styles.thumbRow}>
           <View style={styles.candidateThumb}>
             {scannedItem.localImageUri ? (
@@ -125,6 +131,14 @@ export function MatchFeedCard({ scannedItem, outfit, index, height }: Props) {
               fallbackStyle={styles.thumbFallback}
             />
           ))}
+          {onWear ? (
+            <>
+              <View style={{ flex: 1 }} />
+              <Pressable onPress={onWear} hitSlop={10} style={styles.wearBtn}>
+                <Text style={styles.wearBtnLabel}>{t('matchFeedCard_seeItOnYou')}</Text>
+              </Pressable>
+            </>
+          ) : null}
         </View>
       </View>
     </View>
@@ -280,5 +294,18 @@ const styles = StyleSheet.create({
     ...type.ui,
     fontSize: 12,
     color: T.color.tertiary,
+  },
+  wearBtn: {
+    height: 40,
+    paddingHorizontal: T.s(3),
+    borderWidth: 0.5,
+    borderColor: T.color.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wearBtnLabel: {
+    ...type.ui,
+    fontSize: 9,
+    color: T.color.primary,
   },
 });

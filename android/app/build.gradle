@@ -104,15 +104,28 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // Release / Play upload signing. Credentials come from the GLOBAL
+        // ~/.gradle/gradle.properties (MIEN_UPLOAD_*), never committed to VCS.
+        // The keystore itself lives outside the repo. When the properties are
+        // absent (e.g. CI without secrets) this config stays unconfigured and
+        // release falls back to debug signing below.
+        release {
+            if (project.hasProperty('MIEN_UPLOAD_STORE_FILE')) {
+                storeFile file(MIEN_UPLOAD_STORE_FILE)
+                storePassword MIEN_UPLOAD_STORE_PASSWORD
+                keyAlias MIEN_UPLOAD_KEY_ALIAS
+                keyPassword MIEN_UPLOAD_KEY_PASSWORD
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Sign with the real upload key when configured (Play uploads),
+            // otherwise fall back to debug signing for local test builds.
+            signingConfig project.hasProperty('MIEN_UPLOAD_STORE_FILE') ? signingConfigs.release : signingConfigs.debug
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds

@@ -11,6 +11,12 @@ import { useProfileEdit } from '../src/features/profile/useProfileEdit';
 import { useTranslation } from '../src/i18n';
 
 const GENDER_OPTIONS = ['WOMAN', 'MAN', 'NON-BINARY', 'PREFER NOT TO SAY'];
+const GENDER_LABEL_KEYS: Record<typeof GENDER_OPTIONS[number], string> = {
+  'WOMAN': 'onboarding_basics_genderWoman',
+  'MAN': 'onboarding_basics_genderMan',
+  'NON-BINARY': 'onboarding_basics_genderNonBinary',
+  'PREFER NOT TO SAY': 'onboarding_basics_genderPreferNotToSay',
+};
 
 export default function ProfileEditScreen() {
   const router = useRouter();
@@ -20,8 +26,8 @@ export default function ProfileEditScreen() {
   const { displayName, setDisplayName, gender, setGender, isDirty, saving, error, save, pickAvatar } = useProfileEdit();
 
   const handleSave = async () => {
-    await save();
-    if (!error) router.back();
+    const ok = await save();
+    if (ok) router.back();
   };
 
   return (
@@ -31,7 +37,7 @@ export default function ProfileEditScreen() {
         <Pressable onPress={() => router.back()} style={styles.navBtn}>
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.2} />
         </Pressable>
-        <Text style={styles.navTitle}>Edit Profile</Text>
+        <Text style={styles.navTitle}>{t('profileEdit_title')}</Text>
         <Pressable
           onPress={handleSave}
           style={[styles.navBtn, styles.saveBtn]}
@@ -67,23 +73,23 @@ export default function ProfileEditScreen() {
             )}
           </Pressable>
           <Pressable onPress={pickAvatar}>
-            <Text style={styles.changePhotoText}>CHANGE PHOTO</Text>
+            <Text style={styles.changePhotoText}>{t('profileEdit_avatarChangeButton')}</Text>
           </Pressable>
         </View>
 
         {/* Display name */}
-        <Text style={styles.fieldLabel}>DISPLAY NAME</Text>
+        <Text style={styles.fieldLabel}>{t('profileEdit_displayNameLabel')}</Text>
         <TextInput
           style={styles.textInput}
           value={displayName}
           onChangeText={setDisplayName}
-          placeholder="Your name"
+          placeholder={t('profileEdit_displayNamePlaceholder')}
           placeholderTextColor={T.color.tertiary}
           autoCorrect={false}
         />
 
         {/* Gender */}
-        <Text style={[styles.fieldLabel, { marginTop: 32 }]}>GENDER</Text>
+        <Text style={[styles.fieldLabel, { marginTop: 32 }]}>{t('profileEdit_genderLabel')}</Text>
         <View style={styles.genderGrid}>
           {GENDER_OPTIONS.map(opt => (
             <Pressable
@@ -92,7 +98,7 @@ export default function ProfileEditScreen() {
               onPress={() => setGender(opt === gender ? '' : opt)}
             >
               <Text style={[styles.genderChipText, gender === opt && styles.genderChipTextActive]}>
-                {opt}
+                {t(GENDER_LABEL_KEYS[opt])}
               </Text>
             </Pressable>
           ))}

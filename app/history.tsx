@@ -11,23 +11,26 @@ import { IconChevronLeft } from '../src/components/icons';
 import { useAppStore } from '../src/stores/appStore';
 import { useFitFeed } from '../src/features/feed/useFitFeed';
 import { useGridCardWidth } from '../src/design/layout';
+import i18n, { useTranslation } from '../src/i18n';
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const d = new Date(iso + 'T00:00:00');
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const diff = today.getTime() - d.getTime();
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-  if (days < 7) return `${days} days ago`;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  if (days === 0) return t('history_today');
+  if (days === 1) return t('history_yesterday');
+  if (days < 7) return t('history_daysAgo', { days });
+  const locale = i18n.language?.startsWith('vi') ? 'vi-VN' : 'en-US';
+  return d.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export default function HistoryScreen() {
   const CARD_W = useGridCardWidth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { wornHistory } = useAppStore();
   const { outfits: generatedOutfits, isGenerated } = useFitFeed();
   const allOutfits = isGenerated ? [...OUTFITS, ...generatedOutfits] : OUTFITS;
@@ -50,7 +53,7 @@ export default function HistoryScreen() {
         <Pressable onPress={() => router.back()} style={styles.iconBtn}>
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.4} />
         </Pressable>
-        <Text style={styles.title}>History</Text>
+        <Text style={styles.title}>{t('history_title')}</Text>
         <View style={styles.iconBtn} />
       </View>
 
@@ -61,26 +64,31 @@ export default function HistoryScreen() {
       >
         {dates.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>Nothing worn yet.</Text>
+            <Text style={styles.emptyTitle}>{t('history_emptyTitle')}</Text>
             <Text style={styles.emptyCaption}>
-              When you mark an outfit as "worn today" it will appear here.
+              {t('history_emptyCaption')}
             </Text>
           </View>
         ) : (
           <>
             <Text style={styles.statsText}>
-              {wornHistory.length} outfit{wornHistory.length !== 1 ? 's' : ''} worn across {dates.length} day{dates.length !== 1 ? 's' : ''}
+              {t('history_statsText', {
+                count: wornHistory.length,
+                outfitSuffix: wornHistory.length !== 1 ? 's' : '',
+                days: dates.length,
+                daySuffix: dates.length !== 1 ? 's' : '',
+              })}
             </Text>
             <View style={{ height: 24 }} />
 
             {dates.map(date => (
               <View key={date} style={styles.dateGroup}>
-                <Text style={styles.dateLabel}>{formatDate(date)}</Text>
+                <Text style={styles.dateLabel}>{formatDate(date, t)}</Text>
                 <View style={styles.grid}>
                   {grouped[date].map(({ outfit }, i) => (
                     <Pressable
                       key={`${date}-${outfit.id}-${i}`}
-                      onPress={() => router.push(`/outfit/${outfit.id}`)}
+                      onPress={() => router.push({ pathname: '/outfit/[id]', params: { id: outfit.id, data: JSON.stringify(outfit) } })}
                       style={[styles.card, { width: CARD_W }]}
                     >
                       <View style={styles.cardCollage}>
@@ -89,7 +97,7 @@ export default function HistoryScreen() {
                       <View style={{ padding: 4, paddingTop: 10 }}>
                         <Text style={styles.cardStyle}>{outfit.style}</Text>
                         <Text style={styles.cardTitle} numberOfLines={1}>{outfit.title}</Text>
-                        <Text style={styles.cardMeta}>{outfit.itemIds.length} items · {outfit.weather}</Text>
+                        <Text style={styles.cardMeta}>{t('history_cardItemsCount', { count: outfit.itemIds.length, weather: outfit.weather })}</Text>
                       </View>
                     </Pressable>
                   ))}

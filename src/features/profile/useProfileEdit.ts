@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuthStore } from '../../stores/authStore';
+import { useTranslation } from '../../i18n';
 
 interface ProfileEditState {
   displayName: string;
@@ -9,7 +10,15 @@ interface ProfileEditState {
 }
 
 export function useProfileEdit() {
-  const { displayName: storedName, gender: storedGender, dob: storedDob, updateProfile, uploadAvatar } = useAuthStore();
+  const { t } = useTranslation();
+  // Per-field selectors (not a full-store destructure): the store is written
+  // to from many unrelated screens, and a full-store subscription would
+  // re-render this whole edit screen on every one of those writes.
+  const storedName   = useAuthStore(s => s.displayName);
+  const storedGender = useAuthStore(s => s.gender);
+  const storedDob    = useAuthStore(s => s.dob);
+  const updateProfile = useAuthStore(s => s.updateProfile);
+  const uploadAvatar  = useAuthStore(s => s.uploadAvatar);
 
   const [displayName, setDisplayName] = useState(storedName);
   const [gender, setGender] = useState(storedGender);
@@ -22,19 +31,24 @@ export function useProfileEdit() {
     gender !== storedGender ||
     dob !== storedDob;
 
-  const save = useCallback(async () => {
-    if (!isDirty || saving) return;
+  const save = useCallback(async (): Promise<boolean> => {
+    if (!isDirty || saving) return false;
     setSaving(true);
     setError(null);
     try {
       const res = await updateProfile({ displayName, gender, dob });
-      if (!res.ok) setError(res.message ?? 'Failed to save. Please try again.');
+      if (!res.ok) {
+        setError(res.message ?? t('addItem_errorMessage'));
+        return false;
+      }
+      return true;
     } catch {
-      setError('Failed to save. Please try again.');
+      setError(t('addItem_errorMessage'));
+      return false;
     } finally {
       setSaving(false);
     }
-  }, [isDirty, saving, displayName, gender, dob, updateProfile]);
+  }, [isDirty, saving, displayName, gender, dob, updateProfile, t]);
 
   const pickAvatar = useCallback(async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -54,11 +68,11 @@ export function useProfileEdit() {
     try {
       await uploadAvatar(result.assets[0].uri);
     } catch {
-      setError('Failed to upload photo. Please try again.');
+      setError(t('profileEdit_photoUploadError'));
     } finally {
       setSaving(false);
     }
-  }, [uploadAvatar]);
+  }, [uploadAvatar, t]);
 
   return {
     displayName, setDisplayName,

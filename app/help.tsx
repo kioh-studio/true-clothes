@@ -1,39 +1,20 @@
 // Help & Feedback screen — T025 (US8)
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable, Linking, LayoutAnimation,
+  View, Text, StyleSheet, ScrollView, Pressable, Linking, LayoutAnimation, Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
 import { IconChevronLeft, IconChevronRight } from '../src/components/icons';
+import { useTranslation } from '../src/i18n';
 
-const FAQS = [
-  {
-    question: 'How does the outfit engine work?',
-    answer:
-      'The engine scores every combination of your wardrobe items against your style profile, body measurements, and current weather. It ranks outfits by colour harmony, proportions, formality, and season — then surfaces the top results in your feed.',
-  },
-  {
-    question: 'Why are my outfits not personalised?',
-    answer:
-      'Personalisation requires at least one item in your wardrobe. Add items via the Wardrobe tab and the feed will switch from demo outfits to ones built from your actual clothes.',
-  },
-  {
-    question: 'Can I use the app offline?',
-    answer:
-      'Saved outfits, schedules, and outfit history are available offline. Adding new wardrobe items requires an internet connection to sync photos and data to the cloud.',
-  },
-  {
-    question: 'How do I delete my account?',
-    answer:
-      'Go to Settings → Danger Zone → Delete Account. This permanently removes your profile, wardrobe, and all associated data. The action cannot be undone.',
-  },
-  {
-    question: 'How do I change my body measurements?',
-    answer:
-      'Go to Menu → Size & Measurements. You can update height, weight, and optional measurements at any time. Changes take effect on the next outfit generation.',
-  },
+const FAQ_KEYS = [
+  { q: 'help_faqQ1', a: 'help_faqA1' },
+  { q: 'help_faqQ2', a: 'help_faqA2' },
+  { q: 'help_faqQ3', a: 'help_faqA3' },
+  { q: 'help_faqQ4', a: 'help_faqA4' },
+  { q: 'help_faqQ5', a: 'help_faqA5' },
 ];
 
 function FaqRow({ question, answer }: { question: string; answer: string }) {
@@ -63,9 +44,14 @@ function FaqRow({ question, answer }: { question: string; answer: string }) {
 export default function HelpScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
+  const FAQS = FAQ_KEYS.map((k) => ({ question: t(k.q), answer: t(k.a) }));
 
   const handleFeedback = () => {
-    Linking.openURL('mailto:support@mien.app');
+    Linking.openURL('mailto:support@mien.app').catch((err: unknown) => {
+      console.warn('[help] openURL failed:', err);
+      Alert.alert(t('help_noMailAppTitle'), t('help_noMailAppMessage'));
+    });
   };
 
   return (
@@ -74,7 +60,7 @@ export default function HelpScreen() {
         <Pressable onPress={() => router.back()} style={styles.navBtn}>
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.2} />
         </Pressable>
-        <Text style={styles.navTitle}>Help & Feedback</Text>
+        <Text style={styles.navTitle}>{t('help_title')}</Text>
         <View style={styles.navBtn} />
       </View>
 
@@ -83,18 +69,18 @@ export default function HelpScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 48 }]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.sectionLabel}>FAQ</Text>
+        <Text style={styles.sectionLabel}>{t('help_faqSection')}</Text>
         <View style={styles.faqList}>
           {FAQS.map((faq, i) => (
             <FaqRow key={i} question={faq.question} answer={faq.answer} />
           ))}
         </View>
 
-        <Text style={[styles.sectionLabel, { marginTop: 40 }]}>CONTACT</Text>
+        <Text style={[styles.sectionLabel, { marginTop: 40 }]}>{t('help_contactSection')}</Text>
         <View style={styles.section}>
           <Pressable style={styles.row} onPress={handleFeedback}>
             <View style={styles.rowBody}>
-              <Text style={styles.rowTitle}>Send feedback</Text>
+              <Text style={styles.rowTitle}>{t('help_sendFeedback')}</Text>
               <Text style={styles.rowDesc}>support@mien.app</Text>
             </View>
             <IconChevronRight size={12} color={T.color.tertiary} strokeWidth={1.4} />

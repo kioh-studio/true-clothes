@@ -10,6 +10,7 @@ import { PrimaryButton } from '../../../components/ui/PrimaryButton';
 import { IconSparkle, IconDashedSquare } from '../../../components/icons';
 import type { ExtractedItem, PhotoEntry, ExtractMethod } from '../types';
 import { ItemCard } from './ItemCard';
+import { useTranslation } from '../../../i18n';
 
 interface Props {
   items: ExtractedItem[];
@@ -22,6 +23,7 @@ interface Props {
 }
 
 function MethodBadge({ method }: { method: ExtractMethod }) {
+  const { t } = useTranslation();
   const isAI = method === 'ai';
   return (
     <View style={[styles.badge, isAI ? styles.badgeAI : styles.badgeItem]}>
@@ -30,13 +32,14 @@ function MethodBadge({ method }: { method: ExtractMethod }) {
         : <IconDashedSquare size={10} strokeWidth={1.6} color={T.color.primary} />
       }
       <Text style={[styles.badgeText, isAI ? styles.badgeTextAI : styles.badgeTextItem]}>
-        {isAI ? 'BY AI' : 'BY ITEM'}
+        {isAI ? t('methodBadge_byAi') : t('methodBadge_byItem')}
       </Text>
     </View>
   );
 }
 
 export function ReviewStep({ items, photos, onEditItem, onRemoveItem, onConfirm, saving, error }: Props) {
+  const { t } = useTranslation();
   // Build groups: photos with at least one item
   const groups = photos
     .map((photo, gi) => ({
@@ -56,9 +59,9 @@ export function ReviewStep({ items, photos, onEditItem, onRemoveItem, onConfirm,
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.h1}>Review {items.length} {items.length === 1 ? 'item' : 'items'}.</Text>
+        <Text style={styles.h1}>{t('reviewStep_reviewCount', { count: items.length, suffix: items.length === 1 ? '' : 's' })}</Text>
         <Text style={styles.caption}>
-          From {groups.length} {groups.length === 1 ? 'photo' : 'photos'}. Tap any field to fix it. Remove anything that isn't yours.
+          {t('reviewStep_fromPhotos', { count: groups.length, suffix: groups.length === 1 ? '' : 's' })}
         </Text>
         <View style={{ height: 20 }} />
 
@@ -70,8 +73,8 @@ export function ReviewStep({ items, photos, onEditItem, onRemoveItem, onConfirm,
 
         {items.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>Nothing to save.</Text>
-            <Text style={styles.emptyCaption}>You removed every detected item.</Text>
+            <Text style={styles.emptyTitle}>{t('reviewStep_nothingToSave')}</Text>
+            <Text style={styles.emptyCaption}>{t('reviewStep_removedAll')}</Text>
           </View>
         ) : (
           groups.map((g) => (
@@ -87,10 +90,10 @@ export function ReviewStep({ items, photos, onEditItem, onRemoveItem, onConfirm,
                 </View>
                 <View style={styles.groupHeaderText}>
                   <Text style={styles.groupPhotoLabel}>
-                    PHOTO {String(g.photoIndex + 1).padStart(2, '0')}
+                    {t('reviewStep_photoLabel', { index: String(g.photoIndex + 1).padStart(2, '0') })}
                   </Text>
                   <Text style={styles.groupItemCount}>
-                    {g.items.length} {g.items.length === 1 ? 'piece' : 'pieces'} found
+                    {t('reviewStep_piecesFound', { count: g.items.length, suffix: g.items.length === 1 ? '' : 's' })}
                   </Text>
                 </View>
                 <MethodBadge method={g.photo.method} />
@@ -118,7 +121,7 @@ export function ReviewStep({ items, photos, onEditItem, onRemoveItem, onConfirm,
       <View style={styles.cta}>
         {untypedCount > 0 && items.length > 0 && (
           <Text style={styles.ctaHint}>
-            Choose a category for {untypedCount} {untypedCount === 1 ? 'item' : 'items'} to save.
+            {t('reviewStep_chooseCategoryHint', { count: untypedCount, suffix: untypedCount === 1 ? '' : 's' })}
           </Text>
         )}
         <PrimaryButton
@@ -126,12 +129,12 @@ export function ReviewStep({ items, photos, onEditItem, onRemoveItem, onConfirm,
           disabled={items.length === 0 || saving || untypedCount > 0}
         >
           {saving
-            ? 'SAVING…'
+            ? t('reviewStep_saving')
             : items.length === 0
-              ? 'NOTHING TO SAVE'
+              ? t('reviewStep_nothingToSaveButton')
               : untypedCount > 0
-                ? 'CHOOSE A CATEGORY'
-                : `CONFIRM ALL · ${items.length}`}
+                ? t('reviewStep_chooseCategoryButton')
+                : t('reviewStep_confirmAll', { count: items.length })}
         </PrimaryButton>
       </View>
     </View>

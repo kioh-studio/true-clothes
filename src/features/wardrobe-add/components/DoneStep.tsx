@@ -6,6 +6,7 @@ import { T, type } from '../../../design/tokens';
 import { PrimaryButton } from '../../../components/ui/PrimaryButton';
 import { SecondaryButton } from '../../../components/ui/SecondaryButton';
 import { IconCheck } from '../../../components/icons';
+import { useTranslation } from '../../../i18n';
 
 interface Props {
   savedCount: number;
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export function DoneStep({ savedCount, photoCount, onViewWardrobe, onDone }: Props) {
+  const { t } = useTranslation();
   return (
     <View style={styles.container}>
       <View style={styles.body}>
@@ -25,24 +27,24 @@ export function DoneStep({ savedCount, photoCount, onViewWardrobe, onDone }: Pro
 
         <View style={{ height: 28 }} />
 
-        <Text style={styles.label}>ADDED TO WARDROBE</Text>
+        <Text style={styles.label}>{t('doneStep_addedLabel')}</Text>
         <View style={{ height: 12 }} />
         <Text style={styles.hero}>
-          {savedCount} {savedCount === 1 ? 'piece' : 'pieces'}
+          {t('doneStep_pieceCount', { count: savedCount, suffix: savedCount === 1 ? '' : 's' })}
         </Text>
 
         <Text style={styles.bodyText}>
-          Extracted from {photoCount} {photoCount === 1 ? 'photo' : 'photos'} and saved with their colours and brands. Find them anytime in your wardrobe.
+          {t('doneStep_bodyText', { count: photoCount, suffix: photoCount === 1 ? '' : 's' })}
         </Text>
       </View>
 
       <View style={styles.actions}>
         <PrimaryButton onPress={onViewWardrobe}>
-          VIEW MY WARDROBE
+          {t('doneStep_viewWardrobe')}
         </PrimaryButton>
         <View style={{ height: 14 }} />
         <SecondaryButton onPress={onDone}>
-          DONE
+          {t('stepper_done')}
         </SecondaryButton>
       </View>
     </View>

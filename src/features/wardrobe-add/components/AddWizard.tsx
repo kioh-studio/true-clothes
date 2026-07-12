@@ -17,6 +17,7 @@ import { ProcessingStep } from './ProcessingStep';
 import { ReviewStep } from './ReviewStep';
 import { DoneStep } from './DoneStep';
 import type { ExtractedItem, ExtractMethod } from '../types';
+import { useTranslation } from '../../../i18n';
 
 interface Props {
   onClose: () => void;
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export function AddWizard({ onClose, onDone }: Props) {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const wizard = useAddWizard();
   const [chooserVisible, setChooserVisible] = useState(false);
@@ -55,7 +57,7 @@ export function AddWizard({ onClose, onDone }: Props) {
       <View style={styles.header}>
         {/* left spacer / back affordance (hidden after step 0) */}
         <View style={styles.headerBtn} />
-        <Text style={styles.headerTitle}>ADD TO WARDROBE</Text>
+        <Text style={styles.headerTitle}>{t('addItem_saveButton')}</Text>
         <Pressable onPress={onClose} style={styles.headerBtn} hitSlop={8}>
           <IconX size={18} strokeWidth={1.4} color={T.color.tertiary} />
         </Pressable>

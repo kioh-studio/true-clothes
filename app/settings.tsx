@@ -18,7 +18,11 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const { logout, deleteAccount } = useAuthStore();
-  const { unitPreference, language, setLanguage } = useAppStore();
+  const {
+    unitPreference, language, setLanguage, setUnitPreference,
+    genderAwareStyling, setGenderAwareStyling,
+    bodyNeutralMode, setBodyNeutralMode,
+  } = useAppStore();
 
   const [units, setUnits] = useState<'metric' | 'imperial'>(unitPreference);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -27,7 +31,7 @@ export default function SettingsScreen() {
   const handleUnitToggle = (val: boolean) => {
     const next: 'metric' | 'imperial' = val ? 'imperial' : 'metric';
     setUnits(next);
-    useAppStore.setState({ unitPreference: next });
+    setUnitPreference(next);
   };
 
   const handleDeleteAccount = () => {
@@ -52,7 +56,7 @@ export default function SettingsScreen() {
       await deleteAccount();
       router.replace('/(onboarding)');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to delete account. Please try again.';
+      const msg = err instanceof Error ? err.message : t('settings_deleteAccountError');
       setDeleteError(msg);
     } finally {
       setDeleteLoading(false);
@@ -65,7 +69,7 @@ export default function SettingsScreen() {
         <Pressable onPress={() => router.back()} style={styles.navBtn}>
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.2} />
         </Pressable>
-        <Text style={styles.navTitle}>Settings</Text>
+        <Text style={styles.navTitle}>{t('settings_title')}</Text>
         <View style={styles.navBtn} />
       </View>
 
@@ -85,6 +89,32 @@ export default function SettingsScreen() {
             <Switch
               value={units === 'imperial'}
               onValueChange={handleUnitToggle}
+              trackColor={{ false: T.color.muted, true: T.color.primary }}
+              thumbColor={T.color.canvas}
+            />
+          </View>
+
+          <View style={styles.row}>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowTitle}>{t('settings_genderStyling')}</Text>
+              <Text style={styles.rowDesc}>{t('settings_genderStylingDesc')}</Text>
+            </View>
+            <Switch
+              value={genderAwareStyling}
+              onValueChange={setGenderAwareStyling}
+              trackColor={{ false: T.color.muted, true: T.color.primary }}
+              thumbColor={T.color.canvas}
+            />
+          </View>
+
+          <View style={styles.row}>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowTitle}>{t('settings_bodyNeutral')}</Text>
+              <Text style={styles.rowDesc}>{t('settings_bodyNeutralDesc')}</Text>
+            </View>
+            <Switch
+              value={bodyNeutralMode}
+              onValueChange={setBodyNeutralMode}
               trackColor={{ false: T.color.muted, true: T.color.primary }}
               thumbColor={T.color.canvas}
             />
@@ -111,7 +141,15 @@ export default function SettingsScreen() {
         {/* Account */}
         <Text style={[styles.sectionLabel, { marginTop: 32 }]}>{t('settings_accountSection')}</Text>
         <View style={styles.section}>
-          <Pressable style={styles.row} onPress={() => logout().then(() => router.replace('/(onboarding)'))}>
+          <Pressable
+            style={styles.row}
+            onPress={() => logout()
+              .then(() => router.replace('/(onboarding)'))
+              .catch((err: unknown) => {
+                console.warn('[settings] logout failed:', err);
+                Alert.alert(t('settings_signOut'), t('settings_signOutError'));
+              })}
+          >
             <Text style={styles.rowTitle}>{t('settings_signOut')}</Text>
           </Pressable>
         </View>

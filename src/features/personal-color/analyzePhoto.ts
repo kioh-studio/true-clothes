@@ -3,20 +3,33 @@
 // controlled options (so the camera ACTUALLY contributes, not just decorates).
 //
 // Pipeline (all on-device, no remote AI): expo-image-manipulator downscales the
-// photo to a tiny tile → jpeg-js decodes it to RGBA → we average the central
-// region (trimming near-black shadow and blown-out flash glare) → convert to LAB
-// → nearest controlled swatch. LAB is used so matching is perceptual; for skin
-// we compare only the a*/b* chroma plane (ignoring lightness) because phone
-// auto-white-balance shifts brightness far more than hue.
+// photo to a tiny 48×48 tile → jpeg-js decodes it to RGBA → we collect
+// per-pixel LAB samples from the central 50% region (skipping near-black
+// shadow and blown-out flash glare pixels), then:
+//   - wrist → filter to a generous skin-colour gamut and classify undertone by
+//     LAB hue angle on the average of the surviving pixels; if too few pixels
+//     look like skin (bad framing/lighting), fall back to nearest-swatch
+//     matching on the plain (unfiltered) average instead;
+//   - hair → cluster on the darkest 40% of sampled pixels (the UI has the user
+//     hold hair against a light background, so the hair itself is the dark
+//     cluster) and match the nearest controlled swatch, with a margin-based
+//     confidence score.
+//
+// Both functions also surface the raw LAB average (and, for the wrist, the
+// hue angle) they classified from — the 12-tone axes model (tone12.ts) uses
+// these as continuous inputs (skin/hair contrast, wrist hue) alongside the
+// discrete quiz-option keys.
 //
 // Every step is wrapped so a failure returns null → the quiz simply stays manual.
 
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import jpeg from 'jpeg-js';
 import { SKIN_OPTIONS, HAIR_OPTIONS, type SkinOption } from './colorSeasonData';
-
-interface RGB { r: number; g: number; b: number }
-interface LAB { L: number; a: number; b: number }
+import {
+  rgbToLab, hexToRgb, isSkinPixelLab, classifyUndertone, averageLab,
+  darkestFraction, nearestSwatch, labHueAngleDeg,
+  type LAB,
+} from './colorMath';
 
 // ── base64 JPEG → RGBA ───────────────────────────────────────────────────────
 
@@ -28,98 +41,104 @@ function decodeJpeg(base64: string): { width: number; height: number; data: Uint
   return jpeg.decode(bytes, { useTArray: true }) as { width: number; height: number; data: Uint8Array };
 }
 
-// Average the central 50% region; skip near-black (shadow/background) and
-// near-white (flash glare) pixels so they don't drag the mean.
-function averageCentralRGB(img: { width: number; height: number; data: Uint8Array }): RGB | null {
+// Collect per-pixel LAB samples from the central 50% region, skipping
+// near-black (shadow/background) and blown-out flash glare pixels so they
+// don't pollute the sample. Glare rejection uses the BRIGHTEST channel (mx)
+// so that specular highlights — which rarely go pure-white on every channel
+// but will spike the peak — are reliably trimmed.
+function collectCentralLabs(img: { width: number; height: number; data: Uint8Array }): LAB[] {
   const { width: W, height: H, data } = img;
   const x0 = Math.floor(W * 0.25), x1 = Math.ceil(W * 0.75);
   const y0 = Math.floor(H * 0.25), y1 = Math.ceil(H * 0.75);
 
-  let r = 0, g = 0, b = 0, n = 0;
-  let rAll = 0, gAll = 0, bAll = 0, nAll = 0;
+  const labs: LAB[] = [];
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const o = (y * W + x) * 4;
       const R = data[o], G = data[o + 1], B = data[o + 2];
-      rAll += R; gAll += G; bAll += B; nAll++;
-      const mx = Math.max(R, G, B), mn = Math.min(R, G, B);
-      if (mx < 25 || mn > 240) continue;
-      r += R; g += G; b += B; n++;
+      const mx = Math.max(R, G, B);
+      if (mx < 25 || mx > 245) continue; // dark shadow floor | flash glare ceiling
+      labs.push(rgbToLab({ r: R, g: G, b: B }));
     }
   }
-  if (n >= 16) return { r: r / n, g: g / n, b: b / n };
-  if (nAll > 0) return { r: rAll / nAll, g: gAll / nAll, b: bAll / nAll };
-  return null;
+  return labs;
 }
 
-// ── sRGB → LAB (D65) ─────────────────────────────────────────────────────────
-
-function rgbToLab({ r, g, b }: RGB): LAB {
-  const lin = (c: number) => {
-    const s = c / 255;
-    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-  };
-  const R = lin(r), G = lin(g), B = lin(b);
-  // XYZ (D65)
-  let X = (R * 0.4124 + G * 0.3576 + B * 0.1805) / 0.95047;
-  let Y = (R * 0.2126 + G * 0.7152 + B * 0.0722) / 1.0;
-  let Z = (R * 0.0193 + G * 0.1192 + B * 0.9505) / 1.08883;
-  const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
-  X = f(X); Y = f(Y); Z = f(Z);
-  return { L: 116 * Y - 16, a: 500 * (X - Y), b: 200 * (Y - Z) };
-}
-
-function hexToRgb(hex: string): RGB {
-  const n = parseInt(hex.replace('#', ''), 16);
-  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+async function sampleCentralLabs(uri: string): Promise<LAB[] | null> {
+  try {
+    const res = await manipulateAsync(uri, [{ resize: { width: 48, height: 48 } }], {
+      base64: true, compress: 0.9, format: SaveFormat.JPEG,
+    });
+    if (!res.base64) return null;
+    return collectCentralLabs(decodeJpeg(res.base64));
+  } catch {
+    return null; // any decode/manipulate failure → caller falls back to manual
+  }
 }
 
 // Pre-compute swatch LABs once.
 const SKIN_LAB = SKIN_OPTIONS.map((o) => ({ key: o.key, lab: rgbToLab(hexToRgb(o.swatchHex)) }));
 const HAIR_LAB = HAIR_OPTIONS.map((o) => ({ key: o.key, lab: rgbToLab(hexToRgb(o.swatchHex)) }));
 
-// ── Sampling ─────────────────────────────────────────────────────────────────
-
-async function sampleAverageLab(uri: string): Promise<LAB | null> {
-  try {
-    const res = await manipulateAsync(uri, [{ resize: { width: 48, height: 48 } }], {
-      base64: true, compress: 0.9, format: SaveFormat.JPEG,
-    });
-    if (!res.base64) return null;
-    const rgb = averageCentralRGB(decodeJpeg(res.base64));
-    return rgb ? rgbToLab(rgb) : null;
-  } catch {
-    return null; // any decode/manipulate failure → caller falls back to manual
-  }
-}
+const MIN_SKIN_PIXELS = 30;
+const MIN_CONFIDENT_SKIN_PIXELS = 60;
+const MIN_HUE_MARGIN_DEG = 3; // distance the average hue must clear both thresholds to be "confident"
+const MIN_HAIR_PIXELS = 20;
+const HAIR_DARK_FRACTION = 0.4;
+const HAIR_CONFIDENT_MARGIN = 0.15;
 
 // ── Public: map a photo to a quiz option ─────────────────────────────────────
 
-/** Wrist photo → skin undertone. Compares only the chroma plane (a, b) so it's
- *  robust to the brightness shifts phone auto-white-balance introduces. */
-export async function analyzeWristUndertone(uri: string): Promise<SkinOption['key'] | null> {
-  const lab = await sampleAverageLab(uri);
-  if (!lab) return null;
-  let best: SkinOption['key'] | null = null;
+/** Wrist photo → skin undertone + a confidence flag + the raw LAB/hue metrics
+ *  the classification was based on (used as continuous axes-model inputs). */
+export async function analyzeWristUndertone(
+  uri: string,
+): Promise<{ key: SkinOption['key']; confident: boolean; skinLab: LAB | null; hueDeg: number | null } | null> {
+  const labs = await sampleCentralLabs(uri);
+  if (!labs) return null;
+
+  const skinLabs = labs.filter(isSkinPixelLab);
+  if (skinLabs.length >= MIN_SKIN_PIXELS) {
+    const avg = averageLab(skinLabs);
+    if (!avg) return null;
+    const key = classifyUndertone(avg);
+    const angle = labHueAngleDeg(avg);
+    const confident = Math.abs(angle - 47) >= MIN_HUE_MARGIN_DEG
+      && Math.abs(angle - 57) >= MIN_HUE_MARGIN_DEG
+      && skinLabs.length >= MIN_CONFIDENT_SKIN_PIXELS;
+    return { key, confident, skinLab: avg, hueDeg: angle };
+  }
+
+  // Fallback: too few pixels read as skin (poor framing/lighting) — match the
+  // nearest SKIN_OPTIONS swatch on the a/b chroma plane of the plain
+  // (unfiltered) average instead, since phone auto-white-balance shifts
+  // brightness far more than hue. Always reported as low-confidence.
+  const avgAll = averageLab(labs);
+  if (!avgAll) return null;
+  let best: SkinOption['key'] = SKIN_OPTIONS[0].key;
   let bestD = Infinity;
   for (const s of SKIN_LAB) {
-    const da = lab.a - s.lab.a, db = lab.b - s.lab.b;
+    const da = avgAll.a - s.lab.a, db = avgAll.b - s.lab.b;
     const d = da * da + db * db;
     if (d < bestD) { bestD = d; best = s.key; }
   }
-  return best;
+  return { key: best, confident: false, skinLab: avgAll, hueDeg: labHueAngleDeg(avgAll) };
 }
 
-/** Hair photo → nearest HAIR_OPTIONS key (full LAB — shade + warmth both matter). */
-export async function analyzeHairColor(uri: string): Promise<string | null> {
-  const lab = await sampleAverageLab(uri);
-  if (!lab) return null;
-  let best: string | null = null;
-  let bestD = Infinity;
-  for (const h of HAIR_LAB) {
-    const dL = lab.L - h.lab.L, da = lab.a - h.lab.a, db = lab.b - h.lab.b;
-    const d = dL * dL + da * da + db * db;
-    if (d < bestD) { bestD = d; best = h.key; }
-  }
-  return best;
+/** Hair photo → nearest HAIR_OPTIONS key + a confidence flag + the darkest-
+ *  cluster LAB average the match was based on. */
+export async function analyzeHairColor(
+  uri: string,
+): Promise<{ key: string; confident: boolean; hairLab: LAB | null } | null> {
+  const labs = await sampleCentralLabs(uri);
+  if (!labs || labs.length === 0) return null;
+
+  const dark = darkestFraction(labs, HAIR_DARK_FRACTION);
+  const sample = dark.length >= MIN_HAIR_PIXELS ? dark : labs;
+  const avg = averageLab(sample);
+  if (!avg) return null;
+
+  const nearest = nearestSwatch(avg, HAIR_LAB);
+  if (!nearest) return null;
+  return { key: nearest.key, confident: nearest.margin >= HAIR_CONFIDENT_MARGIN, hairLab: avg };
 }

@@ -25,6 +25,9 @@
 - No button, no dismiss — overlay auto-removes when migration completes.
 - Blocks all navigation until `migrationProgress` returns to `null` in `appStore`.
 
+### Delete Error (Item Detail)
+- If `removeWardrobeItem` fails, stay on the item detail screen and show a system `Alert` with the `wardrobeError` message. Do not navigate back on failure.
+
 ### Offline Rejection Toast
 - When `addWardrobeItem()` is called without an internet connection, `wardrobeError` is set to `"Adding items requires an internet connection"`.
 - Display as an inline banner at the top of the Add Item screen: `type.caption`, `T.color.warning` text, `T.color.canvas` background, hairline bottom border.

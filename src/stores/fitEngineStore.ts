@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BodyMeasurements, UserStyleProfile, ScoredOutfit, IntentContext } from '../types/fitEngine';
+import type { EstimatedMeasurements } from '../types/measurements';
 import { ScannedItem } from '../types/tryOn';
 import { getCurrentUserId } from '../services/authService';
 import { fetchMyMeasurements, upsertMyMeasurements } from '../services/measurementService';
@@ -14,6 +15,11 @@ import { logImpressions } from '../services/outfitInteractionService';
 
 const EMPTY_BODY: BodyMeasurements = {};
 const SHOWN_IDS_KEY = 'shown-outfit-ids';
+
+// Register the onAuthStateChange listener exactly once per app process.
+// Without this, Fast Refresh / remount / re-hydrate calls stack duplicate
+// listeners that each refetch on every auth event.
+let _fitAuthListenerRegistered = false;
 const CURATED_DATE_KEY = 'last-curated-date';
 
 // Pseudo-id for shown/excluded outfits — the FULL slot set, matching the
@@ -35,18 +41,46 @@ function weatherIntent(intent?: IntentContext): IntentContext | undefined {
   return { ...intent, seasonOverride: intent?.seasonOverride ?? season };
 }
 
+// Local-date (device timezone) YYYY-MM-DD — NOT toISOString(), which is UTC
+// and misreports "today" during the UTC+7 morning window (00:00–07:00 local
+// falls on the previous UTC calendar day, resetting the daily curate flag
+// 7 hours early/late depending on direction).
+function localDateKey(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// Per-user key: without the userId suffix, switching accounts on the same
+// device would inherit whatever "already curated today" state the previous
+// user left behind (or vice versa).
+function curatedDateKey(userId: string | null): string {
+  return userId ? `${CURATED_DATE_KEY}:${userId}` : CURATED_DATE_KEY;
+}
+
 // Curation gating: premium users get every batch curated; free users get one
 // curated batch per day (the daily "stylist moment" that sells the upgrade).
-async function resolveCurateFlag(premium: boolean): Promise<boolean> {
+// Read-only decision — does NOT write the "used" flag. Call markCurateUsedToday()
+// only after the generate-outfits call actually succeeds (and only if the
+// server confirms it curated), so a failed/degraded fetch never burns a free
+// user's daily curate slot.
+async function shouldCurateToday(premium: boolean, userId: string | null): Promise<boolean> {
   if (premium) return true;
-  const today = new Date().toISOString().slice(0, 10);
   try {
-    const last = await AsyncStorage.getItem(CURATED_DATE_KEY);
-    if (last === today) return false;
-    await AsyncStorage.setItem(CURATED_DATE_KEY, today);
-    return true;
+    const last = await AsyncStorage.getItem(curatedDateKey(userId));
+    return last !== localDateKey();
   } catch {
     return false;
+  }
+}
+
+async function markCurateUsedToday(userId: string | null): Promise<void> {
+  try {
+    await AsyncStorage.setItem(curatedDateKey(userId), localDateKey());
+  } catch {
+    // Best-effort — a failed write just risks one extra curated batch today,
+    // not a correctness issue.
   }
 }
 
@@ -55,6 +89,9 @@ interface FitEngineState {
   styleProfile: UserStyleProfile;
   colorPreferences: string[];
   hydrated: boolean;
+
+  // Wipe all user-personal data on sign-out so a new user never sees stale private state.
+  reset: () => void;
 
   // Catalog (T043)
   styles: StyleCatalogItem[];
@@ -91,6 +128,13 @@ interface FitEngineState {
   // credit; the Verdict and the daily feed are independent of this.
   fetchMixMatchOutfits: (scannedItem: ScannedItem) => Promise<ScoredOutfit[]>;
 
+  // Pose-estimation pre-fill (measurements AI scan):
+  // Set by measurements-scan.tsx after successful on-device inference;
+  // consumed + cleared by measurements-edit.tsx and onboarding/measurements.tsx
+  // via useEffect. Ephemeral: not persisted, wiped on reset().
+  pendingEstimate: EstimatedMeasurements | null;
+  setPendingEstimate: (est: EstimatedMeasurements | null) => void;
+
   hydrate: () => Promise<void>;
 }
 
@@ -99,6 +143,7 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
   styleProfile: { selectedStyles: [] },
   colorPreferences: [],
   hydrated: false,
+  pendingEstimate: null,
 
   // Catalog
   styles: [],
@@ -113,6 +158,8 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
       console.warn('[fitEngineStore] loadCatalogs failed:', err);
     }
   },
+
+  setPendingEstimate: (est) => set({ pendingEstimate: est }),
 
   setSessionFormula: (id) => set({ sessionFormulaId: id }),
 
@@ -145,6 +192,20 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
     set({ bodyMeasurements: nextBody });
     const userId = await getCurrentUserId();
     if (userId) await upsertMyMeasurements(userId, nextBody);
+    // Mirror to authStore so try-on (wear.tsx) and any other authStore.measurements
+    // reader sees fresh data immediately — without a second DB write.
+    // Lazy require avoids a circular module reference at evaluation time
+    // (authStore already imports fitEngineStore for reset()).
+    // We merge rather than replace so authStore-only fields (bodyShape,
+    // measurementsConsent, poseEstimated) set during onboarding are preserved.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { useAuthStore } = require('./authStore') as typeof import('./authStore');
+    useAuthStore.setState((s) => ({
+      measurements: {
+        ...s.measurements,
+        ...nextBody,
+      } as import('../types/measurements').BodyMeasurements,
+    }));
   },
 
   setStyleProfile: async (p) => {
@@ -188,11 +249,14 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
 
     const allExclude = [...shownOutfitIds, ...(excludeIds ?? [])];
     const effectiveIntent = weatherIntent(intent);
-    const curate = await resolveCurateFlag(premium);
+    const userId = await getCurrentUserId();
+    const curate = await shouldCurateToday(premium, userId);
     const body: Record<string, unknown> = {
       ...(effectiveIntent ? { intent: effectiveIntent } : {}),
       ...(allExclude.length ? { exclude_ids: allExclude } : {}),
       ...(sessionFormulaId ? { formula_id: sessionFormulaId } : {}),
+      ...(useAppStore.getState().genderAwareStyling ? { gender_aware: true } : {}),
+      ...(useAppStore.getState().bodyNeutralMode ? { body_neutral: true } : {}),
       locale: i18n.language?.startsWith('vi') ? 'vi' : 'en',
       curate,
     };
@@ -207,6 +271,11 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
     const response = data as { outfits: ScoredOutfit[]; curated?: boolean };
     const newOutfits = response.outfits ?? [];
     const newIds = newOutfits.map(outfitKey);
+
+    // Only burn the free user's daily curate slot once the server confirms it
+    // actually curated this batch (it can silently degrade to rule order under
+    // rate-limit) — and only after the fetch itself succeeded, above.
+    if (!premium && response.curated) markCurateUsedToday(userId).catch(() => {});
 
     // Behavior events (Q18): record what the feed showed, tagged curated/rule
     logImpressions(newOutfits.map((o, i) => ({
@@ -246,6 +315,8 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
     const body: Record<string, unknown> = {
       pin_item,
       ...(effectiveIntent ? { intent: effectiveIntent } : {}),
+      ...(useAppStore.getState().genderAwareStyling ? { gender_aware: true } : {}),
+      ...(useAppStore.getState().bodyNeutralMode ? { body_neutral: true } : {}),
       locale: i18n.language?.startsWith('vi') ? 'vi' : 'en',
       curate: false, // deterministic pairing; no LLM curation / no credit
     };
@@ -253,7 +324,7 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
     const { data, error } = await sb.functions.invoke('generate-outfits', { body });
     if (error) {
       console.warn('[fitEngineStore] fetchMixMatchOutfits failed:', error);
-      throw error instanceof Error ? error : new Error('Mix & match failed');
+      throw error instanceof Error ? error : new Error(i18n.t('tryOnStore_mixMatchFailed'));
     }
     const response = data as { outfits?: ScoredOutfit[] };
     return response.outfits ?? [];
@@ -262,37 +333,107 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
   fetchMoreOutfits: async () => {
     if (get().isFetchingMore) return;
     set({ isFetchingMore: true });
-    const { shownOutfitIds, sessionFormulaId } = get();
+    const { shownOutfitIds, sessionFormulaId, premium } = get();
     try {
       const effectiveIntent = weatherIntent();
-      const curate = await resolveCurateFlag(get().premium);
+      const userId = await getCurrentUserId();
+      const curate = await shouldCurateToday(premium, userId);
       const body: Record<string, unknown> = {
         exclude_ids: shownOutfitIds,
         ...(effectiveIntent ? { intent: effectiveIntent } : {}),
         ...(sessionFormulaId ? { formula_id: sessionFormulaId } : {}),
+        ...(useAppStore.getState().genderAwareStyling ? { gender_aware: true } : {}),
+        ...(useAppStore.getState().bodyNeutralMode ? { body_neutral: true } : {}),
         locale: i18n.language?.startsWith('vi') ? 'vi' : 'en',
         curate,
       };
-      const { data } = await sb.functions.invoke('generate-outfits', { body });
+      const { data, error } = await sb.functions.invoke('generate-outfits', { body });
+      if (error) {
+        console.warn('[fitEngineStore] fetchMoreOutfits failed:', error);
+        set({ feedError: true });
+        return;
+      }
       const response = data as { outfits: ScoredOutfit[]; curated?: boolean };
       const newOutfits = response.outfits ?? [];
       const newIds = newOutfits.map(outfitKey);
 
+      if (!premium && response.curated) markCurateUsedToday(userId).catch(() => {});
+
       logImpressions(newOutfits.map((o, i) => ({
         outfitId: outfitKey(o), curated: response.curated ?? false, formula: o.formula, position: i,
       }))).catch(() => {});
-      set(s => ({
-        outfits: [...s.outfits, ...newOutfits],
-        shownOutfitIds: [...s.shownOutfitIds, ...newIds],
-      }));
+
+      if (newOutfits.length < 3) {
+        // Near the end of the exclude-able catalog — flush shown IDs for a
+        // fresh cycle (mirrors fetchOutfits). The next page can now legally
+        // re-return an outfit already on screen (exclude list just reset), so
+        // merge into the existing list BY ID instead of blind-appending —
+        // appending would duplicate that outfit's React key in the pager.
+        set(s => {
+          const byId = new Map(s.outfits.map(o => [outfitKey(o), o] as const));
+          for (const o of newOutfits) byId.set(outfitKey(o), o);
+          return { outfits: [...byId.values()], shownOutfitIds: [] };
+        });
+        AsyncStorage.removeItem(SHOWN_IDS_KEY).catch(() => {});
+      } else {
+        set(s => ({
+          outfits: [...s.outfits, ...newOutfits],
+          shownOutfitIds: [...s.shownOutfitIds, ...newIds],
+        }));
+      }
     } catch (err) {
       console.warn('[fitEngineStore] fetchMoreOutfits failed:', err);
+      set({ feedError: true });
     } finally {
       set({ isFetchingMore: false });
     }
   },
 
+  reset: () => {
+    set({
+      bodyMeasurements: { ...EMPTY_BODY },
+      styleProfile: { selectedStyles: [] },
+      colorPreferences: [],
+      formulaPreferences: [],
+      pendingEstimate: null,
+      // Cross-account leak: these were previously left untouched on sign-out,
+      // so the next user to sign in on the same device briefly saw the prior
+      // user's feed/report state (outfits already fetched, premium flag,
+      // session formula selection).
+      outfits: [],
+      shownOutfitIds: [],
+      sessionFormulaId: null,
+      premium: false,
+    });
+    AsyncStorage.removeItem(SHOWN_IDS_KEY).catch(() => {});
+  },
+
   hydrate: async () => {
+    // Re-hydrate whenever auth becomes available. hydrate() runs once at app
+    // start (from _layout) and can fire before the persisted session is
+    // restored (cold-start race) — the initial fetch then returns nothing.
+    // This also covers the first OTP login, where hydrate already ran with no
+    // session. Without it, styleProfile / colorPreferences stay empty for the
+    // whole session, so the Style/Colour preference screens show no selections
+    // even though they exist on the server. Deduped by user id so routine token
+    // refreshes don't refetch. On sign-out, wipe the private style/body state.
+    if (!_fitAuthListenerRegistered) {
+      _fitAuthListenerRegistered = true;
+      let lastAuthedUid: string | null = null;
+      sb.auth.onAuthStateChange((_event, session) => {
+        const uid = session?.user?.id ?? null;
+        if (uid) {
+          if (uid !== lastAuthedUid) {
+            lastAuthedUid = uid;
+            get().hydrate();
+          }
+        } else {
+          lastAuthedUid = null;
+          get().reset();
+        }
+      });
+    }
+
     try {
       // Restore shown IDs from storage
       const raw = await AsyncStorage.getItem(SHOWN_IDS_KEY);

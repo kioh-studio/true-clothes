@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { T, type } from '../../../design/tokens';
 import { IconX } from '../../../components/icons';
+import { useTranslation } from '../../../i18n';
 
 interface Props {
   tags: string[];
@@ -11,12 +12,13 @@ interface Props {
 }
 
 export function TagEditor({ tags, onChange }: Props) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState('');
 
   const commit = () => {
-    const t = draft.trim();
-    if (t && !tags.some((x) => x.toLowerCase() === t.toLowerCase())) {
-      onChange([...tags, t]);
+    const val = draft.trim();
+    if (val && !tags.some((x) => x.toLowerCase() === val.toLowerCase())) {
+      onChange([...tags, val]);
     }
     setDraft('');
   };
@@ -25,10 +27,10 @@ export function TagEditor({ tags, onChange }: Props) {
 
   return (
     <View style={styles.row}>
-      {tags.map((t) => (
-        <View key={t} style={styles.chip}>
-          <Text style={styles.chipText}>{t}</Text>
-          <Pressable onPress={() => remove(t)} hitSlop={8} accessibilityLabel={`Remove ${t}`}>
+      {tags.map((tag) => (
+        <View key={tag} style={styles.chip}>
+          <Text style={styles.chipText}>{tag}</Text>
+          <Pressable onPress={() => remove(tag)} hitSlop={8} accessibilityLabel={t('tagEditor_removeAccessibility', { tag })}>
             <IconX size={11} strokeWidth={1.8} color={T.color.canvas} />
           </Pressable>
         </View>
@@ -38,7 +40,7 @@ export function TagEditor({ tags, onChange }: Props) {
         onChangeText={setDraft}
         onSubmitEditing={commit}
         onBlur={commit}
-        placeholder="Add tag…"
+        placeholder={t('tagEditor_addTagPlaceholder')}
         placeholderTextColor={T.color.tertiary}
         returnKeyType="done"
         style={styles.input}

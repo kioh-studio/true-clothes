@@ -6,12 +6,13 @@ import { View, Text, StyleSheet } from 'react-native';
 import { T, type } from '../../../design/tokens';
 import { IconCheck } from '../../../components/icons';
 import type { WizardStep } from '../types';
+import { useTranslation } from '../../../i18n';
 
-const STEPS: { key: WizardStep; label: string }[] = [
-  { key: 'upload', label: 'Upload' },
-  { key: 'analyse', label: 'Analyse' },
-  { key: 'review', label: 'Review' },
-  { key: 'done', label: 'Done' },
+const STEPS: { key: WizardStep; labelKey: string }[] = [
+  { key: 'upload', labelKey: 'stepper_upload' },
+  { key: 'analyse', labelKey: 'stepper_analyse' },
+  { key: 'review', labelKey: 'stepper_review' },
+  { key: 'done', labelKey: 'stepper_done' },
 ];
 
 const STEP_INDEX: Record<WizardStep, number> = {
@@ -26,11 +27,12 @@ interface Props {
 }
 
 export function Stepper({ step }: Props) {
+  const { t } = useTranslation();
   const activeIndex = STEP_INDEX[step];
 
   return (
     <View style={styles.row}>
-      {STEPS.map(({ key, label }, i) => {
+      {STEPS.map(({ key, labelKey }, i) => {
         const done = i < activeIndex;
         const cur = i === activeIndex;
         return (
@@ -49,7 +51,7 @@ export function Stepper({ step }: Props) {
                 )}
               </View>
               <Text style={[styles.label, cur && styles.labelActive]}>
-                {label}
+                {t(labelKey)}
               </Text>
             </View>
             {i < STEPS.length - 1 && (

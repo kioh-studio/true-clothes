@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable, Image,
 } from 'react-native';
@@ -10,6 +10,7 @@ import { IconChevronLeft, IconCheck } from '../src/components/icons';
 import { STYLES, STYLE_NICHES } from '../src/data';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { useGridCardWidth } from '../src/design/layout';
+import { useTranslation } from '../src/i18n';
 
 function StyleCard({ s, selected, onPress }: { s: typeof STYLES[number]; selected: boolean; onPress: () => void }) {
   const CARD_W = useGridCardWidth();
@@ -37,18 +38,49 @@ function StyleCard({ s, selected, onPress }: { s: typeof STYLES[number]; selecte
 export default function StylesEditScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { styleProfile, setStyleProfile } = useFitEngineStore();
+  const { t } = useTranslation();
+  const { styleProfile, setStyleProfile, hydrated } = useFitEngineStore();
 
   const allStored = styleProfile.selectedStyles;
   const [selected, setSelected] = useState<string[]>(() => allStored.filter(id => !id.includes(':')));
   const [niches, setNiches] = useState<string[]>(() => allStored.filter(id => id.includes(':')));
 
-  const initialSelected = useRef([...selected]).current;
-  const initialNiches = useRef([...niches]).current;
+  // Mutable "clean" baselines for the dirty check — re-anchored whenever a
+  // late store hydrate adopts fresh data below (see effect), so a genuine
+  // edit is never mistaken for a no-op just because it happened before or
+  // after hydrate landed.
+  const initialSelectedRef = useRef<string[]>([...selected]);
+  const initialNichesRef = useRef<string[]>([...niches]);
+  // Last store value we've reconciled against — lets the effect below tell
+  // "the store just changed" apart from "this screen just re-rendered".
+  const lastStoredRef = useRef<string[]>([...allStored]);
 
   const dirty =
-    JSON.stringify([...selected].sort()) !== JSON.stringify([...initialSelected].sort()) ||
-    JSON.stringify([...niches].sort()) !== JSON.stringify([...initialNiches].sort());
+    JSON.stringify([...selected].sort()) !== JSON.stringify([...initialSelectedRef.current].sort()) ||
+    JSON.stringify([...niches].sort()) !== JSON.stringify([...initialNichesRef.current].sort());
+
+  // styleProfile.selectedStyles hydrates asynchronously (fetched from
+  // Supabase, and can re-run on the auth listener). If this screen mounted
+  // before that finished, it arrives here later than useState's one-time
+  // snapshot above. Re-sync when it changes — but only while the user hasn't
+  // started editing yet (both local arrays still equal their previous store
+  // snapshot) so an in-progress edit is never clobbered.
+  useEffect(() => {
+    const storeChanged = JSON.stringify(allStored) !== JSON.stringify(lastStoredRef.current);
+    if (!storeChanged) return;
+    lastStoredRef.current = [...allStored];
+    const untouched =
+      JSON.stringify([...selected].sort()) === JSON.stringify([...initialSelectedRef.current].sort()) &&
+      JSON.stringify([...niches].sort()) === JSON.stringify([...initialNichesRef.current].sort());
+    if (untouched) {
+      const nextSelected = allStored.filter(id => !id.includes(':'));
+      const nextNiches = allStored.filter(id => id.includes(':'));
+      setSelected(nextSelected);
+      setNiches(nextNiches);
+      initialSelectedRef.current = [...nextSelected];
+      initialNichesRef.current = [...nextNiches];
+    }
+  }, [allStored, selected, niches]);
 
   const toggle = (id: string) => {
     setSelected((s) => {
@@ -67,9 +99,13 @@ export default function StylesEditScreen() {
   const refinable = selected.filter((id) => (STYLE_NICHES[id] || []).length > 0);
 
   const handleSave = async () => {
+    if (!hydrated) return;
     await setStyleProfile({ selectedStyles: [...selected, ...niches] });
     router.back();
   };
+
+  const isNoneActive = selected.length === 0 && niches.length === 0;
+  const clearAll = () => { setSelected([]); setNiches([]); };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -78,7 +114,7 @@ export default function StylesEditScreen() {
         <Pressable onPress={() => router.back()} style={styles.iconBtn}>
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.4} />
         </Pressable>
-        <Text style={styles.headerTitle}>Style preferences</Text>
+        <Text style={styles.headerTitle}>{t('tabs_menu_stylePreferences')}</Text>
         <View style={{ width: 44 }} />
       </View>
 
@@ -87,15 +123,37 @@ export default function StylesEditScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.h1}>Your styles.</Text>
+        <Text style={styles.h1}>{t('stylesEdit_title')}</Text>
         <Text style={styles.caption}>
-          Pick the aesthetics you lean into. We'll refine your feed within the hour.
+          {t('stylesEdit_caption')}
         </Text>
+
+        {/* None / no style preference — explicit control so clearing every
+            selection reads as a deliberate choice, not an empty/broken screen */}
+        <View style={{ height: 24 }} />
+        <Pressable
+          onPress={clearAll}
+          style={[styles.noneRow, isNoneActive && styles.noneRowActive]}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.noneLabel, isNoneActive && styles.noneLabelActive]}>
+              {t('stylesEdit_noneOption')}
+            </Text>
+            <Text style={[styles.noneHint, isNoneActive && styles.noneHintActive]}>
+              {t('stylesEdit_noneHint')}
+            </Text>
+          </View>
+          {isNoneActive && (
+            <View style={styles.noneCheckCircle}>
+              <IconCheck size={12} color={T.color.canvas} strokeWidth={1.8} />
+            </View>
+          )}
+        </Pressable>
 
         {/* Step 01 */}
         <View style={styles.stepRow}>
           <Text style={[styles.stepNum, { color: T.color.primary }]}>01</Text>
-          <Text style={[styles.stepLabel, { color: T.color.primary }]}>AESTHETICS</Text>
+          <Text style={[styles.stepLabel, { color: T.color.primary }]}>{t('stylesEdit_aestheticsLabel')}</Text>
           <View style={styles.stepLine} />
           <Text style={styles.stepCount}>{selected.length} / {STYLES.length}</Text>
         </View>
@@ -109,27 +167,28 @@ export default function StylesEditScreen() {
         {/* Step 02 — Refinement */}
         <View style={[styles.stepRow, { marginTop: 40 }]}>
           <Text style={[styles.stepNum, { color: refinable.length ? T.color.primary : T.color.tertiary }]}>02</Text>
-          <Text style={[styles.stepLabel, { color: refinable.length ? T.color.primary : T.color.tertiary }]}>REFINE</Text>
+          <Text style={[styles.stepLabel, { color: refinable.length ? T.color.primary : T.color.tertiary }]}>{t('stylesEdit_refineLabel')}</Text>
           <View style={styles.stepLine} />
-          <Text style={styles.stepCount}>{niches.length} PICKED</Text>
+          <Text style={styles.stepCount}>{t('stylesEdit_pickedCount', { count: niches.length })}</Text>
         </View>
 
         {refinable.length === 0 ? (
           <View style={styles.refineEmpty}>
             <Text style={styles.refineEmptyText}>
-              Pick an aesthetic above to see niche directions tuned to it.
+              {t('stylesEdit_refineEmptyText')}
             </Text>
           </View>
         ) : (
           refinable.map((parentId) => {
-            const parent = STYLES.find((s) => s.id === parentId)!;
+            const parent = STYLES.find((s) => s.id === parentId);
+            if (!parent) return null;
             const list = STYLE_NICHES[parentId] || [];
             const parentNicheCount = niches.filter((n) => n.startsWith(parentId + ':')).length;
             return (
               <View key={parentId} style={{ marginBottom: 28 }}>
                 <View style={styles.nicheHeader}>
                   <View>
-                    <Text style={styles.nicheLabel}>BECAUSE YOU LIKE</Text>
+                    <Text style={styles.nicheLabel}>{t('stylesEdit_becauseYouLikeLabel')}</Text>
                     <Text style={styles.nicheParent}>{parent.name}</Text>
                   </View>
                   <Text style={styles.stepCount}>{parentNicheCount} / {list.length}</Text>
@@ -163,15 +222,15 @@ export default function StylesEditScreen() {
       <View style={[styles.saveBar, { paddingBottom: insets.bottom + 12 }]}>
         {dirty && (
           <Pressable
-            onPress={() => { setSelected([...initialSelected]); setNiches([...initialNiches]); }}
+            onPress={() => { setSelected([...initialSelectedRef.current]); setNiches([...initialNichesRef.current]); }}
             style={styles.discardBtn}
           >
-            <Text style={styles.discardText}>DISCARD</Text>
+            <Text style={styles.discardText}>{t('common_discard')}</Text>
           </Pressable>
         )}
         <View style={{ flex: 1 }}>
-          <PrimaryButton onPress={dirty ? handleSave : undefined} disabled={!dirty}>
-            {dirty ? 'SAVE CHANGES' : 'NO CHANGES'}
+          <PrimaryButton onPress={hydrated && dirty ? handleSave : undefined} disabled={!hydrated || !dirty}>
+            {!hydrated ? t('common_loadingPreferences') : dirty ? t('profileEdit_saveButton') : t('common_noChanges')}
           </PrimaryButton>
         </View>
       </View>
@@ -204,6 +263,35 @@ const styles = StyleSheet.create({
   stepLabel: { ...type.ui, fontSize: 10 },
   stepLine: { flex: 1, height: 0.5, backgroundColor: T.color.hairline },
   stepCount: { ...type.ui, fontSize: 9, color: T.color.tertiary },
+  noneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderWidth: 0.5,
+    borderColor: T.color.hairlineStrong,
+  },
+  noneRowActive: {
+    backgroundColor: T.color.primary,
+    borderWidth: 0,
+  },
+  noneLabel: {
+    fontFamily: T.font.serif,
+    fontSize: 14,
+    fontWeight: '400',
+    color: T.color.primary,
+  },
+  noneLabelActive: { color: T.color.canvas },
+  noneHint: { ...type.caption, fontSize: 11, color: T.color.tertiary, marginTop: 4 },
+  noneHintActive: { color: 'rgba(250,247,242,0.7)' },
+  noneCheckCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(250,247,242,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
+  },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   card: { overflow: 'hidden', position: 'relative' },
   cardGradient: {

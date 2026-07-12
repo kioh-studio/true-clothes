@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Image, Alert, Share } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../../src/design/tokens';
 import { OUTFITS, COLOR_HEX, itemById, ClothingItem } from '../../src/data';
-import { PrimaryButton, SecondaryButton, TextLink, Segmented } from '../../src/components/ui';
+import { PrimaryButton, TextLink, Segmented } from '../../src/components/ui';
 import { IconChevronLeft, IconEdit, IconShare } from '../../src/components/icons';
 import { useAppStore } from '../../src/stores/appStore';
 import { useTryOnStore } from '../../src/stores/tryOnStore';
@@ -12,7 +12,32 @@ import { Photo } from '../../src/components/ui';
 import { useItemPhoto, photoSourceUri } from '../../src/features/wardrobe-photos';
 import type { PhotoInput } from '../../src/features/wardrobe-photos/types';
 import type { WardrobeItem } from '../../src/types/fitEngine';
+import { warmthLabel } from '../../src/features/wardrobe-add/vocab';
+import i18n, { useTranslation } from '../../src/i18n';
 
+// Measurement labels below are internal English words used as the join key
+// between MEASUREMENTS_BY_TYPE / MKEY_LABELS / demo data (src/data) — they are
+// not displayed directly. This maps each to its translated display label.
+const MEASURE_LABEL_KEYS: Record<string, string> = {
+  'Chest': 'itemDetail_measureChest',
+  'Length': 'itemDetail_measureLength',
+  'Sleeve': 'itemDetail_measureSleeve',
+  'Shoulder': 'itemDetail_measureShoulder',
+  'Waist': 'itemDetail_measureWaist',
+  'Hip': 'itemDetail_measureHip',
+  'Inseam': 'itemDetail_measureInseam',
+  'Thigh': 'itemDetail_measureThigh',
+  'Rise': 'itemDetail_measureRise',
+  'Leg opening': 'itemDetail_measureLegOpening',
+  'Size (US)': 'itemDetail_measureSizeUs',
+  'Size (EU)': 'itemDetail_measureSizeEu',
+  'Width': 'itemDetail_measureWidth',
+  'Height': 'itemDetail_measureHeight',
+  'Depth': 'itemDetail_measureDepth',
+  'Strap drop': 'itemDetail_measureStrapDrop',
+  'Skirt length': 'itemDetail_measureSkirtLength',
+  'Head circ.': 'itemDetail_measureHeadCirc',
+};
 
 const MEASUREMENTS_BY_TYPE: Record<string, Array<[string, string | number, string?]>> = {
   TEE:      [['Chest', 56], ['Length', 70], ['Sleeve', 24], ['Shoulder', 50]],
@@ -56,6 +81,7 @@ interface ItemVM {
   size: string | null;
   measurements: Measurement[];
   isWardrobe: boolean;
+  season: string | null;   // real warmthSeason display label, when known
 }
 
 function measurementsForType(t: string): Measurement[] {
@@ -80,17 +106,18 @@ function normalizeDemo(d: ClothingItem): ItemVM {
       ? d.measurements.map(m => ({ label: m.label, value: m.value, unit: m.unit ?? 'cm' }))
       : measurementsForType(d.type),
     isWardrobe: false,
+    season: null,   // demo catalogue items don't carry warmthSeason data
   };
 }
 
 function formatAdded(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${months[date.getMonth()]} ${date.getFullYear()}`;
+  const locale = i18n.language?.startsWith('vi') ? 'vi-VN' : 'en-US';
+  return date.toLocaleDateString(locale, { month: 'short', year: 'numeric' });
 }
 
-function normalizeWardrobe(w: WardrobeItem): ItemVM {
+function normalizeWardrobe(w: WardrobeItem, t: (key: string) => string): ItemVM {
   const type = (w.type || w.category || '').toUpperCase();
   // Prefer the garment's estimated measurements (feature 006); else a sensible
   // by-type default so the section still renders something useful.
@@ -107,7 +134,7 @@ function normalizeWardrobe(w: WardrobeItem): ItemVM {
   return {
     id: w.id,
     type,
-    name: w.name || w.notes || (type ? type.charAt(0) + type.slice(1).toLowerCase() : 'Item'),
+    name: w.name || w.notes || (type ? type.charAt(0) + type.slice(1).toLowerCase() : t('itemDetail_itemFallbackName')),
     addedLabel: formatAdded(w.createdAt),
     swatchColor: w.primaryColor || w.colors[0] || '',
     colorText: w.colors.length ? w.colors.join(', ') : (w.primaryColor || '—'),
@@ -117,6 +144,7 @@ function normalizeWardrobe(w: WardrobeItem): ItemVM {
     size: w.sizeLabel,
     measurements: fromGarment.length ? fromGarment : measurementsForType(type),
     isWardrobe: true,
+    season: w.warmthSeason?.length ? w.warmthSeason.map(warmthLabel).join(' · ') : null,
   };
 }
 
@@ -124,8 +152,10 @@ export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { items, wardrobeItems, removeItem, removeWardrobeItem } = useAppStore();
   const [unit, setUnit] = useState('CM');
+  const [deleting, setDeleting] = useState(false);
 
   // Resolve the REAL wardrobe item first; only then the demo/mock catalogue.
   // The old `|| items[0]` fallback meant any unmatched id silently showed the
@@ -143,7 +173,7 @@ export default function ItemDetailScreen() {
   const photo = useItemPhoto(photoInput);
 
   const vm: ItemVM | null = wardrobeItem
-    ? normalizeWardrobe(wardrobeItem)
+    ? normalizeWardrobe(wardrobeItem, t)
     : demoItem
       ? normalizeDemo(demoItem)
       : null;
@@ -157,9 +187,9 @@ export default function ItemDetailScreen() {
           </Pressable>
         </View>
         <View style={styles.emptyState}>
-          <Text style={styles.emptyTitle}>Item not found.</Text>
+          <Text style={styles.emptyTitle}>{t('itemDetail_notFoundTitle')}</Text>
           <Text style={[type.caption, { marginTop: 12, textAlign: 'center' }]}>
-            It may have been removed from your wardrobe.
+            {t('itemDetail_notFoundCaption')}
           </Text>
         </View>
       </View>
@@ -176,18 +206,50 @@ export default function ItemDetailScreen() {
   };
 
   const attributes = [
-    { label: 'TYPE', value: vm.type || '—' },
-    { label: 'COLOR', value: vm.colorText, swatch: COLOR_HEX[vm.swatchColor] },
-    { label: 'MATERIAL', value: vm.material || '—' },
-    { label: 'FIT', value: vm.fit || 'Regular' },
-    { label: 'SEASON', value: 'Spring · Summer' },
-    { label: 'OCCASION', value: 'Casual · Smart casual' },
+    { label: t('itemDetail_attrType'), value: vm.type || '—' },
+    { label: t('itemDetail_attrColor'), value: vm.colorText, swatch: COLOR_HEX[vm.swatchColor] },
+    { label: t('itemDetail_attrMaterial'), value: vm.material || '—' },
+    { label: t('itemDetail_attrFit'), value: vm.fit || t('itemDetail_fitRegular') },
+    // Real warmthSeason (feature 006) when the item has it; otherwise fall
+    // back to the old placeholder so the row still renders something.
+    { label: t('itemDetail_attrSeason'), value: vm.season || t('itemDetail_seasonFallback') },
+    { label: t('itemDetail_attrOccasion'), value: t('itemDetail_occasionFallback') },
   ];
 
-  const handleRemove = () => {
-    if (vm.isWardrobe) removeWardrobeItem(vm.id);
-    else removeItem(vm.id);
+  const performRemove = async () => {
+    if (deleting) return;
+    setDeleting(true);
+    if (vm.isWardrobe) {
+      await removeWardrobeItem(vm.id);
+      const err = useAppStore.getState().wardrobeError;
+      if (err) {
+        setDeleting(false);
+        Alert.alert(t('itemDetail_couldNotRemoveTitle'), err);
+        return;
+      }
+    } else {
+      removeItem(vm.id);
+    }
     router.back();
+  };
+
+  // Destructive action — confirm first, same as every other destructive flow
+  // in the app (delete collection, remove from collection).
+  const handleRemove = () => {
+    if (deleting) return;
+    Alert.alert(
+      t('itemDetail_removeAlertTitle'),
+      t('itemDetail_removeAlertMessage', { name: vm.name }),
+      [
+        { text: t('common_cancel'), style: 'cancel' },
+        { text: t('extraction_removeButton'), style: 'destructive', onPress: performRemove },
+      ],
+    );
+  };
+
+  const handleShare = () => {
+    const itemDesc = [vm.name, vm.type, vm.colorText].filter(Boolean).join(' · ');
+    Share.share({ message: itemDesc });
   };
 
   // Build an outfit AROUND this item. Real wardrobe items use the live fit engine
@@ -220,7 +282,7 @@ export default function ItemDetailScreen() {
                 <IconEdit size={18} color={T.color.primary} strokeWidth={1.4} />
               </Pressable>
             ) : null}
-            <Pressable style={styles.iconBtn}><IconShare size={20} color={T.color.primary} strokeWidth={1.4} /></Pressable>
+            <Pressable style={styles.iconBtn} onPress={handleShare}><IconShare size={20} color={T.color.primary} strokeWidth={1.4} /></Pressable>
           </View>
         </View>
 
@@ -229,19 +291,21 @@ export default function ItemDetailScreen() {
           {photo.status === 'ready' && photo.source ? (
             <Image source={photo.source} style={styles.heroImg} resizeMode="contain" />
           ) : (
-            <Text style={{ ...type.micro, color: T.color.tertiary }}>NO IMAGE YET</Text>
+            <Text style={{ ...type.micro, color: T.color.tertiary }}>{t('itemDetail_noImageYet')}</Text>
           )}
           <Text style={styles.heroType}>{vm.type}</Text>
         </View>
 
         {/* Title */}
         <View style={{ padding: 24, paddingBottom: 0 }}>
-          <Text style={styles.ownedLabel}>OWNED{vm.addedLabel ? ` · ADDED ${vm.addedLabel.toUpperCase()}` : ''}</Text>
+          <Text style={styles.ownedLabel}>
+            {vm.addedLabel ? t('itemDetail_ownedAdded', { date: vm.addedLabel.toUpperCase() }) : t('itemDetail_ownedLabel')}
+          </Text>
           <View style={{ height: 8 }} />
           <Text style={styles.h1}>{vm.name}</Text>
           <View style={{ height: 12 }} />
           <Text style={type.caption}>
-            {vm.colorText} {vm.material ? vm.material.toLowerCase() : ''}. Worn {vm.wornCount} times.
+            {vm.colorText} {vm.material ? vm.material.toLowerCase() : ''}. {t('itemDetail_wornCount', { count: vm.wornCount })}
           </Text>
         </View>
 
@@ -249,9 +313,9 @@ export default function ItemDetailScreen() {
         <View style={{ padding: 24 }}>
           <View style={styles.statsGrid}>
             {[
-              { label: 'WORN', value: vm.wornCount },
-              { label: 'LAST', value: vm.wornCount > 0 ? '3D AGO' : '—' },
-              { label: 'OUTFITS', value: outfitsUsing.length },
+              { label: t('itemDetail_statWorn'), value: vm.wornCount },
+              { label: t('itemDetail_statLast'), value: vm.wornCount > 0 ? t('itemDetail_statLastAgo') : '—' },
+              { label: t('itemDetail_statOutfits'), value: outfitsUsing.length },
             ].map((s, i) => (
               <View key={s.label} style={[styles.statCell, i === 2 && { borderRightWidth: 0 }]}>
                 <Text style={styles.statNum}>{s.value}</Text>
@@ -263,7 +327,7 @@ export default function ItemDetailScreen() {
 
         {/* Attributes */}
         <View style={{ paddingHorizontal: 24 }}>
-          <Text style={styles.sectionLabel}>DETAILS</Text>
+          <Text style={styles.sectionLabel}>{t('itemDetail_detailsLabel')}</Text>
           <View style={{ height: 8 }} />
           {attributes.map((a, i) => (
             <View key={a.label} style={[styles.attrRow, { borderBottomWidth: i === attributes.length - 1 ? 0 : 0.5, borderBottomColor: T.color.hairline }]}>
@@ -280,18 +344,20 @@ export default function ItemDetailScreen() {
         {measurements.length > 0 && (
           <View style={{ paddingHorizontal: 24, paddingTop: 40 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <Text style={styles.sectionLabel}>MEASUREMENTS{vm.size ? ` · SIZE ${vm.size}` : ''}</Text>
-              <Segmented options={['CM', 'IN']} value={unit} onChange={setUnit} />
+              <Text style={styles.sectionLabel}>
+                {vm.size ? t('itemDetail_measurementsLabelWithSize', { size: vm.size }) : t('itemDetail_measurementsLabel')}
+              </Text>
+              <Segmented options={[t('itemDetail_unitCm'), t('itemDetail_unitIn')]} value={unit} onChange={setUnit} />
             </View>
             <View style={styles.measureGrid}>
               {measurements.map((m, i) => {
                 const lastInRow = (i % 2) === 1;
                 const lastRow = i >= measurements.length - 2;
                 const valDisplay = m.unit === '' ? String(m.value) : convert(m.value);
-                const unitDisplay = m.unit === '' ? '' : (unit === 'CM' ? 'cm' : 'in');
+                const unitDisplay = m.unit === '' ? '' : (unit === t('itemDetail_unitCm') ? t('onboarding_measurements_cmUnit') : t('onboarding_measurements_inUnit'));
                 return (
                   <View key={m.label} style={[styles.measureCell, !lastInRow && { borderRightWidth: 0.5, borderRightColor: T.color.hairline }, !lastRow && { borderBottomWidth: 0.5, borderBottomColor: T.color.hairline }]}>
-                    <Text style={{ ...type.ui, fontSize: 9, color: T.color.tertiary }}>{String(m.label).toUpperCase()}</Text>
+                    <Text style={{ ...type.ui, fontSize: 9, color: T.color.tertiary }}>{t(MEASURE_LABEL_KEYS[m.label] ?? m.label, { defaultValue: m.label }).toUpperCase()}</Text>
                     <Text style={styles.measureVal}>
                       {valDisplay}
                       {unitDisplay ? <Text style={{ fontSize: 12, color: T.color.tertiary }}> {unitDisplay}</Text> : null}
@@ -300,7 +366,7 @@ export default function ItemDetailScreen() {
                 );
               })}
             </View>
-            <Text style={[type.caption, { color: T.color.secondary, marginTop: 16 }]}>True to size.</Text>
+            <Text style={[type.caption, { color: T.color.secondary, marginTop: 16 }]}>{t('itemDetail_trueToSize')}</Text>
           </View>
         )}
 
@@ -308,8 +374,7 @@ export default function ItemDetailScreen() {
         {outfitsUsing.length > 0 && (
           <View style={{ paddingTop: 40 }}>
             <View style={{ paddingHorizontal: 24, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
-              <Text style={styles.sectionLabel}>WEAR WITH ({outfitsUsing.length})</Text>
-              <TextLink color={T.color.primary}>SEE ALL</TextLink>
+              <Text style={styles.sectionLabel}>{t('itemDetail_wearWith', { count: outfitsUsing.length })}</Text>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24, gap: 12 }}>
               {outfitsUsing.map(o => (
@@ -327,15 +392,16 @@ export default function ItemDetailScreen() {
 
         {/* Actions */}
         <View style={{ padding: 24 }}>
-          <PrimaryButton onPress={handleBuildOutfit}>
-            BUILD AN OUTFIT
+          <PrimaryButton
+            onPress={handleBuildOutfit}
+            disabled={!wardrobeItem && outfitsUsing.length === 0}
+          >
+            {t('itemDetail_buildOutfitButton')}
           </PrimaryButton>
-          <View style={{ height: 12 }} />
-          <SecondaryButton>FIND SIMILAR</SecondaryButton>
           <View style={{ height: 24 }} />
           <View style={{ alignItems: 'center' }}>
             <TextLink onPress={handleRemove} color={T.color.error}>
-              Remove from wardrobe
+              {t('itemDetail_removeFromWardrobe')}
             </TextLink>
           </View>
         </View>

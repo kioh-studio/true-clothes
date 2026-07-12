@@ -13,6 +13,7 @@ import { T, type } from '../../../design/tokens';
 import { IconChevronLeft, IconChevronRight, IconCamera, IconImage, IconSparkle, IconDashedSquare, IconX } from '../../../components/icons';
 import type { ExtractMethod } from '../types';
 import { isExtractByItemAvailable } from '../../../services/extractByItemService';
+import { useTranslation } from '../../../i18n';
 
 type Phase = 'method' | 'source';
 
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export function MethodChooser({ visible, dismissable, onAddPhoto, onClose }: Props) {
+  const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>('method');
   const [method, setMethod] = useState<ExtractMethod>('ai');
 
@@ -94,7 +96,7 @@ export function MethodChooser({ visible, dismissable, onAddPhoto, onClose }: Pro
               </Pressable>
             )}
             <Text style={styles.headerLabel}>
-              {phase === 'method' ? 'ADD ANOTHER PHOTO' : (method === 'ai' ? 'EXTRACT BY AI' : 'EXTRACT BY ITEM')}
+              {phase === 'method' ? t('methodChooser_addAnotherPhoto') : (method === 'ai' ? t('methodChooser_extractByAi') : t('methodChooser_extractByItem'))}
             </Text>
             {dismissable && (
               <Pressable onPress={handleClose} hitSlop={12} style={styles.closeBtn}>
@@ -106,9 +108,9 @@ export function MethodChooser({ visible, dismissable, onAddPhoto, onClose }: Pro
           <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
             {phase === 'method' && (
               <>
-                <Text style={styles.h3}>How should we read this photo?</Text>
+                <Text style={styles.h3}>{t('methodChooser_methodQuestion')}</Text>
                 <Text style={styles.captionText}>
-                  Pick a method for the photo you're about to add.
+                  {t('methodChooser_methodCaption')}
                 </Text>
                 <View style={{ height: 18 }} />
 
@@ -120,16 +122,16 @@ export function MethodChooser({ visible, dismissable, onAddPhoto, onClose }: Pro
                   <View style={styles.methodCardTop}>
                     <IconSparkle size={22} strokeWidth={1.3} color={T.color.canvas} />
                     <View style={styles.aiBadge}>
-                      <Text style={styles.aiBadgeText}>AI</Text>
+                      <Text style={styles.aiBadgeText}>{t('methodChooser_aiBadge')}</Text>
                     </View>
                   </View>
                   <View style={{ height: 12 }} />
-                  <Text style={[styles.methodTitle, { color: T.color.canvas }]}>Extract by AI</Text>
+                  <Text style={[styles.methodTitle, { color: T.color.canvas }]}>{t('methodChooser_extractByAi')}</Text>
                   <Text style={styles.methodDescFeatured}>
-                    Finds every piece in a full-outfit photo and fills in all the details.
+                    {t('methodChooser_extractByAiDesc')}
                   </Text>
                   <View style={styles.methodMetaDividerFeatured} />
-                  <Text style={styles.methodMetaFeatured}>Best for full looks</Text>
+                  <Text style={styles.methodMetaFeatured}>{t('methodChooser_bestForFullLooks')}</Text>
                 </Pressable>
 
                 <View style={{ height: 12 }} />
@@ -143,17 +145,17 @@ export function MethodChooser({ visible, dismissable, onAddPhoto, onClose }: Pro
                   <View style={styles.methodCardTop}>
                     <IconDashedSquare size={22} strokeWidth={1.3} color={T.color.primary} />
                     <View style={styles.freeBadge}>
-                      <Text style={styles.freeBadgeText}>FREE</Text>
+                      <Text style={styles.freeBadgeText}>{t('methodChooser_freeBadge')}</Text>
                     </View>
                   </View>
                   <View style={{ height: 12 }} />
-                  <Text style={styles.methodTitle}>Extract by item</Text>
+                  <Text style={styles.methodTitle}>{t('methodChooser_extractByItem')}</Text>
                   <Text style={styles.methodDesc}>
-                    One item on a plain background, cut out and read on-device.
+                    {t('methodChooser_extractByItemDesc')}
                   </Text>
                   <View style={styles.methodMetaDivider} />
                   <Text style={styles.methodMeta}>
-                    {isExtractByItemAvailable ? 'On-device · Free' : 'On-device · Coming soon'}
+                    {isExtractByItemAvailable ? t('methodChooser_onDeviceFree') : t('methodChooser_onDeviceComingSoon')}
                   </Text>
                 </Pressable>
               </>
@@ -161,11 +163,11 @@ export function MethodChooser({ visible, dismissable, onAddPhoto, onClose }: Pro
 
             {phase === 'source' && (
               <>
-                <Text style={styles.h3}>Add a photo</Text>
+                <Text style={styles.h3}>{t('methodChooser_addPhotoTitle')}</Text>
                 <Text style={styles.captionText}>
                   {method === 'ai'
-                    ? 'Choose a full-outfit photo to analyse.'
-                    : 'Choose a single-item photo on a plain background.'}
+                    ? t('methodChooser_addPhotoCaptionAi')
+                    : t('methodChooser_addPhotoCaptionItem')}
                 </Text>
                 <View style={{ height: 18 }} />
 
@@ -174,8 +176,8 @@ export function MethodChooser({ visible, dismissable, onAddPhoto, onClose }: Pro
                     <IconCamera size={22} strokeWidth={1.3} color={T.color.primary} />
                   </View>
                   <View style={styles.sourceText}>
-                    <Text style={styles.sourceTitle}>Take a photo</Text>
-                    <Text style={styles.sourceDesc}>Use your camera</Text>
+                    <Text style={styles.sourceTitle}>{t('tabs_wardrobe_addItemTakePhoto')}</Text>
+                    <Text style={styles.sourceDesc}>{t('methodChooser_useCamera')}</Text>
                   </View>
                   <IconChevronRight
                     size={14}
@@ -191,8 +193,8 @@ export function MethodChooser({ visible, dismissable, onAddPhoto, onClose }: Pro
                     <IconImage size={22} strokeWidth={1.3} color={T.color.primary} />
                   </View>
                   <View style={styles.sourceText}>
-                    <Text style={styles.sourceTitle}>Choose from library</Text>
-                    <Text style={styles.sourceDesc}>Pick one or more photos</Text>
+                    <Text style={styles.sourceTitle}>{t('methodChooser_chooseFromLibrary')}</Text>
+                    <Text style={styles.sourceDesc}>{t('methodChooser_pickPhotos')}</Text>
                   </View>
                   <IconChevronRight
                     size={14}

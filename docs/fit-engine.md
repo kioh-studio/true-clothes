@@ -109,7 +109,7 @@ enum ItemCategory: top, bottom, outwear, shoes, accessory
 
 ### 3.2 Garment Measurements (per type)
 
-All taken from the **physical item laid flat**. Half-width measurements are doubled internally for body comparison.
+All taken from the **physical item**. Girth values (chest, waist, hip, thigh) are stored as **full circumference** in cm — shops sometimes list a laid-flat half-width, but the value must be doubled to full circumference before storage. The fit engine compares garment vs body by direct subtraction (`ease = garment − body`) with no runtime doubling.
 
 #### Top Item (6 fields)
 
@@ -455,6 +455,22 @@ Weights are tunable; initial values TBD based on user testing. Expected starting
 - `w_color` = 0.35 (color harmony is highly visible)
 - `w_fit` = 0.25 (fit matters but many items lack measurements initially)
 
+### 7.5 Gender-Aware Styling Nudge (opt-in)
+
+Off by default. The user enables it under **Settings → Tailor to gender**; the client
+then sends `gender_aware: true` to `generate-outfits`, which reads `profiles.gender`.
+
+- **Scope:** only binary values (`WOMAN` / `MAN`) feed the nudge. `NON-BINARY`,
+  `PREFER NOT TO SAY`, and unset leave `ctx.gender` undefined → scoring stays fully
+  gender-blind. No DB migration: the flag rides the request body, gender is already stored.
+- **Mechanism:** a SOFT additive delta in `[-0.05, +0.05]` on `totalScore`
+  (`genderStylingDelta` in `scoring.ts`), applied in `rankCandidates`. Deliberately
+  smaller than the body-shape delta so the user's own style/colour signals stay primary.
+  It NEVER filters items — the wardrobe is the user's own.
+- **Conventions (gentle, not rules):** WOMAN → small reward for a defined/tailored
+  piece, deliberate top↔bottom proportion play, and the one-piece option. MAN → small
+  reward for a balanced/structured silhouette; gentle penalty for an all-tight read.
+
 ---
 
 ## 8. Data Flow
@@ -525,6 +541,6 @@ Weights are tunable; initial values TBD based on user testing. Expected starting
 3. **Brute-force generation** — enumerate combinations rather than ML-based generation (simpler, deterministic, explainable).
 4. **Daily shuffle** — same user sees same order all day (prevents decision fatigue from constant reordering).
 5. **Measurements optional per item** — system gracefully handles items without measurement data (neutral fit score).
-6. **Half-width convention** — garment measurements taken flat (half circumference); system doubles internally.
+6. **Full-circumference convention** — girth measurements (chest/waist/hip/thigh) are stored as full circumference in cm; the engine compares directly against body measurements without any runtime doubling.
 7. **Hierarchical styles** — broad categories for discovery, sub-styles for refinement.
 8. **Curated + computed hybrid** — expert fashion knowledge (graph edges) weighted above raw vector similarity (60/40 split).

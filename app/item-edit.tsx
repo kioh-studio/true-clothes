@@ -15,6 +15,7 @@ import { ItemCard } from '../src/features/wardrobe-add/components';
 import type { ExtractedItem } from '../src/features/wardrobe-add/types';
 import type { WardrobeItem } from '../src/types/fitEngine';
 import type { UpdateItemInput } from '../src/services/wardrobeService';
+import { useTranslation } from '../src/i18n';
 
 // WardrobeItem → the editable ExtractedItem shape ItemCard expects.
 function toEditable(w: WardrobeItem): ExtractedItem {
@@ -30,12 +31,17 @@ function toEditable(w: WardrobeItem): ExtractedItem {
     fit: w.fit,
     pattern: w.pattern,
     warmthSeason: w.warmthSeason?.[0] ?? null,
+    canLayer: w.canLayer ?? null,
     measurements: w.measurements ?? {},
     brand: w.brand ?? '',
     link: '',
     tags: [],
     graphics: w.graphics,
     confidence: 1,
+    // Measured-hex (2026-07-06): read-only carry — no edit UI, and toPatch
+    // deliberately omits it (edit never rewrites the measured hex).
+    primaryHex: w.primaryHex ?? null,
+    secondaryHex: w.secondaryHex ?? null,
   };
 }
 
@@ -51,6 +57,7 @@ function toPatch(e: ExtractedItem): UpdateItemInput {
     ...(e.fit ? { fit: e.fit } : {}),
     ...(e.pattern ? { pattern: e.pattern } : {}),
     warmthSeason: e.warmthSeason ? [e.warmthSeason] : [],
+    canLayer: e.canLayer,
     brand: e.brand,
     measurements: e.measurements,
   };
@@ -60,6 +67,7 @@ export default function ItemEditScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { wardrobeItems, updateWardrobeItem, wardrobeError } = useAppStore();
 
   const original = useMemo(() => wardrobeItems.find((i) => i.id === id) ?? null, [wardrobeItems, id]);
@@ -80,9 +88,9 @@ export default function ItemEditScreen() {
           </Pressable>
         </View>
         <View style={styles.empty}>
-          <Text style={styles.emptyTitle}>Item not found.</Text>
+          <Text style={styles.emptyTitle}>{t('itemEdit_notFoundTitle')}</Text>
           <Text style={[type.caption, { marginTop: 12, textAlign: 'center' }]}>
-            Only items in your wardrobe can be edited.
+            {t('itemEdit_notFoundCaption')}
           </Text>
         </View>
       </View>
@@ -106,7 +114,7 @@ export default function ItemEditScreen() {
         <Pressable onPress={() => router.back()} style={styles.iconBtn}>
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.4} />
         </Pressable>
-        <Text style={styles.navTitle}>Edit item</Text>
+        <Text style={styles.navTitle}>{t('itemEdit_title')}</Text>
         <View style={styles.iconBtn} />
       </View>
 
@@ -134,11 +142,11 @@ export default function ItemEditScreen() {
 
         <View style={{ height: 24 }} />
         <PrimaryButton disabled={saving} onPress={onSave}>
-          {saving ? 'SAVING…' : 'SAVE CHANGES'}
+          {saving ? t('addItem_savingText') : t('profileEdit_saveButton')}
         </PrimaryButton>
         <View style={{ height: 16 }} />
         <View style={{ alignItems: 'center' }}>
-          <TextLink onPress={() => router.back()} color={T.color.tertiary}>Cancel</TextLink>
+          <TextLink onPress={() => router.back()} color={T.color.tertiary}>{t('common_cancel')}</TextLink>
         </View>
       </ScrollView>
     </View>
