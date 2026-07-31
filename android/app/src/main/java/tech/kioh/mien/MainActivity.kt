@@ -1,4 +1,4 @@
-package com.briank.mien
+package tech.kioh.mien
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

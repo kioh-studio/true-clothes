@@ -42,10 +42,9 @@
   "submit": {
     "production": {
       "ios": {
-        "ascAppId": "6782307581",
         "appleTeamId": "ZXWAPGR9XP",
         "language": "en-US",
-        "sku": "com.briank.mien"
+        "sku": "tech.kioh.mien"
       }
     }
   }

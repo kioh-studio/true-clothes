@@ -15,14 +15,14 @@
       "backgroundColor": "#F2ECE0"
     },
     "ios": {
-      "supportsTablet": false,
-      "bundleIdentifier": "com.briank.mien",
+      "supportsTablet": true,
+      "bundleIdentifier": "tech.kioh.mien",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.briank.mien",
+      "package": "tech.kioh.mien",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FAF7F2"

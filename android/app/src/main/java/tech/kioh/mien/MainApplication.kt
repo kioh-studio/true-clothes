@@ -1,4 +1,4 @@
-package com.briank.mien
+package tech.kioh.mien
 
 import android.app.Application
 import android.content.res.Configuration
