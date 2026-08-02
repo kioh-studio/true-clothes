@@ -753,3 +753,8 @@ published so no store-side migration needed, but three things are still open:
   than upgrading in place. Any emulator/device that had the old build installed needs it
   manually uninstalled (`adb uninstall com.briank.mien`) to avoid confusion from having both
   apps present.
+
+- [ ] **Supabase free-tier auto-pause.** (2026-08-02) Project `trtjcsxcowqecsebvyme` bi
+  pause (INACTIVE) do khong co traffic — toan bo backend offline cho toi khi restore
+  thu cong. Can quyet: nang plan Pro hoac dat cron ping giu project active truoc khi
+  co user that.
