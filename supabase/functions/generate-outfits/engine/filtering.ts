@@ -250,6 +250,19 @@ export interface FilterResult {
   rejected: Array<{ item: FitItem; reasons: string[] }>;
 }
 
+// The same five checks filterByStyle uses, exposed as a single true/false
+// predicate — no reasons, no safety-net restoration. Used by the wardrobe-
+// affinity fallback (below) to ask "does the wardrobe genuinely suit this
+// style" without the safety net's "force something in so a category isn't
+// empty" behavior leaking into that judgment.
+export function passesStyleNaturally(item: FitItem, config: StyleConfig): boolean {
+  return colorPasses(item, config) === null
+    && fabricPasses(item, config) === null
+    && fitPasses(item, config) === null
+    && formalityPasses(item, config) === null
+    && featuresPasses(item, config) === null;
+}
+
 export function filterByStyle(items: FitItem[], config: StyleConfig): FilterResult {
   const passed: FitItem[] = [];
   const rejected: FilterResult['rejected'] = [];
@@ -288,4 +301,41 @@ export function filterByStyle(items: FitItem[], config: StyleConfig): FilterResu
   }
 
   return { passed, rejected };
+}
+
+// ─── Wardrobe-affinity style fallback (2026-08-02) ─────────────────────────
+// When the user has selected no styles, index.ts used to skip the style
+// filter entirely — no style identity in the feed, and styleCoherence
+// dropped out of scoring. Instead, pick up to `maxStyles` styles the
+// wardrobe can ACTUALLY express naturally (passesStyleNaturally, not the
+// safety-net-padded filterByStyle result) so the fallback reflects real
+// coverage, not a forced restoration.
+
+// A style only "covers" a wardrobe if it can build a complete outfit from it:
+// a top + bottom + shoes, or a onepiece + shoes.
+function hasOutfitCoverage(natural: FitItem[]): boolean {
+  const hasTopBottomShoes = natural.some(i => i.category === 'top')
+    && natural.some(i => i.category === 'bottom')
+    && natural.some(i => i.category === 'shoes');
+  const hasOnepieceShoes = natural.some(i => i.category === 'onepiece')
+    && natural.some(i => i.category === 'shoes');
+  return hasTopBottomShoes || hasOnepieceShoes;
+}
+
+export function resolveFallbackStyles(items: FitItem[], maxStyles = 3): StyleConfig[] {
+  if (items.length === 0) return [];
+
+  const scored = STYLE_CONFIGS
+    .map(config => {
+      const natural = items.filter(i => passesStyleNaturally(i, config));
+      return { config, score: natural.length / items.length, eligible: hasOutfitCoverage(natural) };
+    })
+    .filter(s => s.eligible);
+
+  scored.sort((a, b) =>
+    b.score - a.score
+    || b.config.popularity - a.config.popularity
+    || a.config.id.localeCompare(b.config.id));
+
+  return scored.slice(0, maxStyles).map(s => s.config);
 }

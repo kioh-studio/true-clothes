@@ -7,10 +7,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   EngineContext, FitItem, IntentContext, ClothingItemRow,
-  BodyMeasurements, UserStyleProfile, ScoredOutfit,
+  BodyMeasurements, UserStyleProfile, ScoredOutfit, StyleConfig,
 } from './engine/types.ts';
 import { toFitItem, registerColors, colorProfileOf } from './engine/enrichment.ts';
-import { filterByStyle, styleConfigById } from './engine/filtering.ts';
+import { filterByStyle, styleConfigById, resolveFallbackStyles, passesStyleNaturally } from './engine/filtering.ts';
 import { generateCandidates, generatePinnedCandidates, generateHeroCandidates, GENERATION_CAP, FormulaId } from './engine/generation.ts';
 import { resolveIntent, applyIntent, rankCandidates, dailyShuffle } from './engine/ranking.ts';
 import { resolveTargetSilhouette, outfitSilhouetteTag, resultingBodySilhouette } from './engine/silhouette.ts';
@@ -316,9 +316,37 @@ Deno.serve(async (req) => {
     //    user's selected styles (up to 5), not just the first one. Scoring
     //    weights still come from the primary style.
     let filteredItems = fitItems;
-    const styleConfigs = ctx.styleProfile.selectedStyles
+    let styleConfigs = ctx.styleProfile.selectedStyles
       .map(id => styleConfigById(id))
       .filter((c): c is NonNullable<typeof c> => c !== undefined);
+
+    // 3a. Wardrobe-affinity style fallback (2026-08-02): the user (and intent,
+    //    resolved just above) picked no styles at all, so the filter/scoring
+    //    below would otherwise run style-blind — no style identity in the feed,
+    //    styleCoherence dropped out of scoring entirely. Auto-select up to 3
+    //    styles the wardrobe can ACTUALLY express (resolveFallbackStyles reads
+    //    real per-item coverage, not a guess) and feed them into ctx BEFORE the
+    //    existing filter/weights block runs, so it behaves exactly as if the
+    //    user had picked these styles. Skipped for Mix & Match (pinItem): that
+    //    flow must keep searching the whole wardrobe around the pinned piece,
+    //    not narrow it to a guessed style.
+    let styleFallback = false;
+    let fallbackConfigs: StyleConfig[] = [];
+    if (styleConfigs.length === 0 && !pinItem && filteredItems.length > 0) {
+      fallbackConfigs = resolveFallbackStyles(fitItems);
+      if (fallbackConfigs.length > 0) {
+        styleFallback = true;
+        styleConfigs = fallbackConfigs;
+        ctx = {
+          ...ctx,
+          styleProfile: { ...ctx.styleProfile, selectedStyles: fallbackConfigs.map(c => c.id) },
+        };
+        const coverage = fallbackConfigs
+          .map(c => `${c.id}=${fitItems.filter(i => passesStyleNaturally(i, c)).length}`)
+          .join(', ');
+        console.log(`[generate-outfits] style fallback: no selected styles → ${fallbackConfigs.map(c => c.id).join(',')} (coverage-based) [${coverage}]`);
+      }
+    }
 
     if (styleConfigs.length > 0) {
       const passedIds = new Set<string>();
@@ -513,6 +541,21 @@ Deno.serve(async (req) => {
       if (summery >= 2 || (summery >= 1 && seasons.every(s => s === 'summer' || s === 'allSeason'))) return '28°C+';
       return '22–28°C';
     };
+    // Wardrobe-affinity style fallback tag (2026-08-02): which fallback style
+    // the outfit's items align with most (count of items passing that style's
+    // checks naturally), tie-broken by the fallback ranking order (iterate in
+    // that order, strict `>` so an earlier-ranked style wins ties). Only
+    // meaningful — and only computed — when the fallback actually fired.
+    const styleTagOf = (its: FitItem[]): string | undefined => {
+      let best: StyleConfig | undefined;
+      let bestCount = -1;
+      for (const config of fallbackConfigs) {
+        const count = its.filter(i => passesStyleNaturally(i, config)).length;
+        if (count > bestCount) { bestCount = count; best = config; }
+      }
+      return best?.name;
+    };
+
     const STORY_ORDER = ['REFINED', 'EVERYDAY', 'OFF DUTY'];
     const rot = (new Date().getUTCDate() + userId.length) % STORY_ORDER.length;
     const storySequence = [...STORY_ORDER.slice(rot), ...STORY_ORDER.slice(0, rot)];
@@ -525,6 +568,7 @@ Deno.serve(async (req) => {
       o.silhouette = outfitSilhouetteTag(its);
       o.silhouetteShape = resultingBodySilhouette(its, ctx.bodyMeasurements.body_shape);
       o.colorTone = outfitDominantColor(its);
+      if (styleFallback) o.styleTag = styleTagOf(its);
     }
     outfits = [...outfits].sort(
       (a, b) => storySequence.indexOf(a.story!) - storySequence.indexOf(b.story!),
@@ -553,7 +597,16 @@ Deno.serve(async (req) => {
       console.log(`[generate-outfits] outfit #${i + 1} formula=${outfit.formula} style=${primaryStyle} score=${outfit.totalScore.toFixed(3)} items=[${itemList}]`);
     }
 
-    return jsonResponse({ outfits, has_more: hasMore, curated }, 200);
+    // Additive, omitted entirely when the fallback didn't fire — old clients
+    // that don't know this key ignore it either way.
+    const responseBody: Record<string, unknown> = { outfits, has_more: hasMore, curated };
+    if (styleFallback) {
+      responseBody.style_fallback = {
+        applied: true,
+        styles: fallbackConfigs.map(c => ({ id: c.id, name: c.name })),
+      };
+    }
+    return jsonResponse(responseBody, 200);
 
   } catch (err) {
     console.error('[generate-outfits] Error:', err);

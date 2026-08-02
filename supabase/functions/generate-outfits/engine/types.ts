@@ -232,6 +232,14 @@ export interface ScoredOutfit {
   // `silhouette` (the garment-volume tag), never replacing it.
   silhouetteShape?: 'hourglass' | 'rectangle' | 'oval' | 'inverted-triangle' | 'triangle';
   colorTone?: PrimaryColor;
+  // Wardrobe-affinity style fallback (2026-08-02): display-only style label —
+  // the `name` of the fallback style config the outfit's items align with
+  // most. Only set when the user had no selected styles and index.ts's
+  // fallback block auto-picked styles from wardrobe coverage
+  // (engine/filtering.ts resolveFallbackStyles); left undefined when the
+  // user has real style picks, since style identity is already implicit
+  // then. Not a scoring input.
+  styleTag?: string;
   styleCoherence: number;
   colorHarmony: number;
   fitScore: number;

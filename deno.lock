@@ -87,6 +87,7 @@
         "npm:expo-localization@~17.0.9",
         "npm:expo-location@~19.0.8",
         "npm:expo-router@~6.0.23",
+        "npm:expo-sensors@~15.0.8",
         "npm:expo-splash-screen@~31.0.13",
         "npm:expo-status-bar@~3.0.9",
         "npm:expo@~54.0.33",
