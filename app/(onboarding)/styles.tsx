@@ -8,7 +8,7 @@ import { T, type } from '../../src/design/tokens';
 import { STYLES, StyleOption } from '../../src/data';
 import { useFitEngineStore } from '../../src/stores/fitEngineStore';
 import { StyleCatalogItem } from '../../src/services/stylesCatalogService';
-import { useGridCardWidth } from '../../src/design/layout';
+import { useGridCardWidth, useGridColumns } from '../../src/design/layout';
 import { useTranslation } from '../../src/i18n';
 
 const RELATED_MAP: Record<string, string[]> = {
@@ -31,8 +31,8 @@ function withStaticFallback(s: StyleCatalogItem | StyleOption): StyleOption {
   };
 }
 
-function StyleCard({ style: s, selected, onPress, small = false }: { style: StyleCatalogItem | StyleOption; selected: boolean; onPress: () => void; small?: boolean }) {
-  const CARD_W = useGridCardWidth();
+function StyleCard({ style: s, selected, onPress, small = false, cols }: { style: StyleCatalogItem | StyleOption; selected: boolean; onPress: () => void; small?: boolean; cols?: number }) {
+  const CARD_W = useGridCardWidth(cols ?? 2);
   const w = small ? 130 : CARD_W;
   const h = w * (4 / 3);
   const view = withStaticFallback(s);
@@ -64,6 +64,7 @@ export default function StylesScreen() {
   const { t } = useTranslation();
   const { setStyleProfile, styles: catalogStyles } = useFitEngineStore();
   const [selected, setSelected] = useState<string[]>([]);
+  const cols = useGridColumns();
 
   // Use catalog if loaded, fall back to static STYLES
   const styleList = catalogStyles.length > 0
@@ -143,6 +144,7 @@ export default function StylesScreen() {
                     key={id}
                     style={s}
                     small
+                    cols={cols}
                     selected={isSelected}
                     onPress={() => toggle(id)}
                   />
@@ -159,6 +161,7 @@ export default function StylesScreen() {
               <StyleCard
                 key={id}
                 style={s}
+                cols={cols}
                 selected={selected.includes(id)}
                 onPress={() => toggle(id)}
               />

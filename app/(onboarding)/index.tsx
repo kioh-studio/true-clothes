@@ -3,7 +3,7 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Pressable, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Photo } from '../../src/components/ui';
+import { Photo, Bounded } from '../../src/components/ui';
 import { PrimaryButton, TextLink } from '../../src/components/ui';
 import { T, type } from '../../src/design/tokens';
 import { PHOTOS } from '../../src/data';
@@ -41,30 +41,32 @@ export default function SplashScreen() {
 
       {/* Bottom brand area */}
       <View style={styles.brandArea}>
-        <Animated.Image
-          source={require('../../assets/logo/MIEN-wordmark.png')}
-          style={[styles.brand, { opacity, transform: [{ translateY }] }]}
-          resizeMode="contain"
-          accessibilityRole="image"
-          accessibilityLabel="MIEN"
-        />
-        <Animated.Text style={[styles.tagline, { opacity: subtitleOpacity }]}>
-          {t('onboarding_welcome_tagline')}
-        </Animated.Text>
+        <Bounded style={{ flex: 1, alignItems: 'center' }}>
+          <Animated.Image
+            source={require('../../assets/logo/MIEN-wordmark.png')}
+            style={[styles.brand, { opacity, transform: [{ translateY }] }]}
+            resizeMode="contain"
+            accessibilityRole="image"
+            accessibilityLabel="MIEN"
+          />
+          <Animated.Text style={[styles.tagline, { opacity: subtitleOpacity }]}>
+            {t('onboarding_welcome_tagline')}
+          </Animated.Text>
 
-        <View style={{ flex: 1, minHeight: 24, maxHeight: 96 }} />
+          <View style={{ flex: 1, minHeight: 24, maxHeight: 96 }} />
 
-        <Animated.View style={[styles.cta, { opacity: ctaOpacity }]}>
-          <PrimaryButton onPress={() => router.push('/(onboarding)/account')}>
-            {t('onboarding_welcome_begin')}
-          </PrimaryButton>
-          <View style={{ height: 16 }} />
-          <View style={styles.signInRow}>
-            <TextLink onPress={() => router.push('/(onboarding)/account')} color={T.color.primary}>
-              {t('onboarding_welcome_signIn')}
-            </TextLink>
-          </View>
-        </Animated.View>
+          <Animated.View style={[styles.cta, { opacity: ctaOpacity }]}>
+            <PrimaryButton onPress={() => router.push('/(onboarding)/account')}>
+              {t('onboarding_welcome_begin')}
+            </PrimaryButton>
+            <View style={{ height: 16 }} />
+            <View style={styles.signInRow}>
+              <TextLink onPress={() => router.push('/(onboarding)/account')} color={T.color.primary}>
+                {t('onboarding_welcome_signIn')}
+              </TextLink>
+            </View>
+          </Animated.View>
+        </Bounded>
       </View>
     </View>
   );

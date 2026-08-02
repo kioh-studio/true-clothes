@@ -8,11 +8,12 @@ import { BottomSheet, PrimaryButton, TextLink } from '../../src/components/ui';
 import { IconChevronLeft, IconPlus } from '../../src/components/icons';
 import { useAppStore } from '../../src/stores/appStore';
 import { useCollectionSheet } from '../../src/features/collections/useCollectionSheet';
-import { useGridCardWidth } from '../../src/design/layout';
+import { useGridCardWidth, useGridColumns } from '../../src/design/layout';
 import { useTranslation } from '../../src/i18n';
 
 export default function CollectionsScreen() {
-  const CARD_W = useGridCardWidth();
+  const cols = useGridColumns();
+  const CARD_W = useGridCardWidth(cols);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();

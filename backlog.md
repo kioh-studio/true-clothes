@@ -6,8 +6,61 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
 
 ---
 
+## I. generate-outfits: wardrobe-affinity style fallback follow-ups (2026-08-02)
+
+- [ ] **Client-side badge for `style_tag` / `style_fallback`** (2026-08-02) — server
+  now returns `outfits[].styleTag` and a top-level `style_fallback: { applied, styles
+  }` when a styleless user's feed was auto-tagged from wardrobe coverage (see
+  plan.md "Wardrobe-affinity style fallback in generate-outfits (2026-08-02)"). No
+  client code was touched this session (out of scope) — the feed UI doesn't render
+  this yet. Needs a small badge/label on the outfit card (and maybe a one-time toast
+  the first time fallback fires) once product decides the copy/placement.
+
+## G. Responsive layout (iPad) follow-ups (2026-07-22)
+
+- [ ] **iPad landscape orientation** — currently portrait-locked
+  (`app.json` `orientation: "portrait"`); unlock + audit all screens for
+  landscape/multitasking widths (deferred, out of current scope — this
+  session only shipped portrait-only responsive support per plan.md
+  changelog "Responsive layout — phone to iPad Pro 13\" (2026-07-22)").
+- [ ] **Font-scaling caps** — no `allowFontScaling`/`maxFontSizeMultiplier`
+  anywhere; tight fixed `lineHeight`s + `numberOfLines` truncation risk
+  clipping text at large accessibility text sizes. Add a shared `Text`
+  primitive with a cap (deferred).
+- [ ] **iPad has no camera torch — personal-color wrist scan degraded**
+  — `app/(onboarding)/personal-color.tsx` WristScanStep uses `facing="back"`
+  + `enableTorch` dual-flash (torch on/off) to cancel ambient light for skin
+  undertone detection. No iPad model has an LED camera flash/torch, so
+  `enableTorch` is a no-op on iPad → the two captures are effectively
+  identical and undertone results are unreliable. Detect iPad (or no-torch
+  device) and either hide/skip the wrist-flash step or fall back to a
+  single-shot ambient path with a warning. Discovered 2026-07-22 while
+  auditing iOS feature parity after enabling `supportsTablet`. (Hair scan
+  doesn't use torch — unaffected.)
+- [ ] **Share sheet not anchored on iPad** — `app/(tabs)/index.tsx:290` and
+  `app/outfit/[id].tsx` call `Share.share({ message })` with no `anchor`;
+  on iPad the popover appears from a default corner instead of the share
+  button. Cosmetic (no crash on New Arch). Pass an `anchor` node handle to
+  polish. (2026-07-22)
+
 ## A. Chờ anh Khôi duyệt — trade-off lớn (chi phí / UX / phạm vi)
 
+- [x] **Side-photo depth capture** — DONE 2026-07-12 (implemented this session, anh Khôi
+  đã duyệt trade-off): thêm bước chụp nghiêng 90° (turn interstitial + side scanning
+  sub-phase, SKIP → front-only fallback) để ĐO độ dày thân thay vì đoán từ BMI — thay thế
+  `chestDepthRatio`/`waistDepthRatio`/`hipDepthRatio` guessed-depth path bằng
+  `sideDepthsCm` measured path per-field (fallback về guessed path nếu ratio depth/width
+  ngoài `sideDepthWidthRatioMin`/`Max`). Xem `plan.md` changelog "Side-view (profile)
+  depth capture — replaces BMI-guessed depth (2026-07-12)" cho toàn bộ chi tiết (row-
+  fraction cross-view registration, hand erasure, per-view scale via
+  `estimatePersonUnitH`, superellipse shape knob, fixture v2). Verify: `tsc`/`jest`
+  325/325 xanh từ máy dev — CHƯA smoke-test trên thiết bị thật (xem mục device-verify
+  mới trong §I bên dưới).
+  *Bằng chứng (research 2026-07-12)*: MeasureNet (Amazon Halo, npj Digit. Med. 2023) ablation
+  front-only → front+side giảm MAE eo 2.33→1.75cm (nam) / 2.89→2.40cm (nữ) — đòn bẩy đơn lẻ
+  lớn nhất đã được kiểm chứng; front+side cũng là capture pattern cả ngành hội tụ (3DLOOK,
+  Bodygram, Size Stream, Esenca). Mốc thực tế: front-only+height ≈ 3–4cm MAE,
+  front+side+H/W ≈ 1.5–2.5cm MAE (BMnet arXiv:2210.05667; PMC9177647).
 - [ ] **Chạy backfill hex + metadata trên prod** (2026-07-06, phiên measured-hex color
   layer): `backfill-item-metadata` giờ cũng điền `primary_hex`/`secondary_hex` cho item cũ
   (pixel algorithm thuần, không tốn Gemini call nếu metadata khác đã đủ). Cần
@@ -511,9 +564,13 @@ edge functions / chưa chạy eas build — chờ anh Khôi duyệt riêng.
   (2) chất lượng mask khi đứng 2-3m, nền không trơn; (3) tay ép sát thân → run eo dính tay
   (đã đổi copy sang A-pose, cân nhắc thêm pose-gate check tay); (4) calibrate `S` bands +
   `contourShoulderInset` vs số thước dây thật của anh Khôi (shoulder thật, waist thật).
-- [ ] **MoveNet Thunder (256px) thay Lightning** (2026-07-06, tùy chọn): keypoint chính
-  xác hơn ~vài %, model ~7MB (vs 2.9MB), chậm hơn ~2-3x mỗi frame poll. Chỉ đáng làm nếu
-  sau calibration silhouette mà lengths (inseam/torso) vẫn nhiễu.
+- [x] **MoveNet Thunder (256px) thay Lightning** (2026-07-06, tùy chọn) — DONE 2026-07-12,
+  nhưng dưới dạng KHÁC với đề xuất gốc: thay vì thay hẳn Lightning trong live poll loop
+  (chậm hơn ~2-3x mỗi frame, không hợp cadence 1.2s), Thunder chạy như **pass 2 refinement**
+  tại thời điểm capture — crop quanh người (từ pass-1 Lightning keypoints qua
+  `personCropRect`), infer lại trên crop đó, map kết quả về full-square space. Lightning vẫn
+  chạy live poll loop y nguyên. Xem `plan.md` changelog "Body-measurement pipeline precision
+  overhaul (2026-07-12)" + `src/features/measurements/{cropMath,poseEstimate}.ts`.
 - [ ] **`evaluate-item` AI fit-note type mismatch** (2026-07-06, phát hiện khi làm tone12
   quality bonus — không thuộc phạm vi task đó, không do session này gây ra): `deno check
   supabase/functions/evaluate-item/index.ts` báo TS2322 tại lời gọi `buildNoteContext(...)`
@@ -568,3 +625,131 @@ edge functions / chưa chạy eas build — chờ anh Khôi duyệt riêng.
 - [ ] **Dịch ~37 tên màu primaryColor sang vi cho colorTone tag trên feed card** (2026-07-12)
   — tạm hiển thị tên EN viết hoa (không có namespace màu i18n sẵn có để tái dùng, xem
   `app/(tabs)/index.tsx` `colorToneMetaLabel` + `src/design/feed/design.md`).
+
+## I. Body-measurement precision overhaul — pending (2026-07-12)
+
+Xem `plan.md` changelog "Body-measurement pipeline precision overhaul (2026-07-12)" +
+"BlazePose Heavy + MODNet model upgrade (2026-07-12)" cho toàn bộ thay đổi (refinement
+pass, sub-pixel mask edges, mask-extent/heel scale blend, tilt gate, model upgrade,
+latency guard, v.v.). Verify chỉ chạy được `tsc --noEmit` + `jest` từ máy dev — CHƯA chạy
+trên thiết bị/emulator thật (yêu cầu rõ trong cả hai task: "on-device validation is out
+of scope"/"Do NOT run the app").
+
+- [x] ~~Cân nhắc Thunder int8 (~7MB) nếu app size quan trọng~~ — MOOT 2026-07-12: Thunder
+  đã bị thay hẳn bằng BlazePose Heavy (33 landmark, xem entry model-upgrade). Câu hỏi
+  app-size tương đương giờ áp dụng cho BlazePose Heavy (27.7MB) — xem mục app-size dưới.
+- [ ] **Calibrate K constants với fixtures thật (tape measurements) qua scripts/measure-eval
+  — chưa có fixture nào.** `CALIBRATABLE_KEYS` giờ có thêm `maskExtentFudge`,
+  `shoulderBlendContour`, `kpShoulderFactor` (14 field); bản thân `maskExtentWeight`,
+  `heelWeight`, `heightEstimateDisagreementBand`, `noseCrownFraction` (không nằm trong
+  danh sách calibratable — xem note trong `landmarksToMeasurements.ts`) đều là số ước
+  lượng physically-motivated, chưa test với ảnh thật. Cần capture ≥3 subject thật qua
+  `app/measurements-scan.tsx` (`__DEV__`, dòng log `[MEASURE_EVAL_JSON]`) + tape đo thật vào
+  `groundTruth` — capture nên có cả feet visible trong khung hình để exercise nhánh heel
+  mới (nếu feet bị crop, `hHeel`/heel-based inseam đơn giản không kích hoạt, không lỗi).
+- [ ] **Device verify — BlazePose Heavy + MODNet asset/shape thật** (2026-07-12, model
+  upgrade session): xác nhận qua log `__DEV__` (`[BLAZEPOSE] inputs=/outputs=`,
+  `[MODNET] inputs=/outputs=`) trên thiết bị thật rằng: BlazePose Heavy input đúng
+  `[1,256,256,3]` float32 [0,1] và output có đúng 1 tensor length 195 (landmarks) + 1
+  tensor length 1 (poseflag); MODNet input đúng `[1,3,512,512]` NCHW float32 [-1,1] và
+  output length 1 tensor `[1,1,512,512]`. Nếu shape thực tế khác spec (model card), code
+  đã defensive (length-based lookup → null → fallback) nhưng sẽ ÂM THẦM không bao giờ kích
+  hoạt refine/matte pass — log là chỗ đầu tiên phải xem nếu nghi ngờ pipeline không chạy.
+- [ ] **Device verify — GPU delegate** (2026-07-12): `loadModelWithGpuFallback`
+  (modelLoad.ts) thử `'android-gpu'`/`'metal'` trước khi fallback CPU cho cả BlazePose
+  Heavy và MODNet — CHƯA verify trên thiết bị thật delegate GPU có load được không (nhiều
+  model không support mọi GPU delegate), và nếu load được thì tốc độ cải thiện bao nhiêu
+  so với CPU. Log `[BLAZEPOSE] loaded delegate=...` / `[MODNET] loaded delegate=...` (in
+  `__DEV__`) cho biết delegate nào thực sự đang chạy.
+- [ ] **Device verify — latency guard** (2026-07-12): đo thời gian thực tế 'processing'
+  veil với latency guard mới (refine tối đa 3/4 buffered frame, xem
+  `MAX_REFINE_FRAMES` trong `measurements-scan.tsx`) — có đủ nhanh không so với bản cũ
+  (refine cả 4 frame), và nhánh fallback (<2 refine thành công → full-frame segmentation
+  lại TOÀN BỘ buffer) có làm capture chậm hẳn trong trường hợp xấu (refine fail nhiều)
+  không. Dev log `[MEASURE_SCAN]` giờ có thêm `refined=X/Y (cap Z)` để debug nhánh nào chạy.
+- [ ] **BlazePose z (depth) chưa dùng** (2026-07-12, ghi trong doc comment
+  blazePoseDecode.ts/poseEstimate.ts) — model trả về depth tương đối theo hip nhưng hiện
+  tại bị bỏ qua hoàn toàn. Future work: có thể dùng để cải thiện ước lượng độ sâu vòng
+  ngực/eo/hông thay vì ellipse-perimeter fudge ratios cố định (`chestDepthRatio` etc.) nếu
+  z đủ ổn định qua nhiều frame — chưa nghiên cứu.
+- [ ] **App-size check: BlazePose Heavy (27.7MB) + MODNet (26MB) = +53.7MB so với Lightning
+  + selfie-segmenter riêng** (2026-07-12) — nếu app size là mối lo, cân nhắc bản quantized
+  nhẹ hơn của một hoặc cả hai model (nếu tồn tại) — chưa khảo sát.
+- [ ] **Device verify — phần còn lại của 2026-07-06/07-12 sessions** (giống pattern các
+  session trước — xem section B): tilt threshold `TILT_THRESHOLD_RAD = 0.21` (~12°) có
+  hợp lý không (false-positive khi cầm hơi nghiêng tự nhiên?); crop margins
+  (`marginTop/Bottom/Side` trong `cropMath.ts`, tuned cho Thunder nhưng giữ nguyên cho
+  BlazePose) có đủ không bị cắt đầu/chân/tay trên ảnh thật.
+- [ ] **Device verify — side-view (profile) depth capture** (2026-07-12, session mới nhất,
+  xem plan.md changelog "Side-view (profile) depth capture — replaces BMI-guessed depth"):
+  chỉ verify được `tsc`/`jest` từ máy dev, CHƯA chạy app thật. Cần kiểm tra trên thiết bị:
+  - **BlazePose độ tin cậy ở tư thế profile**: model được huấn luyện chủ yếu trên ảnh
+    front-facing; chưa rõ `assessSidePose`'s profile check (x-span < 0.10×frameFill) có
+    quá chặt/quá lỏng không, và BlazePose Heavy refine có thực sự sharpen được keypoint ở
+    góc nghiêng hay không (có thể cần nới/tune `SIDE_PROFILE_SPAN_MAX`).
+  - **Bán kính xoá tay (`eraseDisk`, 0.06 × person-unit height)**: chưa biết có che đúng
+    hết bàn tay không (quá nhỏ → sót tay dính vào contour hông; quá to → ăn luôn vào hông
+    thật) trên ảnh thật với các tư thế tay thả lỏng khác nhau.
+  - **Thời lượng turn interstitial (`TURN_INTERSTITIAL_MS = 2500`)**: đủ thời gian để người
+    dùng xoay 90° và ổn định tư thế trước khi side loop bắt đầu chấm điểm không.
+  - **Row-fraction cross-view registration**: giả định "cùng fraction của shoulder→hip
+    span thì cùng hàng giải phẫu dù 2 ảnh khác khoảng cách/crop" — CHƯA kiểm chứng với ảnh
+    thật (có thể lệch nếu góc camera/perspective giữa 2 lần chụp khác nhau đáng kể — đây
+    cũng là lý do `capturePitchRad` được ghi log làm groundwork, chưa dùng để correct).
+  - **Latency 2 lượt scan**: front + side (mỗi bên có refine+segment riêng) tốn bao nhiêu
+    thời gian thực tế ở màn 'processing' — "x/y" progress line có giúp bớt cảm giác treo
+    máy không, cân nhắc giảm `SIDE_BUFFER_SIZE`/`SIDE_MAX_REFINE_FRAMES` nếu chậm.
+  - **`sideDepthWidthRatioMin`/`Max` (0.45/1.35) và `superellipseN` (mặc định 2.0, chưa
+    đổi)**: cần ≥3 fixture thật (side.depthsU + tape đo thật vòng ngực/eo/hông) qua
+    `scripts/measure-eval` để biết band/exponent này có hợp lý không — hiện chưa có fixture
+    v2 nào (chỉ có `example.json` v1).
+
+## H. Settings & monetization follow-ups (2026-07-23)
+
+- [ ] **RevenueCat / IAP go-live** — full step-by-step checklist written in `plan.md`
+  ("RevenueCat / In-App Purchase go-live plan — PLAN ONLY, not implemented (2026-07-23)").
+  Scaffolding (SDK, `usePremium`, paywall, `revenuecat-webhook` edge fn) already exists;
+  blocked on external account setup (App Store Connect + Google Play + RevenueCat dashboard)
+  which only anh Khôi can do, plus a public SDK API key. Code+deploy is ~half a day once
+  keys/products exist. PLAN ONLY per anh Khôi (2026-07-23) — no code yet.
+- [ ] **Notifications row hidden — needs real delivery before re-enabling.** The Profile
+  "Notifications" row was commented out (2026-07-23) because `app/notifications.tsx` is
+  prefs-only: the 4 switches persist to `appStore` but there is NO delivery infra (no
+  `expo-notifications`, no push token, no scheduling). To bring it back, wire real local
+  reminders (`expo-notifications`) and/or a push server, then uncomment the `SECTIONS` row.
+- [ ] **Profile rows "Location & weather" and "Connected accounts" hidden** (2026-07-23) —
+  commented out in `app/(tabs)/profile.tsx` because they had no destination screen. Build
+  the screens (or wire existing flows) then re-enable. "Location & weather" overlaps with the
+  deferred live-weather/GPS work in section C.
+- [ ] **Latent: `generate-outfits/index.ts:248` selects a non-existent `formulas.slug`
+  column** (spotted 2026-07-23 while fixing the client formulas schema-drift bug). The live
+  `formulas` table has no `slug` column (its `id` IS the slug). `supabase.from('formulas')
+  .select('slug').eq('id', formulaId).single()` will error / return null → `formulaRow?.slug`
+  is undefined. Verify what it feeds (likely the outfit's formula label) and either select
+  `id`/`name` instead or drop the lookup. Server-side, low priority, not user-blocking.
+
+## H. App identifier rename follow-ups (2026-07-31)
+
+Rename `com.briank.mien` -> `tech.kioh.mien` done this session (see plan.md changelog
+"App identifier rename: com.briank.mien -> tech.kioh.mien (2026-07-31)"). App was never
+published so no store-side migration needed, but three things are still open:
+
+- [ ] **Put the new App Store Connect `ascAppId` back into `eas.json`** (2026-07-31) —
+  `submit.production.ios.ascAppId` was deleted (the old value `"6782307581"` pointed at
+  the ASC app record for the old bundle id `com.briank.mien`, wrong target now). Once a
+  new ASC app record exists for `tech.kioh.mien` ("Mien Fashion"), add its numeric Apple ID
+  back into that field. Until then, `eas submit -p ios` will just prompt interactively to
+  pick/create the app instead of failing outright.
+- [ ] **RevenueCat needs a new/updated app entry for `tech.kioh.mien`** (2026-07-31) — the
+  existing RevenueCat dashboard app is bound to the old bundle id `com.briank.mien` on both
+  iOS and Android. Need: a new (or repointed) RevenueCat app for `tech.kioh.mien` on both
+  stores, new public SDK API keys wired into the client (`EXPO_PUBLIC_REVENUECAT_API_KEY` in
+  `eas.json`/`.env`), and the in-app-purchase products re-created under the new App Store
+  Connect app + new Play Console app (product IDs are per-app on both stores). Purchases will
+  not work until this is redone — overlaps with the still-unimplemented RevenueCat go-live
+  plan (section A / plan.md "RevenueCat / In-App Purchase go-live plan", 2026-07-23).
+- [ ] **Uninstall the old `com.briank.mien` build from any emulator/device** (2026-07-31) —
+  since `applicationId` changed, the new `tech.kioh.mien` APK installs side-by-side rather
+  than upgrading in place. Any emulator/device that had the old build installed needs it
+  manually uninstalled (`adb uninstall com.briank.mien`) to avoid confusion from having both
+  apps present.

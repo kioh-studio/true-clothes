@@ -7,12 +7,13 @@ import { Photo } from '../src/components/ui';
 import { IconChevronLeft, IconBookmark } from '../src/components/icons';
 import { useAppStore } from '../src/stores/appStore';
 import { OUTFITS } from '../src/data';
-import { useGridCardWidth } from '../src/design/layout';
+import { useGridCardWidth, useGridColumns } from '../src/design/layout';
 import { useFitFeed } from '../src/features/feed/useFitFeed';
 import { useTranslation } from '../src/i18n';
 
 export default function SavedOutfitsScreen() {
-  const CARD_W = useGridCardWidth();
+  const cols = useGridColumns();
+  const CARD_W = useGridCardWidth(cols);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();

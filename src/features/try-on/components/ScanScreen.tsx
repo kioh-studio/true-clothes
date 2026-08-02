@@ -4,7 +4,7 @@
 
 import React, { useEffect, useCallback, useRef } from 'react';
 import {
-  View, Text, Pressable, StyleSheet, ActivityIndicator, Alert,
+  View, Text, Pressable, StyleSheet, ActivityIndicator, Alert, ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -111,7 +111,14 @@ export function ScanScreen() {
   }, [scan]);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + T.s(6) }]}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[
+        styles.content,
+        { paddingTop: insets.top + T.s(6), paddingBottom: insets.bottom + T.s(6) },
+      ]}
+      showsVerticalScrollIndicator={false}
+    >
       {/* Close — pushed as a stack screen, so give an explicit way back.
           While scanning, this must cancel via reset() (bumps the scan's
           generation token) so the in-flight scan()'s eventual result is
@@ -215,7 +222,7 @@ export function ScanScreen() {
           </Text>
         </>
       )}
-    </View>
+    </ScrollView>
   );
 }
 
@@ -223,6 +230,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: T.color.canvas,
+  },
+  content: {
     paddingHorizontal: T.s(6),
   },
   closeBtn: {
@@ -305,7 +314,7 @@ const styles = StyleSheet.create({
     marginTop: T.s(2),
   },
   scanningState: {
-    flex: 1,
+    minHeight: T.s(140),
     alignItems: 'center',
     justifyContent: 'center',
     gap: T.s(4),

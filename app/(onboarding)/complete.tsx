@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PrimaryButton, TextLink, Photo } from '../../src/components/ui';
+import { PrimaryButton, TextLink, Photo, Bounded } from '../../src/components/ui';
 import { T, type } from '../../src/design/tokens';
 import { PHOTOS } from '../../src/data';
 import { useAuthStore } from '../../src/stores/authStore';
@@ -41,23 +41,25 @@ export default function CompleteScreen() {
 
   return (
     <Animated.View style={[styles.container, { paddingTop: insets.top + 80, paddingBottom: insets.bottom + 48, opacity }]}>
-      <View style={styles.center}>
-        <View style={styles.imageBox}>
-          <Photo src={PHOTOS.detail_2} label="DETAIL" tone={3} />
+      <Bounded style={{ flex: 1 }}>
+        <View style={styles.center}>
+          <View style={styles.imageBox}>
+            <Photo src={PHOTOS.detail_2} label="DETAIL" tone={3} />
+          </View>
+          <View style={{ height: 48 }} />
+          <Text style={styles.h1}>{t('onboarding_complete_title')}</Text>
+          <Text style={styles.body}>{t('onboarding_complete_body')}</Text>
         </View>
-        <View style={{ height: 48 }} />
-        <Text style={styles.h1}>{t('onboarding_complete_title')}</Text>
-        <Text style={styles.body}>{t('onboarding_complete_body')}</Text>
-      </View>
-      <View style={styles.actions}>
-        <PrimaryButton onPress={() => finish('/(tabs)')}>{t('onboarding_complete_enter')}</PrimaryButton>
-        <View style={{ height: 24 }} />
-        <View style={{ alignItems: 'center' }}>
-          <TextLink onPress={() => finishThenPush('/(onboarding)/wardrobe-intro')} color={T.color.primary} arrow>
-            {t('onboarding_complete_addWardrobe')}
-          </TextLink>
+        <View style={styles.actions}>
+          <PrimaryButton onPress={() => finish('/(tabs)')}>{t('onboarding_complete_enter')}</PrimaryButton>
+          <View style={{ height: 24 }} />
+          <View style={{ alignItems: 'center' }}>
+            <TextLink onPress={() => finishThenPush('/(onboarding)/wardrobe-intro')} color={T.color.primary} arrow>
+              {t('onboarding_complete_addWardrobe')}
+            </TextLink>
+          </View>
         </View>
-      </View>
+      </Bounded>
     </Animated.View>
   );
 }

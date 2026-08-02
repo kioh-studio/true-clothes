@@ -1,5 +1,248 @@
 # Onboarding Logic Plan
 
+## Wardrobe-affinity style fallback in generate-outfits (2026-08-02)
+
+**Problem.** When a user has no selected styles (and no style intent override), the
+style hard-filter (step 3 of `supabase/functions/generate-outfits/index.ts`) was
+skipped entirely — the feed ran style-blind and `styleCoherence` dropped out of
+scoring, so a stylesless user's feed had no style identity.
+
+**Fix.** `engine/filtering.ts` gains two pure helpers:
+- `passesStyleNaturally(item, config)` — true iff the item passes all five existing
+  per-item style checks (color/fabric/fit/formality/features), reusing the same check
+  functions `filterByStyle` uses (not its safety-net-padded result).
+- `resolveFallbackStyles(items, maxStyles = 3)` — for each of the 8 `STYLE_CONFIGS`,
+  computes the items that naturally pass it. A style is only **eligible** if that
+  natural pool can build a complete outfit (top + bottom + shoes, or onepiece +
+  shoes) — a high pass fraction with a missing slot doesn't count. Affinity score =
+  `natural.length / items.length`; eligible styles are ranked score desc, then
+  popularity desc, then id asc (fully deterministic), capped at `maxStyles`.
+
+`index.ts` step 3: when `styleConfigs.length === 0 && !pinItem && filteredItems.length
+> 0` (post-intent-resolution — an `intent.styles` override still wins and skips the
+fallback), `resolveFallbackStyles(fitItems)` runs against the FULL wardrobe. If it
+returns any configs, `ctx.styleProfile.selectedStyles` is set to their ids BEFORE the
+existing filter/scoring block runs, so filtering, the union-pass logic, and
+`scoringWeights = styleConfigs[0].weights` all behave exactly as if the user had
+picked those styles. Mix & Match (`pin_item` present) is exempt — that flow must keep
+searching the whole wardrobe around the pinned piece, not narrow it to a guessed
+style. A `console.log` line records the chosen styles and each one's natural-pass
+coverage count.
+
+Per outfit, when the fallback fired, `ScoredOutfit.styleTag` (new optional field,
+display-only, mirrors `silhouette`/`colorTone`) is set to the `name` of whichever
+fallback style the outfit's items pass naturally the most, tie-broken by the
+fallback's own ranking order. The response gains a top-level `style_fallback: {
+applied: true, styles: [{ id, name }] }` key **only** when the fallback fired
+(additive — absent otherwise, so old clients are unaffected).
+
+**Deviation from the written spec:** outfit-level display tags in this response
+(`silhouette`, `colorTone`, `weatherBand`, `stylingTips`, `story`) are NOT
+snake_case-converted anywhere in `index.ts` — `jsonResponse` just `JSON.stringify`s
+`ScoredOutfit` objects as-is, camelCase field names and all. Only the top-level
+response envelope (`has_more`, and now `style_fallback`) uses snake_case. So the new
+outfit field is `styleTag` (camelCase), matching the existing convention exactly,
+not `style_tag` as literally written in one part of the task spec.
+
+Tests: `supabase/functions/generate-outfits/engine/style-fallback.test.ts` (8 cases —
+eligibility, coverage requirement, onepiece+shoes coverage, popularity/id tie-break,
+maxStyles cap, determinism, empty wardrobe, and a safety-net-vs-natural consistency
+check). Full engine suite (`deno test supabase/functions/generate-outfits/engine/`):
+182 passed, 0 failed. `deno check` on `index.ts` is clean.
+
+Not deployed, not committed (per task instructions) — client-side badge rendering for
+`styleTag`/`style_fallback` is a separate follow-up, logged in `backlog.md`.
+
+## Fix catalog cache poisoning by anon RLS reads (2026-07-23)
+
+`loadCatalogs()` fired unconditionally in `app/_layout.tsx`'s mount effect, in parallel
+with `hydrate()` establishing the Supabase auth session. On cold start it could run
+before the session attached to the client, so `formulas`/`styles` queries executed as
+`anon`. Both tables' RLS SELECT policies are `authenticated`-only, so anon got `200 []`
+(no error) — and that empty array was then cached for 24h, making Formula Preferences
+show "Couldn't load formulas" even after login. Fixed in
+`src/services/formulasCatalogService.ts` and `src/services/stylesCatalogService.ts`:
+treat a cached empty array as a cache miss (re-fetch instead of trusting `[]`), and
+never write an empty result to cache in the first place. Also added a `loadCatalogs()`
+call to the post-auth effect in `app/_layout.tsx` (alongside `refreshWeather()`) so
+catalogs are re-fetched once a session is confirmed authenticated.
+
+## Responsive layout — phone to iPad Pro 13" (2026-07-22)
+
+Enabled iPad (`ios.supportsTablet: true` in app.json; orientation stays
+portrait-only, no landscape/master-detail). Added `src/design/layout.ts`
+responsive helpers (`BP` breakpoints, `useResponsive`, `useGridColumns`,
+`useGridCardWidth` with a width clamp, `CONTENT_MAX`/`MEDIA_MAX`) and a new
+`<Bounded>` primitive (`src/components/ui/Bounded.tsx`) that centers content
+at a max width on wide screens.
+
+Applied adaptive grid columns (2/3/4 by breakpoint, swatches 3/4/5) to every
+item/outfit grid screen: wardrobe, collections (+ add-items picker), saved
+outfits, schedule's outfit picker, worn history, style preference editor,
+onboarding colour swatches. FlatList grids also remount on column-count
+change (`key={`grid-${cols}`}`) since RN requires it when `numColumns`
+changes at runtime.
+
+Bounded the primary scroll content column (not grids, not full-bleed
+backgrounds/nav/tab bar) on: onboarding basics/measurements/style-quiz/
+complete/welcome, outfit detail (below the hero), item detail, outfit
+builder, profile, settings.
+
+Capped full-bleed media at `MEDIA_MAX` (520pt) so it doesn't stretch into a
+sparse image on large tablets: the home feed card's collage + meta block, and
+the outfit detail hero (width capped, height keeps its 5:4 aspect ratio off
+the capped width).
+
+Full design rationale: `src/design/responsive/design.md`.
+
+## Body-measurement pipeline precision overhaul (2026-07-12)
+
+Two-pass capture-time refinement + several targeted accuracy fixes to the
+on-device measurement pipeline, all additive/backward-compatible (existing
+fixtures, existing tests, existing production call paths without the new
+inputs all behave exactly as before).
+
+**New pure module** `src/features/measurements/cropMath.ts` (no native
+imports, jest-testable): the coordinate-conversion machinery for a SECOND,
+CROPPED model pass alongside the existing full-frame one. `letterboxParams`/
+`sourceToSquare`/`squareToSource` factor out the "long side → square, centre-
+pad" recipe every model input in this feature already used ad hoc.
+`personCropRect(kps, sW, sH)` derives a crop rect (SOURCE pixels) from a
+keypoint bbox — margins for head crown (+18% bbox height above), feet
+(+10% below), and deltoid/arm overhang (+20% bbox width each side) — clamped
+to the frame, rejecting degenerate/too-small/not-worth-it (>75% of frame
+area) crops as `null`. `cropSquareToFullSquare`/`fullSquareToCropSquare` map
+a POINT between a crop's own letterboxed-square space and the shared
+full-square space every other module already uses; `cropSquareLengthToFullSquare`
+does the same for a WIDTH/EXTENT (a scalar — just the Lc/L ratio, no
+translation). `longSideResize` is the shared resize-dimension helper, reused
+by `poseEstimate.ts` and `silhouette.ts` below.
+
+**MoveNet Thunder refinement pass** (`poseEstimate.ts`): a new
+`assets/models/movenet-thunder.tflite` (SinglePose, float16, 256×256 input,
++12.6 MB) backs a new `refineKeypoints(photoUri, sW, sH, pass1Kps)`, run ONCE
+at capture time (never in the live ~1.2 s poll loop — too slow for that
+cadence). It crops tightly around the person (via `personCropRect`, located
+from the pass-1 Lightning keypoints), re-runs the higher-capacity Thunder
+model on just that crop, and maps the result back to full-square space.
+Cropping means more of the model's input pixels land on the person instead
+of background — the main lever for keypoint precision at a fixed model
+input size — on top of Thunder's own higher capacity than Lightning. Any
+failure (no usable crop, missing asset, decode/inference error) returns
+`null` and the caller falls back to that frame's pass-1 keypoints.
+`estimateKeypoints` (Lightning, full-frame, the live poll loop) is
+UNCHANGED in observable behaviour — its internals were refactored to share
+a `inferKeypointsInSquare` core with Thunder, but the same manipulate/decode/
+letterbox/infer sequence runs.
+
+**MoveNet float-input bug fix** (same file): MoveNet TFLite models (both
+Lightning and Thunder, float variants) expect float32 input in RANGE 0..255
+— the model normalizes internally (see the MoveNet model card) — NOT
+divided by 255. The old float branch divided by 255; this was dead code for
+the shipped quantised int8 Lightning asset (always reports `dataType:
+'uint8'`) but would have been silently wrong for the new Thunder float16
+asset. Fixed in the shared `inferKeypointsInSquare` core — both dtypes now
+write the same raw byte values, just into a `Uint8Array` or `Float32Array`.
+The person-segmentation model (`silhouette.ts`) is a DIFFERENT model family
+that genuinely expects [0,1] input — that division was correct and is
+untouched.
+
+**Cropped segmentation pass** (`silhouette.ts`): new
+`estimateSilhouetteCropped(photoUri, sW, sH, cropRect)` — same crop rect the
+Thunder pass computed, resized/segmented the same way as the existing
+full-frame `estimateSilhouette` (which stays as the fallback when there's no
+usable crop). Returns the mask in CROP-square space; the caller converts
+through `cropMath`'s Lc/L scale before merging with full-frame results.
+
+**Sub-pixel mask edges + vertical extent** (`silhouetteMath.ts`):
+`runWidthAt` now linearly interpolates the exact threshold-crossing position
+between the last in-run pixel and its first out-of-run neighbour (mask
+values are already float probabilities, not binary) instead of snapping to
+whole-pixel run boundaries — width becomes fractional. For the binary (0/1)
+synthetic masks this file's existing unit tests use, with `threshold = 0.5`,
+the refinement reduces EXACTLY to the old integer-run width (a hard 0→1 step
+crosses 0.5 exactly halfway between the two pixels) — so all 8 pre-existing
+tests pass byte-for-byte unchanged; new tests use graded (non-binary)
+probability values to actually exercise the sub-pixel path. New
+`maskVerticalExtent(mask, probeXNorms)` scans the full mask height for the
+topmost/bottommost rows with a ≥2px run at ANY of several probe columns
+(rejecting sub-2px specks as noise) — the crown→sole span used as a second
+scale reference below. Multiple probe columns (torso centre + nose + each
+confident ankle, built by the caller in measurements-scan.tsx) rather than a
+single torso centreline, because below the crotch the centreline falls in
+the gap between the legs — a single-probe scan would stop at the crotch
+(≈ half the true extent) and permanently fail the hMask/hKp agreement band
+for anyone standing with feet even slightly apart, silently deactivating
+the scale reference.
+
+**Mask-extent scale blend** (`landmarksToMeasurements.ts`): new optional
+`EstimateInputs.maskExtentU` (person-mask crown→sole extent, full-square
+units) and four new `K` constants (`maskExtentFudge: 1.02` — the mask reads
+slightly taller than barefoot stature due to hair/shoes;
+`maskExtentWeight: 0.6`; `maskExtentAgreeMin/Max: 0.92/1.12` — CALIBRATION-
+PENDING, all four). When present, `hMask = maskExtentU / maskExtentFudge` is
+compared against the existing keypoint-based `hKp`; if their ratio falls
+within the agree band, `personUnitH` blends `maskExtentWeight·hMask +
+(1−maskExtentWeight)·hKp` — otherwise falls back to `hKp` alone, so a
+leaked/truncated mask can never poison the scale every downstream cm value
+derives from. Absent → byte-identical to previous behaviour (all existing
+tests pass unmodified). Threaded through `accuracyEval.ts`
+(`Fixture.inputs.maskExtentU?`, `maskExtentFudge` added to
+`TUNABLE_FIELD_MAP`/`CALIBRATABLE_KEYS`), `scanExport.ts`, and
+`scripts/measure-eval/fixtures/README.md`'s schema (optional field — old
+fixtures stay valid).
+
+**`aggregateFrames.ts`**: new `medianExtent(extents)` — median of the present
+per-frame `maskVerticalExtent` spans (nulls/undefined dropped), same "leave
+it blank, don't guess" contract as `medianWidths`.
+
+**Live capture screen** (`app/measurements-scan.tsx`): `BUFFER_SIZE` 3 → 4;
+poll `takePictureAsync` quality 0.35 → 0.5 (sharper edges for the cropped
+segmentation pass, still fast enough at the 1.2 s cadence). Each buffered
+frame now carries its own pixel dimensions (needed for per-frame crop math).
+`finish()` runs the Thunder + cropped-segmentation two-pass treatment on
+EACH buffered frame independently (falling back to that frame's pass-1
+keypoints / no widths on any failure, no usable crop, or — matching the
+pre-existing frame-loss guard — the whole buffer is cleared if a live pose
+is lost mid-scan); outlier rejection and all median aggregation
+(keypoints/widths/extent) still run over the WHOLE buffer afterward exactly
+as before — this remains variance reduction only, no bias shift. Every
+buffered photo is still deleted immediately after its own processing
+(privacy contract unchanged).
+
+**Phone-tilt gate**: new dependency `expo-sensors` (`npx expo install`).
+While `phase === 'scanning'`, `DeviceMotion` (300 ms interval) flags the
+phone as tilted when `|rotation.beta − π/2| > 0.21` rad (~12°,
+CALIBRATION-PENDING). `DeviceMotion.isAvailableAsync()` gates this — devices/
+platforms without a motion sensor never gate (today's behaviour, unchanged).
+An otherwise-good pose while tilted is treated as not-ok (resets the
+auto-capture countdown) with a new hint, `tilt_phone` (added to
+`poseQuality.ts`'s `PoseHint` union, but never RETURNED by `assessPose`
+itself — it has no sensor input; the screen drives it). New i18n keys
+`measurementsScan_hint_tilt_phone` (en/vi).
+
+**Turned-sideways check** (`poseQuality.ts`): `assessPose` now also returns
+`'straighten'` when the shoulder x-span is under 15% of the person's unit
+height (reusing the existing `frameFill` computation) even if both
+shoulders are level — a person angled away from front-on presents a
+foreshortened shoulder span the existing level-check alone wouldn't catch.
+Reuses the existing "square to the camera" copy — no new UI string.
+
+**Docs**: `src/design/measurements-scan/design.md` (UI-visible bits: the new
+tilt hint pill, buffer/quality bump — everything else is invisible under-the-
+hood). `backlog.md` §A: side-photo depth capture as a bigger future accuracy
+lever (needs a UX decision — chờ anh Khôi duyệt); §B/F: fixture calibration
+still has zero real fixtures, Thunder int8 (~7 MB) as an app-size trade-off if
+needed later.
+
+Verify: `npx tsc --noEmit` clean; `npx jest` 265/265 (24 suites — includes 8
+new `cropMath` tests, sub-pixel/vertical-extent tests in `silhouetteMath`,
+mask-extent-blend tests in `landmarksToMeasurements`, a `medianExtent` test
+in `aggregateFrames`, and a turned-sideways test in `poseQuality`). Device
+validation (Thunder asset loads, tilt threshold, crop margins, capture
+latency with the extra per-frame model passes) is out of scope for this
+session — see `backlog.md`.
+
 ## Profile: wire Subscription + Notifications rows (2026-07-07)
 
 Two Profile rows ("Subscription", "Notifications") rendered with no `route`, so
@@ -2394,3 +2637,383 @@ failures. `deno check` clean across all engine files + `index.ts`, no `any`.
 `deno test supabase/functions/evaluate-item/` 21/21 and
 `deno test supabase/functions/wardrobe-critic/` 9/9 unaffected (both import this engine;
 re-run as a cross-feature regression check for 010-wardrobe-critic).
+
+## Body-measurement pipeline: BlazePose Heavy + MODNet model upgrade (2026-07-12)
+
+Upgraded the two on-device models introduced by the earlier "precision overhaul"
+session (same date, see the changelog entry above it) — MoveNet Thunder (capture-time
+keypoint refinement) and the MediaPipe Selfie Segmenter (capture-time matting) — to
+higher-capacity replacements, plus a latency guard now that both replacements cost more
+per frame.
+
+**Why:**
+- **BlazePose Heavy replaces MoveNet Thunder** in `refineKeypoints` (poseEstimate.ts):
+  33 landmarks instead of 17 (including heel + toe-tip, which Thunder never had),
+  per-landmark visibility scores (vs Thunder's single coarse confidence), and a
+  materially higher-capacity model. Input convention is the OPPOSITE of MoveNet's:
+  BlazePose expects float32 RGB normalised to **[0,1]** (pixel/255), not MoveNet's raw
+  0..255-as-float — documented loudly next to the MoveNet convention comment since
+  mixing the two up is the easiest bug to introduce in this file. Output is decoded via
+  a new pure module `blazePoseDecode.ts` (landmark index map, sigmoid, poseflag gate) —
+  tensors are located by RUNTIME LENGTH (`findOutputIndexByLength`), never a hardcoded
+  index, since BlazePose exposes several outputs (landmarks [1,195], poseflag [1,1],
+  segmentation, heatmap, world landmarks [1,117]) and only the first two are consumed.
+  z (depth) is read but intentionally NOT used yet — future work.
+  `assets/models/movenet-thunder.tflite` deleted; `loadThunderModel`/`THUNDER_SIZE` and
+  all Thunder-specific code removed from poseEstimate.ts (comments elsewhere referencing
+  "Thunder" as history/context were left alone per instruction, only production code
+  changed).
+- **MODNet replaces the Selfie Segmenter as the PRIMARY matter** in silhouette.ts
+  (`estimateSilhouette`/`estimateSilhouetteCropped` now try MODNet first, falling back
+  to the selfie segmenter on any failure — load error, unexpected output shape, or a
+  degenerate alpha mean <0.02 or >0.9): a soft, continuous 0..1 alpha matte (portrait
+  matting) gives true sub-pixel contour edges instead of a coarser person/background
+  split, which directly feeds `runWidthAt`'s existing sub-pixel edge interpolation.
+  MODNet's declared input is **[1,3,512,512] NCHW** (channel-planar) float32 normalised
+  to **[-1,1]** via `(x/255-0.5)/0.5` — a completely different memory layout from every
+  other model's HWC (interleaved) fill, not just a different normalisation. Implemented
+  as a dedicated, pure, unit-tested helper `fillNCHWFloat` (silhouetteMath.ts) rather
+  than extending any HWC loop. Padding is explicitly pre-filled with **-1** (black in
+  this convention) rather than left at the buffer's zero default (which would silently
+  pad with mid-gray under this normalisation — caught by writing the NCHW fill test).
+  The selfie-segmenter asset/code stay as the fallback, unchanged.
+- **Heel-aware floor line, scale reference, and inseam** (landmarksToMeasurements.ts):
+  BlazePose's four new foot landmarks (leftHeel/rightHeel/leftFootIndex/rightFootIndex)
+  feed a FLOOR LINE (lowest available foot-keypoint y) that yields a third, independent
+  height estimate `hHeel = |floorY - nose.y| / noseCrownFraction` (new tunable, 0.936,
+  CALIBRATION-PENDING — ANSUR-proportion derived, see the doc comment). The old
+  two-value mask/keypoint agree-band check (`maskExtentAgreeMin`/`Max`) is replaced by a
+  general **survivor-median blend** (`blendPersonUnitH`) over up to three candidates
+  (legacy nose-ankle, mask crown-sole, heel floor-line): each candidate whose relative
+  deviation from the group median exceeds `heightEstimateDisagreementBand` (new, 0.08)
+  is dropped, survivors average by `maskExtentWeight` (unchanged, 0.6) / `heelWeight`
+  (new, 0.25) / the remaining weight for legacy (0.15), renormalised over survivors.
+  Inseam prefers `hip→heel` over the old `hip→ankle` when heel keypoints are confident
+  (heel sits closer to the true sole than the ankle joint — same
+  `inseamProjectionFactor` correction either way).
+- **Shoulder-width blend** (the field most often reported >5cm off): replaced the old
+  either/or (contour-when-present, else the raw joint span) with a calibratable blend —
+  `shoulderBlendContour` (new, default 0.5) × contour term + (1-that) × keypoint term
+  (× new `kpShoulderFactor`, default 1.09 — biacromial breadth reads wider than the raw
+  joint span, ANSUR-derived, CALIBRATION-PENDING). Both new tunables added to
+  `MeasurementTunables`/`TUNABLE_FIELD_MAP`/`CALIBRATABLE_KEYS` (accuracyEval.ts). The
+  `body_shoulder_width` sane-range clamp widened 60→65 cm to accommodate the corrected
+  (wider, less biased) estimate — the old ceiling was tuned to the OLD narrow-biased
+  formula and now clips some legitimately-corrected broad-shoulder readings.
+- **Latency guard** (measurements-scan.tsx's `finish()`): BlazePose Heavy + MODNet both
+  cost noticeably more per frame than Lightning + the selfie segmenter, so refining
+  EVERY buffered frame (the prior behaviour) risked a visibly slower capture. Now ranks
+  buffered frames by minimum `REQUIRED_KP` score and refines only the best
+  `MAX_REFINE_FRAMES` (3). If ≥2 candidates actually refine successfully, the final
+  aggregation set is ONLY those refined frames (un-refined/failed-refine frames are
+  dropped entirely — mixing pass-1 and BlazePose-refined keypoints in the same median
+  pool would blend two models' distinct biases). If fewer than 2 succeed, the whole
+  buffer reverts uniformly to the pre-refinement pipeline (pass-1 keypoints + full-frame
+  segmentation) rather than cherry-picking.
+- **Defensive fix**: `aggregateFrames.ts`'s `medianKeypoints` used to take its named-
+  keypoint list from `frames[0]` only — with BlazePose's refine pass able to return a
+  21-keypoint array (17 shared COCO names + 4 new) alongside 17-keypoint pass-1-only
+  frames, that could silently drop the new heel/toe keypoints whenever frame 0 happened
+  to be a fallback frame. Now takes the UNION of every frame's names.
+
+**New assets**: `assets/models/blazepose-heavy.tflite` (MediaPipe BlazePose Heavy, 27.7 MB,
+Apache-2.0), `assets/models/modnet.tflite` (MODNet portrait matting, LiteRT community
+build, 26 MB, Apache-2.0). Net asset delta: +27.7 MB (BlazePose Heavy) + 26 MB (MODNet) −
+12.6 MB (movenet-thunder.tflite deleted).
+
+**GPU delegate attempt**: both new models are loaded via a new shared helper
+`loadModelWithGpuFallback` (modelLoad.ts) — tries the platform's GPU delegate
+(`'android-gpu'` on Android, `'metal'` on iOS) first, falling back to the default CPU
+delegate on any load failure (react-native-fast-tflite's own docs: GPU delegates don't
+support every model). Lightning and the selfie-segmenter fallback deliberately stay on
+the plain default delegate — cheap enough already that the extra failure surface isn't
+worth it.
+
+**New files**: `src/features/measurements/blazePoseDecode.ts` (pure BlazePose output
+decode), `src/features/measurements/modelLoad.ts` (shared GPU-fallback loader).
+**Deleted**: `assets/models/movenet-thunder.tflite`.
+
+**Tests** (all new, all passing): `blazePoseDecode.test.ts` (sigmoid, landmark index
+map, output-by-length lookup, poseflag gate, pixel/modelSize normalisation),
+`silhouetteMath.test.ts` (+`fillNCHWFloat` plane/row/col correctness + padding value,
++size-relative centreline nudge at 64 and 512), `landmarksToMeasurements.test.ts`
+(+heel-based inseam/scale isolation, +disagreement-band drop, +3-way survivor blend,
++shoulder blend). Updated 3 pre-existing tests whose fixture numbers crossed the widened
+shoulder clamp or the new survivor-weight scheme's slightly different mask-only blend
+ratio (documented inline at each change); `accuracyEval.test.ts`'s calibration test
+updated similarly — `contourShoulderInset` now drives only half the shoulder estimate,
+so it can no longer recover an arbitrary injected bias 1:1 (still verified to drive MAE
+near zero).
+
+**Verify**: `npx tsc --noEmit` clean; `npx jest` 292/292 (full suite, all suites) —
+device/emulator run out of scope for this session (see backlog.md §I for the
+device-verification punch list, updated for BlazePose/MODNet).
+
+## Side-view (profile) depth capture — replaces BMI-guessed depth (2026-07-12)
+
+**Why**: every circumference (bust/waist/hip) has always come from a front-visible
+WIDTH plus a GUESSED depth (BMI-driven `chestDepthRatio`/`waistDepthRatio`/`hipDepthRatio`
+in `K`, an ellipse-perimeter fudge). A second, profile (90°) photo lets depth be MEASURED
+instead of guessed — this was flagged as the single biggest accuracy lever left (see
+backlog.md §A, "Side-photo depth capture", and the MeasureNet/BMnet ablations cited
+there: front+side roughly halves waist MAE vs. front-only). Anh Khôi approved the
+trade-off (a second capture pass, more scan time) before this session started.
+
+**Row-fraction registration (silhouetteMath.ts)**: `SilhouetteWidths` gained
+`chestRowFrac`/`waistRowFrac`/`hipRowFrac` — the winning row of each band scan,
+expressed as a fraction of the shoulder→hip vertical span (0 = shoulder line, 1 = hip
+line; hip can exceed 1 since its search band extends below the hip joints). This is
+the cross-view registration mechanism: a row FRACTION is view-invariant (same
+anatomical row) even though the front and side photos are different captures at
+different distances/crops, where absolute y is not comparable. `bandExtremeWidth` now
+has a `bandExtremeWidthRow` sibling returning `{ width, row }` — `bandExtremeWidth`
+itself is now a thin width-only wrapper over it (unchanged public behaviour/signature
+for every existing caller). `extractWidths` computes and returns the three fractions
+alongside the existing widths.
+
+**Hand erasure (silhouetteMath.ts)**: new pure `eraseDisk(mask, cxNorm, cyNorm,
+radiusNorm)` zeroes mask probabilities inside a disk, mutating in place. In a profile
+photo with arms relaxed, the hands hang near seat/hip level — right where the hip DEPTH
+scan looks for the widest front-to-back row — so the scan screen erases a disk (radius
+= 0.06 × the person's unit height, ≈ hand length) around each confident (`score ≥ 0.3`)
+wrist keypoint BEFORE running the side-depth scan. `radiusNorm <= 0` is an explicit
+no-op; out-of-range centres/radii are clamped to the mask bounds, not a crash.
+
+**Side-depth extraction — new pure module `sideViewMath.ts`**: `extractSideDepths(mask,
+sideKps, rowFracs)` re-locates the front's chest/waist/hip rows on a PROFILE mask by
+fraction (`sideShoulderY + frac × sideTorso`), then runs the SAME kind of band scan the
+front view uses (chest 'max', waist 'min', hip 'max') — except here it measures DEPTH,
+not width. Unlike the front view's `extractWidths` (which requires BOTH shoulders/hips
+confident), this only needs ONE joint per pair — a profile shot only ever shows one side
+clearly, and the far joint's occlusion is itself evidence the person is genuinely turned,
+not a defect. Missing row fractions fall back to fixed anatomical defaults (chest
+`S.chestAt`; waist the midpoint of `S.waistFrom`..`S.waistTo`; hip computed from the
+side frame's own torso/leg proportions, mirroring `extractWidths`' own hip-band
+placement). Returns crop-square units when given a cropped mask, same convention as
+`extractWidths` — the caller converts.
+
+**Measured-depth circumferences (landmarksToMeasurements.ts)**:
+- New `EstimateInputs.sideDepthsCm?: { chestCm?; waistCm?; hipCm? }` — depths ALREADY
+  converted to cm by the caller using the SIDE view's OWN scale (never the front's).
+- New exported `estimatePersonUnitH(kps, maskExtentU, KC)` factors the internal
+  survivor-median scale-blend logic (legacy nose→ankle span + optional mask extent +
+  optional heel/toe floor line) out of `keypointsToMeasurements` so the scan screen can
+  compute the SIDE view's own cm-per-unit with byte-identical math. Unlike the front
+  gate (which requires BOTH ankles), this needs only ONE confident ankle — a profile
+  shot only ever shows one leg clearly. `keypointsToMeasurements`'s internal behaviour
+  is unchanged (it now just calls this instead of inlining the same logic).
+- Per bust/waist/hip: when `sideDepthsCm.<field>` is present AND its ratio to that
+  region's front-visible width falls inside new tunables `sideDepthWidthRatioMin: 0.45`
+  / `sideDepthWidthRatioMax: 1.35`, the circumference is computed from the MEASURED
+  semi-axes (`widthCm/2`, `depthCm/2`) instead of the BMI-guessed depth ratio. Outside
+  that band (a glitched side scan — unerased hand, mis-registered row, degenerate crop)
+  or simply absent, that field alone falls back to the existing guessed-depth path —
+  per-field fallback, never blended with a broken measurement, never failing the whole
+  estimate. The existing BMI `depthFactor`/age `ageWaistFactor` apply ONLY to the
+  guessed-depth path.
+- New tunable `superellipseN: 2.0` — the torso cross-section perimeter approximation
+  generalises from a pure ellipse (Ramanujan, `n=2`, unchanged fast path) to a
+  superellipse `|x/a|^n + |y/b|^n = 1` via a new exported `superellipsePerimeter`
+  (Simpson's-rule numeric quadrature over the standard angle parametrisation, 64
+  intervals/quadrant ×4). Published anthropometric cross-sections read somewhat
+  SQUARER than an ellipse (literature n≈2.2–2.5) but the default STAYS 2.0 (byte-
+  identical to before) until real tape-measurement fixtures exist to calibrate it —
+  the knob exists for `scripts/measure-eval`, not as a production change. Applies to
+  BOTH the guessed-depth and measured-depth paths (a statement about cross-section
+  SHAPE, independent of how depth was obtained). Added to `TUNABLE_FIELD_MAP`/
+  `CALIBRATABLE_KEYS` (bust/waist/hip) in accuracyEval.ts; `sideDepthWidthRatioMin`/`Max`
+  are validity GATES, deliberately NOT added to the calibratable list.
+
+**Side-pose quality gate (poseQuality.ts)**: new `assessSidePose(kps)`, reusing the
+`PoseQuality` result shape. Required: confident nose + at least one confident joint from
+EACH of the shoulder/hip/ankle pairs (a pair with only one confident joint passes — the
+far joint's occlusion IS the profile evidence). `frameFill` = nose→(lowest confident
+ankle) / 0.88, same bounds as the front gate. New PROFILE check: for whichever pairs have
+BOTH joints confident, the x-span must be < 0.10 × the person's unit height, else the
+new `'turn_side'` hint fires (person hasn't actually turned sideways yet). Reuses every
+other existing hint (no_person/move_into_frame/show_feet/step_back/step_closer).
+
+**Scan flow (app/measurements-scan.tsx)**:
+- New sub-phase `'front' | 'side'` inside phase `'scanning'`, plus a new top-level phase
+  `'turn'` — a ~2.5 s full-screen interstitial (serif title + sub-copy, same family as
+  the giant countdown numeral) shown after the front pass auto-captures, before the side
+  scanning loop starts. The single poll-loop effect is now subPhase-aware (captures its
+  own `currentSubPhase`/buffer/cap/clear-fn/completion-callback per effect run — restarts
+  cleanly when `subPhase` flips front→side) rather than duplicated.
+- The side pass gets its own ring buffer (`SIDE_BUFFER_SIZE = 3`, smaller than the
+  front's 4) and its own latency-guard refine cap (`SIDE_MAX_REFINE_FRAMES = 2`, smaller
+  than the front's 3) — it's a bonus signal on top of an already-complete front-only
+  estimate, so it deliberately costs less capture-time latency.
+- New SKIP pill (i18n, outline style) during `'turn'` and the side scanning sub-phase:
+  clears the side buffer and calls the SAME combined `finish()` — an empty side buffer is
+  `finish()`'s normal, silent front-only path (no separate "skipped" branch needed).
+- `finish()` is now the SINGLE combined processing step for both passes (the old
+  single-pass `finish()` is renamed conceptually — `finishFront()` now just stops the
+  front loop and shows the `'turn'` interstitial; the front buffer isn't processed until
+  the very end). Side processing (new module-level `processSideFrames`) mirrors the
+  front pipeline at a smaller scale: `personCropRect` → `refineKeypoints` (BlazePose) →
+  `estimateSilhouetteCropped` (MODNet) → `eraseDisk` around confident wrists →
+  `extractSideDepths` using the FRONT's median row fractions → median-aggregate across
+  frames → convert to cm via the side view's OWN `estimatePersonUnitH`-derived scale.
+  Any failure anywhere in this pipeline (thrown error, no usable depths, no computable
+  side scale) is a silent front-only fallback — never a user-visible error.
+- DeviceMotion pitch (`rotation.beta`) is now stamped onto every buffered frame (both
+  passes) at capture time and median-aggregated per view (`capturePitchRad` /
+  `side.capturePitchRad`) — groundwork for a future keystone/perspective correction,
+  read by no math today, exported into the fixture for later calibration work.
+- New "x/y frames processed" progress line under the processing spinner — a best-effort
+  estimate (front refine candidates + side candidates, grown if the front's latency-guard
+  fallback branch ends up reprocessing every buffered frame), not a precise accounting;
+  the two-view pipeline takes noticeably longer than the front-only one did.
+- `__DEV__` diagnostics gain a `[MEASURE_SCAN_SIDE]` log line: measured depth per field,
+  depth:width ratio per field, and the configured acceptance band — the first place to
+  check whether the side pass is actually feeding measured depths into the estimate.
+
+**Fixture schema v2 (scanExport.ts, accuracyEval.ts, scripts/measure-eval/run.ts +
+fixtures/README.md)**: `Fixture`/`ScanFixturePayload` gain optional `version` (2),
+front-level `capturePitchRad`, and `side?: { keypoints; depthsU?; maskExtentU?;
+capturePitchRad? }`. `evaluateFixture` recomputes `sideDepthsCm` from `side.depthsU`
+using the SAME `estimatePersonUnitH` math (with whatever `tunables` override is being
+searched) whenever `side` is present — this is what lets the offline harness calibrate
+`superellipseN`/`sideDepthWidthRatioMin`/`Max` once real tape-measured side fixtures
+exist. A v1 fixture (no `side` field at all) evaluates byte-identically to before this
+feature existed — verified by a dedicated regression test. `run.ts` now also prints how
+many loaded fixtures carry a `side` block.
+
+**New files**: `src/features/measurements/sideViewMath.ts` (pure side-depth extraction),
+`src/features/measurements/__tests__/sideViewMath.test.ts`.
+
+**Tests** (all new/updated, all passing): `silhouetteMath.test.ts` (+row-fraction
+registration on a dedicated unambiguous-extreme mask, +`bandExtremeWidthRow`,
++`eraseDisk` zero/no-op/out-of-range-clamp), `sideViewMath.test.ts` (new — row
+registration, fixed-default fallback, one-sided-confidence tolerance, degenerate-input
+nulls), `poseQuality.test.ts` (+`assessSidePose`: genuine profile → ok, front-on → 
+turn_side, missing ankles → show_feet, too small → step_closer, occlusion ≠ rejection),
+`landmarksToMeasurements.test.ts` (+measured-vs-guessed circumference, +in/out-of-band
+ratio fallback, +BMI/age don't touch the measured path, +per-field fallback,
++`superellipsePerimeter` vs Ramanujan within 0.2% and monotonicity vs `n`,
++`estimatePersonUnitH` single-ankle/null cases), `accuracyEval.test.ts` (+v2 `side`
+round-trip recomputation, +v1 regression).
+
+**Verify**: `npx tsc --noEmit` clean; `npx jest` 325/325 (full suite, all suites).
+Device/emulator run explicitly out of scope for this session (see backlog.md §I for the
+updated device-verification punch list — profile-pose BlazePose reliability, hand-erase
+radius, turn-interstitial duration, side-view latency).
+
+## Three small fixes: dead profile rows, paywall dev text, formulas schema drift (2026-07-23)
+
+- **Formulas load bug (root cause)**: `formulasCatalogService.fetchFormulas` queried
+  `id, slug, name, name_vi, description, display_order` from `formulas` filtered by
+  `is_active` — none of `slug`/`name_vi`/`display_order`/`is_active` exist on the live
+  table (live columns: `id, name, description, short_desc, active`). Postgres threw
+  "column does not exist", `loadCatalogs` swallowed it, and the formulas-edit screen
+  showed "Couldn't load formulas". Fixed the query to
+  `.select('id, name, description, short_desc, active').eq('active', true).order('name')`
+  and mapped `slug <- id` (the live `id` is already the slug-style `FormulaId` used by
+  the generate-outfits engine and stored in `formulaPreferences`), `nameVi: null`,
+  `displayOrder: 0`. `FormulaCatalogItem` shape and the AsyncStorage cache logic
+  unchanged.
+- **Profile screen**: commented out the two dead `SECTIONS` rows with no `route`
+  (`location`/`locationWeather`, `accounts`/`connectedAccounts`) so they no longer render
+  as inert taps; left in place with a re-enable note for when those screens exist.
+- **Paywall fallback**: removed the developer-only `paywall_unavailableCaption` text
+  (mentions `EXPO_PUBLIC_REVENUECAT_API_KEY`) from the "no offerings" fallback shown to
+  end users; kept the `fallbackTitle` ("Not available right now"). i18n key and unused
+  style left in place, harmless.
+
+Verify: `npx tsc --noEmit` clean, 0 errors.
+
+## RevenueCat / In-App Purchase go-live plan — PLAN ONLY, not implemented (2026-07-23)
+
+Requested by anh Khôi: document the full path to real IAP; no code changes this session. This is the reference checklist.
+
+### Current state (already in the repo)
+- SDK `react-native-purchases` integrated and **lazy-required** in `src/features/monetization/usePremium.ts` (so Expo Go doesn't crash). `usePremium()` returns `{ isPremium, isLoading, offerings, purchase(pkg), restore() }`. `isPremium` is true if EITHER the RevenueCat `premium` entitlement is active OR `profiles.account_type` is premium/admin.
+- `app/_layout.tsx` reads `process.env['EXPO_PUBLIC_REVENUECAT_API_KEY']` and guards `if (!apiKey) return` — so with no key the SDK is **never configured** → no offerings → paywall shows the "Not available right now" fallback. The key is absent from BOTH `.env` and `eas.json`, so RevenueCat is currently disabled in dev and prod alike.
+- `app/paywall.tsx` renders `offerings.current.availablePackages[0]` (title + priceString) with purchase/restore; on success it re-hydrates `authStore` so `account_type` refreshes without waiting for the webhook.
+- Edge function `supabase/functions/revenuecat-webhook/index.ts` exists: authenticates by an `Authorization` header equal to `REVENUECAT_WEBHOOK_SECRET`, updates `profiles.account_type` on grant/revoke/transfer, idempotent via `profiles.rc_last_event_ms`. **Written but NOT deployed.**
+- `profiles.account_type` is protected by a trigger (only `service_role` can change it) — migration `20260703000001_protect_account_type.sql`.
+
+### Blockers (why it's not live)
+1. No RevenueCat public SDK API key configured anywhere.
+2. `Purchases.configure()` + `Purchases.logIn(supabaseUserId)` wiring must be confirmed/completed so RevenueCat's `app_user_id` == our Supabase uid (the webhook maps events to `profiles` by that id).
+3. Webhook not deployed; `REVENUECAT_WEBHOOK_SECRET` not set; RC dashboard webhook not configured.
+4. Some premium gates (cloud photo storage tier, generate-outfits curation) still read the RC entitlement directly rather than `profiles.account_type` — should standardize on `account_type` so webhook-synced upgrades work even in Expo Go / before the device RC cache refreshes.
+5. No RevenueCat dashboard project / entitlement / offering / products.
+6. No App Store Connect app + IAP products + Paid-Apps agreement/banking/tax.
+7. No Google Play app + IAP products + merchant profile.
+8. Purchases can only be tested on a real dev-client / store build (NOT Expo Go).
+
+### Step-by-step
+
+**A. External account setup (anh Khôi — cannot be automated)**
+1. App Store Connect: enroll in Apple Developer Program; create the app record (bundle id must match `app.json` `ios.bundleIdentifier`); complete Agreements/Tax/Banking so the **Paid Apps** agreement is active (IAP fails without it); create auto-renewable subscription product(s) in a subscription group (e.g. Monthly / Yearly) and note the product IDs.
+2. Google Play Console: create the app; set up a payments/merchant profile; create matching subscription products; note the product IDs.
+3. RevenueCat dashboard: create a project; connect the iOS app (App Store in-app-purchase key/shared secret) and Android app (Play service-account JSON); create an entitlement with identifier **`premium`** (MUST match the code — `usePremium` reads `entitlements.active['premium']`); create products mapped to the store product IDs and attach them to `premium`; create an **Offering** named `current` with the packages; copy the **public SDK API keys** (one per platform).
+
+**B. Code + config (do once keys/products exist)**
+4. Add `EXPO_PUBLIC_REVENUECAT_API_KEY` to `eas.json` env (and `.env` for dev-client). This is the public SDK key — safe to embed; it is NOT the webhook secret.
+5. In `app/_layout.tsx`: on mount call `Purchases.configure({ apiKey })`; after auth call `Purchases.logIn(supabaseUserId)` so RC `app_user_id` == our uid; on sign-out call `Purchases.logOut()`. Verify the current `_layout` wiring actually does configure + logIn (not just read the key).
+6. Standardize the premium source of truth: make the cloud-photo-storage tier and the generate-outfits curation gate read `profiles.account_type` (via `hasPremiumAccountType`) rather than the RC entitlement directly, so an upgrade synced by the webhook unlocks features even in Expo Go / before the device RC cache updates.
+7. Deploy the webhook: `supabase functions deploy revenuecat-webhook --no-verify-jwt` (this endpoint is authenticated by its OWN `REVENUECAT_WEBHOOK_SECRET` header, not a Supabase JWT — this is one of the rare legitimate `--no-verify-jwt` cases, for a webhook/admin-secret endpoint). Then `supabase secrets set REVENUECAT_WEBHOOK_SECRET=<value>` and configure the same URL + `Authorization` header in the RevenueCat dashboard webhook settings.
+
+**C. Build + test**
+8. Build a dev-client or internal/TestFlight build (`eas build`); RevenueCat's native module does not run in Expo Go.
+9. iOS: create a Sandbox tester in App Store Connect, buy the subscription, confirm the entitlement flips, the webhook fires, `profiles.account_type` becomes premium, and gated features unlock; test **Restore purchases**. Android: use a license/internal-testing tester on the internal track.
+10. Confirm the paywall shows real localized price strings and that purchase success re-hydrates `account_type` (already wired in `paywall.tsx`).
+
+**D. Store review**
+11. Provide App Review a working sandbox note; ensure Restore is present (it is); add Terms(EULA)/Privacy links as required for subscriptions; fill the required subscription metadata.
+
+### Rough effort
+- External accounts (anh Khôi): ~1–2 days incl. Apple/Google agreement processing.
+- Code + deploy (once keys/products exist): ~half a day.
+- Sandbox testing + store review: multi-day lead time.
+
+## App identifier rename: com.briank.mien -> tech.kioh.mien (2026-07-31)
+
+Requested by anh Khôi: rename the iOS/Android app identifier. The app has **never been
+published** to the App Store or Play Store, so there was no store-side migration to do —
+this is a pure local/config rename.
+
+**Files changed:**
+- `app.json` — `expo.ios.bundleIdentifier` and `expo.android.package`: `com.briank.mien` ->
+  `tech.kioh.mien`. `expo.name`, `expo.slug`, `expo.scheme`, `expo.owner`, and the EAS
+  `projectId` were left untouched (none of those are derived from the identifier).
+- `eas.json` — `submit.production.ios.sku`: `com.briank.mien` -> `tech.kioh.mien`. Also
+  **deleted** `submit.production.ios.ascAppId` (`"6782307581"`) outright rather than
+  guessing a replacement: that numeric id points at the OLD App Store Connect app record
+  (registered under the old bundle id), and leaving it in place would make `eas submit`
+  silently try to submit builds to the wrong ASC app once a real submission happens. With
+  the field absent, `eas submit` will just prompt to pick/create the app instead — see the
+  backlog item to fill in the new numeric id once the new ASC app exists.
+- `android/app/build.gradle` — `namespace` and `defaultConfig.applicationId`:
+  `com.briank.mien` -> `tech.kioh.mien`. `versionCode`/`versionName` and all
+  `signingConfigs` untouched.
+- `android/app/src/main/java/com/briank/mien/{MainActivity.kt,MainApplication.kt}` moved
+  (via `git mv`, history preserved) to
+  `android/app/src/main/java/tech/kioh/mien/{MainActivity.kt,MainApplication.kt}`; the
+  now-empty `android/app/src/main/java/com` tree removed; `package com.briank.mien` ->
+  `package tech.kioh.mien` in both files (no other `com.briank` references inside them).
+  `android/app/src/debug` and `android/app/src/debugOptimized` only contain
+  `AndroidManifest.xml` (no package-specific Kotlin/Java sources), so nothing to move there.
+- `.claude/settings.local.json` — the two allowlisted `adb` commands (`force-stop`,
+  `monkey -p ...`) updated from `com.briank.mien` to `tech.kioh.mien`.
+
+**Native folder was NOT regenerated.** Per instruction, `expo prebuild` was deliberately
+not run — the committed `android/` folder has hand-maintained launcher icons that a
+prebuild would clobber. Everything above was edited in place.
+
+**Verification.**
+- `grep -rIn "com\.briank" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=build --exclude-dir=dist .` — the only hits left are two historical narrative lines in this
+  file (the "Android project setup" entry) documenting the *old* id at the time it was
+  chosen; intentionally not rewritten since they describe a past decision, not current state.
+- `cd android && ./gradlew :app:assembleDebug` — first run failed with `package
+  com.briank.mien does not exist`, traced to **stale Gradle build caches** (gitignored
+  `android/build/`, `android/app/build/`, `android/app/.cxx/`) left over from a build made
+  before the rename — specifically `android/build/generated/autolinking/autolinking.json`
+  had `"packageName":"com.briank.mien"` cached from the React Native Gradle plugin's
+  autolinking step, and Gradle considered the file-generation task up to date even though
+  the applicationId had changed. Deleted those three cache directories (not source, not
+  committed) and reran; `BUILD SUCCESSFUL` on the second attempt with the new
+  `tech.kioh.mien` package baked into the generated sources and `BuildConfig`.

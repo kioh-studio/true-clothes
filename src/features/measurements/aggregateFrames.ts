@@ -17,6 +17,7 @@
 
 import type { Keypoint } from './poseEstimate';
 import type { SilhouetteWidths } from './silhouetteMath';
+import type { SideDepths } from './sideViewMath';
 
 /** Default minimum keypoint confidence to trust a frame's sample for a landmark. */
 const DEFAULT_MIN_SCORE = 0.3;
@@ -29,28 +30,44 @@ function median(vals: number[]): number {
 }
 
 /**
- * Median-aggregate several full 17-keypoint frames into one.
+ * Median-aggregate several keypoint frames into one.
  *
  * For each named keypoint, samples are taken from the frames where that
  * landmark's score clears `minScore` (the frames the detector itself trusted
  * for that joint); x, y, and score are each medianed independently per axis.
  * If FEWER THAN ONE frame clears the threshold for a given keypoint (i.e. the
- * detector never trusted it), fall back to the median over ALL frames for
- * that keypoint rather than dropping it — a low-confidence median is still
- * better signal than no landmark at all, and the caller's own confidence
- * gate (`EstimatedMeasurements.confidence`) already reflects that low score.
+ * detector never trusted it), fall back to the median over ALL frames that
+ * HAVE that keypoint at all, rather than dropping it — a low-confidence
+ * median is still better signal than no landmark at all, and the caller's
+ * own confidence gate (`EstimatedMeasurements.confidence`) already reflects
+ * that low score.
+ *
+ * MIXED frame lengths: `finish()` in measurements-scan.tsx can hand this a
+ * buffer of 21-keypoint BlazePose-refined frames (17 shared COCO names + 4
+ * new heel/toe names — see blazePoseDecode.ts) alongside 17-keypoint
+ * pass-1-only (MoveNet Lightning) frames when a refine attempt failed for
+ * some but not all buffered frames. The name list is therefore the UNION of
+ * every frame's names — NOT just `frames[0]`'s — so a heel/toe keypoint
+ * present in some frames is never silently dropped just because frame 0
+ * happens to be a 17-keypoint fallback. A name absent from a given frame
+ * simply isn't sampled from that frame (no positional fallback — with frames
+ * of genuinely different lengths there is no meaningful "same index" to fall
+ * back to; every real caller in this codebase looks landmarks up by name).
  */
 export function medianKeypoints(frames: Keypoint[][], minScore = DEFAULT_MIN_SCORE): Keypoint[] {
   if (frames.length === 0) return [];
-  // All frames come from the same estimator call (poseEstimate.ts) and share
-  // identical ordering/names — use the first frame's name list as the index.
-  const names = frames[0].map((k) => k.name);
 
-  return names.map((name, i) => {
-    // Match by name (not index) in case a caller ever passes reordered arrays;
-    // fall back to positional lookup only if a name lookup somehow misses.
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const f of frames) {
+    for (const k of f) {
+      if (!seen.has(k.name)) { seen.add(k.name); names.push(k.name); }
+    }
+  }
+
+  return names.map((name) => {
     const samples = frames
-      .map((f) => f.find((k) => k.name === name) ?? f[i])
+      .map((f) => f.find((k) => k.name === name))
       .filter((k): k is Keypoint => !!k);
 
     const confident = samples.filter((k) => k.score >= minScore);
@@ -83,6 +100,37 @@ export function medianWidths(widths: (SilhouetteWidths | null)[]): SilhouetteWid
     if (vals.length > 0) result[field] = median(vals);
   }
   return result;
+}
+
+const SIDE_DEPTH_FIELDS: (keyof SideDepths)[] = ['chestU', 'waistU', 'hipU'];
+
+/**
+ * Median-aggregate several per-frame SIDE-VIEW depth readings, field by
+ * field — the side-capture counterpart to `medianWidths` above, same "leave
+ * it blank, don't guess" contract for a field absent from every reading.
+ */
+export function medianSideDepths(depths: (SideDepths | null)[]): SideDepths {
+  const result: SideDepths = {};
+  for (const field of SIDE_DEPTH_FIELDS) {
+    const vals = depths
+      .filter((d): d is SideDepths => d != null)
+      .map((d) => d[field])
+      .filter((v): v is number => v != null);
+    if (vals.length > 0) result[field] = median(vals);
+  }
+  return result;
+}
+
+/**
+ * Median of the present values in `extents` (null/undefined entries
+ * dropped), or `undefined` if none are present — same "leave it blank,
+ * don't guess" contract as `medianWidths`. Aggregates per-frame
+ * `maskVerticalExtent` spans (already converted to full-square units) into
+ * the single scalar `EstimateInputs.maskExtentU` the scale-blend consumes.
+ */
+export function medianExtent(extents: (number | null | undefined)[]): number | undefined {
+  const vals = extents.filter((v): v is number => v != null);
+  return vals.length > 0 ? median(vals) : undefined;
 }
 
 /** nose→avg-ankle vertical span for one frame, or null if either is missing. */

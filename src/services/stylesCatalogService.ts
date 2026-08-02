@@ -21,7 +21,7 @@ export async function fetchStyles(): Promise<StyleCatalogItem[]> {
     const raw = await AsyncStorage.getItem(CACHE_KEY);
     if (raw) {
       const cache: CacheEntry = JSON.parse(raw);
-      if (Date.now() - cache.fetchedAt < CACHE_TTL) return cache.data;
+      if (Date.now() - cache.fetchedAt < CACHE_TTL && cache.data.length > 0) return cache.data;
     }
   } catch { /* cache miss */ }
 
@@ -43,6 +43,8 @@ export async function fetchStyles(): Promise<StyleCatalogItem[]> {
     niches:      (r.niches as string[]) ?? [],
   }));
 
-  AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ data: items, fetchedAt: Date.now() })).catch(() => {});
+  if (items.length > 0) {
+    AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ data: items, fetchedAt: Date.now() })).catch(() => {});
+  }
   return items;
 }

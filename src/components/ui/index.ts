@@ -8,3 +8,4 @@ export { Divider } from './Divider';
 export { BottomSheet } from './BottomSheet';
 export { Photo, PhotoFallback } from './Photo';
 export { OfflineBanner } from './OfflineBanner';
+export { Bounded } from './Bounded';

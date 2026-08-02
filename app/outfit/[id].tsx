@@ -5,7 +5,8 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OUTFITS, itemById } from '../../src/data';
 import { OutfitCollage } from '../../src/components/outfit/Collage';
-import { PrimaryButton, SecondaryButton, Tag, BottomSheet, Divider } from '../../src/components/ui';
+import { PrimaryButton, SecondaryButton, Tag, BottomSheet, Divider, Bounded } from '../../src/components/ui';
+import { MEDIA_MAX } from '../../src/design/layout';
 import { IconX, IconHeart, IconShare, IconSparkle, IconChevronRight } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAppStore } from '../../src/stores/appStore';
@@ -114,7 +115,8 @@ export default function OutfitDetailScreen() {
 
   const worn = outfit ? wornSet.has(outfit.id) : false;
 
-  const HERO_H = W * (5 / 4);
+  const heroW = Math.min(W, MEDIA_MAX);
+  const HERO_H = heroW * (5 / 4);
 
   // T029: Share outfit via native share sheet
   const shareOutfit = () => {
@@ -160,10 +162,11 @@ export default function OutfitDetailScreen() {
         </View>
 
         {/* Hero collage */}
-        <View style={{ borderBottomWidth: 0.5, borderBottomColor: T.color.hairline }}>
+        <View style={{ borderBottomWidth: 0.5, borderBottomColor: T.color.hairline, width: '100%', maxWidth: MEDIA_MAX, alignSelf: 'center' }}>
           <OutfitCollage outfit={outfit} compact={false} containerHeight={HERO_H} />
         </View>
 
+        <Bounded>
         {/* AI Try-on button */}
         <View style={{ padding: 16 }}>
           <Pressable
@@ -251,6 +254,7 @@ export default function OutfitDetailScreen() {
           {/* "Generate a variation" (item swap) is not yet implemented — hidden
               until the regenerate feature is built to avoid dead UI. */}
         </View>
+        </Bounded>
 
         <View style={{ height: insets.bottom + 48 }} />
       </ScrollView>

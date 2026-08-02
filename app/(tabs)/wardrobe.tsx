@@ -9,7 +9,7 @@ import { PrimaryButton, Tag, Field } from '../../src/components/ui';
 import { IconSearch, IconPlus } from '../../src/components/icons';
 import { useAppStore } from '../../src/stores/appStore';
 import { useItemPhoto } from '../../src/features/wardrobe-photos';
-import { useGridCardWidth } from '../../src/design/layout';
+import { useGridCardWidth, useGridColumns } from '../../src/design/layout';
 import { useTranslation } from '../../src/i18n';
 
 const FILTERS = ['ALL', 'TOPS', 'BOTTOMS', 'OUTERWEAR', 'DRESSES', 'FOOTWEAR', 'ACCESSORIES', 'HEADWEAR'];
@@ -35,8 +35,8 @@ const FILTER_LABEL_KEYS: Record<string, string> = {
   HEADWEAR: 'tabs_wardrobe_filterHeadwear',
 };
 
-function WardrobeItemCard({ item, onPress }: { item: WardrobeItem; onPress: () => void }) {
-  const CARD_W = useGridCardWidth();
+function WardrobeItemCard({ item, cols, onPress }: { item: WardrobeItem; cols: number; onPress: () => void }) {
+  const CARD_W = useGridCardWidth(cols);
   const { source, status } = useItemPhoto(item);
   return (
     <Pressable onPress={onPress} style={[styles.itemCard, { width: CARD_W }]}>
@@ -62,6 +62,7 @@ export default function WardrobeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
+  const cols = useGridColumns();
   const { wardrobeItems, wardrobeError } = useAppStore();
   const [filter, setFilter] = useState('ALL');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -134,14 +135,15 @@ export default function WardrobeScreen() {
         </ScrollView>
       ) : (
         <FlatList
+          key={`grid-${cols}`}
           data={visible}
           keyExtractor={(item) => item.id}
-          numColumns={2}
+          numColumns={cols}
           columnWrapperStyle={{ gap: 12 }}
           contentContainerStyle={{ padding: 24, paddingBottom: insets.bottom + 80, gap: 12 }}
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
-            <WardrobeItemCard item={item} onPress={() => router.push(`/item/${item.id}` as any)} />
+            <WardrobeItemCard item={item} cols={cols} onPress={() => router.push(`/item/${item.id}` as any)} />
           )}
         />
       )}

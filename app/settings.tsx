@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
 import { IconChevronLeft } from '../src/components/icons';
+import { Bounded } from '../src/components/ui';
 import { useAuthStore } from '../src/stores/authStore';
 import { useAppStore } from '../src/stores/appStore';
 import { useTranslation } from '../src/i18n';
@@ -78,6 +79,7 @@ export default function SettingsScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 48 }]}
         showsVerticalScrollIndicator={false}
       >
+        <Bounded>
         {/* Preferences */}
         <Text style={styles.sectionLabel}>{t('settings_preferencesSection')}</Text>
         <View style={styles.section}>
@@ -177,6 +179,7 @@ export default function SettingsScreen() {
             <Text style={styles.rowDesc}>{APP_VERSION}</Text>
           </View>
         </View>
+        </Bounded>
       </ScrollView>
     </View>
   );

@@ -7,7 +7,7 @@ import {
   evaluateFixture, aggregate, suggestCalibration,
   type Fixture,
 } from '../accuracyEval';
-import { keypointsToMeasurements, K } from '../landmarksToMeasurements';
+import { keypointsToMeasurements } from '../landmarksToMeasurements';
 import { computeBodyShape } from '../../../types/measurements';
 import type { Keypoint } from '../poseEstimate';
 
@@ -156,13 +156,78 @@ describe('suggestCalibration', () => {
       groundTruth: { body_shoulder_width: truthShoulder },
     };
 
-    const { tunables, beforeMae, afterMae } = suggestCalibration([fixture], ['contourShoulderInset']);
+    const { beforeMae, afterMae } = suggestCalibration([fixture], ['contourShoulderInset']);
 
+    // `contourShoulderInset` now drives only HALF of the shoulder estimate
+    // (the 2026-07-12 shoulder blend — see `shoulderBlendContour`/
+    // `kpShoulderFactor` in landmarksToMeasurements.ts), unlike the old
+    // either/or formula where it drove the WHOLE contour-derived estimate.
+    // Searching it alone therefore no longer recovers the injected bias by
+    // landing near `targetFactor` itself (the search over-adjusts the
+    // contour term to compensate for the untouched keypoint-term half) — but
+    // it should still drive the error down close to zero, which is the
+    // property this test actually cares about.
     expect(afterMae).toBeLessThan(beforeMae);
-    // Grid step spacing is (1.3-0.7)/12 = 0.05, so "moved toward 1.1" means
-    // landing within one grid step of it (rounding of the cm ground-truth
-    // value can tie-break to the neighbouring grid point).
-    const foundFactor = tunables.contourShoulderInset! / K.contourShoulderInset;
-    expect(Math.abs(foundFactor - targetFactor)).toBeLessThanOrEqual(0.06);
+    expect(afterMae).toBeLessThan(0.5); // within half a cm of the injected bias
+  });
+});
+
+// ── Fixture v2 — side (profile) depth recomputation (2026-07) ──────────────
+
+describe('evaluateFixture — v2 `side` block recomputes sideDepthsCm', () => {
+  const kps = makeKeypoints();
+  const hKp = (0.93 - 0.08) / 0.88;
+  const cmPerUnit = HEIGHT_CM / hKp;
+
+  test('side.depthsU feeds a measured chest depth through the SAME math the app uses', () => {
+    const baseline = keypointsToMeasurements(kps, HEIGHT_CM)!;
+
+    // depthU chosen so depthCm = depthU × cmPerUnit lands comfortably inside
+    // sideDepthWidthRatioMin/Max against this fixture's (guessed-path) chest
+    // width, and far enough from the guessed depthRatio (0.72) that the two
+    // paths can't coincidentally round to the same integer cm.
+    const chestDepthU = 0.15;
+    const expectedSideDepthsCm = chestDepthU * cmPerUnit;
+    const expectedPredicted = keypointsToMeasurements(kps, HEIGHT_CM, {
+      sideDepthsCm: { chestCm: expectedSideDepthsCm },
+    })!;
+    expect(expectedPredicted.body_bust).not.toBe(baseline.body_bust);
+
+    // `side.keypoints` reuses the SAME keypoints as the front `kps` purely so
+    // its own estimatePersonUnitH/cmPerUnit is deterministic and known
+    // in-test (real captures use two different photos) — evaluateFixture
+    // doesn't care which photo a keypoint set came from, only that it can
+    // compute a scale from it.
+    const fx: Fixture = {
+      subjectId: 'v2-side-roundtrip',
+      version: 2,
+      inputs: { heightCm: HEIGHT_CM },
+      keypoints: kps,
+      side: { keypoints: kps, depthsU: { chestU: chestDepthU } },
+      // Round-trip check: feed the value `expectedPredicted` computed
+      // directly (i.e. what the PRODUCTION function returns when handed
+      // this exact sideDepthsCm) as the "ground truth" — zero error here
+      // only happens if evaluateFixture actually recomputed and threaded
+      // sideDepthsCm through, not the guessed-depth path.
+      groundTruth: { body_bust: expectedPredicted.body_bust },
+    };
+
+    const result = evaluateFixture(fx);
+    const bustField = result.fields.find((f) => f.field === 'body_bust');
+    expect(bustField).toBeDefined();
+    expect(bustField!.absError).toBeCloseTo(0, 6);
+  });
+
+  test('a v1 fixture (no `side` field) evaluates identically to before this feature existed', () => {
+    const baseline = keypointsToMeasurements(kps, HEIGHT_CM)!;
+    const fx: Fixture = {
+      subjectId: 'v1-regression',
+      inputs: { heightCm: HEIGHT_CM },
+      keypoints: kps,
+      groundTruth: { body_bust: baseline.body_bust },
+    };
+    const result = evaluateFixture(fx);
+    const bustField = result.fields.find((f) => f.field === 'body_bust')!;
+    expect(bustField.absError).toBeCloseTo(0, 6);
   });
 });

@@ -16,14 +16,39 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import type { Keypoint } from './poseEstimate';
 import type { SilhouetteWidths } from './silhouetteMath';
+import type { SideDepths } from './sideViewMath';
 import type { Sex } from './landmarksToMeasurements';
 
 export interface ScanFixturePayload {
   /** Placeholder — rename to a real subject id before dropping into fixtures/. */
   subjectId: string;
-  inputs: { heightCm: number; weightKg?: number; sex?: Sex; ageYears?: number };
+  /** Fixture schema version — 2 now that the side-view (profile) capture
+   *  pass exists. See `Fixture.version`'s doc comment in accuracyEval.ts. */
+  version: 2;
+  inputs: {
+    heightCm: number;
+    weightKg?: number;
+    sex?: Sex;
+    ageYears?: number;
+    /** Person-mask crown→sole vertical extent (FULL-square units), or absent
+     *  when the scan had no cropped-segmentation pass. See
+     *  `EstimateInputs.maskExtentU` in landmarksToMeasurements.ts. */
+    maskExtentU?: number;
+  };
   keypoints: Keypoint[];
   silhouette?: SilhouetteWidths;
+  /** FRONT capture's median DeviceMotion pitch (radians) — see
+   *  `Fixture.capturePitchRad`'s doc comment in accuracyEval.ts. */
+  capturePitchRad?: number;
+  /** SIDE (profile) capture data, absent for a front-only scan (SKIP was
+   *  used, or the side pass produced nothing usable). See `Fixture.side`'s
+   *  doc comment in accuracyEval.ts. */
+  side?: {
+    keypoints: Keypoint[];
+    depthsU?: SideDepths;
+    maskExtentU?: number;
+    capturePitchRad?: number;
+  };
   /** Empty — the whole point is to fill this by hand from a real tape measurement. */
   groundTruth: Record<string, never>;
 }

@@ -165,9 +165,6 @@ export default function PaywallScreen() {
           // missing EXPO_PUBLIC_REVENUECAT_API_KEY). Show a clear fallback.
           <View style={styles.fallbackBox}>
             <Text style={styles.fallbackTitle}>{t('paywall_unavailableTitle')}</Text>
-            <Text style={styles.fallbackCaption}>
-              {t('paywall_unavailableCaption')}
-            </Text>
           </View>
         )}
 

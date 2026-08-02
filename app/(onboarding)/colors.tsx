@@ -7,7 +7,7 @@ import { IconChevronLeft } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { COLORS } from '../../src/data';
 import { useFitEngineStore } from '../../src/stores/fitEngineStore';
-import { useGridCardWidth } from '../../src/design/layout';
+import { useGridCardWidth, useGridColumns } from '../../src/design/layout';
 import { useTranslation } from '../../src/i18n';
 
 const PAD = 24;
@@ -16,7 +16,8 @@ const GAP = 12;
 const LIGHT_COLORS = ['#F2EDE4', '#D9C9A8', '#C8C5BF'];
 
 export default function ColorsScreen() {
-  const SWATCH = useGridCardWidth(3);
+  const cols = useGridColumns(3, 4, 5);
+  const SWATCH = useGridCardWidth(cols);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();

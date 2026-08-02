@@ -4,7 +4,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../../src/design/tokens';
 import { OUTFITS, COLOR_HEX, itemById, ClothingItem } from '../../src/data';
-import { PrimaryButton, TextLink, Segmented } from '../../src/components/ui';
+import { PrimaryButton, TextLink, Segmented, Bounded } from '../../src/components/ui';
 import { IconChevronLeft, IconEdit, IconShare } from '../../src/components/icons';
 import { useAppStore } from '../../src/stores/appStore';
 import { useTryOnStore } from '../../src/stores/tryOnStore';
@@ -286,6 +286,7 @@ export default function ItemDetailScreen() {
           </View>
         </View>
 
+        <Bounded>
         {/* Hero */}
         <View style={styles.hero}>
           {photo.status === 'ready' && photo.source ? (
@@ -405,6 +406,7 @@ export default function ItemDetailScreen() {
             </TextLink>
           </View>
         </View>
+        </Bounded>
 
         <View style={{ height: insets.bottom + 48 }} />
       </ScrollView>

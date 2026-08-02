@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PrimaryButton, TextLink, Field, Segmented, Tag } from '../../src/components/ui';
+import { PrimaryButton, TextLink, Field, Segmented, Tag, Bounded } from '../../src/components/ui';
 import { IconChevronLeft } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useMeasurements } from '../../src/features/measurements/useMeasurements';
@@ -90,6 +90,7 @@ export default function MeasurementsScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
+        <Bounded>
         <View style={{ height: 32 }} />
         <Text style={styles.h1}>{t('onboarding_measurements_title')}</Text>
         <Text style={styles.caption}>{t('onboarding_measurements_subtitle')}</Text>
@@ -185,6 +186,7 @@ export default function MeasurementsScreen() {
         <PrimaryButton onPress={handleContinue} disabled={saving || !consentGiven}>
           {saving ? t('addItem_savingText') : t('onboarding_measurements_continue')}
         </PrimaryButton>
+        </Bounded>
       </ScrollView>
     </View>
   );

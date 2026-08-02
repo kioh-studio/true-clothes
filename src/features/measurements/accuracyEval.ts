@@ -11,6 +11,7 @@
 
 import {
   keypointsToMeasurements,
+  estimatePersonUnitH,
   K,
   type EstimateInputs,
   type MeasurementTunables,
@@ -18,6 +19,7 @@ import {
 } from './landmarksToMeasurements';
 import type { Keypoint } from './poseEstimate';
 import type { SilhouetteWidths } from './silhouetteMath';
+import type { SideDepths } from './sideViewMath';
 import { computeBodyShape, type BodyShape } from '../../types/measurements';
 
 // ── Fixture schema ────────────────────────────────────────────────────────────
@@ -46,16 +48,60 @@ export interface Fixture {
   subjectId: string;
   /** Free-form date string, informational only — not read by the evaluator. */
   capturedAt?: string;
+  /**
+   * Schema version marker — 2 for fixtures captured after the side-view
+   * (profile) depth-capture pass shipped (adds the optional `side` field
+   * below + `capturePitchRad`). ABSENT/1 fixtures are the ORIGINAL schema
+   * and evaluate byte-identically to before this field existed — nothing
+   * here branches on the version number itself, only on whether `side` is
+   * present, so an old fixture missing this field entirely keeps working
+   * unchanged.
+   */
+  version?: number;
   inputs: {
     heightCm: number;
     weightKg?: number;
     sex?: Sex;
     ageYears?: number;
+    /**
+     * Person-mask crown→sole vertical extent (FULL-square units), or absent
+     * if the captured scan had no cropped-segmentation pass to derive it
+     * from. See `EstimateInputs.maskExtentU` in landmarksToMeasurements.ts.
+     */
+    maskExtentU?: number;
   };
   /** The 17 MoveNet keypoints exactly as captured (letterboxed-square space). */
   keypoints: Keypoint[];
   /** Segmentation-mask contour widths, or null/absent if the scan had none. */
   silhouette?: SilhouetteWidths | null;
+  /**
+   * FRONT capture's DeviceMotion pitch (radians, `rotation.beta`) at capture
+   * time, median across the buffered good-pose frames — groundwork for a
+   * future keystone/perspective correction, not read by any math yet (see
+   * `capturePitchRad` in measurements-scan.tsx). Purely informational here.
+   */
+  capturePitchRad?: number;
+  /**
+   * SIDE (profile) capture data — absent for a front-only scan (or v1
+   * fixtures, which never had this field at all). When present, `evaluateFixture`
+   * recomputes `EstimateInputs.sideDepthsCm` from `depthsU` using the SAME
+   * `estimatePersonUnitH` math the app uses for the side view's own scale
+   * reference — see the module doc comment — so the harness can calibrate
+   * `superellipseN`/`sideDepthWidthRatioMin`/`Max` against real ground truth
+   * once fixtures with tape-measured depth exist.
+   */
+  side?: {
+    /** The side frame's own (refined, where available) keypoints. */
+    keypoints: Keypoint[];
+    /** Measured front-to-back depths, in the SIDE mask's own normalised
+     *  units (NOT centimetres — `evaluateFixture` converts, same as the app). */
+    depthsU?: SideDepths;
+    /** Side segmentation mask's crown→sole vertical extent, full-square units. */
+    maskExtentU?: number;
+    /** SIDE capture's own DeviceMotion pitch — same informational status as
+     *  the front-level `capturePitchRad` above. */
+    capturePitchRad?: number;
+  };
   /** Tape-measure truth. Every field optional — score only what was measured. */
   groundTruth: Partial<Record<MeasuredField, number>>;
 }
@@ -89,11 +135,33 @@ export interface SubjectResult {
  * field against the prediction.
  */
 export function evaluateFixture(fx: Fixture, tunables?: MeasurementTunables): SubjectResult {
+  // Recompute the SIDE view's own cm-per-unit scale — using the SAME
+  // `estimatePersonUnitH` math (and the same `tunables` override) the app
+  // uses for the side pass — from the raw `depthsU` a v2 fixture stores.
+  // Absent `fx.side` (front-only or a v1 fixture) → `sideDepthsCm` stays
+  // undefined, byte-identical to pre-side-view evaluation.
+  const KC = { ...K, ...(tunables ?? {}) };
+  let sideDepthsCm: EstimateInputs['sideDepthsCm'];
+  if (fx.side) {
+    const sidePersonUnitH = estimatePersonUnitH(fx.side.keypoints, fx.side.maskExtentU, KC);
+    if (sidePersonUnitH != null && sidePersonUnitH > 0 && fx.inputs.heightCm > 0) {
+      const sideCmPerUnit = fx.inputs.heightCm / sidePersonUnitH;
+      const d = fx.side.depthsU ?? {};
+      sideDepthsCm = {
+        chestCm: d.chestU != null ? d.chestU * sideCmPerUnit : undefined,
+        waistCm: d.waistU != null ? d.waistU * sideCmPerUnit : undefined,
+        hipCm:   d.hipU   != null ? d.hipU   * sideCmPerUnit : undefined,
+      };
+    }
+  }
+
   const inputs: EstimateInputs = {
     weightKg: fx.inputs.weightKg,
     sex: fx.inputs.sex,
     ageYears: fx.inputs.ageYears,
     silhouette: fx.silhouette ?? undefined,
+    maskExtentU: fx.inputs.maskExtentU,
+    sideDepthsCm,
     tunables,
   };
   const predicted = keypointsToMeasurements(fx.keypoints, fx.inputs.heightCm, inputs);
@@ -183,7 +251,10 @@ export function aggregate(results: SubjectResult[]): Aggregate {
  */
 export const TUNABLE_FIELD_MAP: Record<string, MeasuredField[]> = {
   noseAnkleHeightFraction: [...MEASURED_FIELDS],
+  maskExtentFudge: [...MEASURED_FIELDS],
   contourShoulderInset: ['body_shoulder_width'],
+  shoulderBlendContour: ['body_shoulder_width'],
+  kpShoulderFactor: ['body_shoulder_width'],
   torsoFromShoulderHip: ['body_upper_body_length'],
   inseamProjectionFactor: ['body_inseam'],
   hipWidthCorrection: ['body_hip'],
@@ -194,6 +265,12 @@ export const TUNABLE_FIELD_MAP: Record<string, MeasuredField[]> = {
   chestDepthRatio: ['body_bust'],
   waistDepthRatio: ['body_waist'],
   hipDepthRatio: ['body_hip'],
+  // Torso cross-section shape exponent — applies to bust/waist/hip
+  // regardless of whether the depth semi-axis came from the BMI-guessed
+  // path or a measured side-view depth (see the doc comment on
+  // `K.superellipseN`). NOT `sideDepthWidthRatioMin`/`Max` — those are
+  // validity GATES for a measured depth, not a calibratable shape param.
+  superellipseN: ['body_bust', 'body_waist', 'body_hip'],
 };
 
 /** The standard set of landmark-space constants worth calibrating offline

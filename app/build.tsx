@@ -6,7 +6,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
-import { BottomSheet, PrimaryButton, SecondaryButton, TextLink, Tag, Field } from '../src/components/ui';
+import { BottomSheet, PrimaryButton, SecondaryButton, TextLink, Tag, Field, Bounded } from '../src/components/ui';
 import {
   IconChevronLeft, IconShuffle, IconPlus, IconCheck,
   IconSparkle, IconX,
@@ -527,6 +527,7 @@ export default function OutfitBuilderScreen() {
 
       {/* Pickers */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingTop: 20, paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
+        <Bounded>
         {buckets.map((b) =>
           b.list.length > 0 ? (
             <CategoryStrip
@@ -538,6 +539,7 @@ export default function OutfitBuilderScreen() {
             />
           ) : null
         )}
+        </Bounded>
       </ScrollView>
 
       {/* Suggest CTA */}

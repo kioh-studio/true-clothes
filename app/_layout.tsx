@@ -66,8 +66,9 @@ export default function RootLayout() {
   useEffect(() => {
     if (hydrated && isLoggedIn) {
       refreshWeather();
+      loadCatalogs();
     }
-  }, [hydrated, isLoggedIn]);
+  }, [hydrated, isLoggedIn, loadCatalogs]);
 
   // T079: Wire RevenueCat after auth hydration.
   // logIn() aliases the RevenueCat app_user_id to the Supabase user.id so the

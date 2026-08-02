@@ -164,3 +164,85 @@ personal-color camera intro (`app/(onboarding)/personal-color.tsx` and
 `app/personal-color-edit.tsx`): "Processed on your device — your photos never leave
 this phone." `DrapeSession` already carries its own "Nothing leaves your phone" line
 and was left untouched.
+
+## Two-pass capture refinement + tilt gate (2026-07-12)
+
+No new screen or layout change — this is entirely a "same UI, sharper number
+underneath" pass, plus one new hint pill.
+
+- **Buffer size 3 → 4.** One more frame in the ring buffer used for
+  multi-frame median aggregation (aggregateFrames.ts) — no visible change,
+  slightly steadier estimate.
+- **Capture photo quality 0.35 → 0.5.** Sharper JPEGs feed the capture-time
+  cropped segmentation pass; still well within the 1.2 s poll cadence.
+- **New tilt hint pill.** While scanning, if the phone is held off-upright
+  (DeviceMotion, ~12° threshold — CALIBRATION-PENDING), the hint pill shows
+  "Prop the phone upright — it's tilted" (`measurementsScan_hint_tilt_phone`)
+  instead of whatever the pose gate would otherwise show, using the SAME
+  amber pill style as every other adjustment hint (`hintAdjust`) — no new
+  visual treatment. On a device/platform without a motion sensor this hint
+  never fires (no gating), so nothing changes there either.
+- **"Stand straight, square to the camera" now also fires when turned
+  sideways**, not just when tilted — same copy/pill, no visible difference,
+  just a second trigger condition (`poseQuality.ts`'s `assessPose`).
+- **Processing veil unchanged.** The two-pass refinement (Thunder keypoint
+  re-inference + cropped segmentation, per buffered frame) all happens inside
+  the existing 'processing' ActivityIndicator veil — failure per-frame is
+  silent (falls back to that frame's first-pass keypoints/no widths), same
+  "never surface a model-internals error to the user" policy as the original
+  silhouette pass.
+- Dev-only diagnostic line gains two more fields (shoulder-span pass-1 vs
+  refined, and the mask-extent scale reading) — `__DEV__` only, never visible
+  in a production build.
+
+## BlazePose Heavy + MODNet model upgrade (2026-07-12)
+
+Model-only swap under the hood (MoveNet Thunder → BlazePose Heavy for keypoint
+refinement, Selfie Segmenter → MODNet for matting, both capture-time only) — no new
+screen, layout, or copy change. The only thing a user might notice:
+
+- **Processing may take a little longer at capture.** Both replacement models are
+  larger/higher-capacity than what they replace, and — to keep the wait reasonable —
+  only the best 3 buffered frames get the expensive refinement pass now (previously
+  every buffered frame did). Still surfaces as the same 'processing' ActivityIndicator
+  veil as before; no new loading state or progress indicator was added.
+- Everything else (hint pills, frame border colors, countdown numeral, privacy copy,
+  A-pose guidance) is unchanged.
+
+## Side-view (profile) depth capture — turn interstitial + SKIP (2026-07-12)
+
+The scan now has TWO capture passes: front (unchanged from every prior round above),
+then — after a brief full-screen interstitial — a SIDE (profile) pass that measures
+front-to-back body depth directly, instead of guessing it from BMI. Depth is the
+single biggest accuracy lever left for bust/waist/hip (see plan.md changelog).
+
+### New states
+
+| Phase | Visual |
+|---|---|
+| `scanning` (subPhase `'front'`) | Identical to the existing scanning screen — camera preview, skeleton overlay, frame border, hint pill, countdown numeral, TIMER/CAPTURE NOW pills. Nothing new here. |
+| `turn` | Full-screen dark veil (same `rgba(0,0,0,0.55)` treatment as the processing veil) over the still-live camera preview. Serif title (30 pt, weight 300, same `Cormorant` family as the giant countdown numeral, just body-copy scale) + a dimmer caption line below. Auto-advances into `scanning`/`'side'` after ~2.5 s — no user action required. A SKIP pill (see below) is the only control shown. |
+| `scanning` (subPhase `'side'`) | Same frame border / skeleton overlay / hint pill / countdown / TIMER+CAPTURE NOW row as the front pass — the hint pill can now also show the new `turn_side` copy ("Turn sideways to the camera") when the person hasn't actually turned yet. A SKIP pill appears below the TIMER/CAPTURE NOW row. |
+| `processing` | Same ActivityIndicator veil as before, now with a small "x/y" progress line underneath (muted, 12 pt) — the two-view pipeline takes noticeably longer than the front-only one did. |
+
+### Turn interstitial copy
+
+- EN: "Turn to your side" / "90° — arms relaxed, hands slightly forward"
+- VI: "Xoay người sang ngang" / "90° — tay thả lỏng, bàn tay hơi đưa ra trước"
+
+### SKIP pill
+
+Outline pill, same visual language as the existing TIMER/CAPTURE NOW pills but
+smaller (11 pt text, thinner border at 60% white) — a visually QUIETER affordance than
+the primary controls, since skipping is the fallback path, not the intended one.
+Copy: EN "SKIP — front only" / VI "BỎ QUA — chỉ dùng ảnh thẳng". Tapping it finishes
+the scan with front data only — identical to today's pre-side-view estimate (BMI-
+guessed depth), no visible difference in the success/error states that follow.
+
+### No new failure UI
+
+The side pass is a bonus signal — any failure in it (no usable frames, no usable
+depths, no computable scale) is completely silent: the scan proceeds to the same
+'processing' → 'success' flow as a front-only scan always has, exactly like the
+existing silhouette/refinement passes' "never surface a model-internals error to the
+user" policy. There is no "side scan failed" message anywhere in the UI.

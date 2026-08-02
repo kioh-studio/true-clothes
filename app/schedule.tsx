@@ -10,7 +10,7 @@ import { IconChevronLeft, IconCalendar, IconPlus, IconBookmark } from '../src/co
 import { useAppStore, OutfitSnapshot } from '../src/stores/appStore';
 import { Outfit } from '../src/data';
 import { useFitFeed } from '../src/features/feed/useFitFeed';
-import { useGridCardWidth } from '../src/design/layout';
+import { useGridCardWidth, useGridColumns } from '../src/design/layout';
 import i18n, { useTranslation } from '../src/i18n';
 
 // Mock/demo forecast copy — cycles regardless of the actual scheduled day;
@@ -109,7 +109,8 @@ function OutfitPickerSheet({
   outfits: Outfit[]; savedIds: string[];
   onPick: (id: string) => void;
 }) {
-  const CARD_W = useGridCardWidth();
+  const cols = useGridColumns();
+  const CARD_W = useGridCardWidth(cols);
   const { t } = useTranslation();
   // Surface saved outfits first, then engine-generated ones
   const ordered = [

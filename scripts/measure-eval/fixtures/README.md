@@ -24,9 +24,17 @@ are calibratable here.
 {
   "subjectId": "khoi-01",
   "capturedAt": "2026-07-06",
-  "inputs": { "heightCm": 176, "weightKg": 76, "sex": "male", "ageYears": 33 },
+  "version": 2,
+  "inputs": { "heightCm": 176, "weightKg": 76, "sex": "male", "ageYears": 33, "maskExtentU": 0.965 },
   "keypoints": [ { "name": "nose", "x": 0.5, "y": 0.08, "score": 0.95 }, "...17 total" ],
-  "silhouette": { "shoulderU": 0.34, "chestU": 0.30, "waistU": 0.26, "hipU": 0.31 },
+  "silhouette": { "shoulderU": 0.34, "chestU": 0.30, "waistU": 0.26, "hipU": 0.31, "chestRowFrac": 0.25, "waistRowFrac": 0.6, "hipRowFrac": 1.05 },
+  "capturePitchRad": 1.58,
+  "side": {
+    "keypoints": [ { "name": "nose", "x": 0.5, "y": 0.09, "score": 0.9 }, "...profile-view keypoints" ],
+    "depthsU": { "chestU": 0.18, "waistU": 0.15, "hipU": 0.19 },
+    "maskExtentU": 0.94,
+    "capturePitchRad": 1.57
+  },
   "groundTruth": { "body_shoulder_width": 45, "body_bust": 96, "body_waist": 82, "body_hip": 98, "body_inseam": 80, "body_upper_body_length": 46, "body_sleeve_length": 62 }
 }
 ```
@@ -35,15 +43,48 @@ are calibratable here.
   skips any fixture whose `subjectId` starts with that prefix (that's how it
   skips this directory's own `example.json` template).
 - `capturedAt` — informational only, not read by the evaluator.
+- `version` — optional. `2` marks a fixture captured after the side-view
+  (profile) depth-capture pass shipped (adds `side` + the two
+  `capturePitchRad` fields below). Nothing branches on the NUMBER itself —
+  only on whether `side` is present — so a v1 fixture that never had this
+  field at all keeps evaluating exactly as before.
 - `inputs.heightCm` — required (same as the app: height is the scale
   reference, no height ⇒ no estimate). `weightKg`/`sex`/`ageYears` optional,
   same semantics as `EstimateInputs` in `landmarksToMeasurements.ts`.
+- `inputs.maskExtentU` — optional. Person-mask crown→sole vertical extent, in
+  the same FULL-square normalised units as `keypoints` (converted through
+  `cropMath.ts` if it came from a cropped segmentation pass). Blended against
+  the keypoint-based scale reference when the two agree — see
+  `EstimateInputs.maskExtentU` in `landmarksToMeasurements.ts`. Absent (old
+  fixtures stay valid) → the keypoint-only scale reference, unchanged
+  behaviour.
 - `keypoints` — the 17 MoveNet keypoints EXACTLY as captured (letterboxed-
   square normalised space — the `kps` argument to `keypointsToMeasurements`,
   not the display-space ones used for the on-screen overlay).
 - `silhouette` — the contour widths from the segmentation pass, or `null`/
   omitted if the scan had none (the estimate then falls back to the
-  keypoint-span heuristics, same as in the app).
+  keypoint-span heuristics, same as in the app). `chestRowFrac`/
+  `waistRowFrac`/`hipRowFrac` (new) are the front-view rows expressed as a
+  fraction of the shoulder→hip span — this is how a `side` capture (below)
+  registers the SAME anatomical rows on the profile mask; absent on old
+  fixtures, in which case a v2 evaluator run simply can't be paired with a
+  `side` block that relies on them (the side extraction falls back to fixed
+  anatomical defaults — see `sideViewMath.ts`).
+- `capturePitchRad` — optional. FRONT capture's median DeviceMotion pitch
+  (radians), informational only — groundwork for a future keystone/
+  perspective correction, not read by any math yet.
+- `side` — optional. Profile-capture data: `side.keypoints` (the side
+  frame's own, refined-where-available keypoints), `side.depthsU` (measured
+  front-to-back depths at chest/waist/hip, in the SIDE mask's OWN normalised
+  units — NOT centimetres), `side.maskExtentU` (side mask crown→sole
+  extent), `side.capturePitchRad` (informational, same status as the
+  front-level field). When present, `evaluateFixture` recomputes
+  `EstimateInputs.sideDepthsCm` using the SAME `estimatePersonUnitH` math the
+  app uses for the side view's OWN scale reference (never the front view's
+  cmPerUnit) — this is what lets the harness calibrate `superellipseN` /
+  `sideDepthWidthRatioMin`/`Max` once fixtures with tape-measured depth
+  exist. Absent → `sideDepthsCm` stays undefined, byte-identical to a
+  front-only evaluation.
 - `groundTruth` — tape-measure numbers in cm. **Every field is optional** —
   only fill in what you actually measured with a tape; the harness scores
   only the fields present in both the prediction and the ground truth.

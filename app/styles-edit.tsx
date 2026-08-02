@@ -9,11 +9,12 @@ import { PrimaryButton, Photo } from '../src/components/ui';
 import { IconChevronLeft, IconCheck } from '../src/components/icons';
 import { STYLES, STYLE_NICHES } from '../src/data';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
-import { useGridCardWidth } from '../src/design/layout';
+import { useGridCardWidth, useGridColumns } from '../src/design/layout';
 import { useTranslation } from '../src/i18n';
 
 function StyleCard({ s, selected, onPress }: { s: typeof STYLES[number]; selected: boolean; onPress: () => void }) {
-  const CARD_W = useGridCardWidth();
+  const cols = useGridColumns();
+  const CARD_W = useGridCardWidth(cols);
   const h = CARD_W * (4 / 3);
   return (
     <Pressable onPress={onPress} style={[styles.card, { width: CARD_W, height: h }]}>

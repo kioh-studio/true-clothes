@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../../src/design/tokens';
 import { BottomNav } from '../../src/components/ui/BottomNav';
-import { Divider, TextLink } from '../../src/components/ui';
+import { Divider, TextLink, Bounded } from '../../src/components/ui';
 import { IconChevronLeft, IconSettings, IconChevronRight } from '../../src/components/icons';
 import { useAppStore } from '../../src/stores/appStore';
 import { useAuthStore } from '../../src/stores/authStore';
@@ -17,9 +17,12 @@ const SECTIONS: Array<{ id: string; labelKey: string; route?: string }> = [
   { id: 'color', labelKey: 'tabs_profile_colorPalette', route: '/colors-edit' },
   { id: 'colourSeason', labelKey: 'tabs_profile_colourSeason', route: '/personal-color-edit' },
   { id: 'measurements', labelKey: 'tabs_profile_bodyMeasurements', route: '/measurements-edit' },
-  { id: 'location', labelKey: 'tabs_profile_locationWeather' },
-  { id: 'accounts', labelKey: 'tabs_profile_connectedAccounts' },
-  { id: 'notifications', labelKey: 'tabs_profile_notifications', route: '/notifications' },
+  // Temporarily hidden — no destination screen yet; re-enable when built
+  // { id: 'location', labelKey: 'tabs_profile_locationWeather' },
+  // Temporarily hidden — no destination screen yet; re-enable when built
+  // { id: 'accounts', labelKey: 'tabs_profile_connectedAccounts' },
+  // Temporarily hidden — notifications are prefs-only (no real delivery); re-enable when push/local notifications are wired
+  // { id: 'notifications', labelKey: 'tabs_profile_notifications', route: '/notifications' },
   { id: 'subscription', labelKey: 'tabs_profile_subscription', route: '/paywall' },
 ];
 
@@ -57,6 +60,7 @@ export default function ProfileScreen() {
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 80 }]} showsVerticalScrollIndicator={false}>
+        <Bounded>
         {/* Avatar */}
         <View style={styles.profileBlock}>
           <Pressable onPress={() => router.push('/profile-edit' as any)} style={styles.avatar}>
@@ -115,6 +119,7 @@ export default function ProfileScreen() {
         </View>
         <View style={{ height: 16 }} />
         <Text style={[type.micro, { color: T.color.tertiary, textAlign: 'center' }]}>{t('tabs_profile_appVersion')}</Text>
+        </Bounded>
       </ScrollView>
 
       <BottomNav active="profile" onChange={(tab) => {

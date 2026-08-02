@@ -8,7 +8,7 @@ import { BottomSheet, PrimaryButton, TextLink } from '../../src/components/ui';
 import { IconChevronLeft, IconEdit } from '../../src/components/icons';
 import { useAppStore } from '../../src/stores/appStore';
 import { useCollectionSheet } from '../../src/features/collections/useCollectionSheet';
-import { useGridCardWidth } from '../../src/design/layout';
+import { useGridCardWidth, useGridColumns } from '../../src/design/layout';
 import { useItemPhoto } from '../../src/features/wardrobe-photos';
 import type { WardrobeItem } from '../../src/types/fitEngine';
 import { useTranslation } from '../../src/i18n';
@@ -63,7 +63,8 @@ function PickerCard({ item, selected, cardSize, onPress }: {
 }
 
 export default function CollectionDetailScreen() {
-  const CARD_W = useGridCardWidth();
+  const cols = useGridColumns();
+  const CARD_W = useGridCardWidth(cols);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -291,9 +292,10 @@ export default function CollectionDetailScreen() {
             </View>
           ) : (
             <FlatList
+              key={`grid-${cols}`}
               data={availableToAdd}
               keyExtractor={item => item.id}
-              numColumns={2}
+              numColumns={cols}
               contentContainerStyle={{ padding: 24, paddingTop: 0, gap: 12 }}
               columnWrapperStyle={{ gap: 12 }}
               renderItem={({ item }) => (

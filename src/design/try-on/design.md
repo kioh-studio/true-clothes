@@ -299,3 +299,17 @@ head-angle mismatches between the source photo and the generated pose will
 currently fall back to the raw generated image rather than attempt a warped
 paste.
   only.
+
+## Scan screen — scrollable to keep actions reachable (2026-07-23)
+
+`ScanScreen`'s root is now a `ScrollView` (was a non-scrolling `View`). On
+short devices, or whenever the profile-completeness note renders (adds
+~200px above the frame), the fixed `4/5`-aspect frame guide plus the header
+could push the **Take photo** / **Choose from library** buttons and the hint
+text below the fold with no way to reach them. The frame guide keeps its
+original `aspectRatio: 4 / 5` proportions unchanged; the screen now simply
+scrolls when the column's content is taller than the viewport, so the two
+primary actions are always reachable. The close (`X`) button remains the
+first item in the scroll content — no fixed header was introduced. The
+`isScanning` spinner state keeps its centered look via a `minHeight` instead
+of `flex: 1` (which doesn't center the same way inside scroll content).

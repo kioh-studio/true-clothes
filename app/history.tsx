@@ -10,7 +10,7 @@ import { OutfitCollage } from '../src/components/outfit/Collage';
 import { IconChevronLeft } from '../src/components/icons';
 import { useAppStore } from '../src/stores/appStore';
 import { useFitFeed } from '../src/features/feed/useFitFeed';
-import { useGridCardWidth } from '../src/design/layout';
+import { useGridCardWidth, useGridColumns } from '../src/design/layout';
 import i18n, { useTranslation } from '../src/i18n';
 
 function formatDate(iso: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
@@ -27,7 +27,8 @@ function formatDate(iso: string, t: (key: string, opts?: Record<string, unknown>
 }
 
 export default function HistoryScreen() {
-  const CARD_W = useGridCardWidth();
+  const cols = useGridColumns();
+  const CARD_W = useGridCardWidth(cols);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();

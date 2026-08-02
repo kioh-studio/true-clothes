@@ -19,6 +19,7 @@ import {
   IconHeart, IconCalendar, IconSparkle, IconShare, IconThermometer, IconMenu, IconBook,
 } from '../../src/components/icons';
 import { useTranslation } from '../../src/i18n';
+import { MEDIA_MAX } from '../../src/design/layout';
 
 // T022: 2 curated demo outfits for empty wardrobe state
 const DEMO_OUTFITS = OUTFITS.slice(0, 2);
@@ -269,7 +270,9 @@ function FeedCardInner({ outfit, active, cardH, saved, isDemo, topInset, onOpen,
         onLayout={e => setCollageH(e.nativeEvent.layout.height)}
         style={[styles.collageArea, { opacity: active ? 1 : 0.7 }]}
       >
-        <OutfitCollage outfit={outfit} titleTop={topInset + 88} containerHeight={collageH} />
+        <View style={{ width: '100%', maxWidth: MEDIA_MAX, alignSelf: 'center', flex: 1 }}>
+          <OutfitCollage outfit={outfit} titleTop={topInset + 88} containerHeight={collageH} />
+        </View>
 
         {/* Right actions — bookmark removed (duplicates heart/save); bell
             removed (no notifications feature); share wired to native sheet. */}
@@ -293,32 +296,34 @@ function FeedCardInner({ outfit, active, cardH, saved, isDemo, topInset, onOpen,
 
       {/* Bottom meta — auto-height; collage area above shrinks to make room */}
       <View style={styles.meta}>
-        {outfit.stylistNote ? (
-          <Text style={styles.stylistNote} numberOfLines={2}>“{outfit.stylistNote}”</Text>
-        ) : null}
-        <View style={styles.metaTop}>
-          <Text style={styles.metaStyle}>
-            {outfit.style} · {outfit.weather}
-            {silhouetteTag ? ` · ${silhouetteTag}` : ''}
-            {silhouetteShapeTag ? ` · ${silhouetteShapeTag}` : ''}
-            {colorToneTag ? ` · ${colorToneTag}` : ''}
-            {' · '}{outfit.itemIds.length} {t('tabs_home_metaItems')}
-          </Text>
-          <Pressable onPress={() => onOpen(outfit)}>
-            <Text style={styles.metaDetails}>{t('tabs_home_metaDetails')}</Text>
-          </Pressable>
-        </View>
-        <View style={styles.thumbnails}>
-          {outfit.itemIds.map(id => (
-            <Pressable key={id} onPress={() => onOpen(outfit)} style={styles.thumb}>
-              <OutfitItemThumb
-                id={id}
-                style={styles.thumbInner}
-                imageStyle={styles.thumbImg}
-                fallbackStyle={styles.thumbType}
-              />
+        <View style={{ width: '100%', maxWidth: MEDIA_MAX, alignSelf: 'center' }}>
+          {outfit.stylistNote ? (
+            <Text style={styles.stylistNote} numberOfLines={2}>“{outfit.stylistNote}”</Text>
+          ) : null}
+          <View style={styles.metaTop}>
+            <Text style={styles.metaStyle}>
+              {outfit.style} · {outfit.weather}
+              {silhouetteTag ? ` · ${silhouetteTag}` : ''}
+              {silhouetteShapeTag ? ` · ${silhouetteShapeTag}` : ''}
+              {colorToneTag ? ` · ${colorToneTag}` : ''}
+              {' · '}{outfit.itemIds.length} {t('tabs_home_metaItems')}
+            </Text>
+            <Pressable onPress={() => onOpen(outfit)}>
+              <Text style={styles.metaDetails}>{t('tabs_home_metaDetails')}</Text>
             </Pressable>
-          ))}
+          </View>
+          <View style={styles.thumbnails}>
+            {outfit.itemIds.map(id => (
+              <Pressable key={id} onPress={() => onOpen(outfit)} style={styles.thumb}>
+                <OutfitItemThumb
+                  id={id}
+                  style={styles.thumbInner}
+                  imageStyle={styles.thumbImg}
+                  fallbackStyle={styles.thumbType}
+                />
+              </Pressable>
+            ))}
+          </View>
         </View>
       </View>
 

@@ -1,6 +1,6 @@
 // Unit tests for multi-frame aggregation — pure math, no native deps.
 import {
-  medianKeypoints, medianWidths, scaleAgreement, rejectOutlierFrames,
+  medianKeypoints, medianWidths, medianExtent, scaleAgreement, rejectOutlierFrames,
 } from '../aggregateFrames';
 import type { Keypoint } from '../poseEstimate';
 import type { SilhouetteWidths } from '../silhouetteMath';
@@ -93,6 +93,21 @@ describe('medianWidths', () => {
 
   test('all-null input returns an empty object', () => {
     expect(medianWidths([null, null])).toEqual({});
+  });
+});
+
+describe('medianExtent', () => {
+  test('median of present values', () => {
+    expect(medianExtent([0.90, 0.92, 0.94])).toBeCloseTo(0.92, 6);
+  });
+
+  test('drops nulls/undefined and medians the rest', () => {
+    expect(medianExtent([null, 0.80, undefined, 0.84])).toBeCloseTo(0.82, 6);
+  });
+
+  test('undefined when nothing is present', () => {
+    expect(medianExtent([null, undefined])).toBeUndefined();
+    expect(medianExtent([])).toBeUndefined();
   });
 });
 

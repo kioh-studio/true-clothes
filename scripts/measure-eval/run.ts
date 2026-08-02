@@ -69,7 +69,14 @@ if (fixtures.length === 0) {
 const results = fixtures.map((fx) => evaluateFixture(fx));
 const agg = aggregate(results);
 
-console.log(`[measure-eval] ${fixtures.length} fixture(s): ${fixtures.map((f) => f.subjectId).join(', ')}\n`);
+// Side (profile) depth-capture pass, 2026-07 — surface how many loaded
+// fixtures actually carry a `side` block, since that's what's needed before
+// `superellipseN`/`sideDepthWidthRatioMin`/`Max` can be calibrated at all.
+const sideCount = fixtures.filter((f) => f.side).length;
+console.log(
+  `[measure-eval] ${fixtures.length} fixture(s), ${sideCount} with side/profile data: ` +
+  `${fixtures.map((f) => f.subjectId).join(', ')}\n`,
+);
 
 console.log('Field                     n   bias(cm)   MAE(cm)   RMSE(cm)   ×mult    +offset');
 console.log('------------------------  --  ---------  --------  ---------  -------  -------');
