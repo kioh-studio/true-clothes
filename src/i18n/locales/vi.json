@@ -66,6 +66,7 @@
   "tabs_home_demoBannerText": "Thêm tủ đồ để cá nhân hóa feed của bạn",
   "tabs_home_demoBannerCta": "THÊM ĐỒ →",
   "tabs_home_errorBanner": "Không thể tải — nhấn để thử lại",
+  "tabs_home_styleFallbackHint": "Style gợi ý từ tủ đồ của bạn",
   "tabs_home_emptyFeedTitle": "Chưa có outfit nào.",
   "tabs_home_emptyFeedCaption": "Thêm đồ vào tủ để xây dựng feed của bạn.",
   "tabs_menu_close": "Đóng",

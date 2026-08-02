@@ -66,6 +66,7 @@
   "tabs_home_demoBannerText": "Add your wardrobe to personalise your feed",
   "tabs_home_demoBannerCta": "ADD ITEMS →",
   "tabs_home_errorBanner": "Couldn't refresh — tap to retry",
+  "tabs_home_styleFallbackHint": "Styles suggested from your wardrobe",
   "tabs_home_emptyFeedTitle": "No outfits yet.",
   "tabs_home_emptyFeedCaption": "Add more items to your wardrobe to build your feed.",
   "tabs_menu_close": "Close",

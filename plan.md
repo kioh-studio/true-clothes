@@ -53,6 +53,13 @@ check). Full engine suite (`deno test supabase/functions/generate-outfits/engine
 Not deployed, not committed (per task instructions) — client-side badge rendering for
 `styleTag`/`style_fallback` is a separate follow-up, logged in `backlog.md`.
 
+*Update (2026-08-02, later same day):* client-side follow-up done — `styleTag` badge
+shipped first (see `src/design/feed/design.md` "Wardrobe-affinity style fallback tag
+on the card meta line"), then the top-level `style_fallback` envelope wired into
+`fitEngineStore.styleFallback` and surfaced as a quiet feed hint (see
+`src/design/feed/design.md` "Top-level style-fallback feed hint (2026-08-02)"). Backlog
+item removed.
+
 ## Fix catalog cache poisoning by anon RLS reads (2026-07-23)
 
 `loadCatalogs()` fired unconditionally in `app/_layout.tsx`'s mount effect, in parallel

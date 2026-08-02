@@ -81,7 +81,7 @@ export default function HomeScreen() {
 
   const { savedSet, toggleSave, toggleSchedule, items, wardrobeItems, weatherContext } = useAppStore();
   const { logout } = useAuthStore();
-  const { feedError, fetchOutfits, fetchMoreOutfits, isFetchingMore } = useFitEngineStore();
+  const { feedError, fetchOutfits, fetchMoreOutfits, isFetchingMore, styleFallback } = useFitEngineStore();
   const { outfits: generatedOutfits, isGenerated } = useFitFeed();
 
   // 010-wardrobe-critic: background refresh (cache-hit is a no-op — cheap) so
@@ -166,6 +166,23 @@ export default function HomeScreen() {
             </Pressable>
           </View>
         </View>
+
+        {/* 2026-08-02: quiet hint for the wardrobe-affinity style fallback
+            (fitEngineStore.styleFallback) — only shown when the user has no
+            selected styles and the server auto-picked fallback styles from
+            wardrobe coverage. No dismiss; it disappears once the user picks
+            real styles (the fallback stops firing server-side). */}
+        {styleFallback && styleFallback.length > 0 && (
+          <Pressable
+            onPress={() => router.push('/styles-edit')}
+            style={styles.styleFallbackHint}
+            pointerEvents="auto"
+          >
+            <Text style={styles.styleFallbackHintText} numberOfLines={1}>
+              {t('tabs_home_styleFallbackHint')} — {styleFallback.map(s => s.name).join(' · ')}
+            </Text>
+          </Pressable>
+        )}
       </View>
 
       {feed.length === 0 ? (
@@ -416,6 +433,9 @@ const styles = StyleSheet.create({
   brand: { fontFamily: T.font.serif, fontSize: 12, fontWeight: '400', color: T.color.tertiary, letterSpacing: 2.5, textTransform: 'uppercase' },
   weatherLabel: { ...type.micro, fontSize: 10, color: T.color.tertiary },
   bellBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  // 2026-08-02: style-fallback feed hint — quiet, text-only, no banner/pill/icon
+  styleFallbackHint: { marginTop: 8 },
+  styleFallbackHintText: { ...type.micro, fontSize: 10, color: T.color.tertiary },
   card: { width: '100%', backgroundColor: T.color.canvas, overflow: 'hidden' },
   collageArea: { flex: 1, position: 'relative' },
   actions: {

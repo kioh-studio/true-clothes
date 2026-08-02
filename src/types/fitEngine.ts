@@ -174,6 +174,23 @@ export interface ScoredOutfit {
   totalScore: number;
 }
 
+// generate-outfits response envelope (has_more/curated live inline in
+// fitEngineStore's two fetch call sites — named here so style_fallback has a
+// single documented home instead of a third inline duplicate).
+export interface GenerateOutfitsResponse {
+  outfits: ScoredOutfit[];
+  has_more?: boolean;
+  curated?: boolean;
+  /** Wardrobe-affinity style fallback envelope (2026-08-02): present only
+   *  when the user had no selected styles and the server's wardrobe-affinity
+   *  style fallback fired (see generate-outfits `responseBody.style_fallback`).
+   *  Response-level mirror of the same event that sets each outfit's
+   *  `styleTag` above. Consumed by fitEngineStore into `styleFallback` for
+   *  the feed hint. Absent (not the empty array) when the fallback didn't
+   *  fire — old clients that don't know this key are unaffected. */
+  style_fallback?: { applied: boolean; styles: Array<{ id: string; name: string }> };
+}
+
 // ─── Intent Context (Chat AI → Edge Function) ──────────────────────────────
 
 export type ColorScheme = 'monochrome' | 'analogous' | 'complementary' | 'neutral_accent' | 'tonal';

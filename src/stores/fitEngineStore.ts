@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BodyMeasurements, UserStyleProfile, ScoredOutfit, IntentContext } from '../types/fitEngine';
+import { BodyMeasurements, UserStyleProfile, ScoredOutfit, IntentContext, GenerateOutfitsResponse } from '../types/fitEngine';
 import type { EstimatedMeasurements } from '../types/measurements';
 import { ScannedItem } from '../types/tryOn';
 import { getCurrentUserId } from '../services/authService';
@@ -114,6 +114,14 @@ interface FitEngineState {
   isFetchingMore: boolean;
   feedError: boolean;
 
+  // Wardrobe-affinity style fallback envelope (2026-08-02): mirrors the
+  // top-level `style_fallback.styles` the server sends only when the user has
+  // no selected styles and it auto-picked fallback styles from wardrobe
+  // coverage (see generate-outfits `styleFallback`). Display-only feed hint —
+  // null when absent. Set on the main feed fetch + refresh paths only, NOT on
+  // Mix & Match (fetchMixMatchOutfits never touches the feed state).
+  styleFallback: Array<{ id: string; name: string }> | null;
+
   setBodyMeasurements: (m: Partial<BodyMeasurements>) => Promise<void>;
   setStyleProfile: (p: Partial<UserStyleProfile>) => Promise<void>;
   setColorPreferences: (colors: string[]) => Promise<void>;
@@ -186,6 +194,7 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
   shownOutfitIds: [],
   isFetchingMore: false,
   feedError: false,
+  styleFallback: null,
 
   setBodyMeasurements: async (m) => {
     const nextBody = { ...get().bodyMeasurements, ...m };
@@ -268,9 +277,10 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
       return [];
     }
 
-    const response = data as { outfits: ScoredOutfit[]; curated?: boolean };
+    const response = data as GenerateOutfitsResponse;
     const newOutfits = response.outfits ?? [];
     const newIds = newOutfits.map(outfitKey);
+    set({ styleFallback: response.style_fallback?.styles ?? null });
 
     // Only burn the free user's daily curate slot once the server confirms it
     // actually curated this batch (it can silently degrade to rule order under
@@ -353,9 +363,10 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
         set({ feedError: true });
         return;
       }
-      const response = data as { outfits: ScoredOutfit[]; curated?: boolean };
+      const response = data as GenerateOutfitsResponse;
       const newOutfits = response.outfits ?? [];
       const newIds = newOutfits.map(outfitKey);
+      set({ styleFallback: response.style_fallback?.styles ?? null });
 
       if (!premium && response.curated) markCurateUsedToday(userId).catch(() => {});
 
@@ -404,6 +415,7 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
       shownOutfitIds: [],
       sessionFormulaId: null,
       premium: false,
+      styleFallback: null,
     });
     AsyncStorage.removeItem(SHOWN_IDS_KEY).catch(() => {});
   },

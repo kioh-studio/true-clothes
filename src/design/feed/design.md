@@ -109,6 +109,37 @@ noun style name (e.g. "Old Money", "Streetwear") straight from the server —
 no i18n lookup, rendered as-is and uppercased to match the casing of the
 neighbouring tags on this line. Consumed from `ScoredOutfit.styleTag` via
 `useFitFeed.scoredToOutfit` onto `Outfit.styleTag`, and also included in the
-feed's `tags` array (before the silhouette tag). The top-level
-`style_fallback` envelope (`{ applied, styles }`) is not consumed yet — no
-banner/hint UI for it (tracked in `backlog.md`).
+feed's `tags` array (before the silhouette tag).
+
+### Top-level style-fallback feed hint (2026-08-02)
+
+The response envelope's `style_fallback: { applied, styles }` (typed as
+`GenerateOutfitsResponse` in `src/types/fitEngine.ts`) is now surfaced as a
+quiet, text-only hint on the home feed (`app/(tabs)/index.tsx`), separate from
+the per-outfit `styleTag` chip above.
+
+- **Trigger.** `fitEngineStore.styleFallback` (`Array<{ id, name }> | null`)
+  is set from `response.style_fallback?.styles ?? null` on the two feed-
+  facing call sites — `fetchOutfits` (initial/refresh) and `fetchMoreOutfits`
+  (pagination) — and reset to `null` on `reset()` (sign-out). Mix & Match
+  (`fetchMixMatchOutfits`) never touches it: that flow pins a scanned item and
+  searches the whole wardrobe around it, not the daily feed. Ephemeral —
+  matches the store's convention for other display-only server state
+  (`outfits`, `feedError`): not persisted to `AsyncStorage`.
+- **Placement.** Inside `topOverlay`, directly below the brand/weather row —
+  the same absolutely-positioned header strip the error banner and weather
+  label live in. Rendered only when `styleFallback` is non-null and
+  non-empty. Text-only, no pill/banner background, no icon, no shadow —
+  `type.micro` at 10px in `T.color.tertiary`, matching `weatherLabel`'s
+  styling exactly (same size/weight/colour token), single line with
+  ellipsis (`numberOfLines={1}`).
+- **Copy.** `{t('tabs_home_styleFallbackHint')} — {styles.map(s =>
+  s.name).join(' · ')}` — e.g. "Style gợi ý từ tủ đồ của bạn — Old Money ·
+  Streetwear". The prefix is localized (`tabs_home_styleFallbackHint` in
+  `en.json`/`vi.json`); the style names are appended programmatically as-is
+  (proper nouns, no i18n), matching how `styleTag` is rendered on the card.
+- **Tap action.** Navigates to `/styles-edit` (same route
+  `profile.tsx`/`ScanScreen.tsx` use for style preferences). No dismiss
+  control — the hint disappears on its own once the user picks real styles,
+  because the server stops firing the fallback once `selectedStyles` is
+  non-empty.
