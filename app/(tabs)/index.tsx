@@ -262,6 +262,9 @@ function FeedCardInner({ outfit, active, cardH, saved, isDemo, topInset, onOpen,
   const silhouetteTag = silhouetteMetaLabel(t, outfit.silhouette);
   const silhouetteShapeTag = silhouetteShapeMetaLabel(t, outfit.silhouetteShape);
   const colorToneTag = colorToneMetaLabel(outfit.colorTone);
+  // Wardrobe-affinity style fallback (2026-08-02) — proper-noun style name,
+  // no i18n lookup; uppercased to match the other tags on this meta line.
+  const styleTag = outfit.styleTag ? outfit.styleTag.toUpperCase() : undefined;
 
   return (
     <View style={[styles.card, { height: cardH }]}>
@@ -303,6 +306,7 @@ function FeedCardInner({ outfit, active, cardH, saved, isDemo, topInset, onOpen,
           <View style={styles.metaTop}>
             <Text style={styles.metaStyle}>
               {outfit.style} · {outfit.weather}
+              {styleTag ? ` · ${styleTag}` : ''}
               {silhouetteTag ? ` · ${silhouetteTag}` : ''}
               {silhouetteShapeTag ? ` · ${silhouetteShapeTag}` : ''}
               {colorToneTag ? ` · ${colorToneTag}` : ''}

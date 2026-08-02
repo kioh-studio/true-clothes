@@ -8,13 +8,14 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
 
 ## I. generate-outfits: wardrobe-affinity style fallback follow-ups (2026-08-02)
 
-- [ ] **Client-side badge for `style_tag` / `style_fallback`** (2026-08-02) — server
-  now returns `outfits[].styleTag` and a top-level `style_fallback: { applied, styles
-  }` when a styleless user's feed was auto-tagged from wardrobe coverage (see
-  plan.md "Wardrobe-affinity style fallback in generate-outfits (2026-08-02)"). No
-  client code was touched this session (out of scope) — the feed UI doesn't render
-  this yet. Needs a small badge/label on the outfit card (and maybe a one-time toast
-  the first time fallback fires) once product decides the copy/placement.
+- [x] **Client-side badge for `style_tag`** (2026-08-02, done 2026-08-02) — the
+  per-outfit `outfits[].styleTag` is now rendered as a display-only tag on the
+  feed card meta line (before the silhouette tag) and in the feed's `tags`
+  array; see `src/design/feed/design.md` "Wardrobe-affinity style fallback tag
+  on the card meta line (2026-08-02)". The top-level `style_fallback: {
+  applied, styles }` envelope is still unused/optional — no banner/hint UI for
+  it (e.g. a "styles suggested from your wardrobe" one-time toast) once
+  product decides the copy/placement.
 
 ## G. Responsive layout (iPad) follow-ups (2026-07-22)
 

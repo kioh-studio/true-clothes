@@ -176,6 +176,7 @@ export interface Outfit {
   silhouette?: string; // display tag: engine's target silhouette for this outfit
   silhouetteShape?: string; // display tag: parallel geometric-shape name (1-to-1 from silhouette)
   colorTone?: string;  // display tag: outfit's dominant (anchor) colour
+  styleTag?: string;   // display tag: wardrobe-affinity fallback style name (2026-08-02), fallback-only
   // Fit engine scores (0.0–1.0) — present on generated outfits
   scores?: {
     totalScore: number;

@@ -157,6 +157,13 @@ export interface ScoredOutfit {
    *  `silhouette` (the garment-volume tag), never replacing it. */
   silhouetteShape?: 'hourglass' | 'rectangle' | 'oval' | 'inverted-triangle' | 'triangle';
   colorTone?: PrimaryColor;
+  /** Wardrobe-affinity style fallback (2026-08-02): display-only style label
+   *  (e.g. "Old Money", "Streetwear") — only present when the user has no
+   *  selected styles and the server's wardrobe-affinity style fallback fired
+   *  (see supabase/functions/generate-outfits ScoredOutfit.styleTag). The
+   *  style name is shown as-is — it's a proper noun, no i18n. Not a scoring
+   *  input. */
+  styleTag?: string;
   styleCoherence: number;
   colorHarmony: number;
   fitScore: number;

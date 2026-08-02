@@ -95,6 +95,10 @@ function scoredToOutfit(scored: ScoredOutfit, items: ReturnType<typeof useAppSto
     ? i18n.t(SHAPE_KEY[scored.silhouetteShape]).toUpperCase()
     : undefined;
   const colorToneTag = scored.colorTone ? scored.colorTone.toUpperCase() : undefined;
+  // Wardrobe-affinity style fallback (2026-08-02) — display-only, no i18n (a
+  // proper noun style name), only present when the server's style fallback
+  // fired. Style identity outranks silhouette, so it sorts before it below.
+  const styleTag = scored.styleTag?.toUpperCase();
 
   return {
     id: `gen_${fullKey}`,
@@ -106,7 +110,7 @@ function scoredToOutfit(scored: ScoredOutfit, items: ReturnType<typeof useAppSto
     description,
     // Item-list fallback; the detail screen swaps in a lazy AI description on open.
     longDescription: description,
-    tags: [weather, scored.story ?? 'DAILY', silhouetteTag, silhouetteShapeTag, colorToneTag, scored.formula.toUpperCase()].filter(Boolean) as string[],
+    tags: [weather, scored.story ?? 'DAILY', styleTag, silhouetteTag, silhouetteShapeTag, colorToneTag, scored.formula.toUpperCase()].filter(Boolean) as string[],
     tone: Math.round(outfitItems.reduce((sum, i) => sum + (i?.tone ?? 1), 0) / Math.max(outfitItems.length, 1)),
     itemIds: ids,
     formula: scored.formula,
@@ -116,6 +120,7 @@ function scoredToOutfit(scored: ScoredOutfit, items: ReturnType<typeof useAppSto
     silhouette: scored.silhouette,
     silhouetteShape: scored.silhouetteShape,
     colorTone: scored.colorTone,
+    styleTag: scored.styleTag,
     scores: {
       totalScore: scored.totalScore,
       styleCoherence: scored.styleCoherence,

@@ -91,3 +91,24 @@ outerwear counts toward the top read. Computed by `engine/silhouette.ts`
 `resultingBodySilhouette(items, bodyShape)`. Vocabulary unchanged: `hourglass`
 · `rectangle` · `oval` · `inverted-triangle` · `triangle`. Still display-only,
 no scoring impact.
+
+## Wardrobe-affinity style fallback tag on the card meta line (2026-08-02)
+
+A third display-only tag, `ScoredOutfit.styleTag`, is appended to the meta
+line, positioned BEFORE the silhouette segment (style identity outranks
+silhouette in the reading order):
+
+`STYLE · 15–22°C · OLD MONEY · STRAIGHT · RECTANGLE · NAVY · 4 items`
+
+Only present when the user had no selected styles and the server's wardrobe-
+affinity style fallback fired (`generate-outfits` auto-picked fallback styles
+from wardrobe coverage — see `plan.md` "Wardrobe-affinity style fallback in
+generate-outfits (2026-08-02)"); `undefined` otherwise, same as the other
+optional meta tags. Unlike silhouette/shape/colour, the value is a proper
+noun style name (e.g. "Old Money", "Streetwear") straight from the server —
+no i18n lookup, rendered as-is and uppercased to match the casing of the
+neighbouring tags on this line. Consumed from `ScoredOutfit.styleTag` via
+`useFitFeed.scoredToOutfit` onto `Outfit.styleTag`, and also included in the
+feed's `tags` array (before the silhouette tag). The top-level
+`style_fallback` envelope (`{ applied, styles }`) is not consumed yet — no
+banner/hint UI for it (tracked in `backlog.md`).
