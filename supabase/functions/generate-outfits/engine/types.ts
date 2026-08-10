@@ -147,7 +147,13 @@ export type FabricName =
   | 'cotton' | 'wool' | 'linen' | 'cashmere' | 'silk' | 'denim'
   | 'leather' | 'suede' | 'nylon' | 'polyester' | 'canvas' | 'corduroy'
   | 'tweed' | 'flannel' | 'jersey' | 'fleece' | 'velvet';
-export type BannedFeature = 'loud_logo' | 'macro_print' | 'full_print' | 'neon_color' | 'distressed';
+export type BannedFeature =
+  | 'loud_logo' | 'macro_print' | 'full_print' | 'neon_color' | 'distressed'
+  // Pattern/artwork-derived features (2026-08-10) — each backed by a signal
+  // FitItem already carries (fabric.pattern / graphics.artworkType). See
+  // filtering.ts featuresPasses for the exact FitItem field each checks.
+  | 'floral_print' | 'plaid_check' | 'abstract_print'
+  | 'slogan_text' | 'graphic_illustration';
 export type ColorGrade = 'perfect' | 'allowed' | 'accent' | 'banned';
 
 export interface StyleConfig {
@@ -159,6 +165,17 @@ export interface StyleConfig {
   allowedFits: ItemFit[];
   formalityRange: [number, number];
   bannedFeatures: BannedFeature[];
+  // Hard type exclusion (2026-08-10) — typeName values (FitItem.typeName,
+  // e.g. 'HOODIE') this style never wears, independent of the item's color/
+  // fabric/fit/formality (a garment can pass every other axis and still be
+  // the wrong TYPE for a style's identity). Optional; empty/undefined = no
+  // exclusion, so every style that doesn't declare this is byte-for-byte
+  // unchanged. Hand-curated per style — NOT derived from enrichment.ts's
+  // STYLE_AFFINITIES (that map lists styles a type BELONGS to, not styles
+  // that BAN it; inverting it would e.g. ban HOODIE from every style except
+  // streetwear/athleisure, killing the kfashion blazer-over-hoodie look the
+  // `mid` slot unlocked).
+  typesBanned?: string[];
   overrides: Array<'favorite_color' | 'preferred_fit'>;
   weights: ScoringWeights;
   attributes: StyleAttributes;

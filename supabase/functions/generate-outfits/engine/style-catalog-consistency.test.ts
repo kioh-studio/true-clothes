@@ -43,10 +43,26 @@ const VALID_FABRICS: FabricName[] = [
   'tweed', 'flannel', 'jersey', 'fleece', 'velvet',
 ];
 const VALID_FITS: ItemFit[] = ['slim', 'regular', 'relaxed', 'wide', 'oversized'];
-const VALID_BANNED_FEATURES: BannedFeature[] = ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed'];
+const VALID_BANNED_FEATURES: BannedFeature[] = [
+  'loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed',
+  'floral_print', 'plaid_check', 'abstract_print', 'slogan_text', 'graphic_illustration',
+];
 const VALID_COLOR_PALETTES: ColorPalette[] = ['neutral', 'earth', 'bold', 'pastel', 'dark', 'monochrome'];
 const VALID_SILHOUETTES: Silhouette[] = ['relaxed', 'structured', 'bodycon', 'oversized', 'tailored'];
 const VALID_MOODS: Mood[] = ['playful', 'serious', 'romantic', 'edgy', 'clean', 'artistic'];
+// Mirrors enrichment.ts's CATEGORY_MAP keys (typesBanned, 2026-08-10) —
+// typesBanned entries must be real typeName values, not invented ones.
+const VALID_TYPE_NAMES = new Set([
+  'TEE', 'POLO', 'KNIT', 'SHIRT', 'BLOUSE', 'VEST', 'SWEATER', 'CARDIGAN', 'HENLEY',
+  'CAMISOLE', 'CROP', 'BODYSUIT', 'TUNIC', 'CORSET',
+  'JACKET', 'BLAZER', 'COAT', 'HOODIE', 'PARKA', 'OVERCOAT', 'CAPE', 'KIMONO',
+  'JEANS', 'TROUSERS', 'CHINOS', 'SHORTS', 'SKIRT', 'LEGGINGS',
+  'DRESS', 'JUMPSUIT', 'OVERALLS', 'GOWN',
+  'LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES', 'FLATS', 'WEDGES',
+  'BAG', 'BELT', 'SCARF', 'WATCH', 'CAP',
+  'NECKLACE', 'SUNGLASSES', 'HAT', 'RING', 'BRACELET',
+  'EARRINGS', 'GLOVES', 'TIGHTS', 'TIE',
+]);
 
 // Bidirectional pairs the task explicitly required — asserted individually
 // so a regression on any one names the exact missing edge.
@@ -148,6 +164,9 @@ Deno.test('style catalog: palette/fabric/fit/feature/attribute values are all va
     }
     for (const feature of config.bannedFeatures) {
       assert(featureSet.has(feature), `${config.id}: bannedFeatures uses invalid feature '${feature}'`);
+    }
+    for (const typeName of config.typesBanned ?? []) {
+      assert(VALID_TYPE_NAMES.has(typeName), `${config.id}: typesBanned uses invalid typeName '${typeName}'`);
     }
     for (const p of config.attributes.colorPalette) {
       assert(paletteSet.has(p), `${config.id}: attributes.colorPalette uses invalid value '${p}'`);

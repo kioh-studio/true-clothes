@@ -1709,3 +1709,46 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   `PATTERN_FRIENDLY_STYLES`, `scoring.ts`'s `HOUSE_OPPOSED_STYLES` vẫn chưa có 9 style đợt
   2** — cùng gap đã log cho đợt 1 (22 style), giờ càng rộng hơn ở 31 style. Chưa đụng, vẫn
   ngoài scope theo instruction (chỉ STYLE_CONFIGS + public.styles). (2026-08-10)
+
+## AC. Style filtering tightening — `BannedFeature` + `typesBanned` (2026-08-10)
+
+Phát hiện khi siết `filterByStyle` theo 2 trục mới (xem `plan.md` "Style filtering:
+`BannedFeature` vocabulary + `typesBanned`" cùng ngày). Giữ nguyên toàn bộ diff đã ship —
+các mục dưới đây là những gì CHƯA làm, cố ý dừng để báo cáo thay vì tự mở rộng.
+
+- [ ] 🔴 **`'distressed'` trong `BannedFeature` là dead vocabulary — khai báo nhưng chưa
+  bao giờ được enforce.** Rà lại `featuresPasses` (`filtering.ts`) khi thêm 5 feature mới
+  và phát hiện: hàm này KHÔNG có nhánh nào check `'distressed'` — chỉ check
+  `loud_logo`/`macro_print`/`full_print`/`neon_color`. Ít nhất 14/31 style (oldmoney,
+  smartcasual, preppy, feminine, officechic, coquette, cleangirl, elegant, businessformal,
+  resort, glam, normcore, sporty, pinup) khai `'distressed'` trong `bannedFeatures` và
+  KHÔNG có tác dụng gì — chính là kiểu "gây hiểu nhầm là đã chặn" mà nguyên tắc của task
+  này cảnh báo, nhưng đây là gap CÓ SẴN TỪ TRƯỚC, không phải do lần sửa này gây ra. Không
+  tự sửa vì: (a) ngoài scope được giao (chỉ "mở rộng BannedFeature" + "thêm typesBanned"),
+  (b) `FitItem` hiện KHÔNG có field distressed/wear-signal nào để enforce đúng nghĩa (không
+  giống `floral_print`/`slogan_text` — không có tín hiệu để suy) — cần quyết định trước:
+  thêm field mới vào `FitItem`/ingestion, hay bỏ hẳn `'distressed'` khỏi vocabulary. Cần
+  anh Khôi quyết.
+- [ ] **`sheer`/`cutout`/`sequin`/`animal_print` — CHƯA thêm vào `BannedFeature`** — đúng
+  theo nguyên tắc "chỉ thêm feature có tín hiệu suy được": rà `FitItem` (colorProfile,
+  graphics, fabric.pattern) không có field nào carry được 4 tín hiệu này. Cần sửa pipeline
+  extraction (ingest-time AI/manual) trước — thêm attribute mới vào `ClothingItemRow`/
+  `FitItem`, có ripple sang `generate-item-image`/`backfill-item-metadata`. Việc riêng,
+  ngoài scope task này.
+- [ ] **`abstract_print` được implement (vào `BannedFeature` + `featuresPasses`) nhưng
+  KHÔNG gán cho style nào** — bucket `abstract` gộp chung `print`/`abstract`/`camo`/
+  `polka dot` (`enrichment.ts` `STORED_PATTERN_MAP`) quá dị biệt để có case "chắc chắn":
+  một style có thể muốn cấm camo nhưng giữ polka dot (VD pinup) — cấm cả bucket sẽ sai một
+  nửa. Sẵn sàng dùng khi có style cụ thể cần, nhưng không tự gán để tránh siết nhầm.
+- [ ] **Kiến trúc lọc còn thiếu 2 kiểu ràng buộc** — nhận ra khi thiết kế `typesBanned`
+  (chỉ thêm được "cấm loại đồ X"), nhưng `filterByStyle` chưa có cơ chế cho:
+  (a) **"bắt buộc phải có"** — VD style X yêu cầu ít nhất 1 món trong nhóm Y mới coi là
+  outfit hợp lệ (khác cơ chế `hasOutfitCoverage`/an toàn hiện tại, vốn chỉ đảm bảo top+
+  bottom+shoes tồn tại, không đảm bảo ĐÚNG style-defining piece nào có mặt — VD "Business
+  Formal" nên bắt buộc có BLAZER/TROUSERS chứ không chỉ bất kỳ top/bottom nào pass filter);
+  (b) **"cấm theo tổ hợp"** — VD "không được mặc SNEAKERS cùng SUIT" là ràng buộc giữa 2
+  món trong cùng outfit, không phải ràng buộc trên 1 món đơn lẻ như 6 trục hiện tại
+  (`palette`/`fabricsAllowed`/`fabricsBanned`/`allowedFits`/`formalityRange`/
+  `bannedFeatures`/`typesBanned`) đều đang làm việc theo item, không theo cặp/outfit. Cả
+  hai là thiết kế mới (ripple sang `generation.ts`/`filtering.ts`), cần anh Khôi quyết
+  trước khi làm — không tự chế trong task này.

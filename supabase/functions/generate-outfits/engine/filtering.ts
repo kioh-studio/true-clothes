@@ -42,7 +42,16 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['polyester', 'nylon', 'fleece'],
     allowedFits: ['regular', 'relaxed'],
     formalityRange: [2.5, 5.0],
-    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed'],
+    // slogan_text/graphic_illustration (2026-08-10): artworkType is a signal
+    // independent of fabric.pattern, so a solid-pattern piece carrying a
+    // slogan/graphic wasn't caught by macro_print — old money never wears one.
+    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed', 'slogan_text', 'graphic_illustration'],
+    // HOODIE (2026-08-10): a wool/cashmere hoodie in navy/black/charcoal can
+    // reach formality ~2.5 and pass this style's fabric/color/fit checks
+    // outright (verified against deriveFormality/TYPE_FORMALITY in
+    // enrichment.ts) — the streetwear silhouette itself is what's wrong, not
+    // any scoreable attribute, hence a type-level exclusion.
+    typesBanned: ['HOODIE'],
     overrides: ['favorite_color', 'preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, texture: 0.10, formality: 0.15, color: 0.20, proportion: 0.05, fit: 0.05 },
     attributes: { formality: 4.5, colorPalette: ['neutral', 'earth', 'monochrome'], silhouette: ['tailored', 'structured'], patternLevel: 1.5, textureRichness: 3.0, mood: ['serious', 'clean'] },
@@ -68,7 +77,11 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['fleece', 'velvet'],
     allowedFits: ['slim', 'regular', 'relaxed'],
     formalityRange: [2.0, 4.5],
-    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color'],
+    // floral_print (2026-08-10): already redundant with macro_print here
+    // (floral fabric.pattern always trips macro_print too) — kept explicit
+    // for a clearer rejection reason on the style most defined by NOT having
+    // it.
+    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'floral_print'],
     overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.30, style: 0.20, proportion: 0.15, texture: 0.05, formality: 0.05, fit: 0.05 },
     attributes: { formality: 3.5, colorPalette: ['neutral', 'monochrome', 'dark'], silhouette: ['tailored', 'relaxed'], patternLevel: 1.0, textureRichness: 1.5, mood: ['clean', 'serious'] },
@@ -266,7 +279,11 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['fleece', 'denim', 'corduroy'],
     allowedFits: ['slim', 'regular'],
     formalityRange: [3.0, 4.5],
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print'],
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print', 'slogan_text', 'graphic_illustration'],
+    // HOODIE (2026-08-10): a cashmere navy/black hoodie can reach formality
+    // ~2.5, right at this style's tolerance floor, and pass fabric/fit
+    // otherwise — the type itself doesn't belong in "Office Chic".
+    typesBanned: ['HOODIE'],
     overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, formality: 0.18, fit: 0.15, proportion: 0.12, style: 0.20, color: 0.15, texture: 0.05, season: 0.05 },
     attributes: { formality: 4.0, colorPalette: ['neutral', 'monochrome'], silhouette: ['tailored', 'structured'], patternLevel: 1.5, textureRichness: 2.0, mood: ['serious', 'clean'] },
@@ -291,6 +308,11 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['slim', 'regular', 'relaxed'],
     formalityRange: [2.5, 4.0],
     bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'macro_print'],
+    // HOODIE (2026-08-10): a cashmere black/navy hoodie can reach formality
+    // ~2.5, at this style's tolerance floor, and pass color/fabric/fit
+    // otherwise — a hoodie breaks the tailored trench/breton-stripe
+    // silhouette this style is built on regardless of its fabric.
+    typesBanned: ['HOODIE'],
     overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, proportion: 0.15, color: 0.20, style: 0.25, texture: 0.05, formality: 0.10, fit: 0.10, season: 0.05 },
     attributes: { formality: 3.5, colorPalette: ['neutral', 'monochrome'], silhouette: ['tailored', 'relaxed'], patternLevel: 2.0, textureRichness: 2.0, mood: ['clean', 'serious'] },
@@ -336,7 +358,10 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['fleece', 'velvet', 'tweed', 'corduroy'],
     allowedFits: ['slim', 'regular'],
     formalityRange: [2.0, 3.5],
-    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed'],
+    // floral_print (2026-08-10): already redundant with macro_print here —
+    // kept explicit for a clearer rejection reason on the "quiet basics"
+    // aesthetic this style is built on.
+    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed', 'floral_print'],
     overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.28, style: 0.20, proportion: 0.15, fit: 0.12, texture: 0.05, formality: 0.05, season: 0.05 },
     attributes: { formality: 2.5, colorPalette: ['neutral', 'monochrome'], silhouette: ['tailored', 'relaxed'], patternLevel: 1.0, textureRichness: 1.5, mood: ['clean'] },
@@ -360,6 +385,11 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['regular', 'relaxed'],
     formalityRange: [2.5, 4.0],
     bannedFeatures: ['neon_color', 'full_print', 'macro_print'],
+    // HOODIE (2026-08-10): a cotton hoodie in navy/black/charcoal (all
+    // allowed here) can reach formality ~2.0, at this style's tolerance
+    // floor, and pass fabric/fit otherwise — a hoodie breaks the
+    // tweed-blazer literary silhouette regardless of its fabric/color.
+    typesBanned: ['HOODIE'],
     overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, texture: 0.18, color: 0.20, style: 0.22, formality: 0.12, proportion: 0.08, fit: 0.05, season: 0.05 },
     attributes: { formality: 3.5, colorPalette: ['earth', 'dark'], silhouette: ['structured', 'relaxed'], patternLevel: 2.0, textureRichness: 4.0, mood: ['serious', 'artistic'] },
@@ -450,7 +480,12 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['fleece', 'nylon', 'canvas', 'denim'],
     allowedFits: ['slim', 'regular'],
     formalityRange: [3.0, 5.0],
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print'],
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print', 'slogan_text', 'graphic_illustration'],
+    // HOODIE (2026-08-10): a cashmere black hoodie can reach formality 2.5,
+    // right at this style's tolerance floor, and pass fabric/color/fit
+    // otherwise — the type itself doesn't belong in an evening-serious
+    // wardrobe.
+    typesBanned: ['HOODIE'],
     overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, formality: 0.20, color: 0.20, style: 0.22, texture: 0.12, proportion: 0.08, fit: 0.05, season: 0.03 },
     attributes: { formality: 4.5, colorPalette: ['dark', 'monochrome'], silhouette: ['tailored', 'bodycon'], patternLevel: 1.0, textureRichness: 3.0, mood: ['serious', 'romantic'] },
@@ -576,7 +611,12 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // the [4.5,5.0] register no other style claims (elegant tops out at 5.0 but
     // starts at 3.0 — glam is evening-only, elegant covers day-formal too).
     formalityRange: [4.5, 5.0],
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print'],
+    // plaid_check (2026-08-10): checkered is exempt from macro_print (see
+    // featuresPasses), so a gingham/houndstooth piece wasn't caught before —
+    // no check pattern belongs in a silk/velvet evening wardrobe.
+    // slogan_text/graphic_illustration: artworkType is independent of
+    // fabric.pattern, so a solid-pattern piece carrying one wasn't caught.
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print', 'plaid_check', 'slogan_text', 'graphic_illustration'],
     overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, formality: 0.22, color: 0.22, texture: 0.16, style: 0.18, proportion: 0.08, fit: 0.08, season: 0.02 },
     attributes: { formality: 5.0, colorPalette: ['dark', 'bold'], silhouette: ['bodycon', 'tailored'], patternLevel: 1.5, textureRichness: 4.5, mood: ['romantic', 'edgy'] },
@@ -599,7 +639,11 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['cotton', 'linen', 'denim', 'leather', 'suede', 'nylon', 'polyester', 'canvas', 'corduroy', 'tweed', 'flannel', 'jersey', 'fleece', 'velvet'],
     allowedFits: ['slim', 'regular'],
     formalityRange: [4.0, 5.0],
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print'],
+    // slogan_text/graphic_illustration (2026-08-10): artworkType is
+    // independent of fabric.pattern, so a solid-pattern piece carrying a
+    // slogan/graphic wasn't caught by macro_print — never appropriate in a
+    // suit-only wardrobe.
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print', 'slogan_text', 'graphic_illustration'],
     overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, formality: 0.24, fit: 0.16, color: 0.16, style: 0.18, proportion: 0.10, texture: 0.04, season: 0.04 },
     attributes: { formality: 5.0, colorPalette: ['neutral', 'monochrome'], silhouette: ['tailored', 'structured'], patternLevel: 1.0, textureRichness: 1.5, mood: ['serious'] },
@@ -623,7 +667,10 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['denim', 'flannel', 'fleece', 'nylon', 'polyester', 'canvas', 'corduroy', 'tweed'],
     allowedFits: ['slim', 'regular'],
     formalityRange: [1.5, 3.5],
-    bannedFeatures: ['loud_logo', 'neon_color', 'full_print'],
+    // floral_print (2026-08-10): gothic doesn't ban macro_print, so this is a
+    // genuinely new restriction (not redundant) — floral directly
+    // contradicts the dark velvet/silk palette this style is built on.
+    bannedFeatures: ['loud_logo', 'neon_color', 'full_print', 'floral_print'],
     overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.24, texture: 0.20, style: 0.22, formality: 0.08, proportion: 0.08, fit: 0.10, season: 0.03 },
     attributes: { formality: 2.5, colorPalette: ['dark', 'monochrome'], silhouette: ['bodycon', 'structured'], patternLevel: 2.0, textureRichness: 4.0, mood: ['edgy', 'romantic'] },
@@ -693,7 +740,10 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['silk', 'cashmere', 'leather', 'linen', 'velvet', 'tweed', 'suede'],
     allowedFits: ['regular', 'relaxed', 'oversized'],
     formalityRange: [1.0, 2.5],
-    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed'],
+    // floral_print (2026-08-10): already redundant with macro_print here —
+    // kept explicit for a clearer rejection reason on the "deliberately
+    // unremarkable" mall-basic aesthetic this style is built on.
+    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed', 'floral_print'],
     overrides: [],
     weights: { ...DEFAULT_WEIGHTS, style: 0.14, color: 0.14, fit: 0.14, proportion: 0.14, formality: 0.10, season: 0.20, texture: 0.10 },
     attributes: { formality: 1.5, colorPalette: ['neutral'], silhouette: ['relaxed', 'oversized'], patternLevel: 1.0, textureRichness: 1.0, mood: ['clean'] },
@@ -834,7 +884,36 @@ function featuresPasses(item: FitItem, config: StyleConfig): string | null {
     if (neonColors.has(item.colorProfile.primaryColor)) features.push('neon_color');
   }
 
+  // Pattern/artwork-derived features (2026-08-10). Narrower than macro_print
+  // (which already fires for these fabric.pattern values, EXCEPT checkered,
+  // whenever a config bans macro_print) — these let a style ban ONE specific
+  // pattern/artwork without banning every non-solid/checkered/striped print.
+  // artworkType is a separate signal from fabric.pattern (a solid-pattern tee
+  // can still carry a slogan/graphic per LogoSignal), so these two checks are
+  // never redundant with macro_print or with each other.
+  if (item.fabric.pattern === 'floral' && config.bannedFeatures.includes('floral_print'))
+    features.push('floral_print');
+  if ((item.fabric.pattern === 'plaid' || item.fabric.pattern === 'checkered')
+      && config.bannedFeatures.includes('plaid_check'))
+    features.push('plaid_check');
+  if (item.fabric.pattern === 'abstract' && config.bannedFeatures.includes('abstract_print'))
+    features.push('abstract_print');
+  if (item.graphics.artworkType === 'slogan_text' && config.bannedFeatures.includes('slogan_text'))
+    features.push('slogan_text');
+  if (item.graphics.artworkType === 'graphic_illustration' && config.bannedFeatures.includes('graphic_illustration'))
+    features.push('graphic_illustration');
+
   if (features.length > 0) return `has banned features for ${config.name}: ${features.join(', ')}`;
+  return null;
+}
+
+// Hard type exclusion (2026-08-10) — see StyleConfig.typesBanned in types.ts
+// for the hand-curated-not-derived rationale.
+function typePasses(item: FitItem, config: StyleConfig): string | null {
+  const banned = config.typesBanned;
+  if (!banned || banned.length === 0) return null;
+  if (banned.includes(item.typeName))
+    return `${item.typeName} is never worn in ${config.name}`;
   return null;
 }
 
@@ -855,7 +934,8 @@ export function passesStyleNaturally(item: FitItem, config: StyleConfig): boolea
     && fabricPasses(item, config) === null
     && fitPasses(item, config) === null
     && formalityPasses(item, config) === null
-    && featuresPasses(item, config) === null;
+    && featuresPasses(item, config) === null
+    && typePasses(item, config) === null;
 }
 
 export function filterByStyle(items: FitItem[], config: StyleConfig): FilterResult {
@@ -874,6 +954,8 @@ export function filterByStyle(items: FitItem[], config: StyleConfig): FilterResu
     if (formalityResult) reasons.push(formalityResult);
     const featuresResult = featuresPasses(item, config);
     if (featuresResult) reasons.push(featuresResult);
+    const typeResult = typePasses(item, config);
+    if (typeResult) reasons.push(typeResult);
 
     if (reasons.length === 0) passed.push(item);
     else rejected.push({ item, reasons });

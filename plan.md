@@ -5405,3 +5405,107 @@ Run from repo root (`cd C:\projects\true-clothes` first). `npx tsc --noEmit`: cl
 (no engine changes): `generate-outfits/engine/` 261/261, `evaluate-item/` 37/37,
 `wardrobe-critic/` 11/11. Not run: `expo`/`eas` build, no Supabase deploy, no
 commit/push — all per instruction.
+
+## Style filtering: `BannedFeature` vocabulary + `typesBanned` (010-wardrobe-critic follow-up, 2026-08-10)
+
+Tightened `filterByStyle` (`supabase/functions/generate-outfits/engine/filtering.ts`) on
+two of its five axes, staying deliberately conservative — the app ships to production
+right after this session, so under-restricting was preferred over over-restricting
+("thà siết thiếu còn hơn siết quá tay"). No suggestion toggles, `shape_goal`,
+`SHAPE_VOLUME_TARGETS`, `outfitWaistDefinition`, `mid` slot, `STYLE_AFFINITIES`,
+`formalityRange`/`palette`/`weights` of any style, or the empty-category safety net
+(`filtering.ts:885`) were touched.
+
+### 1. `BannedFeature` vocabulary expansion — only signals `FitItem` already carries
+
+`BannedFeature` was `'loud_logo' | 'macro_print' | 'full_print' | 'neon_color' |
+'distressed'` — and `featuresPasses` never actually checked `'distressed'` at all (dead
+vocabulary; every style declaring it has always been a no-op). Left that pre-existing gap
+alone (out of this task's scope; logged below) and did not add anything the engine can't
+see — `sheer`/`cutout`/`sequin`/`animal_print` were considered and rejected because no
+`FitItem` field carries that signal today (see backlog.md).
+
+Added 5 new values, each backed by a real `FitItem` field:
+
+- `floral_print` ← `fabric.pattern === 'floral'`
+- `plaid_check` ← `fabric.pattern === 'plaid' || 'checkered'` — the ONE genuinely new
+  check: `checkered` is explicitly exempted from `macro_print`'s "anything but
+  solid/checkered/striped" rule, so this is the first feature able to ban a
+  gingham/houndstooth-style check at all.
+- `abstract_print` ← `fabric.pattern === 'abstract'` (covers the `print`/`abstract`/
+  `camo`/`polka dot` bucket per `enrichment.ts`'s `STORED_PATTERN_MAP`) — implemented but
+  left unassigned to every style: the bucket is heterogeneous (camo and polka dot read
+  oppositely for most styles that might want one but not the other), so no style config
+  had a "chắc chắn" case. Available for a future style that wants it.
+- `slogan_text` / `graphic_illustration` ← `graphics.artworkType`. This is a SEPARATE
+  signal from `fabric.pattern` (a solid-pattern tee can still carry a slogan per the
+  structured `LogoSignal` jsonb) and from formality (`deriveFormality` never factors
+  pattern/graphics), so these two are never redundant with any pre-existing check —
+  genuinely new coverage on every style that adopted them.
+
+Assigned only where confidently justified:
+
+| Style | Features added | Why |
+|---|---|---|
+| `oldmoney` | `slogan_text`, `graphic_illustration` | quiet-luxury identity, never graphic |
+| `elegant` | `slogan_text`, `graphic_illustration` | evening-serious, never graphic |
+| `glam` | `slogan_text`, `graphic_illustration`, `plaid_check` | evening-only; checkered/graphic both wrong |
+| `officechic` | `slogan_text`, `graphic_illustration` | professional, never graphic |
+| `businessformal` | `slogan_text`, `graphic_illustration` | suit-only, never graphic |
+| `minimalist` | `floral_print` | already redundant w/ `macro_print` there — kept for a clearer rejection reason |
+| `normcore` | `floral_print` | same — redundant, explicit reason only |
+| `cleangirl` | `floral_print` | same — redundant, explicit reason only |
+| `gothic` | `floral_print` | gothic does NOT ban `macro_print` — genuinely new restriction |
+
+All other 22 styles: untouched (byte-for-byte identical `bannedFeatures`).
+
+### 2. `StyleConfig.typesBanned` — hand-curated hard type exclusion
+
+New optional field, `typesBanned?: string[]` (typeName values, e.g. `'HOODIE'`), checked
+by a new `typePasses` in `filtering.ts`, wired into both `filterByStyle` and
+`passesStyleNaturally` alongside the existing 5 checks. `undefined`/`[]` (the default for
+every style that doesn't declare it) is a no-op — zero regression.
+
+**Explicitly did NOT derive this from `enrichment.ts`'s `STYLE_AFFINITIES`** (per
+instruction) — that map lists styles a type BELONGS to, not styles that ban it; inverting
+it would e.g. strip `HOODIE` from every style except `streetwear`/`athleisure`, killing
+the kfashion blazer-over-hoodie look the `mid` slot unlocked the same day (commit
+`12f0b8e` and earlier same-session work). Wrote the exclusion list by hand instead.
+
+Only assigned `HOODIE`, and only to 5 styles, each because a boosted hoodie (cashmere/
+wool material + a style-allowed dark color) can reach a formality that clears the style's
+`formalityRange` tolerance (`min - 0.5`) and pass every other axis — the garment's
+streetwear-coded silhouette, not any scoreable attribute, is what's actually wrong:
+
+- `oldmoney`, `darkacademia`, `elegant`, `officechic`, `parisian` → `typesBanned: ['HOODIE']`
+
+Verified the reverse explicitly stays true: `kfashion.typesBanned` is `undefined` and a
+black cotton oversized hoodie still passes it naturally (new anti-regression test, see
+below). All other 25 styles (including `businessformal`/`glam`, where `HOODIE` is already
+100% excluded via `formalityRange` alone — verified by hand, not worth a redundant entry):
+`typesBanned` left undefined.
+
+### Tests
+
+New file `supabase/functions/generate-outfits/engine/filtering-extensions.test.ts` (12
+tests): each of the 5 new features rejects an item carrying exactly its signal (via an
+isolated `permissiveConfig` fixture with every other axis wide open, so the assertion is
+about the raw detection logic, not any real style's other constraints) and does not
+false-positive on a near-miss (e.g. `brand_logo` vs `graphic_illustration`); `plaid_check`
+explicitly cross-checked against `macro_print` to prove `checkered` really was
+unreachable before; `typesBanned` rejects only the declared typeName;
+empty-category safety net still restores a `top` under a real style (`glam`) failing
+every new axis at once; two untouched styles (`bohemian`, `streetwear`) assert
+byte-for-byte-unchanged behavior on inputs that exercise the new features' patterns; and
+the kfashion/HOODIE anti-regression case. `style-catalog-consistency.test.ts`'s vocabulary
+list was extended with the 5 new `BannedFeature` values and a new `typesBanned` real-
+typeName validity check (mirrors `enrichment.ts`'s `CATEGORY_MAP` keys).
+
+### Verify
+
+Run from repo root. `npx tsc --noEmit`: clean. `npx jest`: 36 suites / 522 tests passed,
+unchanged (this task touched no client code). `deno test --allow-all
+supabase/functions/generate-outfits/engine/`: 273/273 (261 pre-existing + 12 new).
+`deno test --allow-all supabase/functions/evaluate-item/`: 37/37, unchanged. `deno test
+--allow-all supabase/functions/wardrobe-critic/`: 11/11, unchanged. Not run: `expo`/`eas`
+build, no Supabase deploy, no commit/push.
