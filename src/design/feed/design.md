@@ -248,3 +248,23 @@ body_shape > neutral`) plus a small additive `shapeGoalDelta` in `ranking.ts`
 that rewards outfits whose actual `resultingBodySilhouette` matches the goal.
 Full reasoning and the `outfitWaistDefinition` fix that makes a `hourglass`
 goal reachable for non-hourglass body shapes: `plan.md`.
+
+## Collage item z-order: outer → mid → inner (2026-08-10)
+
+`Collage.tsx`'s visual stacking of secondary items (everything on the card
+besides the anchor bottom/dress and shoes/bag accessories) now follows the
+garment's layer role, front-to-back: **outer shell → mid layer → base/inner
+top → anything unclassified**. This keeps the card in sync with the engine's
+`mid` slot (a hoodie/sweater/cardigan/knit/vest/kimono worn under a true
+outer, e.g. a blazer over a thin hoodie) — before this fix those mid-layer
+types had no z-order bucket at all and rendered LAST (behind the base layer),
+which read backwards once outfits with a real `mid` slot started appearing.
+
+No new chrome — same absolute-position zone layout as before, only the
+ordering that feeds it changed. The classification sets
+(`OUTER_TOPS`/`MID_TOPS`/`INNER_TOPS`) live in
+`src/components/outfit/collageLayout.ts` and are a manually-synced duplicate
+of the engine's `LAYER_ROLE_BY_TYPE`
+(`supabase/functions/generate-outfits/engine/enrichment.ts`) — see that
+file's comment before changing either side. Full rationale (including why
+`KIMONO` was moved to the mid group to match the engine) is in `plan.md`.

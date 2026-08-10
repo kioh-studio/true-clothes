@@ -5294,3 +5294,114 @@ also prints the new `PER_FORMULA_CAP` cutoff log lines for `texture_stack`/
 statement, not new cutoffs it introduced; no assertion depends on them). Not run:
 `expo`/`eas` build, no Supabase Edge Function deploy, no commit/push — all per
 instruction.
+
+## Collage layer ordering fix + `app/build.tsx` real wardrobe (2026-08-10, follow-up)
+
+Two client-only follow-ups after the same day's `mid` slot / suggestion toggles / shape
+goal / style catalog work (commit `6a4ab98`). No engine/DB changes.
+
+### 1. `Collage.tsx` mis-layered `mid` items
+
+The collage's visual z-order (`OUTER_TOPS`/`INNER_TOPS` sets feeding `resolveRoles`'
+`secondaries` ordering) predates the engine's `mid` slot and had no `mid` concept at all
+— `HOODIE`/`SWEATER`/`CARDIGAN`/`VEST` fell through into the generic "anything else"
+bucket at the END of the z-order, and `KNIT` was miscategorized as `INNER_TOPS` even
+though the engine (`enrichment.ts` `LAYER_ROLE_BY_TYPE`) has always scored it `mid`. Once
+outfits with a real `mid` slot started showing up in the feed, this put a hoodie/cardigan
+visually BEHIND the base layer — backwards.
+
+Fix: added `MID_TOPS = {HOODIE, SWEATER, CARDIGAN, VEST, KNIT, KIMONO}`, moved `KNIT` out
+of `INNER_TOPS` into it, and changed the secondaries z-order to
+`outer → mid → inner → unclassified`. **`KIMONO` decision**: the engine classifies it
+`'mid'` (worn open, layered under a true outer shell), but Collage had it in
+`OUTER_TOPS`. Followed the engine — no visual reason to diverge; a kimono's draped
+silhouette reads fine among sweaters/cardigans in the mid slot (ASPECT 0.68, same
+ballpark as CAPE's 0.70). Comment in `collageLayout.ts` documents this and is written to
+match the `TONE12_AVOID` cross-runtime-duplicate comment pattern in
+`supabase/functions/generate-outfits/engine/scoring.ts` (same reason: the RN client can't
+import the Deno engine file and vice versa, so this is a manually-synced duplicate of
+`LAYER_ROLE_BY_TYPE` that must be updated by hand if the engine's map changes).
+
+**Refactor needed for testability**: all of Collage.tsx's layering/positioning math
+(`ANCHOR_PRIORITY`, `OUTER_TOPS`/`MID_TOPS`/`INNER_TOPS`/`ACCESSORY_TYPES`, `ASPECT`,
+`CATEGORY_TYPE`, `toEntry`, zone tables, `fitInZone`, `resolveRoles`, `buildLayout`) was
+extracted verbatim into a new pure module, `src/components/outfit/collageLayout.ts` (zero
+React Native runtime import — only type-only imports, erased at compile time).
+`jest.config.js` runs `testEnvironment: 'node'` with no React Native preset, so a `.tsx`
+file that `require()`s `react-native` can't be imported from a plain Jest test; every
+existing test in the repo already follows the "extract the pure math into a sibling
+`.ts` file, test that" pattern (`faceComposite.tsx` → `faceCompositeMath.ts`,
+`wardrobeFit.ts`, etc.) — this brings Collage in line with that convention rather than
+inventing a new one. `Collage.tsx` itself now just imports `toEntry`/`buildLayout` and
+renders. New tests: `src/components/outfit/__tests__/collageLayout.test.ts` (outer→mid→
+inner ordering for blazer+cardigan+shirt and jacket+hoodie+tee outfits, KNIT/KIMONO land
+in the mid group, z-index ordering end-to-end via `buildLayout`).
+
+### 2. `app/build.tsx` ("Build an Outfit") ran entirely on mock data
+
+`build.tsx` read `useAppStore().items`, which resolves to the bundled 14-item mock
+catalog (`ITEMS`, `src/data/index.ts`) seeded at store init and never touched again — the
+user's real wardrobe lives in `wardrobeItems` (`WardrobeItem[]`). Every screen in the
+manual outfit builder (tile strips, shuffle, the "Suggest outfits for me" composer, the
+canvas preview) was composing outfits out of demo clothes that weren't the user's own.
+Flagged in `backlog.md` §AB earlier the same day; fixed in this follow-up.
+
+`ClothingItem` (mock) and `WardrobeItem` (real) don't line up field-for-field —
+`ClothingItem.type`/`.name`/`.color` are non-null strings plus a local `png` require()
+asset; `WardrobeItem.type`/`.name` are nullable, color is `colors: string[]` +
+`primaryColor`, and photos resolve via `photoStorage`/`photoPath` through the existing
+`useItemPhoto` hook (`src/features/wardrobe-photos/`). Rather than force-fit one into the
+other, added a small adapter feature, `src/features/wardrobe-build/`:
+
+- `toBuilderItem.ts` (pure, no RN import) — `BuilderItem { id, type, name, color, photo }`
+  plus the individual `builderTypeOf`/`builderNameOf`/`builderColorOf` derivations:
+  - `type`: explicit `WardrobeItem.type` if set, else the category→type fallback
+    (`CATEGORY_TYPE`, re-exported from `collageLayout.ts` so there is one source of truth
+    for that fallback instead of two independently-maintained copies).
+  - `name`: explicit `name`, else `brand`, else the type title-cased (e.g. `"Sweater"`) —
+    never blank.
+  - `color`: `primaryColor ?? colors[0] ?? ''`.
+  - `assignBucketKey()` — a small **total** bucket-assignment helper: every item lands in
+    exactly one of `BUILDER_BUCKETS`' entries, falling back to a caller-supplied key
+    (`'BAGS'`) when its type isn't listed anywhere. Replaces the old
+    `items.filter(i => types.includes(i.type))` per-bucket filter, which could silently
+    drop an item with an unrecognized/uninferrable type (e.g. `category: 'headwear'` —
+    `BUILDER_BUCKETS` was only ever authored for what the mock catalog had, which never
+    included headwear or non-bag accessories). See `backlog.md` for the follow-up this
+    fallback's cosmetic mismatch (a hat landing in the "BAGS"-labeled strip) opens.
+- `useBuilderItems()` — memoized hook, `wardrobeItems.map(toBuilderItem)`.
+
+`app/build.tsx` changes: `BuilderTile` and the suggest-sheet's anchor thumbnails now
+resolve photos through `useItemPhoto(item.photo)` (same hook `wardrobe.tsx`'s grid and
+`Collage.tsx`'s slots already use) instead of rendering a raw `png` require() asset —
+this is the "reuse the existing image-resolution mechanism" requirement; no new photo
+path was written. `findFirst()`'s `&& i.png` guard was dropped (BuilderItem has no
+`png`; photo presence is now handled per-tile by `useItemPhoto`'s `missing` status,
+same as everywhere else in the app). Checked for other `ClothingItem`-only fields
+(`tone`, `wornCount`, `pngBlend`) — `build.tsx` never read them, so no further
+compensating logic was needed.
+
+**Empty wardrobe state**: when `wardrobeItems.length === 0`, the screen now shows a
+dedicated empty state (title + caption + "ADD YOUR FIRST ITEM" CTA → `/add-item`,
+following the same `PrimaryButton` pattern `app/(tabs)/wardrobe.tsx` already uses for its
+own empty state) in place of the picker strips, hides the shuffle icon/Suggest CTA/Save
+row (nothing to shuffle/suggest/save), and never falls back to the mock catalog. New
+i18n keys (en + vi): `build_emptyWardrobeCanvasLabel`, `build_emptyWardrobeTitle`,
+`build_emptyWardrobeCaption`, `build_emptyWardrobeCta`.
+
+`ITEMS`/`OUTFITS` in `src/data` were left untouched — other screens (feed, deep-link
+lookup) still use them as a valid demo fallback; only `build.tsx` stopped reading them.
+
+New test: `src/features/wardrobe-build/__tests__/toBuilderItem.test.ts` (type/name/color
+fallback chains including all-null cases, `assignBucketKey`'s case-insensitivity and
+fallback behavior).
+
+### Verify
+
+Run from repo root (`cd C:\projects\true-clothes` first). `npx tsc --noEmit`: clean.
+`npx jest`: 36 suites / 522 tests passed (was 34/501 before this session's earlier work;
++2 suites/+21 tests are the two new test files above — no existing test changed).
+`deno test --allow-all` on all three engine trees, untouched from before this follow-up
+(no engine changes): `generate-outfits/engine/` 261/261, `evaluate-item/` 37/37,
+`wardrobe-critic/` 11/11. Not run: `expo`/`eas` build, no Supabase deploy, no
+commit/push — all per instruction.

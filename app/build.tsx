@@ -12,9 +12,11 @@ import {
   IconSparkle, IconX,
 } from '../src/components/icons';
 import { useAppStore } from '../src/stores/appStore';
-import { STYLES, COLORS, OCCASIONS, ClothingItem } from '../src/data';
+import { STYLES, COLORS, OCCASIONS } from '../src/data';
 import { OutfitCollage } from '../src/components/outfit/Collage';
 import { useTranslation } from '../src/i18n';
+import { useItemPhoto } from '../src/features/wardrobe-photos';
+import { useBuilderItems, assignBucketKey, type BuilderItem } from '../src/features/wardrobe-build';
 
 
 const BUILDER_BUCKETS = [
@@ -60,12 +62,13 @@ const TITLE_WORD_KEYS = [
 // with TOPS/BOTTOMS — the slot picker enforces this in `pick`/`generateOutfits`.
 const EMPTY_SEL: Selection = { TOPS: null, BOTTOMS: null, DRESS: null, OUTERWEAR: null, SHOES: null, BAGS: null };
 
-function BuilderTile({ item, selected, onPress }: { item: ClothingItem; selected: boolean; onPress: () => void }) {
+function BuilderTile({ item, selected, onPress }: { item: BuilderItem; selected: boolean; onPress: () => void }) {
+  const { source, status } = useItemPhoto(item.photo);
   return (
     <Pressable onPress={onPress} style={[styles.tile, selected && styles.tileSelected]}>
-      {item.png ? (
+      {status === 'ready' && source ? (
         <Image
-          source={item.png}
+          source={source}
           style={styles.tileImg}
           resizeMode="contain"
         />
@@ -84,7 +87,7 @@ function BuilderTile({ item, selected, onPress }: { item: ClothingItem; selected
 function CategoryStrip({
   label, items, selectedId, onSelect,
 }: {
-  label: string; items: ClothingItem[];
+  label: string; items: BuilderItem[];
   selectedId: string | null; onSelect: (id: string) => void;
 }) {
   const { t } = useTranslation();
@@ -116,7 +119,7 @@ function CategoryStrip({
 function generateOutfits({
   items, anchorIds, styleFilter, colorFilter, occasionFilter, t,
 }: {
-  items: ClothingItem[];
+  items: BuilderItem[];
   anchorIds: string[];
   styleFilter: string | null;
   colorFilter: string | null;
@@ -128,10 +131,10 @@ function generateOutfits({
     return acc;
   }, {});
   const preferredColors = colorFilter ? colorBuckets[colorFilter] : null;
-  const matchesColor = (item: ClothingItem) => !preferredColors || preferredColors.includes(item.color);
+  const matchesColor = (item: BuilderItem) => !preferredColors || preferredColors.includes(item.color);
 
-  const anchorItems = anchorIds.map((id) => items.find((i) => i.id === id)).filter(Boolean) as ClothingItem[];
-  const pools: Record<string, ClothingItem[]> = {};
+  const anchorItems = anchorIds.map((id) => items.find((i) => i.id === id)).filter(Boolean) as BuilderItem[];
+  const pools: Record<string, BuilderItem[]> = {};
   for (const b of BUILDER_BUCKETS) {
     pools[b.key] = items.filter((i) => (b.types as readonly string[]).includes(i.type) && !anchorIds.includes(i.id));
   }
@@ -206,11 +209,22 @@ function generateOutfits({
   });
 }
 
+function AnchorThumb({ item }: { item: BuilderItem }) {
+  const { source, status } = useItemPhoto(item.photo);
+  return (
+    <View style={styles.anchorThumb}>
+      {status === 'ready' && source ? (
+        <Image source={source} style={styles.anchorImg} resizeMode="contain" />
+      ) : null}
+    </View>
+  );
+}
+
 function SuggestSheet({
   open, onClose, items, anchorIds, onApply,
 }: {
   open: boolean; onClose: () => void;
-  items: ClothingItem[]; anchorIds: string[];
+  items: BuilderItem[]; anchorIds: string[];
   onApply: (itemIds: string[]) => void;
 }) {
   const { t } = useTranslation();
@@ -220,7 +234,7 @@ function SuggestSheet({
   const [phase, setPhase] = useState<'configure' | 'generating' | 'results'>('configure');
   const [results, setResults] = useState<ReturnType<typeof generateOutfits>>([]);
 
-  const anchors = anchorIds.map((id) => items.find((i) => i.id === id)).filter(Boolean) as ClothingItem[];
+  const anchors = anchorIds.map((id) => items.find((i) => i.id === id)).filter(Boolean) as BuilderItem[];
 
   const generate = () => {
     setPhase('generating');
@@ -262,11 +276,7 @@ function SuggestSheet({
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
               {anchors.map((item) => (
-                <View key={item.id} style={styles.anchorThumb}>
-                  {item.png && (
-                    <Image source={item.png} style={styles.anchorImg} resizeMode="contain" />
-                  )}
-                </View>
+                <AnchorThumb key={item.id} item={item} />
               ))}
             </ScrollView>
           )}
@@ -395,15 +405,24 @@ export default function OutfitBuilderScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
-  const { items, createCollection, addItemToCollection, collectionsError } = useAppStore();
+  const { createCollection, addItemToCollection, collectionsError } = useAppStore();
+  // The user's real wardrobe (src/features/wardrobe-build), NOT the bundled
+  // mock catalog — the builder used to read appStore.items (ITEMS, 14
+  // hardcoded demo pieces) and let people compose outfits from clothes that
+  // weren't theirs (backlog.md, 2026-08-10).
+  const items = useBuilderItems();
+  const isWardrobeEmpty = items.length === 0;
 
+  // Every item lands in exactly one bucket, even when its (possibly
+  // inferred) type isn't listed in any BUILDER_BUCKETS entry — falls back to
+  // BAGS rather than vanishing from the picker with no trace.
   const buckets = BUILDER_BUCKETS.map((b) => ({
     ...b,
-    list: items.filter((i) => (b.types as readonly string[]).includes(i.type)),
+    list: items.filter((i) => assignBucketKey<BucketKey>(i.type, BUILDER_BUCKETS, 'BAGS') === b.key),
   }));
 
   const findFirst = (types: readonly string[]) =>
-    items.find((i) => types.includes(i.type) && i.png)?.id || null;
+    items.find((i) => types.includes(i.type))?.id || null;
 
   const [sel, setSel] = useState<Selection>({
     ...EMPTY_SEL,
@@ -431,7 +450,7 @@ export default function OutfitBuilderScreen() {
   const listFor = (key: BucketKey) => buckets.find((b) => b.key === key)?.list ?? [];
 
   const shuffle = () => {
-    const r = (arr: ClothingItem[]) => arr[Math.floor(Math.random() * arr.length)]?.id || null;
+    const r = (arr: BuilderItem[]) => arr[Math.floor(Math.random() * arr.length)]?.id || null;
     // Build a one-piece look ~35% of the time when dresses exist; otherwise a
     // two-piece top+bottom look. The two are never combined.
     const dresses = listFor('DRESS');
@@ -495,14 +514,25 @@ export default function OutfitBuilderScreen() {
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.4} />
         </Pressable>
         <Text style={styles.headerTitle}>{t('build_title')}</Text>
-        <Pressable onPress={shuffle} style={styles.iconBtn}>
-          <IconShuffle size={20} color={T.color.primary} strokeWidth={1.4} />
-        </Pressable>
+        {isWardrobeEmpty ? (
+          <View style={styles.iconBtn} />
+        ) : (
+          <Pressable onPress={shuffle} style={styles.iconBtn}>
+            <IconShuffle size={20} color={T.color.primary} strokeWidth={1.4} />
+          </Pressable>
+        )}
       </View>
 
       {/* Canvas */}
       <View style={styles.canvas}>
-        {selectedIds.length === 0 ? (
+        {isWardrobeEmpty ? (
+          <View style={styles.emptyCanvas}>
+            <View style={styles.emptyCanvasIcon}>
+              <IconPlus size={18} color={T.color.tertiary} strokeWidth={1.4} />
+            </View>
+            <Text style={styles.emptyCanvasLabel}>{t('build_emptyWardrobeCanvasLabel')}</Text>
+          </View>
+        ) : selectedIds.length === 0 ? (
           <View style={styles.emptyCanvas}>
             <View style={styles.emptyCanvasIcon}>
               <IconPlus size={18} color={T.color.tertiary} strokeWidth={1.4} />
@@ -525,36 +555,62 @@ export default function OutfitBuilderScreen() {
         )}
       </View>
 
-      {/* Pickers */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingTop: 20, paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
-        <Bounded>
-        {buckets.map((b) =>
-          b.list.length > 0 ? (
-            <CategoryStrip
-              key={b.key}
-              label={t(BUCKET_LABEL_KEYS[b.key])}
-              items={b.list}
-              selectedId={sel[b.key]}
-              onSelect={(id) => pick(b.key, id)}
-            />
-          ) : null
+      {/* Pickers — or, when the wardrobe has no items yet, a dedicated empty
+          state with a CTA to add the first one. Never falls back to the mock
+          catalog (backlog.md, 2026-08-10). */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={isWardrobeEmpty
+          ? { flexGrow: 1, paddingBottom: insets.bottom + 24 }
+          : { paddingTop: 20, paddingBottom: 8 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <Bounded style={isWardrobeEmpty ? { flex: 1 } : undefined}>
+        {isWardrobeEmpty ? (
+          <View style={styles.emptyWardrobe}>
+            <Text style={styles.emptyWardrobeTitle}>{t('build_emptyWardrobeTitle')}</Text>
+            <Text style={styles.emptyWardrobeCaption}>{t('build_emptyWardrobeCaption')}</Text>
+            <View style={{ height: 32 }} />
+            <PrimaryButton
+              onPress={() => router.push('/add-item' as any)}
+              fullWidth={false}
+              style={{ paddingHorizontal: 48 }}
+            >
+              {t('build_emptyWardrobeCta')}
+            </PrimaryButton>
+          </View>
+        ) : (
+          buckets.map((b) =>
+            b.list.length > 0 ? (
+              <CategoryStrip
+                key={b.key}
+                label={t(BUCKET_LABEL_KEYS[b.key])}
+                items={b.list}
+                selectedId={sel[b.key]}
+                onSelect={(id) => pick(b.key, id)}
+              />
+            ) : null
+          )
         )}
         </Bounded>
       </ScrollView>
 
       {/* Suggest CTA */}
-      <View style={styles.suggestRow}>
-        <Pressable onPress={() => setSuggestOpen(true)} style={styles.suggestBtn}>
-          <IconSparkle size={14} color={T.color.primary} strokeWidth={1.4} />
-          <Text style={styles.suggestBtnText}>
-            {selectedIds.length === 0
-              ? t('build_suggestForMe')
-              : t('build_suggestWithAnchors', { count: selectedIds.length, suffix: selectedIds.length === 1 ? '' : 'S' })}
-          </Text>
-        </Pressable>
-      </View>
+      {!isWardrobeEmpty && (
+        <View style={styles.suggestRow}>
+          <Pressable onPress={() => setSuggestOpen(true)} style={styles.suggestBtn}>
+            <IconSparkle size={14} color={T.color.primary} strokeWidth={1.4} />
+            <Text style={styles.suggestBtnText}>
+              {selectedIds.length === 0
+                ? t('build_suggestForMe')
+                : t('build_suggestWithAnchors', { count: selectedIds.length, suffix: selectedIds.length === 1 ? '' : 'S' })}
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* Save + AI try-on */}
+      {!isWardrobeEmpty && (
       <View style={[styles.saveRow, { paddingBottom: insets.bottom + 8 }]}>
         {canSave && (
           <>
@@ -582,6 +638,7 @@ export default function OutfitBuilderScreen() {
           {canSave ? t('build_saveOutfitButton') : t('build_pickAtLeast2')}
         </PrimaryButton>
       </View>
+      )}
 
       {/* Name sheet */}
       <BottomSheet open={nameOpen} onClose={() => setNameOpen(false)} maxHeight="58%">
@@ -692,6 +749,9 @@ const styles = StyleSheet.create({
   },
   emptyCanvasLabel: { ...type.micro, color: T.color.tertiary },
   emptyCanvasHint: { ...type.caption, fontSize: 12, color: T.color.tertiary },
+  emptyWardrobe: { flex: 1, paddingVertical: 64, paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center' },
+  emptyWardrobeTitle: { ...type.h2, color: T.color.primary, textAlign: 'center' },
+  emptyWardrobeCaption: { ...type.caption, marginTop: 12, textAlign: 'center' },
   canvasPieceCount: {
     position: 'absolute',
     top: 12,

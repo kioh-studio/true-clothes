@@ -1,12 +1,39 @@
 ## AB. Phát hiện phiên 2026-08-10 (review toàn app + khảo sát engine)
 
-- [ ] 🔴 **`app/build.tsx` "Build an Outfit" chạy hoàn toàn trên MOCK** (2026-08-10) —
+- [x] 🔴 **`app/build.tsx` "Build an Outfit" chạy hoàn toàn trên MOCK** (2026-08-10) —
   `build.tsx:398` lấy `const { items, ... } = useAppStore()`, chỉ `items` chứ KHÔNG lấy
   `wardrobeItems`. Mà `appStore.items` khởi tạo = `ITEMS` (14 món demo hardcoded trong
   `src/data/index.ts`). So sánh: `app/(tabs)/index.tsx:104` lấy CẢ `items` lẫn
   `wardrobeItems`. Nghĩa là một mục chính trong Options Menu đang cho user phối quần áo
   KHÔNG PHẢI của họ — mọi pool/anchor/bước gợi ý đều chạy trên catalogue demo. Đây là
   bug user thấy được ngay. Chưa sửa (ngoài phạm vi phiên phát hiện ra nó).
+  RESOLVED 2026-08-10 (cùng ngày, task riêng "build.tsx + Collage layering"): new
+  `src/features/wardrobe-build/` (`toBuilderItem.ts` pure adapter + `useBuilderItems`
+  hook) maps `wardrobeItems` (real `WardrobeItem[]`) into a builder-local `BuilderItem`
+  shape (`type` nullable→category fallback via `collageLayout.ts`'s `CATEGORY_TYPE`,
+  `name` falls back to brand→title-cased type, `color` = `primaryColor ?? colors[0]`).
+  `build.tsx` now reads `useBuilderItems()` instead of `useAppStore().items` (ITEMS is
+  untouched — still used by other screens per constraint), tiles/anchors resolve photos
+  via the existing `useItemPhoto` hook (no new image-resolution path), and a dedicated
+  empty-wardrobe state (title + caption + "ADD YOUR FIRST ITEM" CTA → `/add-item`)
+  replaces the picker area when `wardrobeItems.length === 0` — no mock fallback. Bucket
+  assignment now uses a new total `assignBucketKey()` helper (falls back to `BAGS`) so an
+  item whose type can't be inferred into any `BUILDER_BUCKETS` entry (e.g. `headwear`,
+  which none of TOPS/BOTTOMS/DRESS/OUTERWEAR/SHOES/BAGS actually covers) still shows up
+  instead of silently vanishing — see follow-up note below on that fallback's label
+  mismatch. Tests: `src/features/wardrobe-build/__tests__/toBuilderItem.test.ts`.
+
+- [ ] **`assignBucketKey`'s catch-all lands unclassifiable items (e.g. headwear) in the
+  "BAGS" strip** (2026-08-10, judgment call made while resolving the item above — see
+  `src/features/wardrobe-build/toBuilderItem.ts`). `BUILDER_BUCKETS` in `app/build.tsx`
+  has no bucket for `headwear`/generic accessories (only `BAGS: ['BAG']`) — it was
+  authored only for what the 14-item mock catalog ever had. Rather than invent a new
+  bucket (a UI/design change out of scope for this task) or let such an item disappear
+  from the builder with no trace, it now falls into the BAGS bucket's rendered list —
+  visible and pickable, but the strip header still reads "BAGS" even if the tile shown is
+  a hat. Cosmetic mismatch, not a data-loss bug. If real `headwear`/non-bag-accessory
+  wardrobe items turn out to be common, consider a proper `ACCESSORIES` bucket (new
+  `BUILDER_BUCKETS` entry + `build_bucketAccessories` i18n key) instead of the fallback.
 
 - [x] **Engine KHÔNG sinh được outfit layer blazer-chồng-hoodie** (2026-08-10, phát
   hiện khi anh Khôi đưa ảnh K-fashion thật để khảo sát). RESOLVED 2026-08-10 (cùng
