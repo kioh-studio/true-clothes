@@ -146,14 +146,32 @@ export type ItemFit = 'slim' | 'regular' | 'relaxed' | 'wide' | 'oversized';
 export type FabricName =
   | 'cotton' | 'wool' | 'linen' | 'cashmere' | 'silk' | 'denim'
   | 'leather' | 'suede' | 'nylon' | 'polyester' | 'canvas' | 'corduroy'
-  | 'tweed' | 'flannel' | 'jersey' | 'fleece' | 'velvet';
+  | 'tweed' | 'flannel' | 'jersey' | 'fleece' | 'velvet'
+  // 'fur' (2026-08-11): unlocks the 'mobwife' style, previously stopped
+  // (batch 2, 2026-08-10) for lacking this exact vocabulary gap — see
+  // plan.md "Style catalog expansion batch 2". Covers BOTH real and faux
+  // fur under one value: FitItem carries no signal (ingest text/photo) that
+  // reliably distinguishes the two, so splitting them would be an
+  // unenforceable distinction, same failure mode as the 'distressed' removal
+  // above.
+  | 'fur';
 export type BannedFeature =
-  | 'loud_logo' | 'macro_print' | 'full_print' | 'neon_color' | 'distressed'
+  | 'loud_logo' | 'macro_print' | 'full_print' | 'neon_color'
   // Pattern/artwork-derived features (2026-08-10) — each backed by a signal
   // FitItem already carries (fabric.pattern / graphics.artworkType). See
   // filtering.ts featuresPasses for the exact FitItem field each checks.
   | 'floral_print' | 'plaid_check' | 'abstract_print'
   | 'slogan_text' | 'graphic_illustration';
+  // 'distressed' removed (2026-08-11): 14 style configs listed it as banned,
+  // but featuresPasses (filtering.ts) never implemented a check for it —
+  // FitItem carries no signal a distressed/ripped/worn-in finish could be
+  // derived from (fabric.pattern is cut/weave-pattern only — solid/striped/
+  // plaid/checkered/floral/graphic/abstract — none mean "distressed"; drape
+  // and visualInterest are too generic to imply it either). A banned label
+  // the engine can never actually enforce is worse than no label — it reads
+  // as "this style blocks distressed items" when nothing was ever blocked.
+  // Re-add once an ingest-time signal for this exists (e.g. a `pattern`
+  // value or a dedicated ClothingItemRow flag) and featuresPasses checks it.
 export type ColorGrade = 'perfect' | 'allowed' | 'accent' | 'banned';
 
 export interface StyleConfig {

@@ -36,3 +36,28 @@ thumbnails now resolve item photos through the existing `useItemPhoto` hook
 and `Collage.tsx` already use for local/cloud/bundled photos — instead of a
 bundled `png` require() asset. Loading/missing states fall back to the
 type-label text tile that already existed, no new visual treatment.
+
+## Catch-all bucket relabeled BAGS → ACCESSORIES (2026-08-11)
+
+`assignBucketKey` (`src/features/wardrobe-build/toBuilderItem.ts`) is a total function by
+design — a wardrobe item whose granular `type` isn't in any `BUILDER_BUCKETS` entry still
+must appear somewhere in the picker, never silently drop out. That catch-all bucket used
+to be literally named `'BAGS'` (`types: ['BAG']`), so headwear items (`category:
+'headwear'` → `type: 'CAP'`, per `CATEGORY_TYPE` in `collageLayout.ts`) rendered under a
+category strip labeled "BAGS" — same correct *behavior*, wrong *label*, confusing for
+anyone with a hat/cap in their wardrobe.
+
+Renamed the bucket key to `'ACCESSORIES'` — a bag reads as an accessory, so the existing
+catch-all just needed a name that's true for everything that lands in it (headwear,
+belts, scarves, ties, sunglasses, rings, bracelets — none of which have their own
+`BUILDER_BUCKETS` entry today), rather than adding a second dedicated bucket. No visual
+change beyond the label text and its i18n key (`build_bucketBags` → the correctly-named
+`build_bucketAccessories`, "ACCESSORIES" / "PHỤ KIỆN") — same `CategoryStrip` component,
+same tile grid, same optional-in-shuffle treatment (was `b.key === 'BAGS'`, now
+`b.key === 'ACCESSORIES'`, in `generateOutfits`'s `optional` check).
+
+`BUILDER_BUCKETS`/`BUILDER_FALLBACK_BUCKET`/`BUCKET_LABEL_KEYS` moved out of
+`app/build.tsx` into `src/features/wardrobe-build/buckets.ts` so the totality guarantee
+(every type resolves to a bucket, nothing vanishes) is asserted directly in a Jest test
+against the real config, not just a fixture — see
+`src/features/wardrobe-build/__tests__/buckets.test.ts`.

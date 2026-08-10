@@ -255,6 +255,9 @@ const FABRIC_DEFAULTS: Record<string, FabricDefaults> = {
   Plated:  { fabricWeight: 'medium', breathability: 'low'    },
   Steel:   { fabricWeight: 'heavy',  breathability: 'low'    },
   Acetate: { fabricWeight: 'light',  breathability: 'low'    },
+  // Fur (2026-08-11, unlocks 'mobwife') — heaviest/least breathable fabric in
+  // the catalog, real or faux.
+  Fur:     { fabricWeight: 'heavy',  breathability: 'low'    },
 };
 
 type SeasonType = FabricProfile['season'];
@@ -513,6 +516,8 @@ function deriveFitWithProvenance(item: ClothingItemRow): { fit: ItemFit; real: b
 const MATERIAL_WARMTH: Record<string, number> = {
   Cotton: 2, Linen: 1, Silk: 1, Nylon: 2, Denim: 3,
   Wool: 4, Leather: 4, Canvas: 3, Fleece: 5, Cashmere: 5,
+  // Fur (2026-08-11) — as warm as fleece/cashmere, the catalog max.
+  Fur: 5,
 };
 const CATEGORY_WARMTH: Record<string, number> = {
   top: 2, bottom: 3, outwear: 4, shoes: 2, accessory: 1, onepiece: 3,
@@ -550,7 +555,9 @@ function deriveFormality(type: string, color: PrimaryColor, material?: string): 
   let base = TYPE_FORMALITY[type.toUpperCase()] ?? 2.5;
   base += COLOR_FORMALITY_SHIFT[color] ?? 0;
   const mat = primaryMaterial(material);
-  if (mat === 'Wool' || mat === 'Cashmere' || mat === 'Silk') base += 0.5;
+  // Fur (2026-08-11) grouped with wool/cashmere/silk — reads as an elevated,
+  // luxury material the same way those do.
+  if (mat === 'Wool' || mat === 'Cashmere' || mat === 'Silk' || mat === 'Fur') base += 0.5;
   if (mat === 'Nylon' || mat === 'Fleece') base -= 0.5;
   if (mat === 'Denim') base -= 0.3;
   return Math.max(1, Math.min(5, base));
@@ -595,6 +602,8 @@ const FABRIC_NAME_MAP: Record<string, FabricName> = {
   Nylon: 'nylon', Polyester: 'polyester', Canvas: 'canvas', Corduroy: 'corduroy',
   Tweed: 'tweed', Flannel: 'flannel', Jersey: 'jersey', Fleece: 'fleece',
   Velvet: 'velvet',
+  // Fur (2026-08-11) — real or faux, see FabricName doc comment in types.ts.
+  Fur: 'fur',
 };
 
 function deriveFabricName(material: string | undefined): FabricName | undefined {

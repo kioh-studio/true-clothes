@@ -23,6 +23,10 @@ const EXPECTED_STYLE_IDS = [
   // 9 added (style catalog expansion batch 2, 2026-08-10 — 11 requested,
   // 'mobwife'/'modest' stopped for a vocabulary gap, see plan.md)
   'glam', 'businessformal', 'gothic', 'utility', 'sporty', 'normcore', 'retro70s', 'pinup', 'whimsigoth',
+  // 1 added (style catalog expansion batch 3, 2026-08-11 — 'mobwife'
+  // unblocked by the new 'fur' FabricName value; 'modest' remains stopped,
+  // its gap is a missing FitItem coverage attribute, not a fabric)
+  'mobwife',
 ].sort();
 
 // ─── Vocabulary — mirrors the unions declared in types.ts/enrichment.ts ────
@@ -41,10 +45,14 @@ const VALID_FABRICS: FabricName[] = [
   'cotton', 'wool', 'linen', 'cashmere', 'silk', 'denim',
   'leather', 'suede', 'nylon', 'polyester', 'canvas', 'corduroy',
   'tweed', 'flannel', 'jersey', 'fleece', 'velvet',
+  // 'fur' (2026-08-11) — unlocks 'mobwife'.
+  'fur',
 ];
 const VALID_FITS: ItemFit[] = ['slim', 'regular', 'relaxed', 'wide', 'oversized'];
 const VALID_BANNED_FEATURES: BannedFeature[] = [
-  'loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed',
+  // 'distressed' removed (2026-08-11) — featuresPasses never implemented a
+  // check for it; see types.ts BannedFeature doc comment.
+  'loud_logo', 'macro_print', 'full_print', 'neon_color',
   'floral_print', 'plaid_check', 'abstract_print', 'slogan_text', 'graphic_illustration',
 ];
 const VALID_COLOR_PALETTES: ColorPalette[] = ['neutral', 'earth', 'bold', 'pastel', 'dark', 'monochrome'];
@@ -82,6 +90,8 @@ const REQUIRED_SYMMETRIC_PAIRS: Array<[string, string]> = [
   ['whimsigoth', 'bohemian'],
   ['glam', 'elegant'],
   ['pinup', 'vintage'],
+  // Style catalog expansion batch 3 (2026-08-11)
+  ['mobwife', 'glam'], ['mobwife', 'gothic'], ['mobwife', 'elegant'],
 ];
 
 // ─── (1) STYLE_CONFIGS ids ↔ expected DB id set ─────────────────────────────
@@ -189,6 +199,7 @@ Deno.test('style catalog: the 14 new styles are not all given the same popularit
   const newIds = new Set(EXPECTED_STYLE_IDS.filter(id => ![
     'oldmoney', 'minimalist', 'streetwear', 'smartcasual', 'preppy', 'athleisure', 'y2k', 'bohemian',
     'glam', 'businessformal', 'gothic', 'utility', 'sporty', 'normcore', 'retro70s', 'pinup', 'whimsigoth',
+    'mobwife',
   ].includes(id)));
   const pops = STYLE_CONFIGS.filter(c => newIds.has(c.id)).map(c => c.popularity);
   assertEquals(pops.length, 14);
@@ -196,9 +207,9 @@ Deno.test('style catalog: the 14 new styles are not all given the same popularit
 });
 
 // ─── Style catalog expansion batch 2 (2026-08-10) — 22 → 31 ─────────────────
-// 9 of the 11 requested styles ('mobwife', 'modest' stopped for a vocabulary
-// gap — see plan.md). gender_lean: all 'feminine' except 'businessformal' and
-// 'utility' ('neutral'), per instruction.
+// 9 of the 11 requested styles shipped ('mobwife', 'modest' were stopped for
+// a vocabulary gap at the time — see plan.md). gender_lean: all 'feminine'
+// except 'businessformal' and 'utility' ('neutral'), per instruction.
 
 const BATCH_2_IDS = ['glam', 'businessformal', 'gothic', 'utility', 'sporty', 'normcore', 'retro70s', 'pinup', 'whimsigoth'];
 
@@ -206,4 +217,50 @@ Deno.test('style catalog batch 2: the 9 new styles are not all given the same po
   const pops = STYLE_CONFIGS.filter(c => BATCH_2_IDS.includes(c.id)).map(c => c.popularity);
   assertEquals(pops.length, 9);
   assert(new Set(pops).size > 1, 'all 9 batch-2 styles have identical popularity — expected differentiated values');
+});
+
+// ─── Style catalog expansion batch 3 (2026-08-11) — 31 → 32 ─────────────────
+// 'mobwife' unblocked: the 'fur' FabricName value (types.ts) + its
+// FABRIC_DEFAULTS/MATERIAL_WARMTH/FABRIC_NAME_MAP entries (enrichment.ts)
+// close the vocabulary gap batch 2 stopped on. 'modest' remains stopped —
+// its gap (garment coverage/sleeve-hem-neckline) is a missing FitItem
+// attribute, not a fabric, and is out of this batch's scope.
+
+Deno.test('style catalog batch 3: mobwife exists with fur in its fabric vocabulary', () => {
+  const mobwife = STYLE_CONFIGS.find(c => c.id === 'mobwife');
+  assert(mobwife, 'mobwife style config missing');
+  assert(mobwife!.fabricsAllowed.includes('fur'), 'mobwife should allow fur — it is the style\'s defining material');
+});
+
+// ─── mobwife vs its two nearest neighbors — must differ on at least 2 axes ──
+// (design requirement: mobwife must be genuinely distinct from glam/gothic,
+// not a relabel of either).
+
+Deno.test('style catalog batch 3: mobwife differs from glam and gothic on at least 2 axes', () => {
+  const byId = new Map(STYLE_CONFIGS.map(c => [c.id, c]));
+  const mobwife = byId.get('mobwife')!;
+  const glam = byId.get('glam')!;
+  const gothic = byId.get('gothic')!;
+
+  function countDifferingAxes(a: typeof mobwife, b: typeof mobwife): number {
+    let n = 0;
+    if (a.formalityRange[0] !== b.formalityRange[0] || a.formalityRange[1] !== b.formalityRange[1]) n++;
+    if (JSON.stringify([...a.attributes.colorPalette].sort()) !== JSON.stringify([...b.attributes.colorPalette].sort())) n++;
+    if (JSON.stringify([...a.attributes.silhouette].sort()) !== JSON.stringify([...b.attributes.silhouette].sort())) n++;
+    if (a.attributes.patternLevel !== b.attributes.patternLevel) n++;
+    if (a.attributes.textureRichness !== b.attributes.textureRichness) n++;
+    if (JSON.stringify([...a.fabricsAllowed].sort()) !== JSON.stringify([...b.fabricsAllowed].sort())) n++;
+    if (JSON.stringify([...a.allowedFits].sort()) !== JSON.stringify([...b.allowedFits].sort())) n++;
+    return n;
+  }
+
+  assert(countDifferingAxes(mobwife, glam) >= 2, 'mobwife too similar to glam');
+  assert(countDifferingAxes(mobwife, gothic) >= 2, 'mobwife too similar to gothic');
+});
+
+Deno.test('style catalog batch 3: mobwife has the highest textureRichness in the catalog', () => {
+  const mobwife = STYLE_CONFIGS.find(c => c.id === 'mobwife')!;
+  const maxOther = Math.max(...STYLE_CONFIGS.filter(c => c.id !== 'mobwife').map(c => c.attributes.textureRichness));
+  assert(mobwife.attributes.textureRichness > maxOther,
+    `mobwife textureRichness (${mobwife.attributes.textureRichness}) should exceed the rest of the catalog (max ${maxOther})`);
 });

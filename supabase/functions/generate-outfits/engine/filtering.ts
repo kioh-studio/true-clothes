@@ -45,7 +45,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // slogan_text/graphic_illustration (2026-08-10): artworkType is a signal
     // independent of fabric.pattern, so a solid-pattern piece carrying a
     // slogan/graphic wasn't caught by macro_print — old money never wears one.
-    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed', 'slogan_text', 'graphic_illustration'],
+    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'slogan_text', 'graphic_illustration'],
     // HOODIE (2026-08-10): a wool/cashmere hoodie in navy/black/charcoal can
     // reach formality ~2.5 and pass this style's fabric/color/fit checks
     // outright (verified against deriveFormality/TYPE_FORMALITY in
@@ -131,7 +131,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['nylon', 'fleece'],
     allowedFits: ['slim', 'regular', 'relaxed'],
     formalityRange: [2.0, 4.0],
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed'],
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color'],
     overrides: [],
     weights: DEFAULT_WEIGHTS,
     attributes: { formality: 3.0, colorPalette: ['neutral', 'earth'], silhouette: ['structured', 'relaxed'], patternLevel: 1.5, textureRichness: 2.0, mood: ['clean', 'serious'] },
@@ -155,7 +155,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['nylon', 'polyester', 'fleece'],
     allowedFits: ['slim', 'regular'],
     formalityRange: [2.5, 4.5],
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed'],
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color'],
     overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, formality: 0.15, color: 0.20, proportion: 0.10, texture: 0.05, fit: 0.10 },
     attributes: { formality: 3.5, colorPalette: ['neutral', 'pastel'], silhouette: ['structured', 'tailored'], patternLevel: 2.5, textureRichness: 2.0, mood: ['clean', 'playful'] },
@@ -257,7 +257,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['fleece', 'nylon', 'tweed'],
     allowedFits: ['slim', 'regular', 'relaxed'],
     formalityRange: [2.0, 4.0],
-    bannedFeatures: ['loud_logo', 'neon_color', 'distressed'],
+    bannedFeatures: ['loud_logo', 'neon_color'],
     overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.32, texture: 0.15, style: 0.20, proportion: 0.08, formality: 0.05, fit: 0.05, season: 0.05 },
     attributes: { formality: 3.0, colorPalette: ['pastel', 'neutral'], silhouette: ['relaxed', 'bodycon'], patternLevel: 3.0, textureRichness: 3.5, mood: ['romantic', 'playful'] },
@@ -279,7 +279,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['fleece', 'denim', 'corduroy'],
     allowedFits: ['slim', 'regular'],
     formalityRange: [3.0, 4.5],
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print', 'slogan_text', 'graphic_illustration'],
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'macro_print', 'slogan_text', 'graphic_illustration'],
     // HOODIE (2026-08-10): a cashmere navy/black hoodie can reach formality
     // ~2.5, right at this style's tolerance floor, and pass fabric/fit
     // otherwise — the type itself doesn't belong in "Office Chic".
@@ -335,7 +335,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['leather', 'denim', 'tweed', 'canvas', 'nylon', 'fleece'],
     allowedFits: ['slim', 'regular'],
     formalityRange: [1.5, 3.5],
-    bannedFeatures: ['loud_logo', 'neon_color', 'distressed', 'macro_print'],
+    bannedFeatures: ['loud_logo', 'neon_color', 'macro_print'],
     overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.32, texture: 0.18, style: 0.20, proportion: 0.05, formality: 0.05, fit: 0.05, season: 0.05 },
     attributes: { formality: 2.0, colorPalette: ['pastel'], silhouette: ['bodycon', 'relaxed'], patternLevel: 3.5, textureRichness: 4.0, mood: ['romantic', 'playful'] },
@@ -361,7 +361,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // floral_print (2026-08-10): already redundant with macro_print here —
     // kept explicit for a clearer rejection reason on the "quiet basics"
     // aesthetic this style is built on.
-    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed', 'floral_print'],
+    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'floral_print'],
     overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.28, style: 0.20, proportion: 0.15, fit: 0.12, texture: 0.05, formality: 0.05, season: 0.05 },
     attributes: { formality: 2.5, colorPalette: ['neutral', 'monochrome'], silhouette: ['tailored', 'relaxed'], patternLevel: 1.0, textureRichness: 1.5, mood: ['clean'] },
@@ -480,7 +480,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['fleece', 'nylon', 'canvas', 'denim'],
     allowedFits: ['slim', 'regular'],
     formalityRange: [3.0, 5.0],
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print', 'slogan_text', 'graphic_illustration'],
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'macro_print', 'slogan_text', 'graphic_illustration'],
     // HOODIE (2026-08-10): a cashmere black hoodie can reach formality 2.5,
     // right at this style's tolerance floor, and pass fabric/color/fit
     // otherwise — the type itself doesn't belong in an evening-serious
@@ -494,6 +494,8 @@ export const STYLE_CONFIGS: StyleConfig[] = [
       { styleId: 'officechic', weight: 0.5 }, { styleId: 'feminine', weight: 0.5 },
       // Style catalog expansion batch 2 (2026-08-10)
       { styleId: 'glam', weight: 0.5 }, { styleId: 'businessformal', weight: 0.3 },
+      // Style catalog expansion batch 3 (2026-08-11)
+      { styleId: 'mobwife', weight: 0.4 },
     ],
     popularity: 0.480,
   },
@@ -553,7 +555,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['wool', 'tweed', 'leather', 'suede', 'cashmere', 'velvet', 'fleece'],
     allowedFits: ['relaxed', 'regular', 'wide'],
     formalityRange: [1.0, 2.5],
-    bannedFeatures: ['distressed'],
+    bannedFeatures: [],
     overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, season: 0.18, color: 0.25, style: 0.20, texture: 0.10, proportion: 0.10, formality: 0.05, fit: 0.02 },
     attributes: { formality: 1.5, colorPalette: ['pastel', 'earth'], silhouette: ['relaxed', 'oversized'], patternLevel: 3.0, textureRichness: 2.5, mood: ['playful'] },
@@ -616,12 +618,14 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // no check pattern belongs in a silk/velvet evening wardrobe.
     // slogan_text/graphic_illustration: artworkType is independent of
     // fabric.pattern, so a solid-pattern piece carrying one wasn't caught.
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print', 'plaid_check', 'slogan_text', 'graphic_illustration'],
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'macro_print', 'plaid_check', 'slogan_text', 'graphic_illustration'],
     overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, formality: 0.22, color: 0.22, texture: 0.16, style: 0.18, proportion: 0.08, fit: 0.08, season: 0.02 },
     attributes: { formality: 5.0, colorPalette: ['dark', 'bold'], silhouette: ['bodycon', 'tailored'], patternLevel: 1.5, textureRichness: 4.5, mood: ['romantic', 'edgy'] },
     neighbors: [
       { styleId: 'elegant', weight: 0.5 },
+      // Style catalog expansion batch 3 (2026-08-11)
+      { styleId: 'mobwife', weight: 0.5 },
     ],
     popularity: 0.320,
   },
@@ -643,7 +647,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // independent of fabric.pattern, so a solid-pattern piece carrying a
     // slogan/graphic wasn't caught by macro_print — never appropriate in a
     // suit-only wardrobe.
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print', 'slogan_text', 'graphic_illustration'],
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'macro_print', 'slogan_text', 'graphic_illustration'],
     overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, formality: 0.24, fit: 0.16, color: 0.16, style: 0.18, proportion: 0.10, texture: 0.04, season: 0.04 },
     attributes: { formality: 5.0, colorPalette: ['neutral', 'monochrome'], silhouette: ['tailored', 'structured'], patternLevel: 1.0, textureRichness: 1.5, mood: ['serious'] },
@@ -676,6 +680,8 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     attributes: { formality: 2.5, colorPalette: ['dark', 'monochrome'], silhouette: ['bodycon', 'structured'], patternLevel: 2.0, textureRichness: 4.0, mood: ['edgy', 'romantic'] },
     neighbors: [
       { styleId: 'grunge', weight: 0.4 }, { styleId: 'whimsigoth', weight: 0.6 }, { styleId: 'darkacademia', weight: 0.2 },
+      // Style catalog expansion batch 3 (2026-08-11)
+      { styleId: 'mobwife', weight: 0.4 },
     ],
     popularity: 0.220,
   },
@@ -715,7 +721,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['silk', 'cashmere', 'velvet', 'tweed', 'fleece'],
     allowedFits: ['slim', 'regular', 'relaxed'],
     formalityRange: [1.0, 3.0],
-    bannedFeatures: ['distressed'],
+    bannedFeatures: [],
     overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, proportion: 0.14, style: 0.22, fit: 0.14, color: 0.16, formality: 0.08, season: 0.10, texture: 0.08 },
     attributes: { formality: 2.0, colorPalette: ['bold', 'neutral'], silhouette: ['structured', 'relaxed'], patternLevel: 2.0, textureRichness: 2.0, mood: ['playful', 'clean'] },
@@ -743,7 +749,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // floral_print (2026-08-10): already redundant with macro_print here —
     // kept explicit for a clearer rejection reason on the "deliberately
     // unremarkable" mall-basic aesthetic this style is built on.
-    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed', 'floral_print'],
+    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'floral_print'],
     overrides: [],
     weights: { ...DEFAULT_WEIGHTS, style: 0.14, color: 0.14, fit: 0.14, proportion: 0.14, formality: 0.10, season: 0.20, texture: 0.10 },
     attributes: { formality: 1.5, colorPalette: ['neutral'], silhouette: ['relaxed', 'oversized'], patternLevel: 1.0, textureRichness: 1.0, mood: ['clean'] },
@@ -791,7 +797,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['wool', 'tweed', 'corduroy', 'leather', 'flannel', 'fleece', 'nylon', 'polyester', 'canvas', 'suede', 'cashmere', 'velvet'],
     allowedFits: ['slim', 'regular'],
     formalityRange: [2.0, 4.0],
-    bannedFeatures: ['neon_color', 'distressed'],
+    bannedFeatures: ['neon_color'],
     overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.24, texture: 0.14, style: 0.22, proportion: 0.10, formality: 0.10, fit: 0.12, season: 0.05 },
     attributes: { formality: 3.0, colorPalette: ['bold', 'neutral'], silhouette: ['bodycon', 'structured'], patternLevel: 3.5, textureRichness: 2.5, mood: ['playful', 'romantic'] },
@@ -824,6 +830,52 @@ export const STYLE_CONFIGS: StyleConfig[] = [
       { styleId: 'bohemian', weight: 0.4 }, { styleId: 'gothic', weight: 0.6 }, { styleId: 'darkacademia', weight: 0.3 },
     ],
     popularity: 0.230,
+  },
+  // ─── Style catalog expansion batch 3 (2026-08-11) — mobwife unblocked ─────
+  // Batch 2 (2026-08-10) stopped 'mobwife' for a real vocabulary gap: its
+  // defining material is fur, and FabricName had no fur/faux-fur entry (see
+  // plan.md "Style catalog expansion batch 2"). The 'fur' FabricName value
+  // added above (types.ts) + its FABRIC_DEFAULTS/MATERIAL_WARMTH/
+  // FABRIC_NAME_MAP entries (enrichment.ts) close that gap — 'mobwife' ships
+  // here. Vocabulary is otherwise drawn EXCLUSIVELY from the existing unions,
+  // same discipline as batch 1/2.
+  {
+    id: 'mobwife', name: 'Mob Wife',
+    palette: palette(
+      ['black', 'brown', 'metallic', 'camel'],
+      ['charcoal', 'burgundy', 'wine', 'tan', 'natural', 'khaki'],
+      ['red', 'purple', 'rust'],
+      ['white', 'navy', 'beige', 'gray', 'olive', 'blue', 'green', 'yellow', 'pink', 'orange',
+       'cream', 'ivory', 'taupe', 'teal', 'multicolor', 'mustard', 'coral', 'mint', 'lavender',
+       'sage', 'terracotta', 'mauve', 'fuchsia', 'denim'],
+    ),
+    fabricsAllowed: ['fur', 'leather', 'suede', 'cashmere', 'velvet'],
+    fabricsBanned: ['cotton', 'wool', 'linen', 'silk', 'denim', 'nylon', 'polyester', 'canvas', 'corduroy', 'tweed', 'flannel', 'jersey', 'fleece'],
+    // slim/relaxed/oversized (not glam/gothic's slim/regular): the oversized
+    // fur coat over a fitted bodycon underlayer is the silhouette contrast
+    // that defines this style — a single-fit-band config can't express it.
+    allowedFits: ['slim', 'relaxed', 'oversized'],
+    formalityRange: [2.0, 4.0],
+    // No macro_print/floral_print/abstract_print/plaid_check ban (unlike
+    // glam/gothic): animal/leopard print reads as fabric.pattern 'abstract'
+    // (inferPattern/STORED_PATTERN_MAP have no dedicated 'animal' value) and
+    // is core to this style's identity, not a violation of it.
+    bannedFeatures: ['loud_logo', 'neon_color'],
+    // HOODIE (2026-08-11): same rationale as oldmoney/officechic/parisian/
+    // darkacademia/elegant above — a fur-trimmed hoodie could reach this
+    // style's formality/fabric/fit tolerances (formality ~1.5 base + 0.5
+    // color + 0.5 fur material = 2.5, within [2.0,4.0]), but the type itself
+    // breaks the fur-coat-over-bodycon silhouette regardless of fabric.
+    typesBanned: ['HOODIE'],
+    overrides: ['favorite_color'],
+    weights: { ...DEFAULT_WEIGHTS, texture: 0.24, color: 0.22, style: 0.20, formality: 0.10, proportion: 0.08, fit: 0.10, season: 0.03 },
+    // textureRichness 5.0 — highest in the catalog (glam's 4.5 was the prior
+    // max), per the fur/leather/gold-heavy identity this style is built on.
+    attributes: { formality: 3.0, colorPalette: ['dark', 'earth'], silhouette: ['oversized', 'bodycon'], patternLevel: 3.5, textureRichness: 5.0, mood: ['edgy', 'romantic'] },
+    neighbors: [
+      { styleId: 'glam', weight: 0.5 }, { styleId: 'gothic', weight: 0.4 }, { styleId: 'elegant', weight: 0.4 },
+    ],
+    popularity: 0.280,
   },
 ];
 

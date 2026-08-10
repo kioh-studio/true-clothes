@@ -5662,3 +5662,239 @@ Run from repo root. `npx tsc --noEmit`: clean. `npx jest`: 36 suites / 522 tests
 unchanged (no engine/service code touched — client UI strings/JSX + a skill doc only).
 Grepped for `demoHint`/orphaned i18n keys/removed style refs: none remain. Not run:
 `expo`/`eas` build, no Supabase deploy, no commit/push.
+
+## Style grid "Show all" truncation + builder ACCESSORIES bucket rename (2026-08-11)
+
+Two small, unrelated UI fixes done together (both client-only, no engine/data touched —
+a parallel session was expanding the style catalog toward 32 entries and another was
+editing `src/data/index.ts`/`assets/items/*` at the same time; neither was touched here).
+
+**1. Style pick grid collapses behind "Show all N" (`app/(onboarding)/styles.tsx`,
+`app/styles-edit.tsx`).** The style catalog grew 8 → 31 (see the two entries above), which
+turned the grid into a long scroll (~16 rows at 31 styles, 2-col phone layout) —
+`src/design/style-catalog/design.md`'s "Catalog size: 22 → 31" section had already
+proposed and recommended this exact fix, left undone pending anh Khôi's decision; this
+session was told the decision is chốt and to implement it.
+
+Added `getInitialVisibleStyles` + `STYLE_CATALOG_INITIAL_VISIBLE` (= 10) to
+`src/services/stylesCatalogService.ts`, next to the existing `sortStylesByGenderLean`
+(same file, same "pure display-order helper" pattern). Both style screens now render
+`getInitialVisibleStyles(styleList, selected, STYLE_CATALOG_INITIAL_VISIBLE)` instead of
+the full `styleList`, with a `TextLink` ("Show all {{count}}" / "Xem tất cả {{count}}",
+`styleCatalog_showAllCount`) below the grid that flips a local `expanded` boolean to
+render the full list. `{{count}}` always reads `styleList.length` live at render time —
+never hardcoded against 31, since the catalog was known to be growing again the same day.
+
+The one hard requirement: a style the user has already selected must stay visible even
+collapsed, or it looks like their pick vanished. `getInitialVisibleStyles` handles this
+by keeping the first N entries of the (already gender-lean-sorted) list PLUS any entry
+whose id is in `selectedIds`, in original relative order — so an out-of-range selected
+style surfaces right after the head, before the "Show all" link, rather than being
+hidden. Both screens pass their local `selected` array (the plain style ids, not
+`styles-edit.tsx`'s niche ids, which use a `parentId:nicheId` shape and are a separate
+list). No change to `sortStylesByGenderLean`, `MAX_STYLES`, the "you might also like"
+related strip, or niche refinement — those are all untouched.
+
+**2. Builder's mislabeled "BAGS" bucket renamed to ACCESSORIES (`app/build.tsx`,
+`src/features/wardrobe-build/`).** `assignBucketKey` (added 2026-08-10, see that entry
+above) is intentionally total — any wardrobe item whose type isn't in `BUILDER_BUCKETS`
+falls into a catch-all rather than disappearing from the "Build an Outfit" picker. That
+catch-all was named `'BAGS'` (`types: ['BAG']`), so headwear (`CAP`/`HAT`, from
+`category: 'headwear'`) and any other unmodeled accessory (belt, scarf, tie, sunglasses,
+ring, bracelet) rendered under a strip literally labeled "BAGS" — a wrong, confusing
+label, even though the totality behavior itself was correct.
+
+Fix chosen (of the two offered — dedicated `HEADWEAR` bucket vs. renaming the catch-all):
+renamed the catch-all bucket key from `BAGS` to `ACCESSORIES` (a bag IS an accessory), one
+rename that fixes every mislabeled type at once instead of adding a second near-empty
+bucket. `BUILDER_BUCKETS`, `BUILDER_FALLBACK_BUCKET` (`= 'ACCESSORIES'`), and
+`BUCKET_LABEL_KEYS` moved out of `app/build.tsx` into a new
+`src/features/wardrobe-build/buckets.ts` (re-exported via that feature's `index.ts`) — both
+so the bucket config is testable under Jest (`jest.config.js`'s `roots` is `<rootDir>/src`
+only, `app/*.tsx` isn't covered) and to keep the config in the features layer per
+CLAUDE.md ("Screens are thin"). `app/build.tsx` now imports these instead of declaring
+them inline; every literal `'BAGS'` reference (in `EMPTY_SEL`, the `optional` outerwear/
+accessories check in `generateOutfits`, `shuffle()`, and the `assignBucketKey` fallback
+arg) was replaced with `'ACCESSORIES'` / the `BUILDER_FALLBACK_BUCKET` constant. i18n key
+`build_bucketBags` renamed to `build_bucketAccessories` ("ACCESSORIES" / "PHỤ KIỆN") in
+both locales — no orphaned key left behind (grepped clean).
+
+New tests: `src/features/wardrobe-build/__tests__/buckets.test.ts` asserts against the
+REAL `BUILDER_BUCKETS`/`BUILDER_FALLBACK_BUCKET` (not a toy fixture) — headwear (`CAP`/
+`HAT`, case-insensitive) and other unlisted accessory types resolve to `ACCESSORIES`; a
+real bag still resolves to `ACCESSORIES` via its explicit `types` entry, not just the
+fallback; a totally unknown/future type still resolves to the fallback (totality
+preserved); every real garment/shoe/outerwear type is unaffected by the rename; and
+`BUCKET_LABEL_KEYS` has exactly one key per bucket. `getInitialVisibleStyles` got 8 new
+tests in `src/services/__tests__/stylesCatalogService.test.ts` (head-slice-only, in-range
+selection doesn't duplicate, out-of-range selection appended in original order, multiple
+out-of-range selections keep relative order, full-catalog pass-through post-expand,
+default `initialCount`, no input mutation, short-catalog pass-through).
+
+See `src/design/style-catalog/design.md` and `src/design/build/design.md` for the
+UI-facing write-up of both changes.
+
+### Verify
+
+Run from repo root. `npx tsc --noEmit`: clean. `npx jest`: 37 suites / 544 tests passed (36
+→ 37 suites: new `buckets.test.ts`; 522 → 544 tests: +22 new, 0 removed, 0 broken).
+Confirmed via `git status`/`git diff --stat` that no file under `supabase/functions/
+generate-outfits/engine/`, `supabase/migrations/`, `src/data/index.ts`, or `assets/items/`
+was touched (two other sessions were editing those concurrently). Not run: `expo`/`eas`
+build, no Supabase deploy, no commit/push.
+
+## Engine vocabulary cleanup — dead `distressed` removed, `mobwife` unblocked (2026-08-11)
+
+Two independent cleanups to `supabase/functions/generate-outfits/engine/`, scoped away
+from the two concurrent sessions editing `app/(onboarding)/styles.tsx`/`app/styles-edit.tsx`/
+`app/build.tsx`/`src/features/wardrobe-build/*`/`src/i18n/locales/*`/`src/design/**` and
+`src/data/index.ts`/`assets/items/*`.
+
+**`distressed` was dead vocabulary.** `BannedFeature` (`types.ts`) declared it and 14
+`STYLE_CONFIGS` entries (oldmoney, smartcasual, preppy, feminine, officechic, coquette,
+cleangirl, elegant, resort, glam, businessformal, sporty, normcore, pinup) listed it in
+`bannedFeatures`, but `featuresPasses` (`filtering.ts`) never implemented a check for it —
+verified by reading the function in full: it checks `loud_logo`/`full_print`/`macro_print`/
+`neon_color`/`floral_print`/`plaid_check`/`abstract_print`/`slogan_text`/
+`graphic_illustration`, never `distressed`. Also checked whether `FitItem` carries any
+signal a distressed/ripped/worn finish could be derived from: `fabric.pattern` is a cut/
+weave-pattern enum (`solid`/`striped`/`plaid`/`checkered`/`floral`/`graphic`/`abstract`) —
+none mean "distressed"; `graphics.*` is logo/artwork only; `drape`/`visualInterest` are too
+generic (a fluid drape or high visual interest item is not necessarily distressed, and vice
+versa). No usable signal exists, so these 14 styles were never actually blocking anything —
+worse than no label, since a config reader would believe distressed items were being
+filtered. Removed `'distressed'` from `BannedFeature` and from all 14 configs (14 array
+edits in `filtering.ts`; two configs — resort, sporty — had ONLY `'distressed'` and are now
+`bannedFeatures: []`). Left a doc comment on `BannedFeature` recording why and how to
+re-add it (a real ingest-time signal + a `featuresPasses` check). Updated
+`style-catalog-consistency.test.ts`'s `VALID_BANNED_FEATURES` to match.
+
+**`mobwife` unblocked.** Batch 2 (above, 2026-08-10) stopped `mobwife` because `FabricName`
+had no fur/faux-fur entry. Added `'fur'` to `FabricName` (`types.ts`) — one value covering
+BOTH real and faux fur, since `FitItem`/`ClothingItemRow` carry no signal that reliably
+distinguishes the two (same "can't enforce what you can't observe" reasoning as the
+`distressed` removal). Filled every fabric-keyed table found by grepping the existing `Wool`
+entries in `enrichment.ts`: `FABRIC_DEFAULTS.Fur` (heavy weight, low breathability —
+required by the task), `MATERIAL_WARMTH.Fur = 5` (tied for warmest, with fleece/cashmere),
+`FABRIC_NAME_MAP.Fur = 'fur'` (required for `deriveFabricName` to resolve it at all), and
+grouped `'Fur'` into `deriveFormality`'s luxury-material bump alongside Wool/Cashmere/Silk.
+Deliberately left two other `Wool`-referencing tables untouched: `MATERIAL_STYLE_BOOSTS` (a
+legacy TYPE-affinity table that none of the 22 previously-added expansion styles are wired
+into either — adding fur only would be inconsistent) and `scoring.ts`'s `NATURAL_FABRICS`
+"reads expensive" set (real fur would qualify but faux fur wouldn't, and the engine can't
+tell them apart — the same ambiguity, so left out rather than guessed).
+
+Added `STYLE_CONFIGS['mobwife']` (id `mobwife`, name "Mob Wife") to `filtering.ts`: palette
+built from black/brown/metallic/camel (perfect) + charcoal/burgundy/wine/tan/natural/khaki
+(allowed) + red/purple/rust (accent), banning the remaining 24 colors; `fabricsAllowed:
+['fur','leather','suede','cashmere','velvet']`, `fabricsBanned` the other 13; `allowedFits:
+['slim','relaxed','oversized']` (the oversized-fur-coat-over-fitted-underlayer contrast is
+the point — a single-fit-band config the way glam/gothic use can't express it);
+`formalityRange: [2.0, 4.0]`; `bannedFeatures: ['loud_logo','neon_color']` only — deliberately
+NOT banning `macro_print`/`floral_print`/`abstract_print` since leopard/animal print (which
+reads as `fabric.pattern: 'abstract'`, the closest existing value) is core to the aesthetic,
+not a violation of it; `typesBanned: ['HOODIE']` (same silhouette-mismatch rationale as
+oldmoney/officechic/parisian/darkacademia/elegant); `attributes.textureRichness: 5.0` — the
+highest in the catalog (glam's 4.5 was the prior max), asserted by a new test. Neighbors
+`glam`(0.5)/`gothic`(0.4)/`elegant`(0.4), bidirectional — added the reverse `mobwife` edge
+into each of those three configs' own `neighbors` arrays.
+
+Self-check against glam/gothic on the 7 relevant axes (formalityRange/colorPalette/
+silhouette/patternLevel/textureRichness/fabricsAllowed/allowedFits): mobwife differs from
+BOTH on all 7 (not just the required 2) — glam is evening-formal/slim-regular/bodycon-
+tailored/dark-bold, gothic is velvet-silk-core/bodycon-structured/dark-monochrome, mobwife
+is fur-leather-core/oversized-bodycon/dark-earth with a wider mid-formality range. Encoded
+as a `Deno.test` (`countDifferingAxes`) in `style-catalog-consistency.test.ts` alongside two
+more new tests (mobwife allows fur; mobwife's textureRichness exceeds the rest of the
+catalog) — 273 → 276 Deno tests in this suite's directory.
+
+**DB sync.** `public.styles` was 31 rows (verified live via Management API before touching
+anything — no drift found). Wrote `supabase/migrations/20260811000001_style_catalog_
+expansion_3.sql` (same convention as the two prior expansion migrations: idempotent INSERT
+`on conflict (id) do nothing`, unconditional neighbor-array UPDATEs on the 3 existing rows
+touched). `supabase db push` was not attempted (known `LegacyDbPushMissingLocalError`
+drift on this project, per prior sessions) — applied directly via the Management API
+`database/query` endpoint instead, same as the batch-2 migration. Verified after: 32 rows;
+`mobwife` row's `attributes`/`neighbors`/`popularity`/`gender_lean` byte-match the engine
+config; `elegant`/`glam`/`gothic` rows' `neighbors` all carry the new `mobwife` reverse edge.
+
+Hit a real PowerShell footgun applying the migration: `Invoke-RestMethod -Body (... |
+ConvertTo-Json)` on this ~3.5KB multi-line SQL string, for reasons not fully root-caused,
+serialized the query value as `{"value":"..."}` instead of a plain JSON string (server
+rejected with "expected string, received object") — worked around by hand-escaping the SQL
+into a JSON string literal (`\`, `"`, newlines) and POSTing UTF-8 bytes directly rather than
+trusting `ConvertTo-Json` on a large string. Noted in case this recurs.
+
+### Verify
+
+Run from repo root. `npx tsc --noEmit`: clean. `npx jest`: 37 suites / 544 tests passed,
+unchanged (this task touched no `src/` file). `deno test --allow-all supabase/functions/
+generate-outfits/engine/`: 276 passed (was 273; +3 new mobwife tests), 0 failed. `deno test
+--allow-all supabase/functions/evaluate-item/`: 37 passed, 0 failed, unchanged. `deno test
+--allow-all supabase/functions/wardrobe-critic/`: 11 passed, 0 failed, unchanged. DB:
+32 rows in `public.styles`, verified matching the engine config. Not run: `expo`/`eas`
+build, no Supabase Edge Function deploy (owner deploys separately), no commit/push — all
+per instruction.
+
+## Waist-defined blazer added to demo wardrobe (2026-08-11)
+
+The 10 women's items added earlier the same day included `blazer-grey-women` (Uniqlo U Boxy
+Tailored Jacket) — on review it reads unisex/boxy (wide lapel, boxed pockets, no waist), and
+its `fit` was left blank per that batch's field-fill policy. That meant no item in the demo
+wardrobe could ever trigger the `outfitWaistDefinition` branch of `WAIST_DEFINING_TYPES` added
+the same day (`engine/silhouette.ts`), which only counts a `BLAZER` as waist-creating when its
+own `fit` isn't `oversized`/`wide` — the boxy blazer has no `fit` set at all, so the check
+falls through to the fitted-top+fitted-bottom+structured-drape path instead, never exercising
+the belt-alternative branch via a garment.
+
+Followed `/fetch-item` for one more item: `blazer_margeaux_blk` — J.Crew **Margeaux Blazer in
+Stretch Linen Blend**, black, item CS638. Source page explicitly describes it as "designed
+with a gently nipped-in waist and sleek back seaming" — single-breasted, notch lapel, welt
+pockets, 67% linen / 33% Sorona bio-polyester shell. J.Crew's own fit label is "Classic fit";
+mapped to the engine's `fit: 'regular'` (not `'slim'`) since "classic/true-to-size" reads
+closer to regular than to the tighter `slim` band, and `'regular'` already satisfies
+`outfitWaistDefinition`'s `fit !== 'oversized' && fit !== 'wide'` condition — no need to
+overclaim `'slim'` from marketing copy that never uses that word.
+
+**Image sourcing was the hard part.** Per the fetch-item skill's image bar (flat lay / ghost
+mannequin / product-only, zero tolerance for any person/hand/neck/hair), a *fitted* blazer is
+much harder to source than the earlier boxy one: fit around the waist is the entire point of
+the product photo, so most retailers shoot it on a model. Checked, in order, before finding a
+usable image: Uniqlo US (E483036, E489025 — `usgoods_*` item images are on-model, not the
+`WesternCommon` flat pattern the earlier boxy jacket used; E437373 discontinued/404), H&M
+(`Single-Breasted Blazer` 1347679005 — explicit "Slim fit" + full composition/measurements
+confirmed by text, but every gallery image incl. the category-grid thumbnail is on-model),
+Everlane (`Tailor Twill`/`Tailored Drape` — both oversized or fit unconfirmed), Ann Taylor
+(model-only gallery), Massimo Dutti (search-result grid genuinely uses flat product shots for
+many items, but none of the ~35 "fitted blazer" results is actually slim/nipped — this
+season's catalog trends `Fluid`/`Flowy`/`Oversize`), COS (`Double-Breasted Wool-Twill Blazer`,
+taupe — **functionally perfect**: `Fit: Slim fit`, `Clothing style: Double-breasted`, visible
+dramatic hourglass on the model, but all 8 gallery images are on-model, none flat), Zara
+(model-only), Mango (`Straight-fit suit blazer` has a flat recommendation-carousel image, but
+its own description says "Straight fit" — disqualified on the fit axis, not the image axis),
+Amazon marketplace listings for Vero Moda ("Vmelma Ls **Fitted** Blazer", explicit slim-fit
+text, dramatic waist visible) and Amazon Essentials ("Regular-Fit... close but comfortable fit
+through chest, waist and hips") — both confirmed the fit/waist language but every one of their
+6–7 gallery images is on-model too, and Zappos (all results on-model). That is 9 retailers
+checked and rejected on the image axis alone before J.Crew.
+
+J.Crew turned out to use genuine ghost-mannequin/product-only photography for at least some
+SKUs (confirmed first on an unrelated collarless "Going-out blazer," sold out, wrong
+silhouette) — the Margeaux blazer's category-*search*-grid thumbnail (not its PDP hero, which
+is on-model) is one such shot: `s7-img-facade/CS638_BK0001` (no `_m`/`_d1..d3` suffix — those
+suffixes are J.Crew's on-model variants). Downloaded that specific URL directly rather than
+the PDP's default image. `rembg i <in> <out-distinct-path>` then `mv` into place, per the
+skill's fixed procedure; opened the result with `Read` and confirmed — jacket only, notch
+lapel, two-button single-breasted closure, visible front darts/waist seams, satin lining,
+`J.CREW` neck label, no trace of a person.
+
+`src/data/index.ts`: added `ASSET['blazer-tailored-black']` and `ITEMS` entry
+`blazer_margeaux_blk` (after `trousers_wide_blk`, so the existing 43 items keep their
+positions and `OUTFITS`/`DEMO_OUTFITS` are unaffected). No `price`/`size`/`measurements` —
+not shown on the static page. `tone: 3` (black). Did not touch `engine/`, migrations, or any
+file the two concurrent sessions (engine/migrations; onboarding-styles/build/wardrobe-build/
+i18n/design) were working in.
+
+**Verify**: `npx tsc --noEmit` clean; `npx jest` → 37 suites / 544 tests passed (same counts
+as the run above — this was a pure data addition, no new tests). Image confirmed clean by eye
+via `Read`. No `expo`/`eas` build, no deploy, no commit/push — per instruction.

@@ -91,3 +91,34 @@ instruction):**
 Recommendation leans toward (1): smaller diff, reuses the sort order that already
 exists, and doesn't require inventing a new taxonomy. Logged in backlog.md for
 anh Khôi to decide.
+
+## "Show all N" implemented (2026-08-11)
+
+Option (1) above, chốt and implemented as specced — no new taxonomy, no accordion.
+
+- **Head slice**: both screens render `STYLE_CATALOG_INITIAL_VISIBLE` (10) tiles from
+  the already gender-lean-sorted `styleList`, via `getInitialVisibleStyles`
+  (`src/services/stylesCatalogService.ts`) — same file as `sortStylesByGenderLean`, same
+  "pure display-order helper, never touches selection/scoring" contract. The count is
+  never hardcoded against the catalog's current size (31, and growing the same day this
+  was written) — it's `styleList.length`, read live at render time.
+- **Affordance**: a single `TextLink` centered below the grid
+  (`styles.showAllRow: { alignItems: 'center', marginTop: 20 }`), color
+  `T.color.tertiary`, reading "Show all {{count}}" / "Xem tất cả {{count}}"
+  (`styleCatalog_showAllCount`). `TextLink` already renders `type.ui` (uppercase,
+  `letterSpacing: 1.5`) with a hairline underline — no new component, no icon, no filled
+  button, no border-radius chrome. Tapping it flips a local `expanded` boolean to true;
+  there is no collapse-back affordance (one-way reveal, matching "a single hairline-
+  underlined text row" from the proposal above — nothing heavier was added).
+- **Selected-style guarantee**: `getInitialVisibleStyles` keeps the first N entries of
+  the sorted list PLUS any style whose id is already selected, even past the cut, in
+  original relative order. This was called out as the one thing that must not regress —
+  a user who picked a low-popularity/off-gender-lean style before this change (now
+  sitting past position 10) must still see it checked when they return to the screen,
+  not have it silently fall off scroll-visible range until they tap "Show all". No
+  visual distinction is drawn between "naturally in the head slice" and "kept visible
+  because selected" — same card, same grid position, consistent with the rest of this
+  doc's "nothing is hidden, disabled, or visually marked" principle.
+- **Unaffected**: `sortStylesByGenderLean`, `MAX_STYLES` (5), the "you might also like"
+  related horizontal strip, and Step 02 niche refinement (`styles-edit.tsx`) — all still
+  operate on the full/selected sets exactly as before, only the head *grid* is sliced.

@@ -89,3 +89,30 @@ export function sortStylesByGenderLean<T extends { genderLean: StyleGenderLean }
     return aMatch - bMatch;
   });
 }
+
+// ─── "Show all" truncation (style catalog 8→31, 2026-08-11) ─────────────────
+// The catalog grew from 8 to 31 styles, turning the style-pick grid into a
+// long scroll. Both styles.tsx (onboarding) and styles-edit.tsx (Style
+// Preferences) now render only the first STYLE_CATALOG_INITIAL_VISIBLE tiles
+// (in whatever order the caller already sorted — see sortStylesByGenderLean
+// above) behind a "Show all N" text link. Deliberately not derived from a
+// hardcoded catalog length: callers always read styleList.length at render
+// time, since the catalog is expected to keep growing (see plan.md/backlog.md
+// — a parallel task is adding a 32nd style the same day this was written).
+export const STYLE_CATALOG_INITIAL_VISIBLE = 10;
+
+/** Styles to render before "Show all" is tapped: the first `initialCount`
+ *  entries (in the caller's already-sorted order) PLUS any style whose id is
+ *  in `selectedIds`, even if it would otherwise fall past the cut — so a
+ *  style the user already picked never appears to have silently vanished
+ *  just because the grid is collapsed. Relative order from `styles` is
+ *  preserved; selected extras beyond `initialCount` surface after the head,
+ *  in their original order, ahead of the "Show all" link. Once the caller
+ *  passes the full list back in (post-expand), this returns it unchanged. */
+export function getInitialVisibleStyles<T extends { id: string }>(
+  styles: T[],
+  selectedIds: readonly string[],
+  initialCount: number = STYLE_CATALOG_INITIAL_VISIBLE,
+): T[] {
+  return styles.filter((s, i) => i < initialCount || selectedIds.includes(s.id));
+}

@@ -5,12 +5,14 @@ import {
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
-import { PrimaryButton, Photo } from '../src/components/ui';
+import { PrimaryButton, Photo, TextLink } from '../src/components/ui';
 import { IconChevronLeft, IconCheck } from '../src/components/icons';
 import { STYLES, STYLE_NICHES } from '../src/data';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { useAuthStore } from '../src/stores/authStore';
-import { sortStylesByGenderLean } from '../src/services/stylesCatalogService';
+import {
+  sortStylesByGenderLean, getInitialVisibleStyles, STYLE_CATALOG_INITIAL_VISIBLE,
+} from '../src/services/stylesCatalogService';
 import { useGridCardWidth, useGridColumns } from '../src/design/layout';
 import { useTranslation } from '../src/i18n';
 
@@ -54,6 +56,16 @@ export default function StylesEditScreen() {
   const allStored = styleProfile.selectedStyles;
   const [selected, setSelected] = useState<string[]>(() => allStored.filter(id => !id.includes(':')));
   const [niches, setNiches] = useState<string[]>(() => allStored.filter(id => id.includes(':')));
+  const [expanded, setExpanded] = useState(false);
+
+  // Collapse the grid to the first N tiles behind a "Show all" link, same
+  // treatment as app/(onboarding)/styles.tsx — the catalog is long (31+
+  // styles) and reuses the sort order above. A style the user already
+  // selected stays visible even before expanding, so it never looks like it
+  // vanished (getInitialVisibleStyles, src/services/stylesCatalogService.ts).
+  // N is read live off styleList.length, never hardcoded.
+  const visibleStyleList = expanded ? styleList : getInitialVisibleStyles(styleList, selected, STYLE_CATALOG_INITIAL_VISIBLE);
+  const hasMoreStyles = !expanded && styleList.length > STYLE_CATALOG_INITIAL_VISIBLE;
 
   // Mutable "clean" baselines for the dirty check — re-anchored whenever a
   // late store hydrate adopts fresh data below (see effect), so a genuine
@@ -169,10 +181,18 @@ export default function StylesEditScreen() {
         </View>
 
         <View style={styles.grid}>
-          {styleList.map((s) => (
+          {visibleStyleList.map((s) => (
             <StyleCard key={s.id} s={s} selected={selected.includes(s.id)} onPress={() => toggle(s.id)} />
           ))}
         </View>
+
+        {hasMoreStyles && (
+          <View style={styles.showAllRow}>
+            <TextLink onPress={() => setExpanded(true)} color={T.color.tertiary}>
+              {t('styleCatalog_showAllCount', { count: styleList.length })}
+            </TextLink>
+          </View>
+        )}
 
         {/* Step 02 — Refinement */}
         <View style={[styles.stepRow, { marginTop: 40 }]}>
@@ -303,6 +323,7 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  showAllRow: { alignItems: 'center', marginTop: 20 },
   card: { overflow: 'hidden', position: 'relative' },
   cardGradient: {
     position: 'absolute',

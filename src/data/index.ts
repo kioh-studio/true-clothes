@@ -99,6 +99,8 @@ const ASSET = {
   'heels-nude':           require('../../assets/items/heels-nude.png')           as number,
   'camisole-blush':       require('../../assets/items/camisole-blush.png')       as number,
   'trousers-wide-black':  require('../../assets/items/trousers-wide-black.png')  as number,
+  // Fetched item — J.Crew Margeaux Blazer (2026-08-11) — waist-defined blazer for outfitWaistDefinition
+  'blazer-tailored-black': require('../../assets/items/blazer-tailored-black.png') as number,
 } satisfies Record<string, number>;
 
 // Measurement helpers — keeps item definitions concise
@@ -177,6 +179,12 @@ export const ITEMS: ClothingItem[] = [
   { id: 'heels_nude',        type: 'HEELS',    name: 'Emmy Pointed Kitten Heels', color: 'Nude',   material: 'Leather',   png: ASSET['heels-nude'],          tone: 2, wornCount: 0, addedDate: 'Aug 2026', brand: 'Charles & Keith' },
   { id: 'camisole_blush',    type: 'CAMISOLE', name: 'AIRism Bra Camisole',       color: 'Blush',  material: 'Polyester', png: ASSET['camisole-blush'],      tone: 1, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
   { id: 'trousers_wide_blk', type: 'TROUSERS', name: 'Wide Chino Pants',          color: 'Black',  material: 'Cotton',    png: ASSET['trousers-wide-black'], tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+
+  // ── Waist-defined blazer (2026-08-11) — J.Crew ─────────────────────────────
+  // Unlike blazer_grey_w (boxy, fit left blank), this one carries an explicit
+  // `fit` so it activates outfitWaistDefinition (engine/silhouette.ts), which
+  // only treats BLAZER as waist-creating when fit isn't oversized/wide.
+  { id: 'blazer_margeaux_blk', type: 'BLAZER', name: 'Margeaux Blazer in Stretch Linen Blend', color: 'Black', material: 'Linen', png: ASSET['blazer-tailored-black'], tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'J.Crew', fit: 'regular' },
 ];
 
 export const itemById = (id: string) => ITEMS.find(i => i.id === id);

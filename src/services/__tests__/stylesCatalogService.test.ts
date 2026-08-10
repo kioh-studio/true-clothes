@@ -9,7 +9,10 @@
 // service test files (see wardrobeService.test.ts / itemPhotoService.test.ts).
 jest.mock('../supabase', () => ({ sb: {} }));
 
-import { sortStylesByGenderLean, StyleGenderLean } from '../stylesCatalogService';
+import {
+  sortStylesByGenderLean, StyleGenderLean,
+  getInitialVisibleStyles, STYLE_CATALOG_INITIAL_VISIBLE,
+} from '../stylesCatalogService';
 
 interface Item { id: string; genderLean: StyleGenderLean; }
 
@@ -71,5 +74,62 @@ describe('sortStylesByGenderLean', () => {
 
   test('empty list → empty list', () => {
     expect(sortStylesByGenderLean([], 'WOMAN')).toEqual([]);
+  });
+});
+
+// "Show all" truncation (style catalog 8→31, 2026-08-11): the grid renders
+// only a head slice by default — but a style the user already selected must
+// never disappear just because it falls past the cut.
+describe('getInitialVisibleStyles', () => {
+  // 31-entry catalog, only ids matter here.
+  const CATALOG_31: Item[] = Array.from({ length: 31 }, (_, i) => ({
+    id: `style-${i}`,
+    genderLean: 'neutral' as StyleGenderLean,
+  }));
+
+  test('returns only the first N when nothing is selected', () => {
+    const result = getInitialVisibleStyles(CATALOG_31, [], 10);
+    expect(idsOf(result)).toEqual(CATALOG_31.slice(0, 10).map(s => s.id));
+  });
+
+  test('a selected style inside the head slice does not duplicate', () => {
+    const result = getInitialVisibleStyles(CATALOG_31, ['style-3'], 10);
+    expect(idsOf(result)).toEqual(CATALOG_31.slice(0, 10).map(s => s.id));
+    expect(idsOf(result).filter(id => id === 'style-3')).toHaveLength(1);
+  });
+
+  test('a selected style OUTSIDE the head slice is appended, never dropped', () => {
+    const result = getInitialVisibleStyles(CATALOG_31, ['style-25'], 10);
+    expect(idsOf(result)).toEqual([...CATALOG_31.slice(0, 10).map(s => s.id), 'style-25']);
+  });
+
+  test('multiple out-of-range selections keep their original relative order', () => {
+    const result = getInitialVisibleStyles(CATALOG_31, ['style-25', 'style-15', 'style-30'], 10);
+    // style-15 comes before style-25 comes before style-30 in CATALOG_31
+    expect(idsOf(result)).toEqual([
+      ...CATALOG_31.slice(0, 10).map(s => s.id),
+      'style-15', 'style-25', 'style-30',
+    ]);
+  });
+
+  test('reading the full catalog length back in (post-expand) returns everything unchanged', () => {
+    const result = getInitialVisibleStyles(CATALOG_31, [], CATALOG_31.length);
+    expect(result).toHaveLength(31);
+  });
+
+  test('default initialCount matches STYLE_CATALOG_INITIAL_VISIBLE', () => {
+    const result = getInitialVisibleStyles(CATALOG_31, []);
+    expect(result).toHaveLength(STYLE_CATALOG_INITIAL_VISIBLE);
+  });
+
+  test('does not mutate the input array', () => {
+    const copy = [...CATALOG_31];
+    getInitialVisibleStyles(CATALOG_31, ['style-25'], 10);
+    expect(CATALOG_31).toEqual(copy);
+  });
+
+  test('short catalog (fewer than initialCount) returns everything', () => {
+    const short = CATALOG_31.slice(0, 5);
+    expect(getInitialVisibleStyles(short, [], 10)).toEqual(short);
   });
 });

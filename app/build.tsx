@@ -16,32 +16,16 @@ import { STYLES, COLORS, OCCASIONS } from '../src/data';
 import { OutfitCollage } from '../src/components/outfit/Collage';
 import { useTranslation } from '../src/i18n';
 import { useItemPhoto } from '../src/features/wardrobe-photos';
-import { useBuilderItems, assignBucketKey, type BuilderItem } from '../src/features/wardrobe-build';
+import {
+  useBuilderItems, assignBucketKey, type BuilderItem,
+  BUILDER_BUCKETS, BUILDER_FALLBACK_BUCKET, BUCKET_LABEL_KEYS, type BuilderBucketKey,
+} from '../src/features/wardrobe-build';
 
-
-const BUILDER_BUCKETS = [
-  { key: 'TOPS',      types: ['TEE', 'KNIT', 'POLO', 'SHIRT', 'BLOUSE', 'HENLEY', 'SWEATER', 'CARDIGAN', 'VEST', 'CAMISOLE', 'CROP', 'BODYSUIT', 'TUNIC', 'CORSET'] },
-  { key: 'BOTTOMS',   types: ['JEANS', 'TROUSERS', 'CHINOS', 'SHORTS', 'SKIRT', 'LEGGINGS'] },
-  { key: 'DRESS',     types: ['DRESS', 'JUMPSUIT', 'OVERALLS', 'GOWN'] },
-  { key: 'OUTERWEAR', types: ['JACKET', 'BLAZER', 'COAT', 'OVERCOAT', 'HOODIE', 'PARKA', 'CAPE', 'KIMONO'] },
-  { key: 'SHOES',     types: ['LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES', 'FLATS', 'WEDGES'] },
-  { key: 'BAGS',      types: ['BAG'] },
-] as const;
-
-type BucketKey = typeof BUILDER_BUCKETS[number]['key'];
+// BUILDER_BUCKETS / BUCKET_LABEL_KEYS live in src/features/wardrobe-build/
+// buckets.ts (moved 2026-08-11 for testability — see that file's header for
+// why the catch-all bucket is named ACCESSORIES, not BAGS).
+type BucketKey = BuilderBucketKey;
 type Selection = Record<BucketKey, string | null>;
-
-// Bucket keys above are stable internal ids (Selection type keys, pool lookups)
-// — this maps each to its translated display label, same pattern as the
-// FILTER_LABEL_KEYS / SHAPE_LABEL_KEYS maps in earlier batches.
-const BUCKET_LABEL_KEYS: Record<BucketKey, string> = {
-  TOPS: 'build_bucketTops',
-  BOTTOMS: 'build_bucketBottoms',
-  DRESS: 'build_bucketDress',
-  OUTERWEAR: 'build_bucketOuterwear',
-  SHOES: 'build_bucketShoes',
-  BAGS: 'build_bucketBags',
-};
 
 // Color-lean filter values are stable ids matching COLORS[].tag in src/data
 // (used to bucket wardrobe items by tag) — keep the id, translate the label.
@@ -60,7 +44,7 @@ const TITLE_WORD_KEYS = [
 
 // A one-piece (DRESS) fills the top+bottom roles, so it is mutually exclusive
 // with TOPS/BOTTOMS — the slot picker enforces this in `pick`/`generateOutfits`.
-const EMPTY_SEL: Selection = { TOPS: null, BOTTOMS: null, DRESS: null, OUTERWEAR: null, SHOES: null, BAGS: null };
+const EMPTY_SEL: Selection = { TOPS: null, BOTTOMS: null, DRESS: null, OUTERWEAR: null, SHOES: null, ACCESSORIES: null };
 
 function BuilderTile({ item, selected, onPress }: { item: BuilderItem; selected: boolean; onPress: () => void }) {
   const { source, status } = useItemPhoto(item.photo);
@@ -161,7 +145,7 @@ function generateOutfits({
       if (!useDress && b.key === 'DRESS') continue;
       const pool = pools[b.key] || [];
       if (pool.length === 0) continue;
-      const optional = b.key === 'OUTERWEAR' || b.key === 'BAGS';
+      const optional = b.key === 'OUTERWEAR' || b.key === 'ACCESSORIES';
       if (optional && Math.random() > 0.55) continue;
       const preferred = pool.filter(matchesColor);
       const list = preferred.length > 0 ? preferred : pool;
@@ -415,10 +399,10 @@ export default function OutfitBuilderScreen() {
 
   // Every item lands in exactly one bucket, even when its (possibly
   // inferred) type isn't listed in any BUILDER_BUCKETS entry — falls back to
-  // BAGS rather than vanishing from the picker with no trace.
+  // ACCESSORIES rather than vanishing from the picker with no trace.
   const buckets = BUILDER_BUCKETS.map((b) => ({
     ...b,
-    list: items.filter((i) => assignBucketKey<BucketKey>(i.type, BUILDER_BUCKETS, 'BAGS') === b.key),
+    list: items.filter((i) => assignBucketKey<BucketKey>(i.type, BUILDER_BUCKETS, BUILDER_FALLBACK_BUCKET) === b.key),
   }));
 
   const findFirst = (types: readonly string[]) =>
@@ -462,7 +446,7 @@ export default function OutfitBuilderScreen() {
       DRESS:     useDress ? r(dresses) : null,
       OUTERWEAR: Math.random() > 0.55 ? r(listFor('OUTERWEAR')) : null,
       SHOES:     r(listFor('SHOES')),
-      BAGS:      Math.random() > 0.55 ? r(listFor('BAGS')) : null,
+      ACCESSORIES: Math.random() > 0.55 ? r(listFor('ACCESSORIES')) : null,
     });
   };
 

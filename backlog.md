@@ -1695,7 +1695,7 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   ripple sang enrichment/ingestion) trước khi style này diễn tả được đúng nghĩa — không tự
   chế bằng cách cấm `bodycon` (vừa thừa vừa thiếu: cấm nhiều đồ bodycon vẫn kín, lọt nhiều
   đồ relaxed nhưng hở). Chưa thêm vào `STYLE_CONFIGS` hay `public.styles`. (2026-08-10)
-- [ ] **UX đề xuất: 31 style tile là dài — cân nhắc "show more" hoặc gom nhóm** — sau đợt 2
+- [x] **UX đề xuất: 31 style tile là dài — cân nhắc "show more" hoặc gom nhóm** — sau đợt 2
   (22→31), `styles.tsx`/`styles-edit.tsx` vẫn là một `flexWrap` grid không giới hạn trong
   `ScrollView`, không vỡ layout nhưng cuộn dài hơn hẳn (~16 hàng so với ~11 hàng ở 22 style).
   Đề xuất (chưa làm — xem `src/design/style-catalog/design.md` mục "Catalog size: 22 → 31"):
@@ -1704,7 +1704,11 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   Casual & Athletic / Romantic & Feminine / Dark & Alternative / Vintage) — đúng tinh thần
   stylist hơn nhưng cần gán taxonomy mới cho từng style + sửa layout cả hai màn, nặng hơn.
   Nghiêng về (a). Cần anh Khôi quyết trước khi implement (đợt này chỉ được sửa layout nhỏ,
-  không được tự ý làm thay đổi lớn). (2026-08-10)
+  không được tự ý làm thay đổi lớn). (2026-08-10) DONE 2026-08-11: implemented option (a) —
+  `getInitialVisibleStyles`/`STYLE_CATALOG_INITIAL_VISIBLE` (=10) trong
+  `src/services/stylesCatalogService.ts`, "Show all N" `TextLink` ở cả hai màn, style đã
+  chọn luôn hiển thị kể cả ngoài 10 tile đầu. Xem plan.md "Style grid 'Show all' truncation
+  + builder ACCESSORIES bucket rename" cùng ngày.
 - [ ] **`wardrobe-critic/archetypes.ts`'s `ALL_STYLES`, `ranking.ts`'s
   `PATTERN_FRIENDLY_STYLES`, `scoring.ts`'s `HOUSE_OPPOSED_STYLES` vẫn chưa có 9 style đợt
   2** — cùng gap đã log cho đợt 1 (22 style), giờ càng rộng hơn ở 31 style. Chưa đụng, vẫn
@@ -1781,3 +1785,27 @@ Các mục dưới đây là việc chưa làm/chưa hoàn hảo, cố ý dừng
   `bannedFeatures`/`typesBanned`) đều đang làm việc theo item, không theo cặp/outfit. Cả
   hai là thiết kế mới (ripple sang `generation.ts`/`filtering.ts`), cần anh Khôi quyết
   trước khi làm — không tự chế trong task này.
+- [ ] **`modest` style vẫn còn treo** — lý do stop giống hệt lần trước (batch 2, 2026-08-10):
+  đặc trưng của nó là độ che phủ da (tay áo/gấu váy/cổ áo), nhưng `FitItem`/
+  `GarmentMeasurements` (`types.ts`) không có tín hiệu nào cho việc này, và
+  `filterByStyle` chỉ có 6 trục hiện có (màu/vải/fit/formality/banned features/type) —
+  không trục nào đo được độ che phủ. Cần quyết định thiết kế mới (thêm attribute
+  coverage vào `FitItem`/ingest, hoặc chấp nhận xấp xỉ có mất mát qua silhouette) trước
+  khi làm — chưa authorize trong task 2026-08-11 (unlock `mobwife`).
+- [ ] **2 bảng fabric-keyed chưa điền cho `fur`** (2026-08-11, cân nhắc khi unlock
+  `mobwife`): `enrichment.ts`'s `MATERIAL_STYLE_BOOSTS` (map material → style id) và
+  `scoring.ts`'s `NATURAL_FABRICS` ("đọc sang/đắt tiền" bonus set). Cố ý bỏ qua:
+  `MATERIAL_STYLE_BOOSTS` là bảng cũ chưa từng được điền cho bất kỳ style nào trong 23
+  style mở rộng gần đây (chỉ có 8 style gốc) — điền riêng cho fur/mobwife sẽ lệch pha
+  với tiền lệ. `NATURAL_FABRICS` thì mơ hồ hơn: lông thật đọc sang, lông giả thì không,
+  và `FitItem` không phân biệt được hai loại (đúng lý do 'fur' gộp chung real+faux) —
+  thêm vào có thể thưởng sai cho lông giả. Cần anh Khôi quyết trước khi làm.
+- [x] **`blazer_margeaux_blk` đã fetch** (2026-08-11) — J.Crew Margeaux Blazer, `fit: 'regular'`,
+  chiết eo rõ, để kích hoạt `outfitWaistDefinition`. Ghi chú cho lần `/fetch-item` sau: fitted
+  blazer nữ RẤT khó tìm ảnh flat lay/ghost mannequin sạch — kiểm tra 9 nguồn (Uniqlo, H&M,
+  Everlane, Ann Taylor, Massimo Dutti, COS, Zara, Mango, Amazon/Zappos) đều chỉ có ảnh mặc trên
+  người dù mô tả xác nhận đúng "fitted"/"slim fit"/"nipped waist"; J.Crew là nguồn hiếm hoi có
+  ảnh product-only thật cho một số SKU — nhưng chỉ ở ảnh THUMBNAIL trang search/category, không
+  phải ảnh hero trên trang chi tiết sản phẩm (PDP hero luôn là model). URL pattern nhận diện:
+  Scene7 `s7-img-facade/<CODE>_<COLOR>` (KHÔNG có hậu tố `_m`/`_d1`/`_d2`/`_d3` — các hậu tố đó
+  là biến thể mặc trên người).

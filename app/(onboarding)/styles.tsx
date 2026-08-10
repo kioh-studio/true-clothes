@@ -2,13 +2,16 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Image, FlatList } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PrimaryButton, Photo } from '../../src/components/ui';
+import { PrimaryButton, Photo, TextLink } from '../../src/components/ui';
 import { IconChevronLeft, IconCheck } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { STYLES, StyleOption } from '../../src/data';
 import { useFitEngineStore } from '../../src/stores/fitEngineStore';
 import { useAuthStore } from '../../src/stores/authStore';
-import { StyleCatalogItem, sortStylesByGenderLean } from '../../src/services/stylesCatalogService';
+import {
+  StyleCatalogItem, sortStylesByGenderLean,
+  getInitialVisibleStyles, STYLE_CATALOG_INITIAL_VISIBLE,
+} from '../../src/services/stylesCatalogService';
 import { useGridCardWidth, useGridColumns } from '../../src/design/layout';
 import { useTranslation } from '../../src/i18n';
 
@@ -67,6 +70,7 @@ export default function StylesScreen() {
   const { setStyleProfile, styles: catalogStyles } = useFitEngineStore();
   const gender = useAuthStore(s => s.gender);
   const [selected, setSelected] = useState<string[]>([]);
+  const [expanded, setExpanded] = useState(false);
   const cols = useGridColumns();
 
   // Use catalog if loaded, fall back to static STYLES. Gender-matched styles
@@ -74,6 +78,16 @@ export default function StylesScreen() {
   // first — display order only, nothing is hidden or removed (2026-08-10).
   const rawStyleList: (StyleCatalogItem | StyleOption)[] = catalogStyles.length > 0 ? catalogStyles : STYLES;
   const styleList = sortStylesByGenderLean(rawStyleList, gender);
+
+  // Collapse the grid to the first N tiles behind a "Show all" link — the
+  // catalog is long (31+ styles) and this reuses the sort order above rather
+  // than inventing a new one. A style the user already selected is always
+  // kept visible even before expanding, so their pick never seems to vanish
+  // (getInitialVisibleStyles, src/services/stylesCatalogService.ts). N is
+  // never hardcoded against the catalog length — always read live via
+  // styleList.length, since the catalog keeps growing.
+  const visibleStyleList = expanded ? styleList : getInitialVisibleStyles(styleList, selected, STYLE_CATALOG_INITIAL_VISIBLE);
+  const hasMoreStyles = !expanded && styleList.length > STYLE_CATALOG_INITIAL_VISIBLE;
 
   const toggle = (id: string) => setSelected(s => {
     if (s.includes(id)) return s.filter(x => x !== id);
@@ -159,7 +173,7 @@ export default function StylesScreen() {
         )}
 
         <View style={styles.grid}>
-          {styleList.map(s => {
+          {visibleStyleList.map(s => {
             const id = s.id;
             return (
               <StyleCard
@@ -172,6 +186,14 @@ export default function StylesScreen() {
             );
           })}
         </View>
+
+        {hasMoreStyles && (
+          <View style={styles.showAllRow}>
+            <TextLink onPress={() => setExpanded(true)} color={T.color.tertiary}>
+              {t('styleCatalog_showAllCount', { count: styleList.length })}
+            </TextLink>
+          </View>
+        )}
 
         <View style={{ height: 24 }} />
         <PrimaryButton onPress={handleContinue} disabled={selected.length === 0}>
@@ -195,6 +217,7 @@ const styles = StyleSheet.create({
   relatedSection: { marginBottom: 24, marginHorizontal: -24 },
   relatedLabel: { ...type.ui, fontSize: 10, color: T.color.tertiary, paddingHorizontal: 24, marginBottom: 12 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  showAllRow: { alignItems: 'center', marginTop: 20 },
   card: { borderRadius: 2, overflow: 'hidden', position: 'relative' },
   cardGradient: {
     position: 'absolute', left: 0, right: 0, bottom: 0, height: '45%',
