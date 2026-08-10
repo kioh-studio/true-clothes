@@ -178,8 +178,12 @@ export default function HomeScreen() {
     }, 400);
   }, [isDemo, addDismissedOutfit, lastCurated, feed.length]);
 
+  // 2026-08-11: single demo-wardrobe CTA destination — `/add-item`, the same
+  // route `app/build.tsx`'s empty-wardrobe state uses. Previously replaced
+  // into the Wardrobe tab, a different destination than the (now-removed)
+  // header hint's `/add-item` — see demoBanner below for the merged copy.
   const onAddItems = useCallback(() => {
-    router.replace('/(tabs)/wardrobe');
+    router.push('/add-item' as any);
   }, [router]);
 
   // T023: retry handler
@@ -493,7 +497,12 @@ function FeedCardInner({ outfit, index, active, cardH, saved, isDemo, topInset, 
         </View>
       </View>
 
-      {/* T022: Demo banner — sticky at bottom of card when showing demo outfits */}
+      {/* T022, merged 2026-08-11: sticky demo banner at the bottom of the card
+          (kept — the reachable, high-visibility spot) now carries the honest
+          "not your wardrobe" copy that used to live in a separate header hint
+          (removed — two indicators for the same empty-wardrobe state was
+          redundant chrome). Single CTA destination: `/add-item`, same as
+          app/build.tsx's empty-wardrobe state. */}
       {isDemo && active && (
         <Pressable onPress={onAddItems} style={styles.demoBanner}>
           <Text style={styles.demoBannerText}>{t('tabs_home_demoBannerText')}</Text>
@@ -628,7 +637,7 @@ const styles = StyleSheet.create({
   emptyFeed: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 48 },
   emptyTitle: { ...type.h2, color: T.color.primary, textAlign: 'center' },
   emptyCaption: { ...type.caption, marginTop: 12, textAlign: 'center' },
-  // T022: demo banner
+  // T022: demo banner (copy merged with the removed header hint, 2026-08-11)
   demoBanner: {
     position: 'absolute',
     bottom: 0, left: 0, right: 0,

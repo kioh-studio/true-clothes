@@ -1,6 +1,6 @@
 // Hook: the user's real wardrobe, adapted for the manual outfit builder
 // (app/build.tsx). Replaces the old `useAppStore().items` read, which
-// resolved to the bundled 14-item mock catalog (src/data ITEMS) and never the
+// resolved to the bundled 32-item mock catalog (src/data ITEMS) and never the
 // user's own wardrobe (2026-08-10, see backlog.md).
 
 import { useMemo } from 'react';

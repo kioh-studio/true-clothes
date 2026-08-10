@@ -4,7 +4,7 @@
 
 `app/build.tsx` now composes outfits from the user's own wardrobe
 (`wardrobeItems`, adapted via `src/features/wardrobe-build/`), not the
-bundled 14-item demo catalog. When the wardrobe has no items yet, the screen
+bundled 32-item demo catalog. When the wardrobe has no items yet, the screen
 shows a dedicated empty state instead of an empty picker area — never a
 silent fallback to demo clothes:
 

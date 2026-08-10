@@ -268,3 +268,47 @@ of the engine's `LAYER_ROLE_BY_TYPE`
 (`supabase/functions/generate-outfits/engine/enrichment.ts`) — see that
 file's comment before changing either side. Full rationale (including why
 `KIMONO` was moved to the mid group to match the engine) is in `plan.md`.
+
+## Demo-feed label for empty-wardrobe users (2026-08-11, merged same day)
+
+A brand-new user with an empty wardrobe sees `app/(tabs)/index.tsx`'s 2
+curated `DEMO_OUTFITS` (`OUTFITS.slice(0, 2)`, T022 —
+`specs/001-app-baseline/tasks.md`) instead of an empty feed — they're someone
+else's pre-built outfits from the 32-item mock catalog in `src/data`, shown
+so a first-time user immediately sees what the app can do.
+
+An earlier pass this same day briefly split this into two separate
+indicators (a header-strip hint plus T022's existing bottom-card banner),
+which turned out to say close to the same thing from two places with two
+different destinations (header → `/add-item`; T022 banner → the Wardrobe
+tab). Consolidated back to **one** indicator: T022's sticky banner at the
+bottom of the demo card, position and CTA-button structure unchanged,
+carrying updated copy that states plainly these aren't the user's own
+clothes:
+
+- **Placement (unchanged from T022).** Sticky to the bottom of the active
+  demo card (`styles.demoBanner`), only rendered while that card is active
+  (`isDemo && active`) — the spot the user's thumb is already near, with a
+  real tappable CTA button, not just a passive header line.
+- **Style (unchanged from T022).** Hairline top border, `T.color.canvas`
+  background, serif-light body text (`demoBannerText`) plus a small
+  uppercase CTA line (`demoBannerCta`, `type.ui` at 10px,
+  `T.color.primary`) — no color beyond existing tokens, no icon, no
+  pill/background, no border-radius, no shadow.
+- **Copy.** `tabs_home_demoBannerText` — "Styled example, not your
+  wardrobe" / "Ví dụ minh họa, chưa phải đồ của bạn" — states plainly these
+  are example outfits, not the user's own. `tabs_home_demoBannerCta` —
+  "ADD YOUR FIRST PIECE →" / "THÊM MÓN ĐẦU TIÊN →".
+- **CTA destination.** Tapping anywhere on the banner (`onAddItems`) now
+  routes to `/add-item` — the exact route `app/build.tsx`'s own
+  empty-wardrobe CTA uses (`router.push('/add-item' as any)`). Previously
+  routed to the Wardrobe tab; changed so both empty-wardrobe entry points
+  in the app land the user on the same next step.
+- **Gating (unchanged from T022).** Shown only while `isDemo`
+  (`wardrobeItems.length === 0`) and only on the currently-active card.
+  Disappears entirely the moment the user has any wardrobe item.
+
+The separate header-strip hint (`tabs_home_demoHint`, `topOverlay`) from the
+earlier pass is removed — no second indicator, no orphaned i18n key. No
+changes to `isDemo`'s definition, the demo outfit count, or any
+engine/scoring logic.

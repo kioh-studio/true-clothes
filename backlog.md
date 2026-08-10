@@ -2,7 +2,7 @@
 
 - [x] 🔴 **`app/build.tsx` "Build an Outfit" chạy hoàn toàn trên MOCK** (2026-08-10) —
   `build.tsx:398` lấy `const { items, ... } = useAppStore()`, chỉ `items` chứ KHÔNG lấy
-  `wardrobeItems`. Mà `appStore.items` khởi tạo = `ITEMS` (14 món demo hardcoded trong
+  `wardrobeItems`. Mà `appStore.items` khởi tạo = `ITEMS` (32 món demo hardcoded trong
   `src/data/index.ts`). So sánh: `app/(tabs)/index.tsx:104` lấy CẢ `items` lẫn
   `wardrobeItems`. Nghĩa là một mục chính trong Options Menu đang cho user phối quần áo
   KHÔNG PHẢI của họ — mọi pool/anchor/bước gợi ý đều chạy trên catalogue demo. Đây là
@@ -27,7 +27,7 @@
   "BAGS" strip** (2026-08-10, judgment call made while resolving the item above — see
   `src/features/wardrobe-build/toBuilderItem.ts`). `BUILDER_BUCKETS` in `app/build.tsx`
   has no bucket for `headwear`/generic accessories (only `BAGS: ['BAG']`) — it was
-  authored only for what the 14-item mock catalog ever had. Rather than invent a new
+  authored only for what the 32-item mock catalog ever had. Rather than invent a new
   bucket (a UI/design change out of scope for this task) or let such an item disappear
   from the builder with no trace, it now falls into the BAGS bucket's rendered list —
   visible and pickable, but the strip header still reads "BAGS" even if the tile shown is
@@ -1740,6 +1740,35 @@ các mục dưới đây là những gì CHƯA làm, cố ý dừng để báo c
   `polka dot` (`enrichment.ts` `STORED_PATTERN_MAP`) quá dị biệt để có case "chắc chắn":
   một style có thể muốn cấm camo nhưng giữ polka dot (VD pinup) — cấm cả bucket sẽ sai một
   nửa. Sẵn sàng dùng khi có style cụ thể cần, nhưng không tự gán để tránh siết nhầm.
+
+## AD. Womenswear demo data — fetch-item session (2026-08-11)
+
+Thêm 10 món nữ + 2 outfit demo (`o7`/`o8`) vào `src/data/index.ts`. Xem `plan.md`
+"Womenswear demo data — 10 items + 2 outfits" cùng ngày để biết chi tiết nguồn/sourcing.
+Các mục dưới đây là việc chưa làm/chưa hoàn hảo, cố ý dừng để báo cáo.
+
+- [ ] **`skirt-pleated-beige` không thực sự là màu be** — không tìm được colorway be/camel
+  thật trong 3 SKU chân váy pleated đã thử trên Uniqlo VN/US (E470922, E479916, E467640) —
+  chỉ có xám/đen/olive/pastel. Dùng tạm màu "Stone" (xám ấm nhạt, tone 1) từ E470922 màu
+  51 — đủ gần để hợp category nhưng KHÔNG phải be thật. Nếu cần be chuẩn, thử thêm nguồn
+  khác (Zara/Mango/ASOS) hoặc đổi tên hiển thị màu.
+- [ ] **`camisole-blush` không phải lụa** — brief gốc xin "áo hai dây lụa" (`camisole-silk`)
+  nhưng Uniqlo AIRism Bra Camisole (E465707) là polyester/cupro/spandex, không phải lụa.
+  Đổi slug thành `camisole-blush`, material ghi `Polyester` thay vì bịa `Silk`. Nếu cần một
+  món cami lụa thật, phải tìm ở brand khác (Everlane/COS thường có silk cami nhưng hầu hết
+  ảnh sản phẩm của họ là người mẫu, không có ảnh flat/ghost sạch — chưa tìm được nguồn đạt).
+- [ ] **`price`/`size`/`measurements` bỏ trống cho cả 10 món nữ** — Uniqlo và Charles &
+  Keith render giá/size qua client-side JS, không có trong static HTML fetch được qua
+  `curl`. Nếu cần điền, phải dùng trình duyệt thật (Chrome tool) để đọc DOM sau khi JS
+  chạy, hoặc tìm API endpoint JSON của từng site.
+- [x] **`rembg i <in> <out>` với `in == out` sẽ tự xoá sạch input** — gặp phải khi làm theo
+  đúng ví dụ trong skill `fetch-item` (`rembg i assets/items/<slug>.png
+  assets/items/<slug>.png`), làm 10 ảnh gốc vừa tải về bị ghi đè thành file 0 byte trước
+  khi rembg kịp đọc xong. Phải tải lại rồi chạy với output path khác + `mv` sau. FIXED
+  2026-08-11: `.claude/skills/fetch-items/SKILL.md` bước 3 giờ ghi ra `<slug>-cut.png` rồi
+  `mv` đè lên, kèm cảnh báo rõ lý do; đồng thời bước 4 mới bổ sung tiêu chí nghiệm thu bắt
+  buộc (Read tool xem lại ảnh, không được dính người) và danh sách `type` được bổ sung đủ
+  đồ nữ.
 - [ ] **Kiến trúc lọc còn thiếu 2 kiểu ràng buộc** — nhận ra khi thiết kế `typesBanned`
   (chỉ thêm được "cấm loại đồ X"), nhưng `filterByStyle` chưa có cơ chế cho:
   (a) **"bắt buộc phải có"** — VD style X yêu cầu ít nhất 1 món trong nhóm Y mới coi là

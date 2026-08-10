@@ -407,7 +407,7 @@ export default function OutfitBuilderScreen() {
   const { t } = useTranslation();
   const { createCollection, addItemToCollection, collectionsError } = useAppStore();
   // The user's real wardrobe (src/features/wardrobe-build), NOT the bundled
-  // mock catalog — the builder used to read appStore.items (ITEMS, 14
+  // mock catalog — the builder used to read appStore.items (ITEMS, 32
   // hardcoded demo pieces) and let people compose outfits from clothes that
   // weren't theirs (backlog.md, 2026-08-10).
   const items = useBuilderItems();

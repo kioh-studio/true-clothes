@@ -88,6 +88,17 @@ const ASSET = {
   'trousers-wide':        require('../../assets/items/trousers-wide.png')        as number,
   'mule-tan':             require('../../assets/items/mule-tan.png')             as number,
   'cap-plaid':            require('../../assets/items/cap-plaid.png')            as number,
+  // Fetched items — womenswear (2026-08-11) — Uniqlo / Uniqlo:C / Charles & Keith
+  'blouse-white':         require('../../assets/items/blouse-white.png')         as number,
+  'dress-floral-midi':    require('../../assets/items/dress-floral-midi.png')    as number,
+  'dress-black':          require('../../assets/items/dress-black.png')          as number,
+  'skirt-pencil-black':   require('../../assets/items/skirt-pencil-black.png')   as number,
+  'skirt-pleated-beige':  require('../../assets/items/skirt-pleated-beige.png')  as number,
+  'cardigan-cream':       require('../../assets/items/cardigan-cream.png')       as number,
+  'blazer-grey-women':    require('../../assets/items/blazer-grey-women.png')    as number,
+  'heels-nude':           require('../../assets/items/heels-nude.png')           as number,
+  'camisole-blush':       require('../../assets/items/camisole-blush.png')       as number,
+  'trousers-wide-black':  require('../../assets/items/trousers-wide-black.png')  as number,
 } satisfies Record<string, number>;
 
 // Measurement helpers — keeps item definitions concise
@@ -152,6 +163,20 @@ export const ITEMS: ClothingItem[] = [
   // Accessories
   { id: 'debase_mule_tan',    type: 'LOAFERS',  name: 'Buckle Mulé',           color: 'Tan',    material: 'Suede',             png: ASSET['mule-tan'],       tone: 2, wornCount: 0, addedDate: 'May 2026', brand: 'De Basé', price: 850_000, size: 'EU 42', measurements: shoe(9, 42) },
   { id: 'debase_cap_plaid',   type: 'CAP',      name: 'basé Logo CAP 01',      color: 'Forest', material: 'Wool Felt',         png: ASSET['cap-plaid'],      tone: 3, wornCount: 0, addedDate: 'May 2026', brand: 'De Basé', price: 300_000, measurements: [{ label: 'Head circ.', value: '50–60', unit: 'cm' }] },
+
+  // ── Womenswear (2026-08-11) — Uniqlo / Uniqlo:C / Charles & Keith ──────────
+  // No confirmed price/size/measurements from source product pages — omitted
+  // rather than guessed (see CLAUDE.md field-fill policy).
+  { id: 'blouse_white',      type: 'BLOUSE',   name: 'Rayon Blouse',              color: 'White',  material: 'Rayon',     png: ASSET['blouse-white'],        tone: 0, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'dress_floral',      type: 'DRESS',    name: 'Floral Flare Dress',        color: 'Ivory',  material: 'Rayon',     png: ASSET['dress-floral-midi'],   tone: 0, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'dress_black',       type: 'DRESS',    name: 'Pleated Sleeveless Dress',  color: 'Black',  material: 'Polyester', png: ASSET['dress-black'],         tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'skirt_pencil_blk',  type: 'SKIRT',    name: 'Linen Narrow Skirt',        color: 'Black',  material: 'Linen',     png: ASSET['skirt-pencil-black'],  tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'skirt_pleated_stn', type: 'SKIRT',    name: 'Pleated Long Skirt',        color: 'Stone',  material: 'Polyester', png: ASSET['skirt-pleated-beige'], tone: 1, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'cardigan_cream',    type: 'CARDIGAN', name: '3D Knit Mesh Cardigan',     color: 'Cream',  material: 'Cotton',    png: ASSET['cardigan-cream'],      tone: 0, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'blazer_grey_w',     type: 'BLAZER',   name: 'U Boxy Tailored Jacket',    color: 'Grey',   material: 'Cotton',    png: ASSET['blazer-grey-women'],   tone: 1, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'heels_nude',        type: 'HEELS',    name: 'Emmy Pointed Kitten Heels', color: 'Nude',   material: 'Leather',   png: ASSET['heels-nude'],          tone: 2, wornCount: 0, addedDate: 'Aug 2026', brand: 'Charles & Keith' },
+  { id: 'camisole_blush',    type: 'CAMISOLE', name: 'AIRism Bra Camisole',       color: 'Blush',  material: 'Polyester', png: ASSET['camisole-blush'],      tone: 1, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'trousers_wide_blk', type: 'TROUSERS', name: 'Wide Chino Pants',          color: 'Black',  material: 'Cotton',    png: ASSET['trousers-wide-black'], tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
 ];
 
 export const itemById = (id: string) => ITEMS.find(i => i.id === id);
@@ -208,6 +233,24 @@ export const OUTFITS: Outfit[] = [
     tags: ['22°C', 'OFFICE', 'MORNING'], tone: 1,
     itemIds: ['i_jeans_dark', 'i_tee_beige', 'i_loaf_black', 'i_bag_black'],
     img: PHOTOS.outfit_2,
+  },
+  {
+    id: 'o7', title: 'Boardroom Line', subtitle: 'sharp, unbothered',
+    style: 'OFFICE CHIC', context: 'OFFICE', weather: '23°C',
+    description: 'Grey boxy blazer, white blouse, wide black trousers, nude heels.',
+    longDescription: 'Structure without stiffness. The blazer holds the line, the wide leg gives it room to move, and the heel keeps the whole thing polished from nine to nine.',
+    tags: ['23°C', 'OFFICE', 'MORNING'], tone: 1,
+    itemIds: ['blouse_white', 'blazer_grey_w', 'trousers_wide_blk', 'heels_nude', 'i_bag_black'],
+    img: PHOTOS.outfit_7,
+  },
+  {
+    id: 'o8', title: 'Left Bank', subtitle: 'unbothered, unhurried',
+    style: 'PARISIAN CHIC', context: 'WEEKEND', weather: '21°C',
+    description: 'Floral midi dress, cream cardigan, nude heels.',
+    longDescription: 'Small florals, a cardigan thrown over the shoulders, shoes that still let you walk the whole afternoon. Nothing about it tries too hard.',
+    tags: ['21°C', 'WEEKEND', 'AFTERNOON'], tone: 0,
+    itemIds: ['dress_floral', 'cardigan_cream', 'heels_nude'],
+    img: PHOTOS.outfit_8,
   },
   {
     id: 'o3', title: 'Slow Sunday', subtitle: 'long lunch energy',

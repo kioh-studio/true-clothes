@@ -5339,7 +5339,7 @@ in the mid group, z-index ordering end-to-end via `buildLayout`).
 
 ### 2. `app/build.tsx` ("Build an Outfit") ran entirely on mock data
 
-`build.tsx` read `useAppStore().items`, which resolves to the bundled 14-item mock
+`build.tsx` read `useAppStore().items`, which resolves to the bundled 32-item mock
 catalog (`ITEMS`, `src/data/index.ts`) seeded at store init and never touched again — the
 user's real wardrobe lives in `wardrobeItems` (`WardrobeItem[]`). Every screen in the
 manual outfit builder (tile strips, shuffle, the "Suggest outfits for me" composer, the
@@ -5509,3 +5509,156 @@ supabase/functions/generate-outfits/engine/`: 273/273 (261 pre-existing + 12 new
 `deno test --allow-all supabase/functions/evaluate-item/`: 37/37, unchanged. `deno test
 --allow-all supabase/functions/wardrobe-critic/`: 11/11, unchanged. Not run: `expo`/`eas`
 build, no Supabase deploy, no commit/push.
+
+## Demo-feed label for empty-wardrobe users (2026-08-11)
+
+Client-side UI polish, no domain/backend logic changed — see `src/design/feed/design.md`
+for the full write-up. Noted here only because it touches the same empty-wardrobe seam
+`app/build.tsx`'s "real wardrobe, not the mock catalog" fix did the same day (2026-08-10,
+"Collage layer ordering fix + `app/build.tsx` real wardrobe" above): a brand-new user with
+an empty wardrobe saw `app/(tabs)/index.tsx`'s 2 curated `DEMO_OUTFITS` (T022,
+`specs/001-app-baseline/tasks.md`) with no indication they weren't the user's own clothes,
+while `build.tsx`'s empty state that same day started saying so explicitly — two screens
+handling the identical empty-wardrobe moment in contradicting ways.
+
+Added a second, quieter demo indicator — a text-only line in the feed's header strip,
+shown only while `isDemo` — alongside T022's existing sticky banner at the bottom of the
+demo card (left untouched; it's a spec'd, already-shipped feature with its own CTA to the
+Wardrobe tab). The new line routes into the same add-item flow (`/add-item`) `build.tsx`'s
+empty state uses, so both empty-wardrobe entry points now point at the identical next
+step. New i18n key `tabs_home_demoHint` in `en.json`/`vi.json`.
+
+### Verify
+
+Run from repo root. `npx tsc --noEmit`: clean. `npx jest`: 36 suites / 522 tests passed,
+unchanged. Not run: `expo`/`eas` build, no Supabase deploy, no commit/push.
+
+## Womenswear demo data — 10 items + 2 outfits (2026-08-11)
+
+Demo wardrobe had 32 items and 0 women's pieces — no dress, skirt, blouse, or heels —
+despite the style catalog now carrying 20 feminine-leaning styles (`feminine`,
+`coquette`, `officechic`, `parisian`, etc., 2026-08-10 expansions). Followed the
+`/fetch-item` skill to source 10 women's items and 2 new demo outfits into
+`src/data/index.ts` (`ASSET`, `ITEMS`, `OUTFITS`). Ran alongside another task editing
+`app/(tabs)/index.tsx`/i18n/`src/design/feed/design.md` — did not touch those files.
+
+### Sourcing
+
+Uniqlo's per-color product photography is inconsistent: "basics" (tees, chinos, camisole,
+wide pants) render flat/ghost on the product page's `item` image slot, but style pieces
+(blouses, skirts, cardigans, dresses) often render on a live model in that same slot —
+confirmed by probing several product codes and eyeballing the downloaded image before
+committing to it. Found flat shots for all 10 by testing multiple product codes/color
+variants per category (e.g. one cardigan SKU turned out to be 100% model shots across
+every color; a different 3D-knit cardigan SKU was flat in all colors). Heels came from
+Charles & Keith, whose shoe photography is product-only by convention (no on-foot shots).
+
+10 items — slug, type, source:
+1. `blouse-white` — BLOUSE — Uniqlo Rayon Blouse (E464721, white)
+2. `dress-floral-midi` — DRESS — Uniqlo:C Flare Dress (E473348, ivory floral)
+3. `dress-black` — DRESS — Uniqlo Pleated Sleeveless Dress (E464787, black)
+4. `skirt-pencil-black` — SKIRT — Uniqlo Linen Narrow Skirt (E477523, black)
+5. `skirt-pleated-beige` — SKIRT — Uniqlo:C Pleated Long Skirt (E470922, stone/warm-grey;
+   no true beige colorway existed in this SKU or two others checked — see backlog)
+6. `cardigan-cream` — CARDIGAN — Uniqlo 3D Knit Mesh Cardigan (E465487, cream)
+7. `blazer-grey-women` — BLAZER — Uniqlo U Boxy Tailored Jacket (E467013, grey)
+8. `heels-nude` — HEELS — Charles & Keith Emmy Pointed Kitten Heel Pumps (nude)
+9. `camisole-blush` — CAMISOLE — Uniqlo AIRism Bra Camisole (E465707, blush pink; slug
+   renamed from the suggested `camisole-silk` — the fabric is a polyester/cupro/spandex
+   blend, not silk, so it's labelled `Polyester` rather than claiming a material the
+   product isn't)
+10. `trousers-wide-black` — TROUSERS — Uniqlo Wide Chino Pants (E469828, near-black/charcoal)
+
+All 10 downloaded straight from source (flat/ghost-mannequin/product-only, no model in
+frame) and processed once each with `rembg`; every result was viewed with the Read tool
+before use to confirm no leftover person/limb and a clean cutout — none needed a retry.
+`type` values (`BLOUSE`, `DRESS`, `SKIRT`, `CARDIGAN`, `BLAZER`, `HEELS`, `CAMISOLE`,
+`TROUSERS`) all pre-exist in `supabase/functions/generate-outfits/engine/enrichment.ts`'s
+`CATEGORY_MAP`/vocabulary — no new engine typeName introduced. Per the fetch-item skill's
+field policy, price/size/measurements were left off all 10 (not shown on the source pages'
+static HTML — Uniqlo/Charles & Keith render them client-side) rather than guessed; brand,
+color, material, and tone (by visual brightness) were filled since they were visually
+certain.
+
+**Gotcha hit and fixed:** `rembg i <path> <path>` (same input/output path, as the skill's
+example shows) truncates the output file before finishing the read on some installs,
+racing itself — wiped all 10 freshly-downloaded source images to 0 bytes on the first
+attempt. Re-downloaded, then ran `rembg i <in> <in>.out.png` (distinct output path) and
+`mv`'d into place afterward. Flagging in case another `/fetch-item` run hits the same
+race — the skill doc's `rembg i <in> <out>` example should probably use distinct paths by
+default.
+
+### Two new outfits
+
+Inserted as `o7`/`o8`, placed right after `o2` (before `o3`) in `OUTFITS` — `o1`/`o2` keep
+their original positions/order so `DEMO_OUTFITS = OUTFITS.slice(0, 2)` (feature 001,
+`app/(tabs)/index.tsx`) is unaffected.
+
+- `o7` "Boardroom Line" — style `OFFICE CHIC` — `blouse_white` + `blazer_grey_w` +
+  `trousers_wide_blk` + `heels_nude` + the existing `i_bag_black` (neutral accessory reuse).
+- `o8` "Left Bank" — style `PARISIAN CHIC` — `dress_floral` + `cardigan_cream` +
+  `heels_nude`.
+
+Both `style` values match existing `STYLES` catalog entries (`officechic`/`parisian`,
+2026-08-10 expansion) upper-cased to match the existing outfits' display convention.
+
+### Verify
+
+Run from repo root. `npx tsc --noEmit`: clean. `npx jest`: 36 suites / 522 tests passed,
+unchanged (this task touched no engine/service code, only `src/data/index.ts` + `assets/`).
+Every fetched image confirmed clean (no model, transparent background) via the Read tool
+before being wired in. Not run: `expo`/`eas` build, no Supabase deploy, no commit/push.
+
+## Demo-feed indicator merged back to one banner (2026-08-11)
+
+The 2026-08-11 "Demo-feed label for empty-wardrobe users" entry above added a second,
+quieter header-strip hint (`tabs_home_demoHint`) alongside T022's existing sticky banner
+at the bottom of the demo card — two indicators, two destinations (header hint → `/add-
+item`; T022 banner → the Wardrobe tab), saying close to the same thing. Consolidated back
+to one: T022's bottom-card banner (kept — the reachable spot the user's thumb is already
+near, with a real CTA button) now carries the honest "not your wardrobe" copy the header
+hint used to say; the header hint is removed entirely from `app/(tabs)/index.tsx`
+(`topOverlay`), along with its `demoHint`/`demoHintText` styles.
+
+Both empty-wardrobe entry points (`app/build.tsx`'s empty state and this banner) now push
+to the same route, `/add-item` — `onAddItems` changed from `router.replace('/(tabs)/
+wardrobe')` to `router.push('/add-item' as any)`.
+
+Copy split across the banner's two existing text elements (`demoBannerText` /
+`demoBannerCta`), rather than concatenated into one sentence:
+- `tabs_home_demoBannerText`: "Styled example, not your wardrobe" / "Ví dụ minh họa, chưa
+  phải đồ của bạn"
+- `tabs_home_demoBannerCta`: "ADD YOUR FIRST PIECE →" / "THÊM MÓN ĐẦU TIÊN →"
+
+`tabs_home_demoHint` removed from `en.json`/`vi.json` (orphaned key, no remaining
+reference). No change to `isDemo`'s definition, `DEMO_OUTFITS`, or any engine/scoring
+logic. See `src/design/feed/design.md` for the UI write-up.
+
+### `/fetch-item` skill fix — `rembg` in-place bug + missing womenswear types
+
+Two defects found while using the skill for the womenswear demo-data task above (backlog.md
+has the incident). Fixed in `.claude/skills/fetch-items/SKILL.md`:
+
+- **`rembg i <in> <out>` with `in == out`.** The skill's own example passed the same path
+  for input and output; `rembg` reads/writes concurrently on that one file, which raced and
+  left 0-byte files for all 10 freshly-downloaded source images (had to re-download from
+  scratch). Step 3 now writes to a distinct `<slug>-cut.png` and `mv`s it over the original,
+  with an explicit warning against reusing the same path.
+- **No enforced check for stray body parts.** Step 4 is now an explicit, non-negotiable
+  acceptance criterion — the final PNG must contain only the garment on a transparent
+  background, zero human/mannequin-head/hair/limb pixels — with a mandatory Read-tool visual
+  check after background removal; any trace of a person means going back to step 1 for a
+  different source image, not cropping/patching the result.
+- **`type` list was menswear-only.** The inline comment (`TEE | POLO | ... | BAG`) predated
+  the style-catalog's feminine-leaning expansion and the womenswear demo data. Extended with
+  the 15 additional types confirmed present in `supabase/functions/generate-outfits/engine/
+  enrichment.ts`'s `CATEGORY_MAP`/`LAYER_ROLE_BY_TYPE`: `DRESS`, `SKIRT`, `BLOUSE`, `HEELS`,
+  `SANDALS`, `CAMISOLE`, `CROP`, `BODYSUIT`, `TUNIC`, `CARDIGAN`, `BLAZER`, `COAT`, `VEST`,
+  `HOODIE`, `CAP`.
+
+### Verify
+
+Run from repo root. `npx tsc --noEmit`: clean. `npx jest`: 36 suites / 522 tests passed,
+unchanged (no engine/service code touched — client UI strings/JSX + a skill doc only).
+Grepped for `demoHint`/orphaned i18n keys/removed style refs: none remain. Not run:
+`expo`/`eas` build, no Supabase deploy, no commit/push.

@@ -1,7 +1,7 @@
 // WardrobeItem → BuilderItem adapter (2026-08-10).
 //
 // app/build.tsx (the manual "Build an Outfit" screen) used to read straight
-// from appStore.items, which is seeded with the 14 bundled mock items
+// from appStore.items, which is seeded with the 32 bundled mock items
 // (ClothingItem, src/data/index.ts) and never updated after that — so the
 // builder let users compose outfits out of demo clothes that weren't theirs.
 // The user's real wardrobe lives in appStore.wardrobeItems (WardrobeItem,
