@@ -8,7 +8,7 @@ import { Divider, TextLink, Bounded } from '../../src/components/ui';
 import { IconChevronLeft, IconSettings, IconChevronRight } from '../../src/components/icons';
 import { useAppStore } from '../../src/stores/appStore';
 import { useAuthStore } from '../../src/stores/authStore';
-import { OUTFITS } from '../../src/data';
+import { useProfileStats, formatStatValue } from '../../src/features/profile/useProfileStats';
 import { useTranslation } from '../../src/i18n';
 
 const SECTIONS: Array<{ id: string; labelKey: string; route?: string }> = [
@@ -17,6 +17,7 @@ const SECTIONS: Array<{ id: string; labelKey: string; route?: string }> = [
   { id: 'color', labelKey: 'tabs_profile_colorPalette', route: '/colors-edit' },
   { id: 'colourSeason', labelKey: 'tabs_profile_colourSeason', route: '/personal-color-edit' },
   { id: 'measurements', labelKey: 'tabs_profile_bodyMeasurements', route: '/measurements-edit' },
+  { id: 'shapeGoal', labelKey: 'tabs_profile_shapeGoal', route: '/shape-goal-edit' },
   // Temporarily hidden — no destination screen yet; re-enable when built
   // { id: 'location', labelKey: 'tabs_profile_locationWeather' },
   // Temporarily hidden — no destination screen yet; re-enable when built
@@ -24,20 +25,23 @@ const SECTIONS: Array<{ id: string; labelKey: string; route?: string }> = [
   // Temporarily hidden — notifications are prefs-only (no real delivery); re-enable when push/local notifications are wired
   // { id: 'notifications', labelKey: 'tabs_profile_notifications', route: '/notifications' },
   { id: 'subscription', labelKey: 'tabs_profile_subscription', route: '/paywall' },
+  // The IconSettings button above routes to /profile-edit (name/avatar/location),
+  // not /settings (units, suggestion toggles, language, account) — this row is
+  // this screen's only path to /settings.
+  { id: 'settings', labelKey: 'tabs_profile_settings', route: '/settings' },
 ];
 
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
-  const { items, collections, wardrobeItems } = useAppStore();
   const { phone, email, location, displayName: storedName, avatarUrl, colorSeason, logout } = useAuthStore();
+  const { itemCount, savedOutfitCount, collectionCount } = useProfileStats();
 
-  const itemCount = wardrobeItems.length > 0 ? wardrobeItems.length : items.length;
   const stats = [
-    { num: itemCount, label: t('tabs_profile_items') },
-    { num: OUTFITS.length, label: t('tabs_profile_outfits') },
-    { num: collections.length, label: t('tabs_profile_collections') },
+    { num: formatStatValue(itemCount), label: t('tabs_profile_items') },
+    { num: formatStatValue(savedOutfitCount), label: t('tabs_profile_outfits') },
+    { num: formatStatValue(collectionCount), label: t('tabs_profile_collections') },
   ];
 
   const displayName = storedName || (phone

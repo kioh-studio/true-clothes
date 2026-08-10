@@ -340,3 +340,196 @@ Deno.test('renormalized composite is weighted correctly over available criteria'
     assertEquals(verdict.overall_score, available[0].score);
   }
 });
+
+// ─── Fix 1: single-item colour & fabric scorers (kill the degeneracy) ────────
+// Prior to the fix, colour reused the outfit-level scoreColorHarmony with a
+// single-item array: 5 of 7 sub-terms are constants for one item, collapsing
+// the base to 0.20·paletteAlignment + 0.705 → a 70–91 band before bonuses.
+// Fabric reused scoreSeasonMatch, which fixes "internal consistency" at 0.8
+// for a single item → raw clamped to [32, 92]. See docs/
+// engine-fixes-phase2-instruction.md Fix 1.
+
+const deepWinterProfile = {
+  colorPreferences: ['Black', 'Navy', 'Charcoal', 'White'],
+  colorSeason: 'winter',
+  colorTone12: 'deep_winter',
+  selectedStyles: [],
+  bodyMeasurements: {},
+};
+
+Deno.test('Fix1/color: deep-winter user + black item scores high (>= 80)', () => {
+  const item = makeFitItem({ color: 'Black' });
+  const colorCriterion = computeVerdict(item, deepWinterProfile).criteria.find(c => c.key === 'color')!;
+  assertEquals(colorCriterion.available, true);
+  assert(colorCriterion.score !== null && colorCriterion.score >= 80, `expected >= 80, got ${colorCriterion.score}`);
+});
+
+Deno.test('Fix1/color: deep-winter user + warm orange item scores low (<= 45)', () => {
+  const item = makeFitItem({ color: 'Orange' });
+  const colorCriterion = computeVerdict(item, deepWinterProfile).criteria.find(c => c.key === 'color')!;
+  assertEquals(colorCriterion.available, true);
+  assert(colorCriterion.score !== null && colorCriterion.score <= 45, `expected <= 45, got ${colorCriterion.score}`);
+});
+
+Deno.test('Fix1/color: user with a color season but no explicit palette lands mid, not extreme', () => {
+  // colorSeason set (so the criterion is available) but no explicit swatch
+  // picks (colorPreferences empty) and a season-neutral item color, so the
+  // paletteAlignment base (0.5, no explicit palette to match against) isn't
+  // pushed far by season/tone12 bonuses (none supplied here).
+  const item = makeFitItem({ color: 'Gray' });
+  const profile = {
+    colorPreferences: [] as string[],
+    colorSeason: 'autumn',
+    selectedStyles: [],
+    bodyMeasurements: {},
+  };
+  const colorCriterion = computeVerdict(item, profile).criteria.find(c => c.key === 'color')!;
+  assertEquals(colorCriterion.available, true);
+  assert(
+    colorCriterion.score !== null && colorCriterion.score > 20 && colorCriterion.score < 80,
+    `expected a mid, non-extreme score, got ${colorCriterion.score}`,
+  );
+});
+
+Deno.test('Fix1/color: distribution guard — colour scores no longer all land in [70, 91]', () => {
+  const colors = ['Black', 'Orange', 'Navy', 'Beige', 'Red', 'White', 'Olive', 'Yellow'];
+  const scores = colors.map((color) => {
+    const item = makeFitItem({ color });
+    return computeVerdict(item, fullProfile).criteria.find(c => c.key === 'color')!.score!;
+  });
+  const allInOldBand = scores.every((s) => s >= 70 && s <= 91);
+  assert(!allInOldBand, `expected at least one score outside [70,91], got ${JSON.stringify(scores)}`);
+});
+
+Deno.test('Fix1/fabric: wool item evaluated in summer scores well below the old 32 floor', () => {
+  // warmthSeason explicit ('warm_winter') so the fabric season is unambiguously
+  // 'winter' — stored warmth_season beats material-name guessing (enrichment.ts).
+  const item = makeFitItem({ material: 'Wool', warmthSeason: 'warm_winter' });
+  const profile = { ...fullProfile, selectedStyles: [], weatherSeason: 'summer' as const };
+  const fabricCriterion = computeVerdict(item, profile).criteria.find(c => c.key === 'fabric')!;
+  assertEquals(fabricCriterion.available, true);
+  assert(fabricCriterion.score !== null && fabricCriterion.score < 32, `expected < 32, got ${fabricCriterion.score}`);
+});
+
+Deno.test('Fix1/fabric: linen item evaluated in summer scores above the old 92 cap', () => {
+  const item = makeFitItem({ material: 'Linen', warmthSeason: 'lightweight_summer' });
+  const profile = { ...fullProfile, weatherSeason: 'summer' as const };
+  const fabricCriterion = computeVerdict(item, profile).criteria.find(c => c.key === 'fabric')!;
+  assertEquals(fabricCriterion.available, true);
+  assert(fabricCriterion.score !== null && fabricCriterion.score > 92, `expected > 92, got ${fabricCriterion.score}`);
+});
+
+// ─── Fix 2: provenance gate (stop confident guessing) ────────────────────────
+// deriveFitWithProvenance marks item.provenance.fit=false when the fit had to
+// be DEFAULTED (no `fit` in the request, no fit keyword in the garment name).
+// The fit criterion must not confidently score a guess.
+
+Deno.test('Fix2: item without a fit in the request → fit criterion unavailable', () => {
+  const item = makeFitItem({ fit: undefined }); // 'Test Shirt' has no fit keyword → provenance.fit=false
+  const verdict = computeVerdict(item, fullProfile);
+  const fitCriterion = verdict.criteria.find(c => c.key === 'fit')!;
+  assertEquals(fitCriterion.available, false);
+  assertEquals(fitCriterion.score, null);
+});
+
+Deno.test('Fix2: item with an explicit fit in the request → scored as today', () => {
+  const item = makeFitItem({ fit: 'oversized' });
+  const verdict = computeVerdict(item, fullProfile);
+  const fitCriterion = verdict.criteria.find(c => c.key === 'fit')!;
+  assertEquals(fitCriterion.available, true);
+  assert(fitCriterion.score !== null && fitCriterion.score >= 0 && fitCriterion.score <= 100);
+});
+
+// ─── Fix 3: bilingual criterion explanations ─────────────────────────────────
+
+Deno.test('Fix3: locale "vi" produces Vietnamese explanations', () => {
+  const item = makeFitItem();
+  const profileVi = { ...fullProfile, locale: 'vi' as const };
+  const verdict = computeVerdict(item, profileVi);
+  const colorCriterion = verdict.criteria.find(c => c.key === 'color')!;
+  // Known Vietnamese substrings from the color-band templates.
+  assert(
+    /bảng màu|hài hòa|xung khắc|hạn chế/.test(colorCriterion.explanation),
+    `expected Vietnamese explanation, got: ${colorCriterion.explanation}`,
+  );
+});
+
+Deno.test('Fix3: default (no locale / "en") explanations are unchanged (English)', () => {
+  const item = makeFitItem();
+  const verdict = computeVerdict(item, fullProfile);
+  const colorCriterion = verdict.criteria.find(c => c.key === 'color')!;
+  assert(
+    /palette|color season/.test(colorCriterion.explanation),
+    `expected English explanation, got: ${colorCriterion.explanation}`,
+  );
+});
+
+Deno.test('Fix3: locale "vi" unavailable explanation is Vietnamese', () => {
+  const item = makeFitItem({ color: '' });
+  const profileVi = { ...fullProfile, locale: 'vi' as const };
+  const verdict = computeVerdict(item, profileVi);
+  const colorCriterion = verdict.criteria.find(c => c.key === 'color')!;
+  assertEquals(colorCriterion.available, false);
+  assert(colorCriterion.explanation.includes('màu'), `expected Vietnamese unavailable copy, got: ${colorCriterion.explanation}`);
+});
+
+// ─── 4 suggestion toggles (2026-08-10) ─────────────────────────────────────
+// suggest_by_style / suggest_by_measurements — mirrors generate-outfits'
+// ranking.ts dims valid-flag mechanism. suggest_by_personal_color has no
+// scoring.ts-level test here: it's applied upstream (index.ts nulls
+// colorSeason/colorTone12/personal_palette before calling computeVerdict),
+// which is exactly what colorExplanation's existing conditional phrasing
+// already covers — no new branch in scoring.ts to test. suggest_by_formula
+// has no equivalent at all: evaluate-item scores one item, never a formula.
+
+Deno.test('suggestByStyle=false: style criterion becomes unavailable even though the user has full style data', () => {
+  const item = makeFitItem();
+  const profileOff = { ...fullProfile, suggestByStyle: false };
+  const verdict = computeVerdict(item, profileOff);
+  const styleCriterion = verdict.criteria.find(c => c.key === 'style')!;
+  assertEquals(styleCriterion.available, false);
+  assertEquals(styleCriterion.score, null);
+  // On (default true) still scores it, given the same full profile.
+  const styleOn = computeVerdict(item, fullProfile).criteria.find(c => c.key === 'style')!;
+  assertEquals(styleOn.available, true);
+});
+
+Deno.test('suggestByStyle=false toggled-off explanation is distinct from the "missing data" explanation (does not tell the user to add what they already have)', () => {
+  const item = makeFitItem();
+  const offVerdict = computeVerdict(item, { ...fullProfile, suggestByStyle: false });
+  const missingVerdict = computeVerdict(item, { ...fullProfile, selectedStyles: [] });
+  const offExplanation = offVerdict.criteria.find(c => c.key === 'style')!.explanation;
+  const missingExplanation = missingVerdict.criteria.find(c => c.key === 'style')!.explanation;
+  assertNotEquals(offExplanation, missingExplanation);
+});
+
+Deno.test('suggestByMeasurements=false: measurement criterion becomes unavailable even with full body + garment measurements', () => {
+  const item = makeFitItem();
+  const profileOff = { ...fullProfile, suggestByMeasurements: false };
+  const verdict = computeVerdict(item, profileOff);
+  const measurementCriterion = verdict.criteria.find(c => c.key === 'measurement')!;
+  assertEquals(measurementCriterion.available, false);
+  assertEquals(measurementCriterion.score, null);
+});
+
+Deno.test('suggestByMeasurements=false does NOT touch the fit criterion (body_shape + preferredFit stay scored — that is a separate criterion, not this toggle\'s concern)', () => {
+  const item = makeFitItem();
+  const on = computeVerdict(item, fullProfile).criteria.find(c => c.key === 'fit')!;
+  const off = computeVerdict(item, { ...fullProfile, suggestByMeasurements: false }).criteria.find(c => c.key === 'fit')!;
+  assertEquals(on.available, true);
+  assertEquals(off.available, true);
+  // Byte-identical score: body_shape/preferredFit scoring is completely
+  // unaffected by this toggle.
+  assertEquals(on.score, off.score);
+});
+
+Deno.test('suggestByStyle/suggestByMeasurements unset (undefined) behave exactly like true — existing users unaffected', () => {
+  const item = makeFitItem();
+  const explicitOn = computeVerdict(item, { ...fullProfile, suggestByStyle: true, suggestByMeasurements: true });
+  const unset = computeVerdict(item, fullProfile);
+  assertEquals(unset.overall_score, explicitOn.overall_score);
+  for (let i = 0; i < unset.criteria.length; i++) {
+    assertEquals(unset.criteria[i].available, explicitOn.criteria[i].available);
+    assertEquals(unset.criteria[i].score, explicitOn.criteria[i].score);
+  }
+});

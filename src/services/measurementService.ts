@@ -4,6 +4,7 @@
 // first save — the row may not exist yet.
 import { sb } from './supabase';
 import { BodyMeasurements } from '../types/fitEngine';
+import { computeBodyShape, computeBodyShapeLegacy } from '../types/measurements';
 
 // ── DB row shape ────────────────────────────────────────────────────────────
 interface MeasurementRow {
@@ -28,8 +29,15 @@ interface MeasurementRow {
 }
 
 // ── DB row → app shape ──────────────────────────────────────────────────────
+// Read-repair (2026-08-03 classifier rewrite, no SQL migration): a stored
+// body_shape that matches the OLD (legacy) classifier's output for these
+// measurements but not the CURRENT classifier's is stale old-classifier
+// output, not a genuine manual override — there is only one column, so the
+// legacy classifier is how we tell the two apart. Recompute it on read and
+// best-effort write the corrected value back; a value that matches neither
+// classifier is a real manual override and is left untouched.
 function rowToBody(row: MeasurementRow): BodyMeasurements {
-  return {
+  const mapped: BodyMeasurements = {
     body_height:            row.body_height ?? undefined,
     body_weight:            row.body_weight ?? undefined,
     body_bust:              row.body_bust ?? undefined,
@@ -48,6 +56,22 @@ function rowToBody(row: MeasurementRow): BodyMeasurements {
     preferredFit:           row.preferred_fit as BodyMeasurements['preferredFit'] ?? undefined,
     bodyShape:              row.body_shape as BodyMeasurements['bodyShape'] ?? undefined,
   };
+
+  if (mapped.bodyShape) {
+    const current = computeBodyShape(mapped);
+    const legacy = computeBodyShapeLegacy(mapped);
+    if (mapped.bodyShape === legacy && legacy !== current) {
+      mapped.bodyShape = current ?? undefined;
+      if (current) {
+        // Fire-and-forget — never let a best-effort write-back fail the read.
+        upsertMyMeasurements(row.user_id, { bodyShape: current }).catch(() => {});
+      }
+    }
+    // Else: already matches the current classifier, or matches neither
+    // classifier (a genuine manual override) — keep untouched.
+  }
+
+  return mapped;
 }
 
 // ── App shape → DB row (partial) ────────────────────────────────────────────

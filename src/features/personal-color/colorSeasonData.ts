@@ -3,6 +3,7 @@ import {
   computeAxes, classifyTone12, TONE12_PARENT, TONE12_PALETTES, TONE12_LABELS,
   TONE12_BOARDS, TONE12_AVOID,
   type ColorTone12, type ToneAxes, type Tone12Inputs, type Tone12Board,
+  type Tone12Confidence,
 } from './tone12';
 
 // ─── Season palette hex swatches (display only) ────────────────────────────
@@ -184,10 +185,19 @@ export interface PersonalColorResult {
   tone12: ColorTone12;
   axes: ToneAxes;
   label: { en: string; vi: string };
+  /** The 12-tone neighbour this read could plausibly tip into (its "leaning"
+   *  result) — null when the axes are decisive enough that flipping the
+   *  weakest one doesn't change the outcome. Session-local: not persisted by
+   *  `savePersonalColor` in this phase. */
+  secondaryTone12: ColorTone12 | null;
+  secondaryLabel: { en: string; vi: string } | null;
+  /** 'high' | 'medium' | 'low', from the minimum axis margin. Session-local,
+   *  same as `secondaryTone12`. */
+  confidence: Tone12Confidence;
 }
 
 /** Full 12-tone classification — quiz answers plus optional photo metrics
- *  (skin/hair LAB, wrist hue) and colour-drape adjustments. */
+ *  (skin/hair LAB, calibrated skin hue, ITA°) and colour-drape adjustments. */
 export function scorePersonalColorDetailed(inputs: Tone12Inputs): PersonalColorResult {
   // Legacy 4-season scoring, kept for continuity — computed from whichever
   // answers are present, same logic as before the 12-tone model.
@@ -198,7 +208,7 @@ export function scorePersonalColorDetailed(inputs: Tone12Inputs): PersonalColorR
   const scores = parts.reduce(addScores, initScores());
 
   const axes = computeAxes(inputs);
-  const tone12 = classifyTone12(axes);
+  const { tone: tone12, secondary: secondaryTone12, confidence } = classifyTone12(axes);
   const season = TONE12_PARENT[tone12];
 
   return {
@@ -210,6 +220,9 @@ export function scorePersonalColorDetailed(inputs: Tone12Inputs): PersonalColorR
     tone12,
     axes,
     label: TONE12_LABELS[tone12],
+    secondaryTone12,
+    secondaryLabel: secondaryTone12 ? TONE12_LABELS[secondaryTone12] : null,
+    confidence,
   };
 }
 

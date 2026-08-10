@@ -247,22 +247,58 @@ export const OUTFITS: Outfit[] = [
   },
 ];
 
+export type StyleGenderLean = 'feminine' | 'masculine' | 'neutral';
+
 export interface StyleOption {
   id: string;
   name: string;
   desc: string;
   img: string;
+  // Display-sort hint only (2026-08-10 style catalog expansion) — mirrors
+  // public.styles.gender_lean / STYLE_CONFIGS' DB row. NEVER consumed by
+  // scoring/engine code; see sortStylesByGenderLean in stylesCatalogService.
+  genderLean: StyleGenderLean;
 }
 
+// `img` is left '' for every style below (not just the 14 added 2026-08-10) —
+// Photo() renders a labelled fallback tile for a falsy src, and none of these
+// have a real branded photo asset. See backlog.md.
 export const STYLES: StyleOption[] = [
-  { id: 'oldmoney',    name: 'Old Money',    desc: 'REFINED · CLASSIC',    img: PHOTOS.style_oldmoney },
-  { id: 'streetwear',  name: 'Streetwear',   desc: 'URBAN · BOLD',         img: PHOTOS.style_streetwear },
-  { id: 'minimalist',  name: 'Minimalist',   desc: 'PARED · DELIBERATE',   img: PHOTOS.style_minimalist },
-  { id: 'smartcasual', name: 'Smart Casual', desc: 'POLISHED · EASY',      img: PHOTOS.style_smartcasual },
-  { id: 'preppy',      name: 'Preppy',       desc: 'CLEAN · TRADITIONAL',  img: PHOTOS.style_preppy },
-  { id: 'athleisure',  name: 'Athleisure',   desc: 'ACTIVE · RELAXED',     img: PHOTOS.style_athleisure },
-  { id: 'y2k',         name: 'Y2K',          desc: 'PLAYFUL · NOSTALGIC',  img: PHOTOS.style_y2k },
-  { id: 'bohemian',    name: 'Bohemian',     desc: 'FLOWING · ROMANTIC',   img: PHOTOS.style_bohemian },
+  { id: 'oldmoney',    name: 'Old Money',    desc: 'REFINED · CLASSIC',    img: PHOTOS.style_oldmoney,   genderLean: 'masculine' },
+  { id: 'streetwear',  name: 'Streetwear',   desc: 'URBAN · BOLD',         img: PHOTOS.style_streetwear, genderLean: 'masculine' },
+  { id: 'minimalist',  name: 'Minimalist',   desc: 'PARED · DELIBERATE',   img: PHOTOS.style_minimalist, genderLean: 'neutral' },
+  { id: 'smartcasual', name: 'Smart Casual', desc: 'POLISHED · EASY',      img: PHOTOS.style_smartcasual, genderLean: 'masculine' },
+  { id: 'preppy',      name: 'Preppy',       desc: 'CLEAN · TRADITIONAL',  img: PHOTOS.style_preppy,     genderLean: 'masculine' },
+  { id: 'athleisure',  name: 'Athleisure',   desc: 'ACTIVE · RELAXED',     img: PHOTOS.style_athleisure, genderLean: 'neutral' },
+  { id: 'y2k',         name: 'Y2K',          desc: 'PLAYFUL · NOSTALGIC',  img: PHOTOS.style_y2k,        genderLean: 'feminine' },
+  { id: 'bohemian',    name: 'Bohemian',     desc: 'FLOWING · ROMANTIC',   img: PHOTOS.style_bohemian,   genderLean: 'feminine' },
+  // ─── Style catalog expansion (2026-08-10) — mirrors public.styles / STYLE_CONFIGS ───
+  { id: 'feminine',     name: 'Feminine',      desc: 'ROMANTIC · SOFT',       img: '', genderLean: 'feminine' },
+  { id: 'officechic',   name: 'Office Chic',   desc: 'TAILORED · SHARP',      img: '', genderLean: 'feminine' },
+  { id: 'parisian',     name: 'Parisian Chic', desc: 'EFFORTLESS · CHIC',     img: '', genderLean: 'feminine' },
+  { id: 'coquette',     name: 'Coquette',      desc: 'DELICATE · PLAYFUL',    img: '', genderLean: 'feminine' },
+  { id: 'cleangirl',    name: 'Clean Girl',    desc: 'POLISHED · MINIMAL',    img: '', genderLean: 'feminine' },
+  { id: 'darkacademia', name: 'Dark Academia', desc: 'MOODY · LITERARY',      img: '', genderLean: 'feminine' },
+  { id: 'cottagecore',  name: 'Cottagecore',   desc: 'PASTORAL · SOFT',       img: '', genderLean: 'feminine' },
+  { id: 'grunge',       name: 'Grunge',        desc: 'RAW · EDGY',            img: '', genderLean: 'feminine' },
+  { id: 'athflow',      name: 'Athflow',       desc: 'FLUID · ACTIVE',        img: '', genderLean: 'feminine' },
+  { id: 'elegant',      name: 'Elegant',       desc: 'REFINED · CLASSIC',     img: '', genderLean: 'feminine' },
+  { id: 'kfashion',     name: 'K-Fashion',     desc: 'SOFT · LAYERED',        img: '', genderLean: 'feminine' },
+  { id: 'vintage',      name: 'Vintage',       desc: 'RETRO · WORN-IN',       img: '', genderLean: 'feminine' },
+  { id: 'resort',       name: 'Resort',        desc: 'EASY · WARM-WEATHER',   img: '', genderLean: 'neutral' },
+  { id: 'artsy',        name: 'Artsy',         desc: 'AVANT-GARDE · BOLD',    img: '', genderLean: 'neutral' },
+  // ─── Style catalog expansion batch 2 (2026-08-10) — mirrors public.styles / STYLE_CONFIGS ───
+  // 9 of 11 requested styles shipped ('mobwife'/'modest' stopped for a
+  // vocabulary gap — see plan.md).
+  { id: 'glam',           name: 'Glam',            desc: 'EVENING · LUXE',        img: '', genderLean: 'feminine' },
+  { id: 'businessformal', name: 'Business Formal', desc: 'TAILORED · SHARP',      img: '', genderLean: 'neutral' },
+  { id: 'gothic',         name: 'Gothic',          desc: 'DARK · ROMANTIC',       img: '', genderLean: 'feminine' },
+  { id: 'utility',        name: 'Utility',         desc: 'FUNCTIONAL · CARGO',    img: '', genderLean: 'neutral' },
+  { id: 'sporty',         name: 'Sporty',          desc: 'VARSITY · ACTIVE',      img: '', genderLean: 'feminine' },
+  { id: 'normcore',       name: 'Normcore',        desc: 'PLAIN · UNDONE',        img: '', genderLean: 'neutral' },
+  { id: 'retro70s',       name: 'Retro 70s',       desc: 'FLARE · GEOMETRIC',     img: '', genderLean: 'feminine' },
+  { id: 'pinup',          name: 'Pinup',           desc: 'FIT-AND-FLARE · RED',   img: '', genderLean: 'feminine' },
+  { id: 'whimsigoth',     name: 'Whimsigoth',      desc: 'MYSTICAL · VELVET',     img: '', genderLean: 'feminine' },
 ];
 
 export interface ColorOption {
@@ -350,6 +386,102 @@ export const STYLE_NICHES: Record<string, StyleNiche[]> = {
   bohemian: [
     { id: 'bohemian:earthy',   name: 'Earthy Boho',         desc: 'Terracotta, linen, natural textures' },
     { id: 'bohemian:folk',     name: 'Folk-Inspired',       desc: 'Embroidery, prints, layered silhouettes' },
+  ],
+  // ─── Style catalog expansion (2026-08-10) — names mirror public.styles.niches ───
+  feminine: [
+    { id: 'feminine:romantic',  name: 'Romantic Florals', desc: 'Soft prints, gentle draping' },
+    { id: 'feminine:lace',      name: 'Ruffles & Lace',   desc: 'Delicate trims, feminine detailing' },
+    { id: 'feminine:softpower', name: 'Soft Power',       desc: 'Fitted but never severe' },
+  ],
+  officechic: [
+    { id: 'officechic:bizcasual', name: 'Business Casual',    desc: 'Chinos-adjacent tailoring, clean trainers' },
+    { id: 'officechic:boardroom', name: 'Boardroom Tailoring', desc: 'Sharp blazers, structured shirting' },
+    { id: 'officechic:weekend',   name: 'Weekend-to-Work',    desc: 'Pieces that carry over past 6pm' },
+  ],
+  parisian: [
+    { id: 'parisian:stripes',  name: 'Breton Stripes',       desc: 'Nautical stripes, understated ease' },
+    { id: 'parisian:tailored', name: 'Effortless Tailoring', desc: 'Trench coats, quality basics' },
+  ],
+  coquette: [
+    { id: 'coquette:ballet',   name: 'Balletcore',   desc: 'Wrap tops, soft pink, ballet flats' },
+    { id: 'coquette:bows',     name: 'Bow Details',  desc: 'Ribbons, bows, delicate hardware' },
+  ],
+  cleangirl: [
+    { id: 'cleangirl:tonal',    name: 'Ton-sur-ton',        desc: 'Single-tone dressing, no clutter' },
+    { id: 'cleangirl:basics',   name: 'Everyday Essentials', desc: 'Slick basics, exact fit' },
+  ],
+  darkacademia: [
+    { id: 'darkacademia:ivy',    name: 'Ivy Scholar',       desc: 'Tweed blazers, oxford shirts' },
+    { id: 'darkacademia:gothic', name: 'Gothic Academia',   desc: 'Darker palette, structured layers' },
+  ],
+  cottagecore: [
+    { id: 'cottagecore:prairie', name: 'Prairie Dress', desc: 'Maxi dresses, puff sleeves' },
+    { id: 'cottagecore:meadow',  name: 'Meadow Florals', desc: 'Small florals, natural fibers' },
+  ],
+  grunge: [
+    { id: 'grunge:90s',    name: '90s Grunge',       desc: 'Flannel, band tees, worn denim' },
+    { id: 'grunge:distressed', name: 'Distressed Denim', desc: 'Raw hems, deconstructed layers' },
+  ],
+  athflow: [
+    { id: 'athflow:studio', name: 'Studio-to-Street', desc: 'Yoga-adjacent, fluid layers' },
+    { id: 'athflow:soft',   name: 'Soft Performance', desc: 'Technical fabrics, gentler cut' },
+  ],
+  elegant: [
+    { id: 'elegant:evening',  name: 'Evening Tailoring', desc: 'Rich fabrics, clean lines' },
+    { id: 'elegant:classic',  name: 'Modern Classic',    desc: 'Timeless silhouettes, quiet polish' },
+  ],
+  kfashion: [
+    { id: 'kfashion:seoul',   name: 'Seoul Street',    desc: 'Muted oversized layering' },
+    { id: 'kfashion:soft',    name: 'Soft Layering',   desc: 'Light knits, relaxed proportions' },
+  ],
+  vintage: [
+    { id: 'vintage:70s',      name: '70s Revival',      desc: 'Flared cuts, sun-faded tones' },
+    { id: 'vintage:thrifted', name: 'Thrifted Classics', desc: 'Worn-in textures, retro denim' },
+  ],
+  resort: [
+    { id: 'resort:linen',   name: 'Vacation Linen', desc: 'Breathable fabrics, light color' },
+    { id: 'resort:coastal', name: 'Coastal Getaway', desc: 'Easy shapes, poolside ready' },
+  ],
+  artsy: [
+    { id: 'artsy:deconstructed', name: 'Deconstructed', desc: 'Unusual proportions, raw seams' },
+    { id: 'artsy:colorblock',    name: 'Color-Block Statement', desc: 'Bold contrast, gallery-ready' },
+  ],
+  // ─── Style catalog expansion batch 2 (2026-08-10) — names mirror public.styles.niches ───
+  glam: [
+    { id: 'glam:redcarpet', name: 'Red Carpet',      desc: 'Gowns, statement jewels, high shine' },
+    { id: 'glam:cocktail',  name: 'Cocktail Hour',    desc: 'Sleek dresses, sharp heels' },
+  ],
+  businessformal: [
+    { id: 'businessformal:suiting', name: 'Power Suiting', desc: 'Structured suits, sharp lines' },
+    { id: 'businessformal:exec',    name: 'Executive Polish', desc: 'Boardroom-ready, zero casual' },
+  ],
+  gothic: [
+    { id: 'gothic:romantic', name: 'Romantic Goth', desc: 'Velvet, lace-adjacent silk, corsetry' },
+    { id: 'gothic:trad',     name: 'Traditional Goth', desc: 'All-black, structured, austere' },
+  ],
+  utility: [
+    { id: 'utility:cargo',    name: 'Cargo Core',     desc: 'Box pockets, canvas, loose fit' },
+    { id: 'utility:military', name: 'Military-Inspired', desc: 'Khaki, olive, functional hardware' },
+  ],
+  sporty: [
+    { id: 'sporty:varsity', name: 'Varsity',       desc: 'Letterman jackets, collegiate color-blocking' },
+    { id: 'sporty:tomboy',  name: 'Tomboy',         desc: 'Jerseys, caps, boyish ease' },
+  ],
+  normcore: [
+    { id: 'normcore:basics', name: 'Deliberate Basics', desc: 'Plain tees, dad denim, no branding' },
+    { id: 'normcore:unisex', name: 'Unisex Nothing-Special', desc: 'Mall-brand staples, on purpose' },
+  ],
+  retro70s: [
+    { id: 'retro70s:flare',    name: 'Flare & Bell-Bottom', desc: 'Wide-leg denim, platform soles' },
+    { id: 'retro70s:geometric',name: 'Geometric Print',     desc: 'Bold shapes, mustard and rust tones' },
+  ],
+  pinup: [
+    { id: 'pinup:rockabilly', name: 'Rockabilly',      desc: 'Polka dots, cherry red, fitted bodice' },
+    { id: 'pinup:swing',      name: 'Swing Dress',      desc: 'Full skirts, cinched waist' },
+  ],
+  whimsigoth: [
+    { id: 'whimsigoth:witchy',   name: 'Witchy Romantic', desc: 'Flowing velvet, celestial motifs' },
+    { id: 'whimsigoth:darkboho', name: 'Dark Bohemian',   desc: '70s silhouettes in jewel tones' },
   ],
 };
 

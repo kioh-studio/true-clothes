@@ -7,15 +7,22 @@ import {
   FitItem, BodyMeasurements, BodyShape, Season,
 } from '../generate-outfits/engine/types.ts';
 import {
-  scoreColorHarmony,
   computeUserAttributes,
   scoreStyleCoherence,
   scoreItemFit,
   bodyShapeAdjustment,
-  scoreSeasonMatch,
   TONE12_AVOID,
+  scoreFitPreference,
+  paletteAlignment,
+  seasonCompatibilityBonus,
+  weatherSeasonColorBonus,
+  tone12QualityBonus,
+  tone12AvoidPenalty,
+  SEASON_COMPAT,
 } from '../generate-outfits/engine/scoring.ts';
+import { colorProfileOf } from '../generate-outfits/engine/enrichment.ts';
 import { styleConfigById } from '../generate-outfits/engine/filtering.ts';
+import type { Locale } from './note.ts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -57,51 +64,145 @@ function toRecommendation(score: number): Recommendation {
 
 // ─── Preferred fit comparison ─────────────────────────────────────────────────
 // Compares item fit (lowercase) vs user preferredFit (UPPERCASE enum).
-// Returns 0–1 raw score.
+// Returns 0–1 raw score. FIT_COMPAT + scoreFitPreference themselves now live in
+// the engine (scoring.ts, 2026-08-03 fit-relative-ease session) so
+// generate-outfits can anchor the feed to the same preference table;
+// scoreFitPreference is imported above. Local type aliases kept only for this
+// file's own signatures below (structurally identical to the engine's types).
 
 type PreferredFit = 'SLIM' | 'REGULAR' | 'RELAXED' | 'OVERSIZED';
 type ItemFitStr = 'slim' | 'regular' | 'relaxed' | 'wide' | 'oversized';
 
-// Adjacent-fit table: how well each item fit satisfies a preferred fit.
-// 1.0 = exact match or functionally identical, lower = less suitable.
-const FIT_COMPAT: Record<PreferredFit, Partial<Record<ItemFitStr, number>>> = {
-  SLIM:     { slim: 1.0, regular: 0.6, relaxed: 0.3, wide: 0.1, oversized: 0.1 },
-  REGULAR:  { slim: 0.6, regular: 1.0, relaxed: 0.7, wide: 0.4, oversized: 0.3 },
-  RELAXED:  { slim: 0.2, regular: 0.7, relaxed: 1.0, wide: 0.8, oversized: 0.6 },
-  OVERSIZED:{ slim: 0.1, regular: 0.4, relaxed: 0.7, wide: 0.8, oversized: 1.0 },
-};
+// ═══════════════════════════════════════════════════════════════════════════
+// Single-item colour & fabric scorers (2026-08-06 — evaluate-item phase 2)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// scoreColorHarmony/scoreSeasonMatch (engine/scoring.ts) score OUTFITS —
+// several garments at once — so most of their sub-terms measure relationships
+// BETWEEN items (hue pairing, undertone spread across pieces, tonal contrast,
+// graphic density, internal fabric-season consistency…). Fed a single-item
+// array, those sub-terms all degenerate to a constant (see docs/
+// engine-fixes-phase2-instruction.md Fix 1 for the derivation):
+//   colour base  = 0.20·paletteAlignment + 0.705            (a 70.5–90.5 band)
+//   fabric raw   = 0.6·targetMatch + 0.4·0.8, clamped to     [32, 92]
+// i.e. a single scanned item could never score a very low or very high colour/
+// fabric criterion, no matter how bad or good the actual match was — the
+// composition-only constants dominated. The two functions below keep ONLY the
+// sub-terms that are meaningful for exactly one item and drop the rest, so the
+// full 0–100 range is reachable again.
 
-function scoreFitPreference(itemFit: ItemFitStr, preferredFit: PreferredFit): number {
-  return FIT_COMPAT[preferredFit][itemFit] ?? 0.5;
+// scoreSingleItemColor: base is driven purely by paletteAlignment (how
+// directly the item's colour matches the user's explicit palette — 1.0 if it's
+// in their chosen swatches, 0.0 if not, 0.5 neutral when they haven't picked
+// explicit swatches yet). The SAME bonus magnitudes the feed's colour scorer
+// uses are layered on top, unchanged: personal colour-season match/avoid
+// (±0.10, seasonCompatibilityBonus), current weather season (±0.08,
+// weatherSeasonColorBonus), and the 12-tone quality/avoid refinement
+// (+0.08/−0.06, tone12QualityBonus/tone12AvoidPenalty). Clamped to [0, 1].
+function scoreSingleItemColor(
+  item: FitItem,
+  colorPreferences: string[],
+  colorSeason?: string,
+  weatherSeason?: Season,
+  colorTone12?: string,
+): number {
+  const profiles = [item.colorProfile];
+  const userPrimaries = new Set(colorPreferences.map(name => colorProfileOf(name).primaryColor));
+
+  let raw = paletteAlignment(profiles, userPrimaries);
+  if (colorSeason) raw += seasonCompatibilityBonus(profiles, colorSeason);
+  if (weatherSeason) raw += weatherSeasonColorBonus(profiles, weatherSeason);
+  if (colorTone12) {
+    raw += tone12QualityBonus(profiles, colorTone12);
+    raw += tone12AvoidPenalty(profiles, colorTone12);
+  }
+  return Math.max(0, Math.min(1, raw));
 }
 
-// ─── Criterion-level explanations ────────────────────────────────────────────
+// scoreSingleItemFabric: score is the item's own fabric-season vs. current
+// weather-season match (SEASON_COMPAT — the SAME table scoreSeasonMatch uses),
+// applied directly instead of blended 60/40 with a fixed 0.8 "internal
+// consistency" placeholder (meaningless for one garment — there is nothing to
+// be internally consistent WITH). No target season → fall back to the
+// season-agnostic 'allSeason' column (don't guess a season we don't know; see
+// Fix 2's provenance-gate rationale for the same "don't confidently guess"
+// principle). The existing style allow/ban fabric bonus is layered on top,
+// unchanged.
+function scoreSingleItemFabric(
+  item: FitItem,
+  weatherSeason: Season | undefined,
+  selectedStyles: string[],
+): number {
+  const itemSeason = item.fabric.season;
+  const seasonRaw = weatherSeason
+    ? SEASON_COMPAT[weatherSeason][itemSeason]
+    : SEASON_COMPAT.allSeason[itemSeason];
 
-function colorExplanation(score: number, item: FitItem, colorSeason?: string, colorTone12?: string): string {
+  let styleBonus = 0;
+  if (selectedStyles.length > 0 && item.fabricName) {
+    const fn = item.fabricName;
+    for (const styleId of selectedStyles) {
+      const cfg = styleConfigById(styleId);
+      if (!cfg) continue;
+      if (cfg.fabricsBanned.includes(fn)) { styleBonus -= 0.20; break; }
+      if (cfg.fabricsAllowed.length > 0 && cfg.fabricsAllowed.includes(fn)) { styleBonus += 0.10; break; }
+    }
+  }
+
+  return Math.max(0, Math.min(1, seasonRaw + styleBonus));
+}
+
+// ─── Criterion-level explanations (bilingual — en/vi, keyed off request locale) ─
+
+function colorExplanation(locale: Locale, score: number, item: FitItem, colorSeason?: string, colorTone12?: string): string {
+  const color = item.colorProfile.primaryColor;
   let explanation: string;
-  if (score >= 85) explanation = `${item.colorProfile.primaryColor} harmonizes well with your color season${colorSeason ? ` (${colorSeason})` : ''} and palette.`;
-  else if (score >= 70) explanation = `${item.colorProfile.primaryColor} is compatible with your palette, though not a perfect match.`;
-  else if (score >= 50) explanation = `${item.colorProfile.primaryColor} has limited alignment with your color preferences.`;
-  else explanation = `${item.colorProfile.primaryColor} conflicts with your color palette${colorSeason ? ` for ${colorSeason} season` : ''}.`;
+  if (locale === 'vi') {
+    if (score >= 85) explanation = `${color} hài hòa tốt với mùa màu của bạn${colorSeason ? ` (mùa ${colorSeason})` : ''} và bảng màu cá nhân.`;
+    else if (score >= 70) explanation = `${color} tương thích với bảng màu của bạn, dù chưa phải lựa chọn hoàn hảo.`;
+    else if (score >= 50) explanation = `${color} có mức phù hợp hạn chế với sở thích màu sắc của bạn.`;
+    else explanation = `${color} xung khắc với bảng màu của bạn${colorSeason ? ` cho mùa ${colorSeason}` : ''}.`;
+  } else {
+    if (score >= 85) explanation = `${color} harmonizes well with your color season${colorSeason ? ` (${colorSeason})` : ''} and palette.`;
+    else if (score >= 70) explanation = `${color} is compatible with your palette, though not a perfect match.`;
+    else if (score >= 50) explanation = `${color} has limited alignment with your color preferences.`;
+    else explanation = `${color} conflicts with your color palette${colorSeason ? ` for ${colorSeason} season` : ''}.`;
+  }
 
   // Skip-list note: only when the tone12 refinement is present AND the item's
   // colour is actually on that tone's avoid list (TONE12_AVOID, reused from
   // the engine so the two never drift).
-  if (colorTone12 && TONE12_AVOID[colorTone12]?.includes(item.colorProfile.primaryColor)) {
-    explanation += ` Note: ${item.colorProfile.primaryColor} is on the skip-list for your ${colorTone12.replace('_', ' ')} palette.`;
+  if (colorTone12 && TONE12_AVOID[colorTone12]?.includes(color)) {
+    explanation += locale === 'vi'
+      ? ` Lưu ý: ${color} nằm trong danh sách nên tránh của bảng màu ${colorTone12.replace('_', ' ')}.`
+      : ` Note: ${color} is on the skip-list for your ${colorTone12.replace('_', ' ')} palette.`;
   }
   return explanation;
 }
 
-function styleExplanation(score: number, item: FitItem, selectedStyles: string[]): string {
+function styleExplanation(locale: Locale, score: number, item: FitItem, selectedStyles: string[]): string {
   const styleNames = selectedStyles.slice(0, 2).join(', ');
-  if (score >= 85) return `${item.typeName} fits naturally with your ${styleNames} aesthetic.`;
-  if (score >= 70) return `${item.typeName} is broadly compatible with your ${styleNames} style.`;
-  if (score >= 50) return `${item.typeName} partially overlaps with your ${styleNames} style.`;
-  return `${item.typeName} has limited style coherence with your ${styleNames} preferences.`;
+  const type = item.typeName;
+  if (locale === 'vi') {
+    if (score >= 85) return `${type} hợp tự nhiên với phong cách ${styleNames} của bạn.`;
+    if (score >= 70) return `${type} khá tương thích với phong cách ${styleNames} của bạn.`;
+    if (score >= 50) return `${type} chỉ phù hợp một phần với phong cách ${styleNames} của bạn.`;
+    return `${type} ít ăn khớp với sở thích phong cách ${styleNames} của bạn.`;
+  }
+  if (score >= 85) return `${type} fits naturally with your ${styleNames} aesthetic.`;
+  if (score >= 70) return `${type} is broadly compatible with your ${styleNames} style.`;
+  if (score >= 50) return `${type} partially overlaps with your ${styleNames} style.`;
+  return `${type} has limited style coherence with your ${styleNames} preferences.`;
 }
 
-function fitExplanation(score: number, itemFit: ItemFitStr, preferredFit?: PreferredFit, bodyShape?: BodyShape): string {
+function fitExplanation(locale: Locale, score: number, itemFit: ItemFitStr, preferredFit?: PreferredFit, bodyShape?: BodyShape): string {
+  if (locale === 'vi') {
+    const shapePart = bodyShape ? ` cho dáng người ${bodyShape}` : '';
+    if (score >= 85) return `Form ${itemFit} khớp với form bạn ưa thích (${preferredFit?.toLowerCase() ?? 'chưa rõ'})${shapePart}.`;
+    if (score >= 70) return `Form ${itemFit} khá hợp với phong cách của bạn${shapePart}.`;
+    if (score >= 50) return `Form ${itemFit} có thể khác với form quen thuộc của bạn (${preferredFit?.toLowerCase() ?? 'chưa rõ'})${shapePart}.`;
+    return `Form ${itemFit} không hợp với form bạn ưa thích (${preferredFit?.toLowerCase() ?? 'chưa rõ'})${shapePart}.`;
+  }
   const shapePart = bodyShape ? ` for a ${bodyShape} body shape` : '';
   if (score >= 85) return `${itemFit} fit matches your preferred ${preferredFit?.toLowerCase() ?? 'fit'}${shapePart}.`;
   if (score >= 70) return `${itemFit} fit is mostly compatible with your style${shapePart}.`;
@@ -109,16 +210,28 @@ function fitExplanation(score: number, itemFit: ItemFitStr, preferredFit?: Prefe
   return `${itemFit} fit doesn't align well with your ${preferredFit?.toLowerCase() ?? 'preferred'} fit${shapePart}.`;
 }
 
-function measurementExplanation(score: number, warnings: string[]): string {
+function measurementExplanation(locale: Locale, score: number, warnings: string[]): string {
+  if (locale === 'vi') {
+    if (warnings.length === 0 && score >= 85) return 'Số đo món đồ khớp tốt với số đo cơ thể của bạn.';
+    if (warnings.length === 0 && score >= 70) return 'Số đo món đồ khá vừa vặn với cơ thể bạn.';
+    if (warnings.length > 0) return `Có thể có vấn đề về độ vừa: ${warnings.slice(0, 2).join('; ')}.`;
+    return 'Số đo món đồ không khớp tốt với số đo cơ thể của bạn.';
+  }
   if (warnings.length === 0 && score >= 85) return 'Garment measurements align well with your body measurements.';
   if (warnings.length === 0 && score >= 70) return 'Garment measurements are a good fit for your body.';
   if (warnings.length > 0) return `Potential fit concerns: ${warnings.slice(0, 2).join('; ')}.`;
   return 'Garment measurements do not align well with your body measurements.';
 }
 
-function fabricExplanation(score: number, item: FitItem, selectedStyles: string[]): string {
+function fabricExplanation(locale: Locale, score: number, item: FitItem, _selectedStyles: string[]): string {
   const fabricName = item.fabricName ?? item.fabric.fabricWeight + '-weight fabric';
   const season = item.fabric.season;
+  if (locale === 'vi') {
+    if (score >= 85) return `${fabricName} phù hợp mùa (${season}) và hợp phong cách của bạn.`;
+    if (score >= 70) return `${fabricName} phù hợp cho mùa ${season} và hợp phong cách.`;
+    if (score >= 50) return `${fabricName} dùng được nhưng chưa lý tưởng cho phong cách hoặc mùa hiện tại.`;
+    return `${fabricName} có thể không hợp phong cách bạn ưa thích hoặc mùa hiện tại.`;
+  }
   if (score >= 85) return `${fabricName} is season-appropriate (${season}) and suits your style.`;
   if (score >= 70) return `${fabricName} works for ${season} and is style-compatible.`;
   if (score >= 50) return `${fabricName} is usable but not ideal for your typical style or season.`;
@@ -127,15 +240,25 @@ function fabricExplanation(score: number, item: FitItem, selectedStyles: string[
 
 // ─── Unavailability explanation helpers ──────────────────────────────────────
 
-function unavailableExplanation(key: CriterionKey, missingItem: boolean, missingProfile: boolean): string {
+function unavailableExplanation(locale: Locale, key: CriterionKey, missingItem: boolean, missingProfile: boolean): string {
   if (missingItem && missingProfile) {
-    return unavailableItemExplanation(key) + ' Also, ' + unavailableProfileExplanation(key).toLowerCase();
+    const joiner = locale === 'vi' ? ' Ngoài ra, ' : ' Also, ';
+    return unavailableItemExplanation(locale, key) + joiner + unavailableProfileExplanation(locale, key).toLowerCase();
   }
-  if (missingItem) return unavailableItemExplanation(key);
-  return unavailableProfileExplanation(key);
+  if (missingItem) return unavailableItemExplanation(locale, key);
+  return unavailableProfileExplanation(locale, key);
 }
 
-function unavailableItemExplanation(key: CriterionKey): string {
+function unavailableItemExplanation(locale: Locale, key: CriterionKey): string {
+  if (locale === 'vi') {
+    switch (key) {
+      case 'color':       return 'Thiếu màu sản phẩm — quét hoặc nhập màu để chấm điểm mục này.';
+      case 'style':       return 'Thiếu loại trang phục — nhập loại trang phục để chấm điểm mục này.';
+      case 'fit':         return 'Thiếu thông tin form dáng — thêm nhãn form (slim/regular/relaxed/oversized) để chấm điểm mục này.';
+      case 'measurement': return 'Món đồ chưa có số đo — thêm số đo trang phục để chấm điểm mục này.';
+      case 'fabric':      return 'Thiếu chất liệu — thêm tên vải/chất liệu để chấm điểm mục này.';
+    }
+  }
   switch (key) {
     case 'color':       return 'Item color is missing — scan or enter the color to score this.';
     case 'style':       return 'Item type is missing — provide the garment type to score this.';
@@ -145,7 +268,33 @@ function unavailableItemExplanation(key: CriterionKey): string {
   }
 }
 
-function unavailableProfileExplanation(key: CriterionKey): string {
+// 4 suggestion toggles (2026-08-10): explanation shown when the user turned a
+// dimension off in Settings — deliberately distinct from
+// unavailable*Explanation above, which implies missing DATA (add a style
+// preference / body measurement). A toggled-off criterion may have full data
+// behind it; the copy must not tell the user to go add something they already
+// have.
+function toggledOffExplanation(locale: Locale, key: 'style' | 'measurement'): string {
+  if (locale === 'vi') {
+    return key === 'style'
+      ? 'Chấm điểm theo phong cách đang tắt trong Cài đặt gợi ý.'
+      : 'Chấm điểm theo số đo cơ thể đang tắt trong Cài đặt gợi ý.';
+  }
+  return key === 'style'
+    ? 'Style-based scoring is turned off in your suggestion settings.'
+    : 'Measurement-based scoring is turned off in your suggestion settings.';
+}
+
+function unavailableProfileExplanation(locale: Locale, key: CriterionKey): string {
+  if (locale === 'vi') {
+    switch (key) {
+      case 'color':       return 'Hoàn thiện hồ sơ màu sắc của bạn (mùa màu hoặc bảng màu cá nhân) để chấm điểm màu.';
+      case 'style':       return 'Chọn ít nhất một phong cách yêu thích trong hồ sơ để chấm điểm độ hợp phong cách.';
+      case 'fit':         return 'Thêm form dáng ưa thích hoặc dáng người trong hồ sơ để chấm điểm form.';
+      case 'measurement': return 'Thêm số đo cơ thể trong hồ sơ để chấm điểm độ vừa vặn trang phục.';
+      case 'fabric':      return 'Sở thích phong cách giúp chấm điểm chất liệu chính xác hơn — cân nhắc thêm vào hồ sơ.';
+    }
+  }
   switch (key) {
     case 'color':       return 'Complete your color profile (color season or personal palette) for color scoring.';
     case 'style':       return 'Set at least one style preference in your profile to score style compatibility.';
@@ -166,6 +315,17 @@ interface ProfileInputs {
   weatherSeason?: Season;   // current real-world season (date + hemisphere)
   gender?: string;          // 'WOMAN' | 'MAN' | … — only used to shape the coarse
                             // height/weight girth estimate; scoring is otherwise gender-blind.
+  locale?: Locale;          // drives explanation language (default 'en'); see note.ts
+  // 4 suggestion toggles (2026-08-10), mirroring generate-outfits' EngineContext
+  // flags. undefined/true = on (default, unchanged behavior). false forces the
+  // matching criterion to `available: false` below — same "drops out, weight
+  // renormalizes" mechanism computeVerdict already uses for missing data.
+  // NOTE: 'fit' (body_shape + preferredFit) is intentionally NOT gated by
+  // suggestByMeasurements — only 'measurement' (the numeric garment-vs-body
+  // comparison, the direct analog of the feed's fitScore) is. Suppressing
+  // body_shape is bodyNeutralMode's job, not this toggle's — see index.ts.
+  suggestByStyle?: boolean;
+  suggestByMeasurements?: boolean;
 }
 
 // ─── Coarse body-girth estimate (low-confidence fallback) ─────────────────────
@@ -201,6 +361,7 @@ function estimateGirths(heightCm: number, weightKg: number, gender?: string):
 function scoreColor(item: FitItem, profile: ProfileInputs): CriterionScore {
   const key: CriterionKey = 'color';
   const weight = DEFAULT_WEIGHTS[key];
+  const locale: Locale = profile.locale ?? 'en';
 
   const missingItem    = !item.colorProfile || item.colorProfile.primaryColor === 'natural' && typeof item.colorProfile.hue !== 'number';
   const missingProfile = profile.colorPreferences.length === 0 && !profile.colorSeason;
@@ -208,22 +369,29 @@ function scoreColor(item: FitItem, profile: ProfileInputs): CriterionScore {
   if (missingItem || missingProfile) {
     return {
       key, available: false, score: null, weight,
-      explanation: unavailableExplanation(key, missingItem, missingProfile),
+      explanation: unavailableExplanation(locale, key, missingItem, missingProfile),
     };
   }
 
-  // Reuse outfit-level scorer with single-item array — same math, no duplication.
-  // weatherSeason adds the same seasonal-colour nudge the feed uses (summer→light/
-  // bright, winter→dark); personal colourSeason stays primary. colorTone12 layers
-  // the 12-tone quality bonus (light/deep/bright/soft) on top, same as the feed.
-  const raw = scoreColorHarmony([item], profile.colorPreferences, profile.colorSeason, profile.weatherSeason, undefined, profile.colorTone12);
+  // Single-item colour scorer (Fix 1, 2026-08-06) — see the doc comment above
+  // scoreSingleItemColor for why the outfit-level scoreColorHarmony can't be
+  // reused for one item. weatherSeason adds the same seasonal-colour nudge the
+  // feed uses (summer→light/bright, winter→dark); personal colourSeason stays
+  // primary. colorTone12 layers the 12-tone quality bonus (light/deep/bright/
+  // soft) on top, same as the feed.
+  const raw = scoreSingleItemColor(item, profile.colorPreferences, profile.colorSeason, profile.weatherSeason, profile.colorTone12);
   const score = Math.round(Math.min(100, Math.max(0, raw * 100)));
-  return { key, available: true, score, weight, explanation: colorExplanation(score, item, profile.colorSeason, profile.colorTone12) };
+  return { key, available: true, score, weight, explanation: colorExplanation(locale, score, item, profile.colorSeason, profile.colorTone12) };
 }
 
 function scoreStyle(item: FitItem, profile: ProfileInputs): CriterionScore {
   const key: CriterionKey = 'style';
   const weight = DEFAULT_WEIGHTS[key];
+  const locale: Locale = profile.locale ?? 'en';
+
+  if (profile.suggestByStyle === false) {
+    return { key, available: false, score: null, weight, explanation: toggledOffExplanation(locale, key) };
+  }
 
   const missingItem    = !item.typeName;
   const missingProfile = profile.selectedStyles.length === 0;
@@ -231,7 +399,7 @@ function scoreStyle(item: FitItem, profile: ProfileInputs): CriterionScore {
   if (missingItem || missingProfile) {
     return {
       key, available: false, score: null, weight,
-      explanation: unavailableExplanation(key, missingItem, missingProfile),
+      explanation: unavailableExplanation(locale, key, missingItem, missingProfile),
     };
   }
 
@@ -239,32 +407,41 @@ function scoreStyle(item: FitItem, profile: ProfileInputs): CriterionScore {
   if (!userAttributes) {
     return {
       key, available: false, score: null, weight,
-      explanation: unavailableProfileExplanation(key),
+      explanation: unavailableProfileExplanation(locale, key),
     };
   }
 
   const raw = scoreStyleCoherence([item], userAttributes, profile.selectedStyles);
   const score = Math.round(Math.min(100, Math.max(0, raw * 100)));
-  return { key, available: true, score, weight, explanation: styleExplanation(score, item, profile.selectedStyles) };
+  return { key, available: true, score, weight, explanation: styleExplanation(locale, score, item, profile.selectedStyles) };
 }
 
 function scoreFit(item: FitItem, profile: ProfileInputs): CriterionScore {
   const key: CriterionKey = 'fit';
   const weight = DEFAULT_WEIGHTS[key];
+  const locale: Locale = profile.locale ?? 'en';
 
   const preferredFit = profile.bodyMeasurements.preferredFit;
   const bodyShape    = profile.bodyMeasurements.body_shape;
 
   // item.fit is always derived (never null) by toFitItem — so no missing item attr.
   // But the FitItem might come from a minimal item object; treat missing typeName as indicator.
-  const missingItem    = !item.typeName;
+  // Fix 2 (provenance gate, 2026-08-06): toFitItem marks item.provenance.fit
+  // false when it had to DEFAULT the fit (no `fit` field in the request and no
+  // fit keyword in the garment name) — e.g. an unlabelled HOODIE silently
+  // defaults to 'oversized'. Scoring that guess with full confidence produced
+  // wrong, confident verdicts (a slim-preferring user seeing a 10/100 on a
+  // fit the item was never actually confirmed to have). When the fit is a
+  // guess, treat the criterion as unavailable — same "don't confidently guess"
+  // treatment the feed already applies via provenance.fit (ranking.ts).
+  const missingItem    = !item.typeName || !item.provenance.fit;
   // Fit criterion requires at least preferredFit OR body_shape in the profile.
   const missingProfile = !preferredFit && !bodyShape;
 
   if (missingItem || missingProfile) {
     return {
       key, available: false, score: null, weight,
-      explanation: unavailableExplanation(key, missingItem, missingProfile),
+      explanation: unavailableExplanation(locale, key, missingItem, missingProfile),
     };
   }
 
@@ -289,13 +466,18 @@ function scoreFit(item: FitItem, profile: ProfileInputs): CriterionScore {
   const score = Math.round(Math.min(100, Math.max(0, raw * 100)));
   return {
     key, available: true, score, weight,
-    explanation: fitExplanation(score, item.fit, preferredFit, bodyShape),
+    explanation: fitExplanation(locale, score, item.fit, preferredFit, bodyShape),
   };
 }
 
 function scoreMeasurement(item: FitItem, profile: ProfileInputs): CriterionScore {
   const key: CriterionKey = 'measurement';
   const weight = DEFAULT_WEIGHTS[key];
+  const locale: Locale = profile.locale ?? 'en';
+
+  if (profile.suggestByMeasurements === false) {
+    return { key, available: false, score: null, weight, explanation: toggledOffExplanation(locale, key) };
+  }
 
   const missingItem    = !item.garmentMeasurements || Object.keys(item.garmentMeasurements).length === 0;
 
@@ -305,7 +487,7 @@ function scoreMeasurement(item: FitItem, profile: ProfileInputs): CriterionScore
     const hasAnyBody = !!profile.bodyMeasurements.body_bust || !!profile.bodyMeasurements.body_waist;
     return {
       key, available: false, score: null, weight,
-      explanation: unavailableExplanation(key, true, !hasAnyBody),
+      explanation: unavailableExplanation(locale, key, true, !hasAnyBody),
     };
   }
 
@@ -332,7 +514,7 @@ function scoreMeasurement(item: FitItem, profile: ProfileInputs): CriterionScore
       // No detailed measurements and no height/weight to estimate from → unavailable.
       return {
         key, available: false, score: null, weight,
-        explanation: unavailableProfileExplanation(key),
+        explanation: unavailableProfileExplanation(locale, key),
       };
     }
   }
@@ -345,7 +527,9 @@ function scoreMeasurement(item: FitItem, profile: ProfileInputs): CriterionScore
   if (result.points.length === 0) {
     return {
       key, available: false, score: null, weight,
-      explanation: 'No matching measurement pairs could be compared — add relevant body measurements.',
+      explanation: locale === 'vi'
+        ? 'Không có cặp số đo nào để so sánh — hãy thêm số đo cơ thể liên quan.'
+        : 'No matching measurement pairs could be compared — add relevant body measurements.',
     };
   }
 
@@ -357,19 +541,22 @@ function scoreMeasurement(item: FitItem, profile: ProfileInputs): CriterionScore
   if (estimated) {
     return {
       key, available: true, score, weight: ESTIMATED_MEASUREMENT_WEIGHT,
-      explanation: 'Estimated from your height and weight — approximate. Add detailed body measurements for an exact fit read.',
+      explanation: locale === 'vi'
+        ? 'Ước tính từ chiều cao và cân nặng — chỉ mang tính tương đối. Thêm số đo cơ thể chi tiết để có kết quả chính xác hơn.'
+        : 'Estimated from your height and weight — approximate. Add detailed body measurements for an exact fit read.',
     };
   }
 
   return {
     key, available: true, score, weight,
-    explanation: measurementExplanation(score, result.warnings),
+    explanation: measurementExplanation(locale, score, result.warnings),
   };
 }
 
 function scoreFabric(item: FitItem, profile: ProfileInputs): CriterionScore {
   const key: CriterionKey = 'fabric';
   const weight = DEFAULT_WEIGHTS[key];
+  const locale: Locale = profile.locale ?? 'en';
 
   const missingItem    = !item.fabricName;
   // Fabric benefits from style context, but is evaluable without a profile if material is present.
@@ -379,32 +566,21 @@ function scoreFabric(item: FitItem, profile: ProfileInputs): CriterionScore {
   if (missingItem || missingProfile) {
     return {
       key, available: false, score: null, weight,
-      explanation: unavailableExplanation(key, missingItem, missingProfile),
+      explanation: unavailableExplanation(locale, key, missingItem, missingProfile),
     };
   }
 
-  // Season/fabric sub-score via engine's season matcher, against the current
-  // real-world season (e.g. a wool item scanned in summer scores lower).
-  const seasonRaw = scoreSeasonMatch([item], profile.weatherSeason);
-
-  // Style-config fabric bonus: if item's fabric is in the allowed list for any selected style,
-  // give a compatibility boost; if it's explicitly banned, give a penalty.
-  let styleBonus = 0;
-  if (profile.selectedStyles.length > 0 && item.fabricName) {
-    const fn = item.fabricName;
-    for (const styleId of profile.selectedStyles) {
-      const cfg = styleConfigById(styleId);
-      if (!cfg) continue;
-      if (cfg.fabricsBanned.includes(fn)) { styleBonus -= 0.20; break; }
-      if (cfg.fabricsAllowed.length > 0 && cfg.fabricsAllowed.includes(fn)) { styleBonus += 0.10; break; }
-    }
-  }
-
-  const raw = Math.min(1.0, Math.max(0, seasonRaw + styleBonus));
+  // Single-item fabric scorer (Fix 1, 2026-08-06) — see the doc comment above
+  // scoreSingleItemFabric for why the outfit-level scoreSeasonMatch's fixed
+  // 0.8 "internal consistency" term made sense for outfits but floored/capped
+  // a single item's fabric score at [32, 92] regardless of how badly the
+  // fabric actually suited the current season (a wool coat in summer never
+  // scored below 32).
+  const raw = scoreSingleItemFabric(item, profile.weatherSeason, profile.selectedStyles);
   const score = Math.round(Math.min(100, Math.max(0, raw * 100)));
   return {
     key, available: true, score, weight,
-    explanation: fabricExplanation(score, item, profile.selectedStyles),
+    explanation: fabricExplanation(locale, score, item, profile.selectedStyles),
   };
 }
 

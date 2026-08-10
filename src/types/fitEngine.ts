@@ -129,6 +129,11 @@ export interface OutfitSlots {
   shoes: string;
   outwear?: string;
   accessory?: string;
+  // Mid layer (2026-08-10) — mirrors engine/types.ts OutfitSlots.mid. A
+  // layerRole:'mid' garment (hoodie/sweater/cardigan/knit/vest/kimono) worn
+  // UNDER a true outer in `outwear` (e.g. blazer over a thin hoodie). Only
+  // ever set alongside `outwear`; absent for every pre-existing outfit shape.
+  mid?: string;
 }
 
 export interface ScoredOutfit {

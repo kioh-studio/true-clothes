@@ -30,7 +30,69 @@ SplashScreen.preventAutoHideAsync();
 let Purchases: typeof import('react-native-purchases').default | null = null;
 try { Purchases = require('react-native-purchases').default; } catch { /* Expo Go */ }
 
-export default function RootLayout() {
+// ─── Sentry (crash reporting only — analytics/perf tracing is a separate,
+// later task) ────────────────────────────────────────────────────────────
+// Lazy/guarded the same way as RevenueCat above: the require() is wrapped in
+// try/catch so a native-module mismatch (e.g. Expo Go, which only gets the
+// JS-level SDK) never crashes the app, and init only runs once a DSN exists.
+// No Sentry project has been created yet, so EXPO_PUBLIC_SENTRY_DSN is an
+// intentionally empty placeholder in .env/eas.json — the guard below makes
+// that the normal, silent, no-op state rather than an error.
+let Sentry: typeof import('@sentry/react-native') | null = null;
+try { Sentry = require('@sentry/react-native'); } catch { /* not resolvable in this runtime */ }
+
+// HARD PRIVACY CONSTRAINT (see CLAUDE.md + project memory "Body data
+// on-device only"): body measurements and face/selfie photos must never
+// leave the device. Sentry's defaults (PII collection, screenshots, session
+// replay) are all capable of leaking exactly that — a screenshot mid-drape,
+// a replay frame of the selfie screen, a stack/context value holding a
+// measurement or an on-device photo URI — so all three are hard-disabled
+// below, and beforeSend additionally scrubs any key that looks like it could
+// hold that data from whatever event payload remains, plus any file:// URI
+// (the scheme every on-device photo/measurement asset uses on both
+// platforms) wherever it appears in the payload.
+const SENTRY_SCRUB_KEY_RE = /(body_|measurement|photo|uri|skinlab|hairlab|undertone)/i;
+
+function scrubSentryValue(value: unknown, depth = 0): unknown {
+  if (depth > 8) return '[scrubbed:max-depth]';
+  if (typeof value === 'string') {
+    return value.startsWith('file://') ? '[scrubbed:file-uri]' : value;
+  }
+  if (Array.isArray(value)) return value.map((v) => scrubSentryValue(v, depth + 1));
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = SENTRY_SCRUB_KEY_RE.test(key) ? '[scrubbed]' : scrubSentryValue(v, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}
+
+if (Sentry) {
+  const dsn = process.env['EXPO_PUBLIC_SENTRY_DSN'];
+  if (dsn) {
+    try {
+      Sentry.init({
+        dsn,
+        sendDefaultPii: false,    // no device/user PII attached automatically
+        attachScreenshot: false,  // a screenshot could capture a body/selfie screen
+        // No tracesSampleRate/profilesSampleRate set → performance tracing and
+        // profiling stay off for this pass (crash reporting only; see plan.md).
+        // No replay integration added → session replay stays off.
+        beforeSend(event) {
+          try {
+            return scrubSentryValue(event) as typeof event;
+          } catch {
+            return null; // fail closed: drop rather than risk leaking anything
+          }
+        },
+      });
+    } catch { /* never let Sentry init crash app startup */ }
+  }
+}
+
+function RootLayout() {
   const { t } = useTranslation();
   const [fontsLoaded] = useFonts({
     CormorantGaramond_300Light,
@@ -157,6 +219,14 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 }
+
+// Sentry.wrap adds a top-level error boundary + touch-event breadcrumbs.
+// Falls back to the plain component when Sentry didn't load (Expo Go / not
+// yet resolvable) or never initialised (no DSN yet) — Sentry.wrap on an
+// un-init'd SDK is a harmless no-op passthrough, but skipping it entirely
+// when `Sentry` itself is null keeps this file crash-proof with the
+// dependency absent altogether.
+export default Sentry ? Sentry.wrap(RootLayout) : RootLayout;
 
 const styles = StyleSheet.create({
   migrationOverlay: {

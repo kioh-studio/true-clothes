@@ -7,7 +7,7 @@ import { Field, PrimaryButton, Tag, Segmented, TextLink } from '../src/component
 import { IconChevronLeft } from '../src/components/icons';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { validateMeasurements } from '../src/features/measurements/useMeasurements';
-import { computeBodyShape, type BodyShape } from '../src/types/measurements';
+import { computeBodyShape, computeBodyShapeLegacy, stabilizeBodyShape, type BodyShape } from '../src/types/measurements';
 import { useTranslation } from '../src/i18n';
 
 import type { PreferredFit } from '../src/types/fitEngine';
@@ -59,19 +59,22 @@ export default function MeasurementsEditScreen() {
 
   // Body shape is derived live from bust/waist/hip — whether typed by hand or
   // pre-filled by the AI scan — unless the user picks a manual override below.
-  // A saved shape counts as an override only if it differs from what the saved
-  // measurements derive (same convention as useMeasurements).
+  // A saved shape counts as an override only if it matches NEITHER the current
+  // classifier NOR the legacy (pre-2026-08-03) classifier's output (same
+  // convention as useMeasurements).
   const derivedShape = useMemo(() => {
     const num = (s: string): number | undefined => {
       const n = parseFloat(s);
       return isFinite(n) ? n : undefined;
     };
-    return computeBodyShape({ body_bust: num(v.chest), body_waist: num(v.waist), body_hip: num(v.hips) });
-  }, [v.chest, v.waist, v.hips]);
+    return stabilizeBodyShape(bm.bodyShape ?? null, { body_bust: num(v.chest), body_waist: num(v.waist), body_hip: num(v.hips) });
+  }, [v.chest, v.waist, v.hips, bm.bodyShape]);
   const [shapeOverride, setShapeOverride] = useState<BodyShape | null>(() => {
     const saved = bm.bodyShape ?? null;
     if (!saved) return null;
-    return saved === computeBodyShape(bm) ? null : saved;
+    const current = computeBodyShape(bm);
+    const legacy = computeBodyShapeLegacy(bm);
+    return saved === current || saved === legacy ? null : saved;
   });
   const initialShapeOverride = useRef(shapeOverride).current;
   const bodyShape = shapeOverride ?? derivedShape;

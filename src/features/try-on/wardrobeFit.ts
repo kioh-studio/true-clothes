@@ -14,6 +14,25 @@ export const TARGET_HIGH_MATCHES = 3;
 
 export type WardrobeFitBand = 'great' | 'ok' | 'weak' | 'none';
 
+// Band → i18n key mapping. The label/explanation TEXT lives in en.json/vi.json
+// (wardrobeFitRow_<band>_label / _explanation) — this pure module only picks
+// the band and the interpolation params; WardrobeFitRow renders the actual
+// copy via t(labelKey) / t(explanationKey, explanationParams) so the language
+// follows the user's locale instead of being baked in here as raw English.
+const LABEL_KEY: Record<WardrobeFitBand, string> = {
+  great: 'wardrobeFitRow_great_label',
+  ok:    'wardrobeFitRow_ok_label',
+  weak:  'wardrobeFitRow_weak_label',
+  none:  'wardrobeFitRow_none_label',
+};
+
+const EXPLANATION_KEY: Record<WardrobeFitBand, string> = {
+  great: 'wardrobeFitRow_great_explanation',
+  ok:    'wardrobeFitRow_ok_explanation',
+  weak:  'wardrobeFitRow_weak_explanation',
+  none:  'wardrobeFitRow_none_explanation',
+};
+
 export interface WardrobeFitInfo {
   /** Total outfits the engine could build around the item (all scored >= 0.50). */
   total: number;
@@ -22,10 +41,14 @@ export interface WardrobeFitInfo {
   band: WardrobeFitBand;
   /** 0..100; proportional to highCount / TARGET_HIGH_MATCHES, capped at 100. */
   barPct: number;
-  /** Short headline for the row. */
-  label: string;
-  /** One-line supporting reason. */
-  explanation: string;
+  /** i18n key for the short headline — resolve via t(labelKey). */
+  labelKey: string;
+  /** i18n key for the one-line supporting reason — resolve via
+   *  t(explanationKey, explanationParams). */
+  explanationKey: string;
+  /** Interpolation vars for explanationKey ({{count}}/{{suffix}} — English
+   *  pluralization; Vietnamese copy ignores {{suffix}}, it doesn't inflect). */
+  explanationParams: { count: number; suffix: string };
 }
 
 export function computeWardrobeFit(outfits: ScoredOutfit[]): WardrobeFitInfo {
@@ -45,28 +68,13 @@ export function computeWardrobeFit(outfits: ScoredOutfit[]): WardrobeFitInfo {
 
   const barPct = Math.round(Math.min(1, highCount / TARGET_HIGH_MATCHES) * 100);
 
-  let label: string;
-  let explanation: string;
-
-  switch (band) {
-    case 'great':
-      label = 'Pairs beautifully';
-      explanation = `Builds ${highCount} strong outfits with what you already own.`;
-      break;
-    case 'ok':
-      label = 'Works with your closet';
-      explanation = `Builds ${highCount} solid outfit${highCount === 1 ? '' : 's'} from your wardrobe.`;
-      break;
-    case 'weak':
-      label = 'A bit of a stretch';
-      explanation = 'We can pair it, but nothing stands out from your current wardrobe.';
-      break;
-    case 'none':
-    default:
-      label = 'Hard to pair';
-      explanation = "Your wardrobe doesn't have enough to build an outfit around this yet.";
-      break;
-  }
-
-  return { total, highCount, band, barPct, label, explanation };
+  return {
+    total,
+    highCount,
+    band,
+    barPct,
+    labelKey: LABEL_KEY[band],
+    explanationKey: EXPLANATION_KEY[band],
+    explanationParams: { count: highCount, suffix: highCount === 1 ? '' : 's' },
+  };
 }

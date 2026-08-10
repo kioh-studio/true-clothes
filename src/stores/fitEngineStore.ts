@@ -5,7 +5,7 @@ import type { EstimatedMeasurements } from '../types/measurements';
 import { ScannedItem } from '../types/tryOn';
 import { getCurrentUserId } from '../services/authService';
 import { fetchMyMeasurements, upsertMyMeasurements } from '../services/measurementService';
-import { fetchMyStyleProfile, upsertMyStyleProfile } from '../services/styleProfileService';
+import { fetchMyStyleProfile, upsertMyStyleProfile, ShapeGoal } from '../services/styleProfileService';
 import { fetchStyles, StyleCatalogItem } from '../services/stylesCatalogService';
 import { fetchFormulas, FormulaCatalogItem } from '../services/formulasCatalogService';
 import { sb } from '../services/supabase';
@@ -15,6 +15,14 @@ import { logImpressions } from '../services/outfitInteractionService';
 
 const EMPTY_BODY: BodyMeasurements = {};
 const SHOWN_IDS_KEY = 'shown-outfit-ids';
+// Feed-signals (2026-08-07): swipe-left dismissed outfit ids, persisted
+// separately from shownOutfitIds. Deliberately NOT flushed on the "server
+// returned < 3 → fresh cycle" path (unlike shownOutfitIds) — a dismiss is a
+// standing "not this" the user gave us, not a pagination bookkeeping detail,
+// so it should keep suppressing that outfit across cycles, capped at the
+// most recent 200 so the exclude_ids payload stays bounded as history grows.
+const DISMISSED_IDS_KEY = 'dismissed-outfit-ids';
+const DISMISSED_IDS_CAP = 200;
 
 // Register the onAuthStateChange listener exactly once per app process.
 // Without this, Fast Refresh / remount / re-hydrate calls stack duplicate
@@ -24,10 +32,12 @@ const CURATED_DATE_KEY = 'last-curated-date';
 
 // Pseudo-id for shown/excluded outfits — the FULL slot set, matching the
 // server's exclude semantics. Two outfits that share items but differ in
-// outerwear/accessory are distinct (duplicate items OK, duplicate full
+// outerwear/accessory/mid are distinct (duplicate items OK, duplicate full
 // outfit not), so the key must include every slot, not just the core triple.
+// `mid` (2026-08-10, layer worn under a true outer) appended last, matching
+// engine/index.ts's exclude-key `full` and useFitFeed.ts's `fullKey`.
 const outfitKey = (o: ScoredOutfit) =>
-  [o.slots.top, o.slots.bottom, o.slots.shoes, o.slots.outwear ?? '', o.slots.accessory ?? ''].join('|');
+  [o.slots.top, o.slots.bottom, o.slots.shoes, o.slots.outwear ?? '', o.slots.accessory ?? '', o.slots.mid ?? ''].join('|');
 
 // Live weather → engine season, so suggestions match what's outside the window.
 const BAND_TO_SEASON: Record<string, 'winter' | 'fall' | 'spring' | 'summer'> = {
@@ -104,6 +114,31 @@ interface FitEngineState {
   formulaPreferences: string[];
   setFormulaPreferences: (ids: string[]) => Promise<void>;
 
+  // 4 suggestion toggles (2026-08-10): independent opt-outs for individual
+  // outfit-suggestion dimensions, persisted server-side in style_profiles
+  // (same table/row as formulaPreferences above — same hydrate/persist
+  // pattern). All default true (unchanged behavior for existing users).
+  suggestByStyle: boolean;
+  suggestByPersonalColor: boolean;
+  suggestByFormula: boolean;
+  suggestByMeasurements: boolean;
+  setSuggestionToggles: (patch: Partial<{
+    suggestByStyle: boolean;
+    suggestByPersonalColor: boolean;
+    suggestByFormula: boolean;
+    suggestByMeasurements: boolean;
+  }>) => Promise<void>;
+
+  // Shape goal (010-wardrobe-critic follow-up, 2026-08-10): the user's
+  // durable "desired resulting body silhouette" choice, persisted server-side
+  // in style_profiles (same table/row as formulaPreferences/suggestion
+  // toggles above — same hydrate/persist pattern). Default 'auto' (unchanged
+  // behavior). Consumed by generate-outfits directly off style_profiles —
+  // there is no per-request body field to thread (mirrors the 4 suggestion
+  // toggles' own note on this, see plan.md).
+  shapeGoal: ShapeGoal;
+  setShapeGoal: (goal: ShapeGoal) => Promise<void>;
+
   // Premium tier — set by UI (usePremium); gates curated batches for free users
   premium: boolean;
   setPremium: (premium: boolean) => void;
@@ -114,6 +149,13 @@ interface FitEngineState {
   isFetchingMore: boolean;
   feedError: boolean;
 
+  // Swipe-left dismissed outfit ids (feed-signals, 2026-08-07). Merged into
+  // exclude_ids alongside shownOutfitIds so a dismissed outfit never comes
+  // back into the feed, but persisted/capped independently — see
+  // DISMISSED_IDS_KEY above for why it survives a shownOutfitIds flush.
+  dismissedOutfitIds: string[];
+  addDismissedOutfit: (outfitId: string) => void;
+
   // Wardrobe-affinity style fallback envelope (2026-08-02): mirrors the
   // top-level `style_fallback.styles` the server sends only when the user has
   // no selected styles and it auto-picked fallback styles from wardrobe
@@ -121,6 +163,14 @@ interface FitEngineState {
   // null when absent. Set on the main feed fetch + refresh paths only, NOT on
   // Mix & Match (fetchMixMatchOutfits never touches the feed state).
   styleFallback: Array<{ id: string; name: string }> | null;
+
+  // Mirrors the last fetch's `response.curated` (feed-signals, 2026-08-07) —
+  // read by the feed screen to tag `viewed`/`dismissed` outfit_interactions
+  // rows with the same curated/formula/position shape `logImpressions` uses,
+  // for LLM-curated vs rule-only analytics comparisons. Best-effort/display
+  // metadata only — never read back by the taste engine (which only parses
+  // outfit_id), so a stale value here can't affect ranking.
+  lastCurated: boolean;
 
   setBodyMeasurements: (m: Partial<BodyMeasurements>) => Promise<void>;
   setStyleProfile: (p: Partial<UserStyleProfile>) => Promise<void>;
@@ -178,6 +228,23 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
     if (userId) await upsertMyStyleProfile(userId, { formulaPreferences: ids });
   },
 
+  suggestByStyle: true,
+  suggestByPersonalColor: true,
+  suggestByFormula: true,
+  suggestByMeasurements: true,
+  setSuggestionToggles: async (patch) => {
+    set(patch);
+    const userId = await getCurrentUserId();
+    if (userId) await upsertMyStyleProfile(userId, patch);
+  },
+
+  shapeGoal: 'auto',
+  setShapeGoal: async (goal) => {
+    set({ shapeGoal: goal });
+    const userId = await getCurrentUserId();
+    if (userId) await upsertMyStyleProfile(userId, { shapeGoal: goal });
+  },
+
   premium: false,
   setPremium: (premium) => {
     const wasPremium = get().premium;
@@ -195,6 +262,14 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
   isFetchingMore: false,
   feedError: false,
   styleFallback: null,
+  lastCurated: false,
+
+  dismissedOutfitIds: [],
+  addDismissedOutfit: (outfitId) => {
+    const next = [...get().dismissedOutfitIds.filter(id => id !== outfitId), outfitId].slice(-DISMISSED_IDS_CAP);
+    set({ dismissedOutfitIds: next });
+    AsyncStorage.setItem(DISMISSED_IDS_KEY, JSON.stringify(next)).catch(() => {});
+  },
 
   setBodyMeasurements: async (m) => {
     const nextBody = { ...get().bodyMeasurements, ...m };
@@ -253,10 +328,10 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
 
   fetchOutfits: async (opts = {}) => {
     const { intent, excludeIds } = opts;
-    const { shownOutfitIds, sessionFormulaId, premium } = get();
+    const { shownOutfitIds, dismissedOutfitIds, sessionFormulaId, premium } = get();
     set({ feedError: false });
 
-    const allExclude = [...shownOutfitIds, ...(excludeIds ?? [])];
+    const allExclude = [...shownOutfitIds, ...dismissedOutfitIds, ...(excludeIds ?? [])];
     const effectiveIntent = weatherIntent(intent);
     const userId = await getCurrentUserId();
     const curate = await shouldCurateToday(premium, userId);
@@ -280,7 +355,7 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
     const response = data as GenerateOutfitsResponse;
     const newOutfits = response.outfits ?? [];
     const newIds = newOutfits.map(outfitKey);
-    set({ styleFallback: response.style_fallback?.styles ?? null });
+    set({ styleFallback: response.style_fallback?.styles ?? null, lastCurated: response.curated ?? false });
 
     // Only burn the free user's daily curate slot once the server confirms it
     // actually curated this batch (it can silently degrade to rule order under
@@ -343,13 +418,13 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
   fetchMoreOutfits: async () => {
     if (get().isFetchingMore) return;
     set({ isFetchingMore: true });
-    const { shownOutfitIds, sessionFormulaId, premium } = get();
+    const { shownOutfitIds, dismissedOutfitIds, sessionFormulaId, premium } = get();
     try {
       const effectiveIntent = weatherIntent();
       const userId = await getCurrentUserId();
       const curate = await shouldCurateToday(premium, userId);
       const body: Record<string, unknown> = {
-        exclude_ids: shownOutfitIds,
+        exclude_ids: [...shownOutfitIds, ...dismissedOutfitIds],
         ...(effectiveIntent ? { intent: effectiveIntent } : {}),
         ...(sessionFormulaId ? { formula_id: sessionFormulaId } : {}),
         ...(useAppStore.getState().genderAwareStyling ? { gender_aware: true } : {}),
@@ -366,7 +441,7 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
       const response = data as GenerateOutfitsResponse;
       const newOutfits = response.outfits ?? [];
       const newIds = newOutfits.map(outfitKey);
-      set({ styleFallback: response.style_fallback?.styles ?? null });
+      set({ styleFallback: response.style_fallback?.styles ?? null, lastCurated: response.curated ?? false });
 
       if (!premium && response.curated) markCurateUsedToday(userId).catch(() => {});
 
@@ -406,6 +481,11 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
       styleProfile: { selectedStyles: [] },
       colorPreferences: [],
       formulaPreferences: [],
+      suggestByStyle: true,
+      suggestByPersonalColor: true,
+      suggestByFormula: true,
+      suggestByMeasurements: true,
+      shapeGoal: 'auto',
       pendingEstimate: null,
       // Cross-account leak: these were previously left untouched on sign-out,
       // so the next user to sign in on the same device briefly saw the prior
@@ -413,11 +493,14 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
       // session formula selection).
       outfits: [],
       shownOutfitIds: [],
+      dismissedOutfitIds: [],
       sessionFormulaId: null,
       premium: false,
       styleFallback: null,
+      lastCurated: false,
     });
     AsyncStorage.removeItem(SHOWN_IDS_KEY).catch(() => {});
+    AsyncStorage.removeItem(DISMISSED_IDS_KEY).catch(() => {});
   },
 
   hydrate: async () => {
@@ -451,6 +534,10 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
       const raw = await AsyncStorage.getItem(SHOWN_IDS_KEY);
       if (raw) set({ shownOutfitIds: JSON.parse(raw) });
 
+      // Restore dismissed IDs from storage (feed-signals, 2026-08-07)
+      const dismissedRaw = await AsyncStorage.getItem(DISMISSED_IDS_KEY);
+      if (dismissedRaw) set({ dismissedOutfitIds: JSON.parse(dismissedRaw) });
+
       const userId = await getCurrentUserId();
       if (userId) {
         const [measurements, styleData] = await Promise.all([
@@ -462,6 +549,11 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
           styleProfile:     { selectedStyles: styleData?.selectedStyles ?? [] },
           colorPreferences: styleData?.colorPreferences ?? [],
           formulaPreferences: styleData?.formulaPreferences ?? [],
+          suggestByStyle:          styleData?.suggestByStyle ?? true,
+          suggestByPersonalColor:  styleData?.suggestByPersonalColor ?? true,
+          suggestByFormula:        styleData?.suggestByFormula ?? true,
+          suggestByMeasurements:   styleData?.suggestByMeasurements ?? true,
+          shapeGoal:               styleData?.shapeGoal ?? 'auto',
         });
       }
     } catch (err) {

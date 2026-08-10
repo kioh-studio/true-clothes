@@ -20,7 +20,7 @@ export function WardrobeFitRow({ fit, loading = false }: Props) {
   const explanationText = loading
     ? t('wardrobeFitRow_loading')
     : fit
-      ? fit.explanation
+      ? t(fit.explanationKey, fit.explanationParams)
       : t('wardrobeFitRow_noData');
 
   return (

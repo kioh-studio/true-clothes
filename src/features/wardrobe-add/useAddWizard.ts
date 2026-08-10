@@ -7,6 +7,7 @@ import { extractItemsWithImages, ExtractedItemWithImage } from '../../services/i
 import { extractItemOnDevice, isExtractByItemAvailable, cutoutOnDevice } from '../../services/extractByItemService';
 import { checkCredit, CreditStatus, isCreditExhausted } from '../../services/usageCreditService';
 import { usePremium } from '../monetization/usePremium';
+import { useCreditQuota } from '../monetization/useCreditQuota';
 import { hasPremiumAccountType } from '../../services/profileService';
 import { categoryForType } from './vocab';
 import { genId } from '../../utils/genId';
@@ -88,6 +89,11 @@ export function useAddWizard() {
   const { isPremium } = usePremium();
   const isPremiumRef = useRef(isPremium);
   isPremiumRef.current = isPremium;
+
+  // Display-only monthly allowance shown on the upload step. Separate from the
+  // `creditStatus` below, which is only ever populated by the pre-flight gate
+  // inside analyse() and only for non-premium accounts.
+  const { status: quota, refresh: refreshQuota } = useCreditQuota('ai_extraction');
 
   const [step, setStep] = useState<WizardStep>('upload');
   const [photos, setPhotos] = useState<PhotoEntry[]>([]);
@@ -179,8 +185,13 @@ export function useAddWizard() {
     } catch (err) {
       setError(err instanceof Error ? err.message : t('extraction_extractionFailed'));
       setStep('upload');
+    } finally {
+      // Every exit path above can have consumed credit server-side (the batch
+      // loop consumes per photo, so even a mid-batch failure spent some).
+      // Re-read once here rather than at each return.
+      refreshQuota();
     }
-  }, [photos, t]);
+  }, [photos, t, refreshQuota]);
 
   // ── Review edits ──────────────────────────────────────────────────────────────
   const editItem = useCallback((id: string, patch: Partial<ExtractedItem>) => {
@@ -278,7 +289,7 @@ export function useAddWizard() {
   }, []);
 
   return {
-    step, photos, items, processingIndex, creditStatus, upgrade, error, saving,
+    step, photos, items, processingIndex, creditStatus, quota, upgrade, error, saving,
     addPhoto, removePhoto, setMethod, setNote,
     analyse, editItem, removeItem, confirm, reset,
     savedCount: savedIds.size,

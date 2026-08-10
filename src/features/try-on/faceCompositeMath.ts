@@ -110,6 +110,61 @@ export function isAlignmentPlausible(s: Similarity): boolean {
   return true;
 }
 
+// CALIBRATION-PENDING (2026-08-07, edit-in-place hardening): the 0.62 ear-
+// span-to-radius factor, the 1.4x/2.6x inter-eye clamp bounds, the 1.9x
+// inter-eye fallback factor, and the 1.28 ry/rx aspect ratio all need
+// on-device tuning against real photos.
+//
+// Rationale: the previous fixed mask (rx = interEye*1.5, ry = interEye*1.9)
+// deliberately excluded the jawline, hairline, and ears — but those are
+// exactly the features that make a face read as a SPECIFIC person rather
+// than "a face". Pasting only eyes/nose/mouth/cheeks left the jaw/hairline
+// from the AI-generated render, so the composited result still looked like
+// a different person wearing the user's eyes. Widening the mask used to be
+// risky because the generated face could sit at a meaningfully different
+// angle/size than the source (the old prompt fully re-synthesised the
+// image) — a wider paste over a poorly-aligned face reads as a smear. Now
+// that generation edits the source photo in place (see tryon-generate's
+// buildGenPrompt), the generated face is nearly the same photo, so the
+// source→generated alignment is close to identity and a wider mask is safe.
+const EAR_SPAN_TO_RX = 0.62;
+const RX_MIN_INTER_EYE = 1.4;
+const RX_MAX_INTER_EYE = 2.6;
+const RX_FALLBACK_INTER_EYE = 1.9;
+const RY_TO_RX = 1.28;
+
+/**
+ * Compute the inner-face mask's ellipse radii (in the same pixel space as
+ * `interEyePx`). When a plausible ear span is available, `rx` is derived
+ * from it (wider, jaw/hairline-reaching mask), clamped to a sane multiple of
+ * the inter-eye distance so a bad ear detection can't blow the mask up or
+ * collapse it. Without a usable ear span, falls back to a fixed multiple of
+ * inter-eye distance (the old behaviour, narrower/safer). `ry` is always a
+ * fixed multiple of `rx` (faces are taller than wide).
+ *
+ * Returns `{ rx: 0, ry: 0 }` for a non-finite/non-positive `interEyePx` so
+ * the caller can bail (mirrors the other degenerate-input gates in this
+ * module).
+ */
+export function faceMaskRadii(
+  interEyePx: number,
+  earSpanPx: number | null,
+): { rx: number; ry: number } {
+  if (!isFinite(interEyePx) || interEyePx <= 0) return { rx: 0, ry: 0 };
+
+  let rx: number;
+  if (earSpanPx !== null && isFinite(earSpanPx) && earSpanPx > 0) {
+    const raw = earSpanPx * EAR_SPAN_TO_RX;
+    const lo = interEyePx * RX_MIN_INTER_EYE;
+    const hi = interEyePx * RX_MAX_INTER_EYE;
+    rx = Math.max(lo, Math.min(hi, raw));
+  } else {
+    rx = interEyePx * RX_FALLBACK_INTER_EYE;
+  }
+  const ry = rx * RY_TO_RX;
+  return { rx, ry };
+}
+
 /** Smoothstep helper: 0 at edge0, 1 at edge1, smooth in between. */
 function smoothstep(edge0: number, edge1: number, x: number): number {
   if (edge0 === edge1) return x < edge0 ? 0 : 1;

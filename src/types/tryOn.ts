@@ -98,6 +98,10 @@ export interface WearProfile {
 /** Result of a successful generation: a local file of the user wearing the outfit. */
 export interface WearOnResult {
   localImageUri: string;
+  /** Server-side post-generate verify pass flagged an issue (bad anatomy,
+   *  garment not clearly rendered, etc.) — the credit was refunded, but the
+   *  image is still returned; the user decides whether to keep or retry. */
+  qualityWarning?: boolean;
 }
 
 /** Verdict from the cheap photo gate (tryon-validate). */

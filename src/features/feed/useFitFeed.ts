@@ -16,9 +16,11 @@ function useStableValue<T>(value: T): T {
 }
 
 function slotsToIds(slots: OutfitSlots): string[] {
-  // Dedupe: a one-piece (dress/jumpsuit) fills both top and bottom slots
+  // Dedupe: a one-piece (dress/jumpsuit) fills both top and bottom slots.
+  // `mid` (2026-08-10, layer worn under a true outer) appended last — mirrors
+  // the server's engine/ranking.ts slotsToIds ordering.
   return [...new Set(
-    [slots.top, slots.bottom, slots.shoes, slots.outwear, slots.accessory]
+    [slots.top, slots.bottom, slots.shoes, slots.outwear, slots.accessory, slots.mid]
       .filter((id): id is string => id !== undefined),
   )];
 }
@@ -63,15 +65,16 @@ function scoredToOutfit(scored: ScoredOutfit, items: ReturnType<typeof useAppSto
   const stylingTip = tip ? (i18n.language.startsWith('vi') ? tip.vi : tip.en) : undefined;
 
   // Use the full slot set (same order as fitEngineStore's outfitKey) so two
-  // outfits sharing core items but differing in outwear/accessory get distinct
-  // ids. Absent optional slots are represented by an empty string so the key
-  // remains stable regardless of undefined vs. omitted.
+  // outfits sharing core items but differing in outwear/accessory/mid get
+  // distinct ids. Absent optional slots are represented by an empty string so
+  // the key remains stable regardless of undefined vs. omitted.
   const fullKey = [
     scored.slots.top    ?? '',
     scored.slots.bottom ?? '',
     scored.slots.shoes  ?? '',
     scored.slots.outwear   ?? '',
     scored.slots.accessory ?? '',
+    scored.slots.mid ?? '',
   ].join('|');
 
   const SIL_KEY: Record<string, string> = {
@@ -91,8 +94,12 @@ function scoredToOutfit(scored: ScoredOutfit, items: ReturnType<typeof useAppSto
     'inverted-triangle': 'outfitShape_invertedTriangle',
     'triangle': 'outfitShape_triangle',
   };
+  // Prefixed with a translated label ("SHAPE: HOURGLASS") so the tag reads as
+  // self-explanatory wherever it's shown, not just a bare shape name lost
+  // among the other tags — mirrors app/(tabs)/index.tsx's card meta line (see
+  // design/feed/design.md).
   const silhouetteShapeTag = scored.silhouetteShape && SHAPE_KEY[scored.silhouetteShape]
-    ? i18n.t(SHAPE_KEY[scored.silhouetteShape]).toUpperCase()
+    ? `${i18n.t('outfitShape_prefix').toUpperCase()}: ${i18n.t(SHAPE_KEY[scored.silhouetteShape]).toUpperCase()}`
     : undefined;
   const colorToneTag = scored.colorTone ? scored.colorTone.toUpperCase() : undefined;
   // Wardrobe-affinity style fallback (2026-08-02) — display-only, no i18n (a

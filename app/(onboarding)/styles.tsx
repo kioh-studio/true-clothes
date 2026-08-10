@@ -7,7 +7,8 @@ import { IconChevronLeft, IconCheck } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { STYLES, StyleOption } from '../../src/data';
 import { useFitEngineStore } from '../../src/stores/fitEngineStore';
-import { StyleCatalogItem } from '../../src/services/stylesCatalogService';
+import { useAuthStore } from '../../src/stores/authStore';
+import { StyleCatalogItem, sortStylesByGenderLean } from '../../src/services/stylesCatalogService';
 import { useGridCardWidth, useGridColumns } from '../../src/design/layout';
 import { useTranslation } from '../../src/i18n';
 
@@ -28,6 +29,7 @@ function withStaticFallback(s: StyleCatalogItem | StyleOption): StyleOption {
     name: s.name,
     desc: s.description ?? fallback?.desc ?? '',
     img: s.imageUrl ?? fallback?.img ?? '',
+    genderLean: s.genderLean,
   };
 }
 
@@ -63,13 +65,15 @@ export default function StylesScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const { setStyleProfile, styles: catalogStyles } = useFitEngineStore();
+  const gender = useAuthStore(s => s.gender);
   const [selected, setSelected] = useState<string[]>([]);
   const cols = useGridColumns();
 
-  // Use catalog if loaded, fall back to static STYLES
-  const styleList = catalogStyles.length > 0
-    ? catalogStyles
-    : STYLES;
+  // Use catalog if loaded, fall back to static STYLES. Gender-matched styles
+  // (profiles.gender = WOMAN/MAN → genderLean feminine/masculine) surface
+  // first — display order only, nothing is hidden or removed (2026-08-10).
+  const rawStyleList: (StyleCatalogItem | StyleOption)[] = catalogStyles.length > 0 ? catalogStyles : STYLES;
+  const styleList = sortStylesByGenderLean(rawStyleList, gender);
 
   const toggle = (id: string) => setSelected(s => {
     if (s.includes(id)) return s.filter(x => x !== id);

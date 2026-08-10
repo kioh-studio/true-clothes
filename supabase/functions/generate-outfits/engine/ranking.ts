@@ -12,8 +12,9 @@ import {
   scoreTasteAdjustment, genderStylingDelta, housePOVDelta,
   scoreTargetSilhouette,
 } from './scoring.ts';
-import { tasteAffinityDelta } from './taste.ts';
+import { tasteAffinityDelta, tasteDismissPenalty } from './taste.ts';
 import { FormulaId } from './generation.ts';
+import { resultingBodySilhouette } from './silhouette.ts';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INTENT RESOLVER
@@ -146,9 +147,15 @@ const W_PROPORTION = 0.10, W_FORMALITY = 0.10, W_SEASON = 0.10, W_TEXTURE = 0.05
 const TOP_N = 24;
 
 function slotsToIds(slots: OutfitSlots): string[] {
-  // Dedupe: a one-piece occupies both top and bottom with the same id.
+  // Dedupe: a one-piece occupies both top and bottom with the same id. `mid`
+  // is appended LAST (2026-08-10) — several downstream consumers (scoring.ts,
+  // index.ts) resolve "the top item" / "the outwear item" via `.find(i =>
+  // i.category === …)` over this same flattened order, and a mid item can
+  // itself carry category 'top' or 'outwear' (see enrichment.ts CATEGORY_MAP).
+  // Keeping it last preserves first-match semantics: the real top/outwear
+  // slot item is always found before the mid one.
   return [...new Set(
-    [slots.top, slots.bottom, slots.shoes, slots.outwear, slots.accessory]
+    [slots.top, slots.bottom, slots.shoes, slots.outwear, slots.accessory, slots.mid]
       .filter((id): id is string => id !== undefined),
   )];
 }
@@ -198,6 +205,27 @@ function passesHardConstraints(fitItems: FitItem[], ctx: EngineContext, formula?
   return true;
 }
 
+// Shape-goal scoring delta (010-wardrobe-critic follow-up, 2026-08-10): a
+// small additive nudge — same band as genderDelta/houseDelta — rewarding
+// outfits whose ACTUAL resultingBodySilhouette matches the user's standing
+// shapeGoal, and lightly penalizing a miss. This is what lets a 'hourglass'
+// goal actually bite: targetsForDesiredShape (silhouette.ts) only nudges
+// generation toward balanced VOLUME for that goal (hourglass is mostly a
+// waist-DEFINITION outcome, not a volume one — see its own comment), so this
+// delta is the layer that rewards the specific outfits that actually create
+// the waist (outfitWaistDefinition, via resultingBodySilhouette). 'auto' /
+// 'natural' / undefined → 0, no-op (matches resolveTargetSilhouette's own
+// OFF condition for this feature). CALIBRATION-PENDING magnitudes.
+const SHAPE_GOAL_MATCH_BONUS = 0.08;
+const SHAPE_GOAL_MISS_PENALTY = 0.05;
+
+function shapeGoalDelta(items: FitItem[], ctx: EngineContext): number {
+  const goal = ctx.shapeGoal;
+  if (!goal || goal === 'auto' || goal === 'natural') return 0;
+  const resulting = resultingBodySilhouette(items, ctx.bodyMeasurements.body_shape);
+  return resulting === goal ? SHAPE_GOAL_MATCH_BONUS : -SHAPE_GOAL_MISS_PENALTY;
+}
+
 function classifyTier(slots: OutfitSlots, itemMap: Map<string, FitItem>, userStyles: Set<string>): 1 | 2 {
   if (userStyles.size === 0) return 1;
   const coreIds = [slots.top, slots.bottom];
@@ -216,6 +244,13 @@ export function rankCandidates(
 ): ScoredOutfit[] {
   const userAttributes = computeUserAttributes(ctx.styleProfile.selectedStyles);
   const userStyleSet = new Set(ctx.styleProfile.selectedStyles);
+
+  // 4 suggestion toggles (2026-08-10): undefined/true = on (default, unchanged
+  // behavior). false forces the matching dim(s) out of the weighted average
+  // below — same "drops out, weight redistributes" mechanism the provenance
+  // gates (fitHasData/proportionHasData/…) already use, not a new one.
+  const suggestByStyle = ctx.suggestByStyle !== false;
+  const suggestByMeasurements = ctx.suggestByMeasurements !== false;
 
   const w = ctx.scoringWeights;
   const wStyle      = w?.style      ?? W_STYLE;
@@ -236,6 +271,17 @@ export function rankCandidates(
   for (const c of candidates) {
     const fitItems = slotsToIds(c.slots).map(id => itemMap.get(id)).filter((i): i is FitItem => i !== undefined);
     if (!passesHardConstraints(fitItems, ctx, c.formula)) continue;
+
+    // Defense-in-depth for the mid/outer physical rule (2026-08-10):
+    // generation.ts already never EMITS a heavy mid under a true outer, but
+    // this is the single choke point every candidate — from any generator —
+    // passes through before scoring, so it re-asserts the rule rather than
+    // trusting every producer to have applied it. CALIBRATION-PENDING (same
+    // rule as generation.ts's midFitsUnderOuter).
+    if (c.slots.mid && c.slots.outwear) {
+      const midItem = itemMap.get(c.slots.mid);
+      if (midItem && midItem.fabric.fabricWeight === 'heavy') continue;
+    }
 
     // Formula-aware contracts (2026-07-02): each look is judged against the
     // concept that generated it — monochrome may trade lightness contrast for
@@ -277,10 +323,10 @@ export function rankCandidates(
     // always real. Anchor gets a slightly louder voice so a clear hero piece (the
     // hallmark of an intentional look) separates from flat all-quiet combos.
     const dims: Array<[weight: number, score: number, valid: boolean]> = [
-      [wStyle,      styleCoherence,       userAttributes !== undefined],
+      [wStyle,      styleCoherence,       userAttributes !== undefined && suggestByStyle],
       [wColor,      colorHarmony,         true],
-      [wFit,        fitScore,             fitHasData],
-      [wProportion, proportionBalance,    proportionHasData],
+      [wFit,        fitScore,             fitHasData && suggestByMeasurements],
+      [wProportion, proportionBalance,    proportionHasData && suggestByMeasurements],
       [wFormality,  formalityConsistency, true],
       [wSeason,     seasonMatch,          seasonHasData],
       [wTexture,    textureInterest,      textureHasData],
@@ -298,10 +344,18 @@ export function rankCandidates(
     // the ones the user has saved/worn. Off (0) until they have positive history;
     // confidence-scaled and capped so it refines order, never overrides styling.
     const tasteDelta = ctx.tasteVector ? tasteAffinityDelta(fitItems, ctx.tasteVector) : 0;
+    // Dismiss penalty (feed-signals, 2026-08-07): swipe-left negative signal,
+    // a SEPARATE aggregate from tasteVector — see taste.ts's dismiss section
+    // header for why it isn't folded into the positive vector. Magnitude in
+    // [0, TASTE_MAX_PENALTY]; subtracted here, never added.
+    const dismissPenalty = ctx.dismissVector ? tasteDismissPenalty(fitItems, ctx.dismissVector) : 0;
     // House POV (S4): MIEN's own voice as a small tie-breaker, halved when the
     // user's styles pull the opposite way. Applied last, additive, capped ±0.05.
     const houseDelta = housePOVDelta(fitItems, ctx.styleProfile.selectedStyles);
-    const totalScore = Math.max(0, Math.min(1, (base + taste.bonus) * taste.multiplier + genderDelta + tasteDelta + houseDelta));
+    // Shape-goal nudge (2026-08-10): 0 when the user hasn't set a specific
+    // shapeGoal (or set 'auto'/'natural') — see shapeGoalDelta above.
+    const shapeGoalBonus = shapeGoalDelta(fitItems, ctx);
+    const totalScore = Math.max(0, Math.min(1, (base + taste.bonus) * taste.multiplier + genderDelta + tasteDelta - dismissPenalty + houseDelta + shapeGoalBonus));
 
     scored.push({
       slots: c.slots,

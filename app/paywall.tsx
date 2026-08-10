@@ -2,7 +2,7 @@
 // Luxury-minimal design: thin serif headline, off-white/warm-black palette,
 // generous whitespace, hairline strokes. No gradients, no heavy shadows.
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,9 @@ import {
   StyleSheet,
   ActivityIndicator,
   ScrollView,
+  Linking,
 } from 'react-native';
+import type { PurchasesPackage } from 'react-native-purchases';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
@@ -18,19 +20,13 @@ import { PrimaryButton, TextLink } from '../src/components/ui';
 import { IconX } from '../src/components/icons';
 import { usePremium } from '../src/features/monetization/usePremium';
 import { useTranslation } from '../src/i18n';
+import { TERMS_URL, PRIVACY_URL } from '../src/config/legal';
 
 export default function PaywallScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { t } = useTranslation();
-  const { isPremium, isLoading, offerings, purchase, restore } = usePremium();
-
-  // Benefit lines shown below the price
-  const BENEFITS = [
-    t('paywall_benefit1'),
-    t('paywall_benefit2'),
-    t('paywall_benefit3'),
-  ];
+  const { isPremium, isLoading, offerings, activeProductId, purchase, restore } = usePremium();
 
   const [purchasing, setPurchasing] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -44,15 +40,104 @@ export default function PaywallScreen() {
     if (backTimeoutRef.current) clearTimeout(backTimeoutRef.current);
   }, []);
 
-  // Grab the default (first available) package from the current offering.
-  const pkg = offerings?.current?.availablePackages?.[0] ?? null;
+  // Render every package RevenueCat returns for the current offering — never
+  // hardcode to a single index. Adding a plan (e.g. yearly) later becomes a
+  // dashboard-only change instead of an app update + App Review cycle.
+  const packages = useMemo(
+    () => offerings?.current?.availablePackages ?? [],
+    [offerings],
+  );
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Default selection once packages load: prefer ANNUAL, else the first
+  // package. Keeps the current selection if it's still present (e.g. a
+  // re-fetch of the same offering), never leaves selection null when
+  // packages exist. When the user is already premium and more than one
+  // package exists, default to a package that ISN'T their current plan —
+  // otherwise the CTA would land disabled immediately (prefer ANNUAL among
+  // the non-current options, same as the base preference).
+  useEffect(() => {
+    if (packages.length === 0) return;
+    setSelectedId((prev) => {
+      if (prev && packages.some((p) => p.identifier === prev)) return prev;
+      if (isPremium && packages.length > 1) {
+        const notCurrent = packages.filter((p) => p.product.identifier !== activeProductId);
+        if (notCurrent.length > 0) {
+          const annual = notCurrent.find((p) => p.packageType === 'ANNUAL');
+          return (annual ?? notCurrent[0]).identifier;
+        }
+      }
+      const annual = packages.find((p) => p.packageType === 'ANNUAL');
+      return (annual ?? packages[0]).identifier;
+    });
+  }, [packages, isPremium, activeProductId]);
+
+  const selectedPkg = packages.find((p) => p.identifier === selectedId) ?? null;
+
+  // The package matching the user's live RevenueCat entitlement, if any.
+  const currentPkg = activeProductId
+    ? packages.find((p) => p.product.identifier === activeProductId) ?? null
+    : null;
+
+  // Plan-switch classification for the CTA / badges / downgrade notice.
+  // 'none'      — not premium, or no package selected: unchanged buy flow.
+  // 'current'   — selected package IS the plan the user is already on.
+  // 'upgrade'   — monthly -> annual.
+  // 'downgrade' — annual -> monthly.
+  // 'switch'    — any other cross-plan combination.
+  const planRelation: 'none' | 'current' | 'upgrade' | 'downgrade' | 'switch' = (() => {
+    if (!isPremium || !selectedPkg) return 'none';
+    if (currentPkg && selectedPkg.identifier === currentPkg.identifier) return 'current';
+    if (!currentPkg) return 'switch';
+    if (currentPkg.packageType === 'MONTHLY' && selectedPkg.packageType === 'ANNUAL') return 'upgrade';
+    if (currentPkg.packageType === 'ANNUAL' && selectedPkg.packageType === 'MONTHLY') return 'downgrade';
+    return 'switch';
+  })();
+
+  // Human-readable plan label — never render a raw PACKAGE_TYPE enum string.
+  const getPlanLabel = (p: PurchasesPackage): string => {
+    if (p.packageType === 'MONTHLY') return t('paywall_planMonthly');
+    if (p.packageType === 'ANNUAL') return t('paywall_planAnnual');
+    return p.product.title;
+  };
+
+  const getPlanPeriod = (p: PurchasesPackage): string => {
+    if (p.packageType === 'MONTHLY') return t('paywall_periodMonthly');
+    if (p.packageType === 'ANNUAL') return t('paywall_periodAnnual');
+    return '';
+  };
+
+  // Savings badge: only when both a MONTHLY and an ANNUAL package exist, and
+  // only with a sane, positive, finite result — guards against RevenueCat
+  // returning a zero/negative/missing price.
+  const monthlyPkg = packages.find((p) => p.packageType === 'MONTHLY') ?? null;
+  const annualPkg = packages.find((p) => p.packageType === 'ANNUAL') ?? null;
+  const savingsPercent = (() => {
+    if (!monthlyPkg || !annualPkg) return null;
+    const monthlyPrice = monthlyPkg.product.price;
+    const annualPrice = annualPkg.product.price;
+    if (
+      !Number.isFinite(monthlyPrice) ||
+      !Number.isFinite(annualPrice) ||
+      monthlyPrice <= 0
+    ) {
+      return null;
+    }
+    const percent = Math.round((1 - annualPrice / (monthlyPrice * 12)) * 100);
+    return percent > 0 ? percent : null;
+  })();
+
+  const openLink = (url: string) => {
+    Linking.openURL(url).catch(() => { /* non-fatal — nothing else to do if the link fails to open */ });
+  };
 
   const handlePurchase = async () => {
-    if (!pkg) return;
+    if (!selectedPkg) return;
     setPurchasing(true);
     setFeedbackMsg(null);
     try {
-      const outcome = await purchase(pkg);
+      const outcome = await purchase(selectedPkg);
       if (outcome === 'success') {
         // Fix 2: Re-hydrate the auth/profile store so the server-sourced
         // account_type refreshes without waiting for the RevenueCat webhook lag.
@@ -128,20 +213,11 @@ export default function PaywallScreen() {
         {/* Headline */}
         <Text style={styles.h1}>{t('paywall_title')}</Text>
 
-        {/* Sub-copy */}
+        {/* Sub-copy — the only value statement on the screen. Deliberately
+            quota-free: no per-month counts, no bullet list (see design.md). */}
         <Text style={styles.caption}>
           {t('paywall_subtitle')}
         </Text>
-
-        {/* Benefit list */}
-        <View style={styles.benefitList}>
-          {BENEFITS.map((b) => (
-            <View key={b} style={styles.benefitRow}>
-              <View style={styles.benefitDot} />
-              <Text style={styles.benefitText}>{b}</Text>
-            </View>
-          ))}
-        </View>
 
         {/* Divider */}
         <View style={styles.divider} />
@@ -151,14 +227,50 @@ export default function PaywallScreen() {
           <View style={styles.loadingBox}>
             <ActivityIndicator size="small" color={T.color.secondary} />
           </View>
-        ) : pkg ? (
+        ) : packages.length === 1 ? (
+          // Exactly one package — a single non-interactive card, no selector
+          // chrome. Making a one-item list look like a choice is misleading.
           <View style={styles.offeringCard}>
             <Text style={styles.offeringTitle}>
-              {pkg.product.title || t('paywall_defaultProductTitle')}
+              {packages[0].product.title || t('paywall_defaultProductTitle')}
             </Text>
             <Text style={styles.offeringPrice}>
-              {pkg.product.priceString}
+              {packages[0].product.priceString}
             </Text>
+          </View>
+        ) : packages.length > 1 ? (
+          <View style={styles.planList}>
+            {packages.map((p) => {
+              const isSelected = p.identifier === selectedId;
+              const isCurrentPlan = isPremium && p.product.identifier === activeProductId;
+              const showSavings = !isCurrentPlan && p.packageType === 'ANNUAL' && savingsPercent !== null;
+              return (
+                <Pressable
+                  key={p.identifier}
+                  onPress={() => setSelectedId(p.identifier)}
+                  disabled={busy}
+                  style={[
+                    styles.planCard,
+                    isSelected ? styles.planCardSelected : styles.planCardUnselected,
+                  ]}
+                >
+                  <View style={styles.planCardHeader}>
+                    <Text style={styles.planLabel}>{getPlanLabel(p)}</Text>
+                    {isCurrentPlan ? (
+                      <Text style={styles.savingsBadge}>{t('paywall_currentPlanBadge')}</Text>
+                    ) : showSavings ? (
+                      <Text style={styles.savingsBadge}>
+                        {t('paywall_savePercent', { percent: savingsPercent })}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Text style={styles.planPrice}>{p.product.priceString}</Text>
+                  {getPlanPeriod(p) ? (
+                    <Text style={styles.planPeriod}>{getPlanPeriod(p)}</Text>
+                  ) : null}
+                </Pressable>
+              );
+            })}
           </View>
         ) : (
           // No offerings — RevenueCat not configured in this build (Expo Go /
@@ -167,6 +279,30 @@ export default function PaywallScreen() {
             <Text style={styles.fallbackTitle}>{t('paywall_unavailableTitle')}</Text>
           </View>
         )}
+
+        {/* Apple 3.1.2 auto-renewable subscription disclosure — required for
+            any package that involves a real purchase. */}
+        {selectedPkg ? (
+          <View style={styles.disclosure}>
+            <Text style={styles.disclosureText}>
+              {t('paywall_disclosureTerms', {
+                plan: getPlanLabel(selectedPkg),
+                price: selectedPkg.product.priceString,
+              })}
+            </Text>
+            <Text style={styles.disclosureText}>
+              {t('paywall_disclosureRenewal')}
+            </Text>
+            <View style={styles.disclosureLinks}>
+              <TextLink onPress={() => openLink(TERMS_URL)} color={T.color.tertiary}>
+                {t('paywall_termsLink')}
+              </TextLink>
+              <TextLink onPress={() => openLink(PRIVACY_URL)} color={T.color.tertiary}>
+                {t('paywall_privacyLink')}
+              </TextLink>
+            </View>
+          </View>
+        ) : null}
 
         {/* Feedback message */}
         {feedbackMsg ? (
@@ -179,6 +315,12 @@ export default function PaywallScreen() {
             <Text style={styles.alreadyPremiumText}>
               {t('paywall_alreadyPremiumMessage')}
             </Text>
+            <TextLink
+              onPress={() => openLink('itms-apps://apps.apple.com/account/subscriptions')}
+              color={T.color.tertiary}
+            >
+              {t('paywall_manageSubscription')}
+            </TextLink>
           </View>
         ) : null}
       </ScrollView>
@@ -187,14 +329,26 @@ export default function PaywallScreen() {
       <View style={[styles.footer, { paddingBottom: insets.bottom + T.s(4) }]}>
         <PrimaryButton
           onPress={handlePurchase}
-          disabled={busy || !pkg || isPremium}
+          disabled={busy || !selectedPkg || planRelation === 'current'}
         >
           {purchasing
             ? t('paywall_upgradingButton')
-            : pkg
-            ? t('paywall_upgradeButtonWithPrice', { price: pkg.product.priceString })
-            : t('premium_upgradeButton')}
+            : !selectedPkg
+            ? t('premium_upgradeButton')
+            : planRelation === 'current'
+            ? t('paywall_currentPlanButton')
+            : planRelation === 'upgrade'
+            ? t('paywall_upgradeToAnnual')
+            : planRelation === 'downgrade'
+            ? t('paywall_switchToMonthly')
+            : planRelation === 'switch'
+            ? t('paywall_switchPlan', { plan: getPlanLabel(selectedPkg) })
+            : t('paywall_upgradeButtonWithPrice', { price: selectedPkg.product.priceString })}
         </PrimaryButton>
+
+        {planRelation === 'downgrade' ? (
+          <Text style={styles.downgradeNotice}>{t('paywall_downgradeNotice')}</Text>
+        ) : null}
 
         <View style={styles.footerLinks}>
           <TextLink
@@ -247,27 +401,6 @@ const styles = StyleSheet.create({
     marginBottom: T.s(8),
   },
 
-  benefitList: {
-    gap: T.s(4),
-    marginBottom: T.s(8),
-  },
-  benefitRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: T.s(3),
-  },
-  benefitDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: T.color.primary,
-    flexShrink: 0,
-  },
-  benefitText: {
-    ...type.body,
-    color: T.color.primary,
-  },
-
   divider: {
     height: 0.5,
     backgroundColor: T.color.hairline,
@@ -305,6 +438,67 @@ const styles = StyleSheet.create({
     color: T.color.secondary,
   },
 
+  planList: {
+    gap: T.s(3),
+    marginBottom: T.s(6),
+  },
+  planCard: {
+    padding: T.s(5),
+  },
+  planCardSelected: {
+    borderWidth: 1,
+    borderColor: T.color.primary,
+  },
+  planCardUnselected: {
+    borderWidth: 0.5,
+    borderColor: T.color.hairlineStrong,
+  },
+  planCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: T.s(2),
+  },
+  planLabel: {
+    fontFamily: T.font.serif,
+    fontSize: 18,
+    fontWeight: '400',
+    color: T.color.primary,
+  },
+  savingsBadge: {
+    ...type.ui,
+    fontSize: 10,
+    color: T.color.primary,
+  },
+  planPrice: {
+    fontFamily: T.font.serifLight,
+    fontSize: 28,
+    fontWeight: '300',
+    color: T.color.primary,
+    letterSpacing: -0.3,
+  },
+  planPeriod: {
+    ...type.caption,
+    color: T.color.secondary,
+    marginTop: T.s(1),
+  },
+
+  disclosure: {
+    marginBottom: T.s(4),
+    gap: T.s(2),
+  },
+  disclosureText: {
+    ...type.caption,
+    color: T.color.tertiary,
+    textAlign: 'center',
+  },
+  disclosureLinks: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: T.s(5),
+    marginTop: T.s(1),
+  },
+
   fallbackBox: {
     borderWidth: 0.5,
     borderColor: T.color.hairline,
@@ -337,10 +531,17 @@ const styles = StyleSheet.create({
     borderColor: T.color.hairline,
     marginTop: T.s(4),
     alignItems: 'center',
+    gap: T.s(2),
   },
   alreadyPremiumText: {
     ...type.caption,
     color: T.color.secondary,
+  },
+
+  downgradeNotice: {
+    ...type.caption,
+    color: T.color.tertiary,
+    textAlign: 'center',
   },
 
   footer: {

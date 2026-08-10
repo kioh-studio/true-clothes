@@ -26,20 +26,25 @@ function item(overrides: Partial<ClothingItemRow>): FitItem {
 
 // ─── Eligibility: only one style covered top+bottom+shoes ──────────────────
 
-Deno.test('eligibility: a wardrobe that naturally suits only Old Money returns only Old Money', () => {
+Deno.test('eligibility: a tweed wardrobe naturally suits Old Money and Dark Academia', () => {
   // Tweed excludes minimalist/smartcasual/bohemian/athleisure (not in their
   // allowed fabric lists); relaxed fit excludes preppy (slim/regular only);
   // the resulting formality (4.0-4.5) excludes streetwear/athleisure/y2k/
   // bohemian (all cap well below that). Old Money allows tweed + relaxed +
-  // this formality range, so it's the only style left standing.
+  // this formality range.
+  //
+  // Style catalog expansion (2026-08-10): Dark Academia also allows tweed +
+  // relaxed + this formality range — an intentional, real overlap (tweed
+  // cardigans/blazers are as core to dark academia as to old money, which is
+  // why the two are configured as neighbors, see filtering.ts). It ranks
+  // below Old Money by popularity, but both are eligible.
   const top    = item({ id: 'top1',    type: 'SHIRT',    color: 'Navy',     material: 'Tweed', fit: 'relaxed' });
   const bottom = item({ id: 'bottom1', type: 'TROUSERS', color: 'Charcoal', material: 'Tweed', fit: 'relaxed' });
   const shoes  = item({ id: 'shoes1',  type: 'LOAFERS',  color: 'Brown',    material: 'Tweed', fit: 'relaxed' });
 
   const result = resolveFallbackStyles([top, bottom, shoes]);
 
-  assertEquals(result.length, 1);
-  assertEquals(result[0].id, 'oldmoney');
+  assertEquals(result.map(c => c.id), ['oldmoney', 'darkacademia']);
 });
 
 // ─── Coverage requirement: high pass fraction, but missing shoes ───────────

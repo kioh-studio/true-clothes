@@ -19,6 +19,7 @@
     "node_modules",
     "supabase/functions",
     "scripts/eval-feed",
-    "scripts/measure-eval"
+    "scripts/measure-eval",
+    "scripts/sim"
   ]
 }

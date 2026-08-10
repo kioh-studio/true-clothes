@@ -300,6 +300,58 @@ currently fall back to the raw generated image rather than attempt a warped
 paste.
   only.
 
+## Generation result — edit-in-place, no more studio backdrop (2026-08-07)
+
+Reverses the two "studio backdrop + editorial framing" changes documented
+above. The server-side prompt (`tryon-generate`'s `buildGenPrompt`) no longer
+asks the model to regenerate the whole photo — it now edits the uploaded
+photo in place, changing only the clothing. Visible effect on the **Result**
+screen (`photoZone` in `app/try-on/wear.tsx`, unchanged markup):
+
+- The rendered image keeps the user's OWN background and surroundings —
+  no more studio backdrop swap.
+- The person's pose, body position, and the camera's framing/crop/angle are
+  the same as the uploaded photo — no more full-length head-to-toe
+  recomposition or leg-elongation.
+- Lighting/shadows on the new garments follow the photo's existing light,
+  not a synthesised studio light.
+
+This was the direct fix for faces reading as a different person: asking the
+model to both preserve the face exactly AND rebuild the rest of the image
+from scratch was self-contradicting, and the face lost every time. No new
+screens/states, no client change beyond the intro copy (`wearOnYou_intro`,
+now describing "we keep it exactly as it is" instead of promising a
+measurement-driven fit render). The trade-off: renders no longer get the
+flattering studio/editorial look — see `backlog.md` for offering that as a
+future opt-in.
+
+## Face compositing — wider mask, higher working resolution (2026-08-07)
+
+Companion change to the edit-in-place prompt above, in
+`src/features/try-on/faceComposite.ts` / `faceCompositeMath.ts`. Still
+invisible plumbing (no new screens/states) — same section as "Face
+compositing (identity guarantee)" further up, superseding its calibration
+notes:
+
+- The inner-face mask now reaches toward the jawline/hairline/ears (via the
+  new `faceMaskRadii()`, ear-span aware) instead of stopping at
+  eyes/nose/mouth/cheeks — those excluded features are exactly what make a
+  face read as a specific person. This was previously too risky because the
+  generated face could sit at a different angle than the source; edit-in-
+  place makes the generated face nearly the same photo, so a wider paste is
+  now safe.
+- The working resolution both images are decoded at rose 1024 → 1600px, so
+  the (now larger) pasted face region keeps enough detail.
+- The feather ramp widened slightly (0.25 → 0.30) for a softer seam over the
+  larger mask.
+- `__DEV__`-only builds now show a small caption on the Result screen with
+  the current run's fallback reason and the cumulative on-device tally by
+  reason (see `plan.md`) — a debugging aid, not user-facing copy, so it has
+  no i18n keys.
+- Still **CALIBRATION-PENDING**: the new mask constants (0.62 ear-span
+  factor, 1.4x/2.6x clamp, 1.9x fallback, 1.28 aspect) and BlazeFace's input
+  normalisation have not been tuned on a real device — see `backlog.md`.
+
 ## Scan screen — scrollable to keep actions reachable (2026-07-23)
 
 `ScanScreen`'s root is now a `ScrollView` (was a non-scrolling `View`). On
@@ -313,3 +365,70 @@ primary actions are always reachable. The close (`X`) button remains the
 first item in the scroll content — no fixed header was introduced. The
 `isScanning` spinner state keeps its centered look via a `minHeight` instead
 of `flex: 1` (which doesn't center the same way inside scroll content).
+
+## Wear-on-you — full-body photo required (2026-08-08)
+
+Product requirement, layered on top of the edit-in-place rewrite above: the
+result MUST show the user's full body at their real size/proportions. Since
+edit-in-place preserves whatever framing the source photo already has, the
+only way to guarantee a full-body, truthful result is to require a full-body
+INPUT photo — the model is never asked to invent unseen legs/feet (that would
+both fabricate proportions and force a re-render that loses the face, per the
+edit-in-place rationale above).
+
+- **`tryon-validate` gate is stricter**: the verdict now includes a
+  `full_body_visible` field (person visible head-to-toe — legs, feet/shoes,
+  not cropped at waist/thigh/knee), checked separately from `body_visible`
+  (torso visible enough to place clothing on). Both must be true for `valid`.
+  A photo that shows only the upper body now hard-rejects at this cheap
+  (no-credit) gate rather than reaching generation. No new client states —
+  this surfaces through the existing `invalid` phase / reason notice on
+  `app/try-on/wear.tsx`, same as any other rejection reason.
+- **Generation prompt gained a body-truthfulness rule**: `buildGenPrompt`'s
+  "Strict requirements" now has a second absolute rule (right after face
+  identity) forbidding any slimming, lengthening, broadening, or posture
+  change to the body — the figure's outline and proportions must stay pixel-
+  faithful to the source photo, and the same extent of body visible in the
+  source (e.g. feet in frame) must remain visible in the result.
+- **Verify pass now compares against the original**: `verifyGeneratedImage`
+  sends both the original person photo and the generated result, and the
+  verdict schema gained `identity_ok` (same individual) and `body_ok` (same
+  body size/shape/proportions/posture/framing) alongside the existing
+  `person_ok`/`garments_ok`/`anatomy_ok`. Same fail-open contract as before —
+  a false verdict only costs a refund + free retry, never a hard block.
+- **Copy**: `wearOnYou_intro` and `wearOnYou_photoHint` now state the
+  full-body requirement plainly (head to toe, feet included) with short
+  practical framing advice (stand back / prop the phone up), rather than
+  presenting full-body framing as merely "more accurate."
+
+## Quota note on the action buttons (2026-08-08)
+
+One line of `type.caption` at 11px in `tertiary`, centered, directly above the
+primary action in two phases:
+
+- **`ready`** — above "WEAR ON" (the tap that spends the credit).
+- **`result` / `error`** — above "REGENERATE", which spends another one.
+
+Copy: `creditQuota_tryOnsLeft` — "Con {{remaining}}/{{limit}} luot thu do trong
+thang nay". Shared component `CreditQuotaNote`
+(`src/features/monetization/components/CreditQuotaNote.tsx`), fed by
+`useCreditQuota('try_on')` inside `useWearOnYou` and exposed as `quota`.
+
+Why it exists: the paywall stopped naming any numbers (see
+`src/design/paywall/design.md`, "Value copy 2026-08-08"), so the screen that
+spends the allowance is now where the user learns what it is. Premium accounts
+have a real monthly cap too, so this is NOT a free-tier-only affordance.
+
+Rules, same as the wardrobe-add upload step:
+
+- Informational only. Plain text, no border, no tap target, no colour shift at
+  zero. The `creditBlocked` notice keeps owning the exhausted state.
+- Renders nothing when there is no trustworthy reading (loading, demo account,
+  or a failed usage query, where `checkCredit` fail-closes to `remaining: 0`
+  for the gate's benefit). Never show a fabricated zero.
+- Refreshed in `generate()`'s `finally`, so the count is current whether the
+  generation succeeded, was blocked up front, or died on a mid-flight 402.
+
+Distinct from the pre-existing `creditsRemaining` state in the same hook, which
+is only populated for non-premium accounts at block/completion time and drives
+no copy of its own.

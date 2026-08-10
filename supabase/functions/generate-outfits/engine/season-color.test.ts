@@ -14,10 +14,10 @@ import { assert, assertEquals, assertAlmostEquals } from 'https://deno.land/std@
 import {
   scoreColorHarmony, seasonForMonth, hemisphereForCountry, resolveHemisphere,
   scoreOutfitFit, bodyShapeMultiplier, bodyShapeAdjustment, attributeSimilarity, scoreItemFit,
-  tone12QualityBonus, TONE12_AVOID,
+  tone12QualityBonus, TONE12_AVOID, preferredFitDelta,
 } from './scoring.ts';
 import { toFitItem } from './enrichment.ts';
-import { ClothingItemRow, FitItem, BodyMeasurements, GarmentMeasurements, StyleAttributes } from './types.ts';
+import { ClothingItemRow, FitItem, BodyMeasurements, GarmentMeasurements, StyleAttributes, PreferredFit } from './types.ts';
 
 function tee(color: string): FitItem {
   const row: ClothingItemRow = { id: color, type: 'TEE', name: color, color, material: 'Cotton' };
@@ -236,10 +236,22 @@ Deno.test('bodyShapeAdjustment — clamped to ±0.32 across all shape/fit combos
 });
 
 Deno.test('bodyShapeAdjustment — fitted mismatch is penalised harder than a loose one (ViBE conditioning)', () => {
-  // apple + slim top: body-specific mismatch → strong negative
+  // 2026-08-03: bodyShapeMultiplier is now volume-distance based against
+  // SHAPE_VOLUME_TARGETS (scoring.ts), not string-matched fit rules — the old
+  // apple+slim/slim fixture no longer lands on a mismatch (dist lands exactly
+  // on the neutral distance 3, delta 0) under the new math, so the fixture is
+  // swapped for a combo that IS a genuine volume mismatch for its shape while
+  // preserving the property under test: a highly body-specific (slim/slim)
+  // mismatch should be penalised harder than a low-specificity (oversized/
+  // oversized) one, once amplified by bodyShapeAdjustment's specificity gain.
+  //
+  // triangle + slim top + slim bottom: triangle wants a wide bottom (targets
+  // bottomVol 4/5) — slim/slim (vol 1/1) is the farthest possible read AND
+  // fully body-specific (specificity 1.0) → strong negative.
   const fittedMismatch = bodyShapeAdjustment(
-    [makeFitItem('t', 'top', 'slim'), makeFitItem('b', 'bottom', 'slim')], 'apple');
-  // inverted_triangle + oversized top: mismatch on a low-specificity garment → mild
+    [makeFitItem('t', 'top', 'slim'), makeFitItem('b', 'bottom', 'slim')], 'triangle');
+  // inverted_triangle + oversized top + oversized bottom: mismatch (wants a
+  // fitted top) but on low-specificity (oversized) garments → mild.
   const looseMismatch = bodyShapeAdjustment(
     [makeFitItem('t', 'top', 'oversized'), makeFitItem('b', 'bottom', 'oversized')], 'inverted_triangle');
   assert(fittedMismatch < 0 && looseMismatch < 0, 'both are mismatches');
@@ -254,6 +266,28 @@ Deno.test('bodyShapeAdjustment — amplifies the raw rule on fitted looks', () =
   const adj = bodyShapeAdjustment(items, 'hourglass');
   assert(raw > 0, 'hourglass rewards tailored');
   assert(adj > raw, `adjusted ${adj} should exceed raw ${raw} on a fitted look`);
+});
+
+// ─── bodyShapeMultiplier: missing axis must not be a fake penalty (2026-08-03) ──
+// evaluate-item/scoring.ts:283 calls bodyShapeAdjustment([item], shape) with a
+// SINGLE item, so the bottom axis is routinely absent. A missing axis must
+// contribute 0 distance, never be treated as maximally wrong.
+Deno.test('bodyShapeMultiplier — a single top-only item is not penalised for the absent bottom axis', () => {
+  // apple wants a loose top (targets topVol 3/4); a lone oversized top (vol 5)
+  // is close to that on the ONE axis that exists. If the missing bottom axis
+  // were scored as a full-distance miss instead of 0, this would come out
+  // much lower than the two-item (top+bottom) equivalent.
+  const singleTop = [makeFitItem('t', 'top', 'oversized')];
+  const withNeutralBottom = [makeFitItem('t', 'top', 'oversized'), makeFitItem('b', 'bottom', 'regular')];
+  const deltaSingle = bodyShapeMultiplier(singleTop, 'apple');
+  const deltaWithBottom = bodyShapeMultiplier(withNeutralBottom, 'apple');
+  assert(deltaSingle > 0, `expected a positive delta for a single loose top on apple, got ${deltaSingle}`);
+  // Distance on the top axis alone (|5-4|=1) is <= the two-axis distance to
+  // the nearest target with a regular (vol 2) bottom (|5-4|+|2-2|=1) — same
+  // best distance here, so the single-item delta should be at least as good,
+  // never punished for the axis that simply isn't there.
+  assert(deltaSingle >= deltaWithBottom - 1e-9,
+    `single-item delta (${deltaSingle}) should not be penalised below the two-item equivalent (${deltaWithBottom})`);
 });
 
 Deno.test('scoreOutfitFit — body-shape delta separates two outfits for inverted_triangle', () => {
@@ -314,9 +348,13 @@ Deno.test('scoreOutfitFit — body_neutral: stripping body_shape makes two diffe
 
 Deno.test('easeScore (girth) — too-tight chest scores near 0 (unwearable)', () => {
   // chest ok=[0,12] ideal=[2,6]; ease=-1 is below ok[0] → should return 0.0
+  // Fit is deliberately 'regular' (2026-08-03, fit-relative ease shift):
+  // 'regular' is FIT_EASE_PCT's zero-shift anchor, so this probes the base
+  // FIT_THRESHOLDS curve unperturbed — a 'slim' label would shift the window
+  // tighter and change the numbers this test is asserting on.
   const body: BodyMeasurements = { body_bust: 90 };
   // garment chest = 89 → ease = -1 (below ok[0]=0) → score must be 0
-  const item = makeFitItem('t', 'top', 'slim', { chest: 89 });
+  const item = makeFitItem('t', 'top', 'regular', { chest: 89 });
   const result = scoreOutfitFit([item], body);
   // Only 1 fit point (chest), score should be 0 because ease < ok[0]
   assert(result <= 0.1, `expected near-0 for too-tight chest, got ${result}`);
@@ -325,8 +363,12 @@ Deno.test('easeScore (girth) — too-tight chest scores near 0 (unwearable)', ()
 Deno.test('easeScore (girth) — marginally tight chest (ease just above ok[0]) scores low, well below ideal', () => {
   // chest ok=[0,12] ideal=[2,6]; ease=0 is at ok[0]: ratio=0, isGirth → score=0
   // ease=1 is between ok[0] and ideal[0]: ratio=0.5, isGirth → 0.5*0.5=0.25
+  // Both items are 'regular' (the zero-shift anchor, 2026-08-03) so the
+  // fit-relative ease shift does not move either window — this test probes
+  // the base absolute curve, not the new fit-aware behaviour (covered
+  // separately below).
   const body: BodyMeasurements = { body_bust: 90 };
-  const tightItem = makeFitItem('t', 'top', 'slim', { chest: 91 }); // ease=1
+  const tightItem = makeFitItem('t', 'top', 'regular', { chest: 91 }); // ease=1
   const idealItem = makeFitItem('t2', 'top', 'regular', { chest: 93 }); // ease=3 (ideal)
   const scoreTight = scoreOutfitFit([tightItem], body);
   const scoreIdeal = scoreOutfitFit([idealItem], body);
@@ -434,4 +476,190 @@ Deno.test('scoreItemFit — measured flag is true when a fit point is scored', (
   const result = scoreItemFit(item, body);
   assertEquals(result.measured, true, 'item with scored fit point should have measured=true');
   assert(result.score > 0.5, `expected score > 0.5 for ideal-range ease, got ${result.score}`);
+});
+
+// ─── Fit-relative ease windows (Part 1, 2026-08-03) ──────────────────────────
+// FIT_THRESHOLDS now SLIDES per the garment's declared `fit`, scaled
+// proportionally to the body measurement (KEY_EASE_WEIGHT), instead of
+// judging every garment against one absolute window. `regular` is the
+// zero-shift anchor; both a real (provenance.fit=true) and a guessed
+// (provenance.fit=false) declared fit shift at FULL strength — a guessed
+// label only widens the `ok` band (GUESS_WIDENING, see Part 1b below), it no
+// longer shifts at half strength (that used to park the window halfway
+// between the regular and labelled-fit window, matching neither).
+
+function withRealFit(item: FitItem): FitItem {
+  return { ...item, provenance: { ...item.provenance, fit: true } };
+}
+
+Deno.test('fit-relative ease — a correctly-cut oversized top scores materially higher than under absolute thresholds, while a too-small garment still scores near 0', () => {
+  const body: BodyMeasurements = { body_bust: 90 };
+
+  // Ease consistent with an OVERSIZED design intent: FIT_EASE_PCT.oversized
+  // (0.22) - FIT_EASE_PCT.regular (0.06) = 0.16 of the body girth ≈ 14.4cm
+  // shift for a real (non-guessed) fit label; chest ease of 18cm sits inside
+  // the resulting shifted ideal window. Under the OLD absolute thresholds
+  // (ok=[0,12]), this same ease of 18 was ABOVE ok[1]=12 → floored to 0.2.
+  const wellCutOversized = withRealFit(makeFitItem('oversized_top', 'top', 'oversized', { chest: 108 })); // ease=18
+  const oversizedResult = scoreItemFit(wellCutOversized, body);
+  assert(oversizedResult.score > 0.9,
+    `expected a correctly-cut oversized top to score > 0.9, got ${oversizedResult.score} (was 0.2 under absolute thresholds)`);
+
+  // A genuinely too-small garment (declared slim, but even slim's small
+  // negative shift can't rescue an ease this far below ok[0]) must still
+  // floor to (near) 0 and still emit a tight warning — the guard against
+  // Part 1 over-correcting into "everything passes".
+  const tooSmall = withRealFit(makeFitItem('too_small_top', 'top', 'slim', { chest: 84 })); // ease=-6
+  const tooSmallResult = scoreItemFit(tooSmall, body);
+  assert(tooSmallResult.score < 0.05, `expected too-small garment to still score near 0, got ${tooSmallResult.score}`);
+  assert(tooSmallResult.warnings.length > 0, 'expected a tight warning to still fire for a genuinely too-small garment');
+  assert(tooSmallResult.points[0]?.category === 'tight', `expected category 'tight', got ${tooSmallResult.points[0]?.category}`);
+});
+
+// ─── Guess-widening (Part 1b, 2026-08-03) ────────────────────────────────────
+// A guessed fit label (provenance.fit=false) is our best ESTIMATE of the cut,
+// so it shifts the window at the SAME full strength as a real label — the
+// old `shiftCm *= 0.5` halving is gone. What a guess buys instead is a wider
+// `ok` band (GUESS_WIDENING) so a wrong guess degrades gracefully rather than
+// being crushed toward 0. NOTE: names below deliberately avoid any
+// FIT_FROM_STRING keyword substring (slim/regular/relaxed/wide/oversized/...)
+// so makeFitItem's synthetic row name does not accidentally flip
+// provenance.fit to true via the name-keyword fallback in
+// deriveFitWithProvenance — these items must stay genuinely GUESSED.
+Deno.test('fit-relative ease (Part 1b, guess-widening 2026-08-03) — a guessed-fit oversized top scores close to its real-fit counterpart, and a guessed-fit too-small top still scores near 0', () => {
+  // Matches body-shape-sim.ts's 'apple' canonical body exactly (bust/waist/
+  // shoulder/upper_arm/sleeve/body_length fields relevant to a top).
+  const body: BodyMeasurements = {
+    body_bust: 96, body_shoulder_width: 39, body_waist: 88,
+    body_upper_arm: 29, body_sleeve_length: 59, body_upper_body_length: 41,
+  };
+  // Same fixture as body-shape-sim.ts's oversized_hoodie on the 'apple'
+  // canonical body (chest ease 18cm, well past the OLD absolute ok[1]=12
+  // ceiling) — real-fit score there is 0.910, guessed-fit is 0.943.
+  const cutMeasurements: GarmentMeasurements = {
+    chest: 114, shoulder_width: 47, waist_top: 106, upper_arm: 41, sleeves: 65, body_length: 50,
+  };
+  const realOversized = withRealFit(makeFitItem('wardrobe_test_top_a', 'top', 'oversized', cutMeasurements));
+  const guessedOversized = makeFitItem('wardrobe_test_top_b', 'top', 'oversized', cutMeasurements);
+  assertEquals(guessedOversized.provenance.fit, false, 'sanity check: item must be genuinely guessed for this test to be meaningful');
+  assertEquals(realOversized.provenance.fit, true, 'sanity check: item must be genuinely real-labelled for this test to be meaningful');
+
+  const realResult = scoreItemFit(realOversized, body);
+  const guessedResult = scoreItemFit(guessedOversized, body);
+
+  assert(realResult.score >= 0.85, `expected real-fit oversized top score >= 0.85, got ${realResult.score}`);
+  assert(guessedResult.score >= 0.75, `expected guessed-fit oversized top score >= 0.75 (was ~0.404 under the old half-shift), got ${guessedResult.score}`);
+  assert(Math.abs(realResult.score - guessedResult.score) <= 0.2,
+    `expected guessed-fit score to stay within ~0.2 of the real-fit score, got real=${realResult.score} guessed=${guessedResult.score}`);
+
+  // A genuinely too-small top must still score near 0 under a GUESSED label —
+  // widening the `ok` band must not let a too-small garment through.
+  const tooSmallGuessed = makeFitItem('wardrobe_test_top_c', 'top', 'slim', { chest: 84 }); // body_bust=96, ease=-12
+  assertEquals(tooSmallGuessed.provenance.fit, false, 'sanity check: too-small item must be genuinely guessed for this test to be meaningful');
+  const tooSmallResult = scoreItemFit(tooSmallGuessed, body);
+  assert(tooSmallResult.score < 0.1, `expected too-small guessed-fit garment to still score near 0, got ${tooSmallResult.score}`);
+  assert(tooSmallResult.warnings.length > 0, 'expected a tight warning to still fire for a too-small guessed-fit garment');
+});
+
+// ─── Girth-floor safety clamp (2026-08-03) ───────────────────────────────────
+// shiftThresholds() may RAISE a girth window's ok[0] (a loose garment
+// legitimately requires more ease before it counts as "ok") but must never
+// LOWER it below the original, un-shifted FIT_THRESHOLDS table value — a body
+// does not shrink to fit a smaller garment. `slim` is the one declared fit
+// whose ease% sits BELOW the `regular` anchor (FIT_EASE_PCT.slim=0.02 <
+// regular=0.06), so it is the one that produces a NEGATIVE shiftCm and is the
+// real risk case; `regular` (zero shift) and `oversized` (a large positive
+// shift) are included as controls that should trivially still floor a
+// too-small garment to ~0 regardless. Checked under BOTH a real
+// (provenance.fit=true) and a guessed (provenance.fit=false) label — guessed
+// additionally WIDENS the ok band, which is exactly the mechanism that could
+// otherwise let a too-small garment sneak under a lowered floor.
+Deno.test('girth-floor clamp — a garment measuring less than the body scores ~0 for slim, regular AND oversized labels, real and guessed', () => {
+  const body: BodyMeasurements = { body_bust: 90 };
+  const fits: Array<FitItem['fit']> = ['slim', 'regular', 'oversized'];
+  for (const fit of fits) {
+    const guessedItem = makeFitItem(`too_small_${fit}_guessed`, 'top', fit, { chest: 86 }); // ease = -4
+    const realItem = withRealFit(makeFitItem(`too_small_${fit}_real`, 'top', fit, { chest: 86 }));
+    for (const [label, item] of [['guessed', guessedItem], ['real', realItem]] as const) {
+      const result = scoreItemFit(item, body);
+      assert(result.score <= 0.05,
+        `expected a chest-ease -4 garment (fit=${fit}, ${label}) to score near 0, got ${result.score}`);
+      assert(result.warnings.length > 0,
+        `expected a tight warning for a chest-ease -4 garment (fit=${fit}, ${label})`);
+      assertEquals(result.points[0]?.category, 'tight',
+        `expected category 'tight' for fit=${fit} (${label}), got ${result.points[0]?.category}`);
+    }
+  }
+});
+
+Deno.test("girth-floor clamp — preserves shoulder_width's deliberately-negative base ok[0] (-1), not 0", () => {
+  // shoulder_width's base ok[0] is -1 on purpose (a seam 1cm narrower than the
+  // body still wears). The clamp must floor at that ORIGINAL value, not at 0.
+  // Proof by distinguishing the two possible floors: ease -1.5 is below BOTH
+  // candidate floors (-1 and 0) → must score 0 either way. Ease -0.9 is above
+  // the correct floor (-1) but still below a wrong floor of 0 — it must score
+  // > 0, which only holds if the clamp landed on -1, not on 0.
+  const body: BodyMeasurements = { body_shoulder_width: 39 };
+  const belowFloor = withRealFit(makeFitItem('shoulder_below_floor', 'top', 'slim', { shoulder_width: 37.5 })); // ease -1.5
+  const aboveFloor = withRealFit(makeFitItem('shoulder_above_floor', 'top', 'slim', { shoulder_width: 38.1 })); // ease -0.9
+  const belowResult = scoreItemFit(belowFloor, body);
+  const aboveResult = scoreItemFit(aboveFloor, body);
+  assertEquals(belowResult.score, 0, `expected ease -1.5 (below the -1 floor) to score 0, got ${belowResult.score}`);
+  assert(aboveResult.score > 0, `expected ease -0.9 (above the -1 floor, below a wrong 0 floor) to score > 0, got ${aboveResult.score}`);
+});
+
+// ─── Preferred-fit anchor (Part 2, 2026-08-03) ───────────────────────────────
+
+Deno.test('preferredFitDelta — returns 0 with no preferredFit', () => {
+  const items = [makeFitItem('t', 'top', 'oversized'), makeFitItem('b', 'bottom', 'oversized')];
+  assertEquals(preferredFitDelta(items, undefined), 0);
+});
+
+Deno.test('preferredFitDelta — stays within [-0.12, +0.12] across all fit/preference combos', () => {
+  const fits: Array<FitItem['fit']> = ['slim', 'regular', 'relaxed', 'wide', 'oversized'];
+  const prefs: PreferredFit[] = ['SLIM', 'REGULAR', 'RELAXED', 'OVERSIZED'];
+  for (const pref of prefs) {
+    for (const fit of fits) {
+      const items = [makeFitItem('t', 'top', fit), makeFitItem('b', 'bottom', fit)];
+      const delta = preferredFitDelta(items, pref);
+      assert(delta >= -0.12 && delta <= 0.12, `delta ${delta} out of range for pref=${pref} fit=${fit}`);
+    }
+  }
+});
+
+Deno.test('preferredFitDelta — positive when item fits match the stated preference, negative when they clash', () => {
+  const slimItems = [makeFitItem('t', 'top', 'slim'), makeFitItem('b', 'bottom', 'slim')];
+  const oversizedItems = [makeFitItem('t', 'top', 'oversized'), makeFitItem('b', 'bottom', 'oversized')];
+
+  const matchDelta = preferredFitDelta(slimItems, 'SLIM');
+  const clashDelta = preferredFitDelta(oversizedItems, 'SLIM');
+  assert(matchDelta > 0, `expected a positive delta for slim items under a SLIM preference, got ${matchDelta}`);
+  assert(clashDelta < 0, `expected a negative delta for oversized items under a SLIM preference, got ${clashDelta}`);
+});
+
+Deno.test('preferredFitDelta — excludes accessory/shoes from the core mean', () => {
+  const withNoise = [makeFitItem('t', 'top', 'slim'), makeFitItem('s', 'shoes', 'oversized')];
+  const withoutNoise = [makeFitItem('t', 'top', 'slim')];
+  assertAlmostEquals(preferredFitDelta(withNoise, 'SLIM'), preferredFitDelta(withoutNoise, 'SLIM'), 1e-9);
+});
+
+Deno.test('scoreOutfitFit — applies the preferred-fit delta even when body_shape is absent', () => {
+  // body_neutral mode (or a user who simply never set body_shape) nulls out
+  // body_shape, but preferredFit is a STATED PREFERENCE, not body data — it
+  // must still move the score. chest ease=5 is deliberately chosen to land
+  // in the "a bit loose" branch (base ≈0.87, not ceiling-clamped at 1.0) so
+  // the delta's effect is visible in both directions.
+  const body: BodyMeasurements = { body_bust: 90 }; // no body_shape
+  const slimItems = [
+    withRealFit(makeFitItem('t', 'top', 'slim', { chest: 95 })), // ease=5
+    withRealFit(makeFitItem('b', 'bottom', 'slim')),             // unmeasured — excluded from base, still counted in preferredFitDelta
+  ];
+
+  const noPref = scoreOutfitFit(slimItems, { ...body, preferredFit: undefined });
+  const slimPref = scoreOutfitFit(slimItems, { ...body, preferredFit: 'SLIM' });
+  const oversizedPref = scoreOutfitFit(slimItems, { ...body, preferredFit: 'OVERSIZED' });
+
+  assert(noPref < 1.0, `expected base score to have headroom below the ceiling, got ${noPref}`);
+  assert(slimPref > noPref, `expected SLIM preference to raise the score of an all-slim outfit (no body_shape), got ${slimPref} vs ${noPref}`);
+  assert(oversizedPref < noPref, `expected OVERSIZED preference to lower the score of an all-slim outfit (no body_shape), got ${oversizedPref} vs ${noPref}`);
 });

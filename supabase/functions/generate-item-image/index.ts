@@ -35,6 +35,13 @@ const corsHeaders = {
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const VISION_MODEL = 'gemini-2.5-flash';
 const IMAGE_GEN_MODEL = 'gemini-3-pro-image-preview'; // nano banana 2 / Gemini 3 Pro Image
+// Cap on how many detected garments fan out into paid image-generation calls
+// per photo (2026-08-05). Step 2 (detect) is cheap text-out; step 3 (isolate,
+// below) is one gemini-3-pro-image-preview call PER garment at ~$0.13/image —
+// previously uncapped, so a single credit on a busy photo could trigger an
+// unbounded number of paid generations. Extra garments beyond this cap are
+// dropped (not silently — see the truncation log below).
+const MAX_GARMENTS_PER_PHOTO = 3;
 
 interface ExtractedItemWithImage {
   image_data: string;
@@ -460,6 +467,14 @@ function parseGarments(rawJson: string): GarmentMetadata[] {
 
 // ─── Credit gate helper ───────────────────────────────────────────────────────
 
+// Credit limits (2026-08-05). Source of truth: src/services/usageCreditService.ts
+// (FREE_LIMITS / PREMIUM_LIMITS). Edge functions can't import from src/, so these
+// are duplicated by hand — no shared cross-function module exists yet under
+// supabase/functions/ for this. Keep both copies (here and in tryon-generate/
+// index.ts) numerically in sync with usageCreditService.ts when a quota changes.
+const FREE_LIMITS: Record<string, number> = { ai_extraction: 2, try_on: 2 };
+const PREMIUM_LIMITS: Record<string, number> = { ai_extraction: 10, try_on: 15 };
+
 interface MinimalClient {
   from: (table: string) => { select: (col: string) => { single: () => Promise<{ data: unknown }> } };
   rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
@@ -471,26 +486,36 @@ function monthPeriod(): string {
   ).toISOString().slice(0, 10);
 }
 
-// Atomically consume one credit (premium/demo bypass). Returns a 402 Response
-// when exhausted, plus whether a credit was actually consumed so the caller can
-// refund it if the generation later fails/yields nothing.
+// Atomically consume one credit against the caller's tier limit. `demo` stays
+// unlimited (App Store reviewers use this account and must not hit a wall
+// mid-review — deliberate, unlike premium below). `premium` and `admin` (the
+// server treats admin as quota'd premium — the client's hasPremiumAccountType()
+// separately lumps admin in with premium for FEATURE access, a pre-existing
+// inconsistency we don't fully unify here) now consume against a real monthly
+// quota instead of bypassing the check entirely: both actions call
+// gemini-3-pro-image-preview at ~$0.13/image, so marginal cost was previously
+// unbounded for a premium subscriber. Returns a 402 Response when exhausted,
+// plus whether a credit was actually consumed so the caller can refund it if
+// the generation later fails/yields nothing.
 async function gateCredit(
   supabase: MinimalClient,
   type: string,
   period: string,
 ): Promise<{ response: Response | null; consumed: boolean }> {
+  let limit = FREE_LIMITS[type] ?? 2;
   try {
     const { data: prof } = await supabase.from('profiles').select('account_type').single();
     const accountType = (prof as { account_type?: string } | null)?.account_type;
-    if (accountType === 'premium' || accountType === 'demo') return { response: null, consumed: false };
+    if (accountType === 'demo') return { response: null, consumed: false };
+    if (accountType === 'premium' || accountType === 'admin') limit = PREMIUM_LIMITS[type] ?? limit;
   } catch {
-    // profile fetch failure → fail open
+    // profile fetch failure → fail open at the free limit (unchanged behavior)
   }
 
   const { data: gate, error: gateErr } = await supabase.rpc('consume_usage_credit', {
     p_type: type,
     p_period: period,
-    p_limit: 2,
+    p_limit: limit,
   });
   if (gateErr) {
     console.warn('[generate-item-image] credit gate RPC error (fail open):', gateErr.message);
@@ -567,11 +592,24 @@ Deno.serve(async (req) => {
     try {
       // Step 1 — detect + snap to controlled vocab
       const rawJson = await geminiDetect(apiKey, image, notes, bodyScale);
-      const garments = parseGarments(rawJson);
+      let garments = parseGarments(rawJson);
       if (garments.length === 0) {
         // Nothing detected → not a result the user can use; don't charge for it.
         if (gate.consumed) await refundCredit(supabase, 'ai_extraction', period);
         return jsonResponse({ items: [] }, 200);
+      }
+
+      // Bound the fan-out: one paid gemini-3-pro-image-preview call per garment
+      // below. Never silently discard — log how many were dropped so the
+      // truncation is visible in server logs. Dropped garments simply don't
+      // appear in the response (the client sees fewer items than were on the
+      // photo, not an error).
+      if (garments.length > MAX_GARMENTS_PER_PHOTO) {
+        const dropped = garments.length - MAX_GARMENTS_PER_PHOTO;
+        console.log(
+          `[generate-item-image] truncating garments ${garments.length} -> ${MAX_GARMENTS_PER_PHOTO} (dropped ${dropped})`,
+        );
+        garments = garments.slice(0, MAX_GARMENTS_PER_PHOTO);
       }
 
       // Ensure any new colours the AI used exist in the `colors` lookup table so the

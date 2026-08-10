@@ -6,23 +6,27 @@
 //   MediaPipe BlazeFace (short-range) → SSD anchor decode → best-scoring face
 //   → 4 keypoints (eyes, nose, mouth) in SOURCE-IMAGE normalised coords.
 //
+// 2-pass detection (try-on fixes, 2026-08-06): BlazeFace short-range runs at
+// 128×128, so in a full-length head-to-toe photo the face is only ~8-10px
+// after letterboxing — marginal for both the source photo and the generated
+// image. When the full-image pass misses or comes back weak, a second pass
+// re-runs detection on a crop of the upper portion of the frame (where a
+// face lives in a full-length shot) and maps the result back to full-image
+// coords. See faceDetectMath.ts for the (pure, jest-tested) crop-mapping and
+// pass-selection logic.
+//
 // Every step is wrapped in try/catch → returns null on any failure so the
 // caller (faceComposite.ts) degrades gracefully to the raw generated image.
 
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import jpeg from 'jpeg-js';
 import { loadTensorflowModel, type TensorflowModel } from 'react-native-fast-tflite';
+import {
+  isWeakDetection, mapLandmarksCropToFull, selectFaceDetection, FACE_CROP_REGION,
+  type Pt, type FaceBox, type FaceLandmarks,
+} from './faceDetectMath';
 
-export interface Pt { x: number; y: number }
-
-export interface FaceLandmarks {
-  rightEye: Pt;
-  leftEye: Pt;
-  nose: Pt;
-  mouth: Pt;
-  /** Detection confidence 0..1 (post-sigmoid). */
-  score: number;
-}
+export type { Pt, FaceBox, FaceLandmarks };
 
 const MODEL_SIZE = 128;
 const SCORE_THRESHOLD = 0.5;
@@ -99,38 +103,31 @@ function sigmoid(x: number): number {
   return 1 / (1 + Math.exp(-clamped));
 }
 
-// ── Public: detect the best-scoring face in a photo ───────────────────────────
+// ── One detection pass over a (possibly cropped) region of the photo ─────────
+//
+// Returns landmarks normalised to THAT region's own frame (0..1) — when
+// `cropPx` is set, the caller is responsible for mapping the result back to
+// full-image coords (mapLandmarksCropToFull in faceDetectMath.ts).
 
-/**
- * Detect a single face in `photoUri` and return 4 landmarks (both eyes, nose,
- * mouth) in SOURCE-IMAGE normalised coords (0..1, letterbox undone — same
- * convention as poseEstimate's `display` coords). Returns null on any failure
- * (model missing, decode error, no face above threshold, native error).
- */
-export async function detectFace(
+async function detectFacePass(
+  model: TensorflowModel,
   photoUri: string,
-  origW?: number,
-  origH?: number,
+  regionW: number,
+  regionH: number,
+  cropPx?: { originX: number; originY: number; width: number; height: number },
 ): Promise<FaceLandmarks | null> {
   try {
-    const model = await loadFaceModel();
-
-    // 0. Resolve source dimensions (probe with a no-op manipulate if needed).
-    let sW = origW, sH = origH;
-    if (!sW || !sH || !isFinite(sW) || !isFinite(sH)) {
-      const probe = await manipulateAsync(photoUri, []);
-      sW = probe.width;
-      sH = probe.height;
-    }
-
     // 1. Scale uniformly so the LONG side is MODEL_SIZE; letterbox-pad the rest.
-    const scale = MODEL_SIZE / Math.max(sW, sH);
-    const tW = Math.max(1, Math.min(MODEL_SIZE, Math.round(sW * scale)));
-    const tH = Math.max(1, Math.min(MODEL_SIZE, Math.round(sH * scale)));
+    const scale = MODEL_SIZE / Math.max(regionW, regionH);
+    const tW = Math.max(1, Math.min(MODEL_SIZE, Math.round(regionW * scale)));
+    const tH = Math.max(1, Math.min(MODEL_SIZE, Math.round(regionH * scale)));
 
+    const actions = cropPx
+      ? [{ crop: cropPx }, { resize: { width: tW, height: tH } }]
+      : [{ resize: { width: tW, height: tH } }];
     const resized = await manipulateAsync(
       photoUri,
-      [{ resize: { width: tW, height: tH } }],
+      actions,
       { base64: true, format: SaveFormat.JPEG, compress: 0.95 },
     );
     if (!resized.base64) return null;
@@ -230,13 +227,82 @@ export async function detectFace(
       y: clamp01((p.y * MODEL_SIZE - offY) / img.height),
     });
 
+    // Box regression at reg indices 0..3: center offset (px) then width/height
+    // (px), same 128-px-unit convention as the keypoint offsets above.
+    const boxDx = (regressors as ArrayLike<number>)[regBase + 0] as number;
+    const boxDy = (regressors as ArrayLike<number>)[regBase + 1] as number;
+    const boxW = (regressors as ArrayLike<number>)[regBase + 2] as number;
+    const boxH = (regressors as ArrayLike<number>)[regBase + 3] as number;
+    const boxCx = anchor.cx + boxDx / MODEL_SIZE;
+    const boxCy = anchor.cy + boxDy / MODEL_SIZE;
+    const boxWNorm = boxW / MODEL_SIZE;
+    const boxHNorm = boxH / MODEL_SIZE;
+    const boxTopLeft = toDisplay({ x: boxCx - boxWNorm / 2, y: boxCy - boxHNorm / 2 });
+    const boxBottomRight = toDisplay({ x: boxCx + boxWNorm / 2, y: boxCy + boxHNorm / 2 });
+    const box: FaceBox = {
+      x: boxTopLeft.x,
+      y: boxTopLeft.y,
+      width: Math.max(0, boxBottomRight.x - boxTopLeft.x),
+      height: Math.max(0, boxBottomRight.y - boxTopLeft.y),
+    };
+
     return {
       rightEye: toDisplay(kp(0)),
       leftEye: toDisplay(kp(1)),
       nose: toDisplay(kp(2)),
       mouth: toDisplay(kp(3)),
+      rightEar: toDisplay(kp(4)),
+      leftEar: toDisplay(kp(5)),
+      box,
       score: bestScore,
     };
+  } catch {
+    // Model file missing, decode failure, or native error → degrade to null.
+    return null;
+  }
+}
+
+// ── Public: detect the best-scoring face in a photo (2-pass) ─────────────────
+
+/**
+ * Detect a single face in `photoUri` and return 4 landmarks (both eyes, nose,
+ * mouth) in SOURCE-IMAGE normalised coords (0..1, letterbox undone — same
+ * convention as poseEstimate's `display` coords). Returns null on any failure
+ * (model missing, decode error, no face above threshold, native error).
+ *
+ * Runs a first pass on the full image; if that pass misses or the detected
+ * face is "weak" (small inter-eye distance — typical of a full-length
+ * head-to-toe photo where BlazeFace's 128×128 input leaves only ~8-10px for
+ * the face), a second pass re-runs detection on a crop of the upper portion
+ * of the frame and prefers a confident hit there. See faceDetectMath.ts.
+ */
+export async function detectFace(
+  photoUri: string,
+  origW?: number,
+  origH?: number,
+): Promise<FaceLandmarks | null> {
+  try {
+    const model = await loadFaceModel();
+
+    // 0. Resolve source dimensions (probe with a no-op manipulate if needed).
+    let sW = origW, sH = origH;
+    if (!sW || !sH || !isFinite(sW) || !isFinite(sH)) {
+      const probe = await manipulateAsync(photoUri, []);
+      sW = probe.width;
+      sH = probe.height;
+    }
+
+    const first = await detectFacePass(model, photoUri, sW, sH);
+    if (!isWeakDetection(first, sW, sH)) return first;
+
+    // Second pass: crop to the upper portion of the frame where a
+    // full-length shot's face lives, and re-run detection there.
+    const cropH = Math.max(1, Math.round(sH * FACE_CROP_REGION.heightNorm));
+    const cropPx = { originX: 0, originY: 0, width: Math.round(sW), height: cropH };
+    const secondRaw = await detectFacePass(model, photoUri, sW, cropH, cropPx);
+    const second = secondRaw ? mapLandmarksCropToFull(secondRaw, FACE_CROP_REGION) : null;
+
+    return selectFaceDetection(first, second, sW, sH);
   } catch {
     // Model file missing, decode failure, or native error → degrade to null.
     return null;

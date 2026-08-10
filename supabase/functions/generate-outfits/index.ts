@@ -9,14 +9,14 @@ import {
   EngineContext, FitItem, IntentContext, ClothingItemRow,
   BodyMeasurements, UserStyleProfile, ScoredOutfit, StyleConfig,
 } from './engine/types.ts';
-import { toFitItem, registerColors, colorProfileOf } from './engine/enrichment.ts';
+import { toFitItem, registerColors, colorProfileOf, toBodyMeasurements } from './engine/enrichment.ts';
 import { filterByStyle, styleConfigById, resolveFallbackStyles, passesStyleNaturally } from './engine/filtering.ts';
 import { generateCandidates, generatePinnedCandidates, generateHeroCandidates, GENERATION_CAP, FormulaId } from './engine/generation.ts';
 import { resolveIntent, applyIntent, rankCandidates, dailyShuffle } from './engine/ranking.ts';
 import { resolveTargetSilhouette, outfitSilhouetteTag, resultingBodySilhouette } from './engine/silhouette.ts';
 import { deriveStylingTips } from './engine/styling-tips.ts';
-import { buildTasteVector } from './engine/taste.ts';
-import { seasonForMonth, resolveHemisphere, outfitDominantColor } from './engine/scoring.ts';
+import { buildTasteVector, buildDismissVector, VIEWED_WEIGHT, SAVED_WEIGHT, WORN_WEIGHT } from './engine/taste.ts';
+import { seasonForMonth, resolveHemisphere, outfitDominantColor, computeUserAttributes } from './engine/scoring.ts';
 import { curateOutfits, curatorEnabled, CuratorImage } from './engine/curator.ts';
 
 const corsHeaders = {
@@ -113,7 +113,7 @@ Deno.serve(async (req) => {
     // ── Load user data from DB ────────────────────────────────────────────
     // clothing_items links to wardrobes via wardrobe_id, not user_id directly,
     // so we resolve the wardrobe_id first, then fetch items.
-    const [profileRes, measurementsRes, styleRes, wardrobeIdRes, interactionsRes, impressionsRes] = await Promise.all([
+    const [profileRes, measurementsRes, styleRes, wardrobeIdRes, interactionsRes, impressionsRes, dismissedRes] = await Promise.all([
       supabase.from('profiles').select('skin_undertone, color_season, color_tone12, personal_palette, location_country, location_country_code, gender').eq('id', userId).single(),
       supabase.from('body_measurements').select('*').eq('user_id', userId).single(),
       supabase.from('style_profiles').select('*').eq('user_id', userId).single(),
@@ -122,19 +122,24 @@ Deno.serve(async (req) => {
       // the caller; best-effort — a failure just leaves the taste bonus off.
       // Recent 300 only (perf, 2026-07-03): unbounded before, so the taste vector
       // payload grew without limit as an account aged. Same cap as the impressions
-      // query below for consistency.
-      supabase.from('outfit_interactions').select('outfit_id, type').eq('user_id', userId).in('type', ['saved', 'worn']).order('created_at', { ascending: false }).limit(300),
+      // query below for consistency. `viewed` added (feed-signals, 2026-08-07) —
+      // a weak positive alongside saved/worn, see engine/taste.ts VIEWED_WEIGHT.
+      supabase.from('outfit_interactions').select('outfit_id, type').eq('user_id', userId).in('type', ['saved', 'worn', 'viewed']).order('created_at', { ascending: false }).limit(300),
       // Exposure history (lift upgrade 2026-07-02): what the feed already SHOWED
       // this user. Turns the taste bonus from raw save-affinity into save-vs-shown
       // lift. Recent 300 only — enough for a stable baseline, bounded payload.
       supabase.from('outfit_interactions').select('outfit_id').eq('user_id', userId).eq('type', 'impression').order('created_at', { ascending: false }).limit(300),
+      // Negative behaviour signal (feed-signals, 2026-08-07): swipe-left
+      // dismisses, feeding a SEPARATE dismiss vector (engine/taste.ts
+      // buildDismissVector) — same cap/shape as the other interaction queries.
+      supabase.from('outfit_interactions').select('outfit_id').eq('user_id', userId).eq('type', 'dismissed').order('created_at', { ascending: false }).limit(300),
     ]);
 
     const wardrobeId = wardrobeIdRes.data?.id as string | undefined;
     const wardrobeRes = wardrobeId
       ? await supabase
           .from('clothing_items')
-          .select('id, type, name, color, material, fit, pattern, warmth_season, can_layer, print_scale, drape, visual_interest, photo_url, photo_storage, m_chest, m_shoulder_width, m_sleeves, m_body_length, m_upper_arm, m_waist, m_hip, m_inseam, m_thigh, m_rise')
+          .select('id, type, name, color, material, fit, pattern, warmth_season, can_layer, print_scale, drape, visual_interest, photo_url, photo_storage, primary_hex, secondary_hex, graphics, m_chest, m_shoulder_width, m_sleeves, m_body_length, m_upper_arm, m_waist, m_hip, m_inseam, m_thigh, m_rise')
           .eq('wardrobe_id', wardrobeId)
       : { data: [] as Record<string, unknown>[], error: null };
 
@@ -148,7 +153,12 @@ Deno.serve(async (req) => {
 
     // ── Map DB rows to engine types ──────────────────────────────────────
 
-    const bodyMeasurements: BodyMeasurements = measurementsRes.data ?? {};
+    // Fix 1 (2026-08-06): explicit row→engine boundary mapper (engine/enrichment.ts
+    // toBodyMeasurements) — the raw DB row was previously assigned straight into
+    // the BodyMeasurements type, which silently dropped `preferred_fit` (the one
+    // real snake_case/camelCase mismatch; every other field already shares its
+    // name with the DB column — see toBodyMeasurements's doc comment).
+    const bodyMeasurements: BodyMeasurements = toBodyMeasurements(measurementsRes.data as Record<string, unknown> | null);
     // Body-neutral styling (recommendation #6): suppress body_shape BEFORE it
     // reaches the engine. Every body-shape consumer (scoreOutfitFit's
     // bodyShapeAdjustment, the curator prompt's "Body shape:" line) is already
@@ -163,19 +173,63 @@ Deno.serve(async (req) => {
     const styleProfile: UserStyleProfile = {
       selectedStyles: styleData?.selected_styles ?? [],
     };
-    const formulaPreferences: FormulaId[] = (styleData?.formula_preferences ?? []) as FormulaId[];
+
+    // 4 suggestion toggles (2026-08-10): style_profiles.suggest_by_* — each
+    // independently opts a scoring dimension out. Missing/null (row predates
+    // the migration, or `.single()` found no row at all) reads as true so
+    // existing users see byte-for-byte unchanged behavior.
+    const suggestByStyle = styleData?.suggest_by_style !== false;
+    const suggestByPersonalColor = styleData?.suggest_by_personal_color !== false;
+    const suggestByFormula = styleData?.suggest_by_formula !== false;
+    const suggestByMeasurements = styleData?.suggest_by_measurements !== false;
+    {
+      const off = [
+        !suggestByStyle && 'style',
+        !suggestByPersonalColor && 'personal_color',
+        !suggestByFormula && 'formula',
+        !suggestByMeasurements && 'measurements',
+      ].filter((v): v is string => typeof v === 'string');
+      if (off.length > 0) console.log(`[generate-outfits] suggestion toggles off: ${off.join(', ')}`);
+    }
+
+    // Shape-goal cascade tier (010-wardrobe-critic follow-up, 2026-08-10):
+    // style_profiles.shape_goal — the user's durable "desired resulting body
+    // silhouette" choice. null/missing (row predates the migration, or no row
+    // at all) reads as 'auto', which is a no-op through the whole cascade
+    // (engine/silhouette.ts resolveTargetSilhouette) — zero regression for
+    // existing users. Validated against the DB check constraint's own value
+    // set defensively, in case a stale/dirty row ever slips past it.
+    const SHAPE_GOAL_VALUES = new Set([
+      'auto', 'natural', 'hourglass', 'rectangle', 'oval', 'inverted-triangle', 'triangle',
+    ]);
+    const rawShapeGoal = typeof styleData?.shape_goal === 'string' ? styleData.shape_goal : 'auto';
+    const shapeGoal = (SHAPE_GOAL_VALUES.has(rawShapeGoal) ? rawShapeGoal : 'auto') as EngineContext['shapeGoal'];
+    if (shapeGoal !== 'auto') console.log(`[generate-outfits] shape goal: ${shapeGoal}`);
+
+    // suggest_by_formula=false: don't let the user's stored formula_preferences
+    // bias/filter which combo formulas generation favors — resolvedFormulaSlug
+    // (explicit formula_id request) and intent-resolved formulas (below) are a
+    // SEPARATE channel and stay unaffected either way.
+    const formulaPreferences: FormulaId[] = suggestByFormula
+      ? (styleData?.formula_preferences ?? []) as FormulaId[]
+      : [];
 
     // Personal color (Q16): detected palette merges with manual favorites, and
     // the 4-season classification feeds color scoring via ctx.colorSeason.
     const profileData = profileRes.data as
       | { skin_undertone?: string; color_season?: string; color_tone12?: string; personal_palette?: string[]; location_country?: string; location_country_code?: string; gender?: string }
       | null;
-    const personalPalette: string[] = profileData?.personal_palette ?? [];
+    // suggest_by_personal_color=false: drop the detected palette from the color
+    // union AND null out the 4-season/12-tone classification — colorPreferences
+    // then reflects ONLY the user's own manually-picked favorites
+    // (style_profiles.color_preferences), so the `color` dimension stays fully
+    // scored on that alone rather than being disabled.
+    const personalPalette: string[] = suggestByPersonalColor ? (profileData?.personal_palette ?? []) : [];
     const colorPreferences: string[] = [
       ...new Set([...(styleData?.color_preferences ?? []), ...personalPalette]),
     ];
-    const colorSeason = profileData?.color_season?.toLowerCase() || undefined;
-    const colorTone12 = profileData?.color_tone12?.toLowerCase() || undefined;
+    const colorSeason = suggestByPersonalColor ? (profileData?.color_season?.toLowerCase() || undefined) : undefined;
+    const colorTone12 = suggestByPersonalColor ? (profileData?.color_tone12?.toLowerCase() || undefined) : undefined;
 
     // Current real-world season (drives seasonal colour bias + fabric matching).
     // An explicit intent.seasonOverride wins; otherwise derive from today's month +
@@ -228,6 +282,13 @@ Deno.serve(async (req) => {
         printScale: row.print_scale as string | null | undefined,
         drape: row.drape as string | null | undefined,
         visualInterest: row.visual_interest as number | null | undefined,
+        // Fix 3 (2026-08-06): thread the measured-hex + structured-graphics
+        // columns through to the engine — previously fetched nowhere, so
+        // enrichment.ts's hex refinement and structured-graphics preference
+        // were permanently dead (always saw undefined).
+        primary_hex: row.primary_hex as string | null | undefined,
+        secondary_hex: row.secondary_hex as string | null | undefined,
+        graphics: row.graphics as ClothingItemRow['graphics'],
         measurements: measurements.length > 0 ? measurements : undefined,
       };
     });
@@ -259,7 +320,10 @@ Deno.serve(async (req) => {
 
     if (genderAware) console.log(`[generate-outfits] gender-aware styling: requested, applied=${gender ?? 'none'}`);
 
-    let ctx: EngineContext = { bodyMeasurements, styleProfile, colorPreferences, colorSeason, colorTone12, weatherSeason, intent, gender };
+    let ctx: EngineContext = {
+      bodyMeasurements, styleProfile, colorPreferences, colorSeason, colorTone12, weatherSeason, intent, gender,
+      suggestByStyle, suggestByMeasurements, shapeGoal,
+    };
     let effectiveFormulas: FormulaId[] | undefined = resolvedFormulaSlug
       ? [resolvedFormulaSlug]
       : (formulaPreferences.length > 0 ? formulaPreferences : undefined);
@@ -292,15 +356,15 @@ Deno.serve(async (req) => {
     const fitItems = wardrobeRows.map(toFitItem);
 
     // Taste vector (lever L2): learn a per-user preference from the outfits they've
-    // SAVED/WORN. The outfit_id is the slot key (top|bottom|shoes|outwear|accessory),
+    // VIEWED/SAVED/WORN. The outfit_id is the slot key (top|bottom|shoes|outwear|accessory),
     // so item ids are recovered by splitting it and resolved against the FULL wardrobe
     // (not today's style-filtered subset, so the signal isn't biased by the filter).
-    // worn counts as a stronger positive than saved. Undefined when no usable history
-    // → ranking is unaffected.
+    // worn > saved > viewed (see engine/taste.ts VIEWED_WEIGHT/SAVED_WEIGHT/WORN_WEIGHT).
+    // Undefined when no usable history → ranking is unaffected.
     const fullItemMap = new Map<string, FitItem>(fitItems.map(i => [i.id, i]));
     const positives = ((interactionsRes.data ?? []) as Array<{ outfit_id: string; type: string }>).map(r => ({
       itemIds: String(r.outfit_id).split('|').filter(Boolean),
-      weight: r.type === 'worn' ? 2 : 1,
+      weight: r.type === 'worn' ? WORN_WEIGHT : r.type === 'viewed' ? VIEWED_WEIGHT : SAVED_WEIGHT,
     }));
     // Impressions share the slot-key outfit_id format, so item ids parse the same way.
     const exposures = ((impressionsRes.data ?? []) as Array<{ outfit_id: string }>).map(r => ({
@@ -308,8 +372,20 @@ Deno.serve(async (req) => {
     }));
     const tasteVector = buildTasteVector(positives, fullItemMap, exposures);
     if (tasteVector) {
-      console.log(`[generate-outfits] taste vector: ${tasteVector.sampleCount} liked outfits, exposure=${tasteVector.exposure?.sampleCount ?? 0} impressions (lift=${tasteVector.exposure ? 'on' : 'off'}) → formality=${tasteVector.meanFormality.toFixed(2)} statement=${tasteVector.meanStatement.toFixed(2)}`);
+      console.log(`[generate-outfits] taste vector: ${tasteVector.sampleCount} liked outfits (weighted), exposure=${tasteVector.exposure?.sampleCount ?? 0} impressions (lift=${tasteVector.exposure ? 'on' : 'off'}) → formality=${tasteVector.meanFormality.toFixed(2)} statement=${tasteVector.meanStatement.toFixed(2)}`);
       ctx = { ...ctx, tasteVector };
+    }
+
+    // Dismiss vector (feed-signals, 2026-08-07): swipe-left negative signal,
+    // built the same way but as a SEPARATE aggregate — see engine/taste.ts's
+    // dismiss section for why it isn't folded into the positive vector above.
+    const dismissedOutfits = ((dismissedRes.data ?? []) as Array<{ outfit_id: string }>).map(r => ({
+      itemIds: String(r.outfit_id).split('|').filter(Boolean),
+    }));
+    const dismissVector = buildDismissVector(dismissedOutfits, fullItemMap);
+    if (dismissVector) {
+      console.log(`[generate-outfits] dismiss vector: ${dismissVector.sampleCount} dismissed outfits → formality=${dismissVector.meanFormality.toFixed(2)} statement=${dismissVector.meanStatement.toFixed(2)}`);
+      ctx = { ...ctx, dismissVector };
     }
 
     // 3. Apply style hard constraints — an item passes if it fits ANY of the
@@ -361,7 +437,29 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 3b. Resolve the target silhouette (silhouette-first resolution,
+    // 3b. Fix 2 (2026-08-06): compute the style attribute vector for the
+    //    FINAL selected-styles list — after intent's styleOverrides (applyIntent,
+    //    step 1 above) and the wardrobe-affinity fallback (3a) have both had a
+    //    chance to change it — and set it as styleProfile.computedAttributes
+    //    BEFORE resolveTargetSilhouette runs. silhouette.ts's
+    //    fromStyleSilhouette reads exactly this field to drive the style level
+    //    of the target-silhouette cascade; it was never set anywhere, so that
+    //    level could never fire and every profile fell straight through to
+    //    body_shape/neutral (dead code). applyIntent nulls computedAttributes
+    //    when it applies a styleOverride (:270) — that guard protects a
+    //    hypothetical CLIENT-SENT computedAttributes (this endpoint has never
+    //    produced one) from surviving a style change; setting a fresh
+    //    SERVER-computed value here, after applyIntent already ran, targets
+    //    the styles actually in effect and doesn't conflict with that guard.
+    ctx = {
+      ...ctx,
+      styleProfile: {
+        ...ctx.styleProfile,
+        computedAttributes: computeUserAttributes(ctx.styleProfile.selectedStyles),
+      },
+    };
+
+    // 3c. Resolve the target silhouette (silhouette-first resolution,
     //    2026-07-12) AFTER the style filter so it's derived from the same
     //    pool generation draws from. Degradable bias + scoring term only —
     //    never a hard filter; see engine/silhouette.ts.
@@ -413,8 +511,12 @@ Deno.serve(async (req) => {
     if (excludeIds.length > 0) {
       const excludeSet = new Set(excludeIds);
       candidates = candidates.filter(c => {
-        const { top, bottom, shoes, outwear, accessory } = c.slots;
-        const full = `${top}|${bottom}|${shoes}|${outwear ?? ''}|${accessory ?? ''}`;
+        const { top, bottom, shoes, outwear, accessory, mid } = c.slots;
+        // mid appended last (2026-08-10) — matches the client's outfitKey
+        // (fitEngineStore.ts) so two outfits sharing top/bottom/shoes/outwear/
+        // accessory but differing only in the mid layer are NOT treated as
+        // the same outfit for exclude/dedup purposes.
+        const full = `${top}|${bottom}|${shoes}|${outwear ?? ''}|${accessory ?? ''}|${mid ?? ''}`;
         const core = `${top}|${bottom}|${shoes}`;
         return !excludeSet.has(full) && !excludeSet.has(core) && !excludeSet.has(top);
       });
@@ -479,7 +581,7 @@ Deno.serve(async (req) => {
       let curatorImages: CuratorImage[] | undefined;
       if ((Deno.env.get('CURATOR_MULTIMODAL') ?? 'on').toLowerCase() !== 'off') {
         const topIds = [...new Set(shuffled.slice(0, 24).flatMap(o =>
-          [o.slots.top, o.slots.bottom, o.slots.shoes, o.slots.outwear, o.slots.accessory]
+          [o.slots.top, o.slots.bottom, o.slots.shoes, o.slots.outwear, o.slots.accessory, o.slots.mid]
             .filter((id): id is string => id !== undefined)))].slice(0, MAX_CURATOR_IMAGES);
         const tImg = Date.now();
         const fetched = await Promise.all(topIds.map(id =>
@@ -502,6 +604,7 @@ Deno.serve(async (req) => {
             isOnepiece ? null : describeItem(o.slots.bottom, 'bottom'),
             describeItem(o.slots.shoes, 'shoes'),
             describeItem(o.slots.outwear, 'outerwear'),
+            describeItem(o.slots.mid, 'mid layer'),
             describeItem(o.slots.accessory, 'accessory'),
           ].filter(Boolean).join(' | ');
           return `[${o.formula}] ${items}`;
@@ -521,7 +624,11 @@ Deno.serve(async (req) => {
     // story (stable sort) — the story is the narrative, the order within it
     // is the stylist's ranking.
     const itemsOf = (o: ScoredOutfit): FitItem[] => {
-      const ids = [...new Set([o.slots.top, o.slots.bottom, o.slots.shoes, o.slots.outwear, o.slots.accessory]
+      // mid appended last (2026-08-10) — same ordering rule as ranking.ts's
+      // slotsToIds: keeps `.find(i => i.category === …)` below (and in
+      // scoring.ts/silhouette.ts, which consume this same flattened list)
+      // resolving the real top/outwear slot item before a same-category mid one.
+      const ids = [...new Set([o.slots.top, o.slots.bottom, o.slots.shoes, o.slots.outwear, o.slots.accessory, o.slots.mid]
         .filter((id): id is string => id !== undefined))];
       return ids.map(id => itemMap.get(id)).filter((i): i is FitItem => i !== undefined);
     };
@@ -563,7 +670,10 @@ Deno.serve(async (req) => {
       const its = itemsOf(o);
       o.story = storyOf(its);
       o.stylingTips = deriveStylingTips(its, o.formula, { top: o.slots.top, outwear: o.slots.outwear });
-      o.weatherBand = weatherBandOf(its, o.slots.outwear !== undefined);
+      // mid always implies outwear today (generation.ts never emits a bare mid
+      // with no true outer) — the `|| o.slots.mid` is defensive, not currently
+      // load-bearing, but a layered outfit reads warmer either way.
+      o.weatherBand = weatherBandOf(its, o.slots.outwear !== undefined || o.slots.mid !== undefined);
       // Display-only tags (2026-07-12) — no scoring impact.
       o.silhouette = outfitSilhouetteTag(its);
       o.silhouetteShape = resultingBodySilhouette(its, ctx.bodyMeasurements.body_shape);
@@ -583,12 +693,13 @@ Deno.serve(async (req) => {
 
     for (let i = 0; i < outfits.length; i++) {
       const outfit = outfits[i];
-      const { top, bottom, shoes, outwear, accessory } = outfit.slots;
+      const { top, bottom, shoes, outwear, accessory, mid } = outfit.slots;
       const slotEntries: [string, string][] = [
         ['top',       top],
         ['bottom',    bottom],
         ['shoes',     shoes],
         ...(outwear   ? [['outwear',   outwear]   as [string, string]] : []),
+        ...(mid       ? [['mid',       mid]       as [string, string]] : []),
         ...(accessory ? [['accessory', accessory] as [string, string]] : []),
       ];
       const itemList = slotEntries

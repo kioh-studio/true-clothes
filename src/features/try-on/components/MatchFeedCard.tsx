@@ -32,8 +32,8 @@ const FLOAT_SLOTS = [
 ];
 
 export function pieceIds(outfit: ScoredOutfit, pinId: string): string[] {
-  const { top, bottom, shoes, outwear, accessory } = outfit.slots;
-  return [...new Set([top, bottom, shoes, outwear, accessory])]
+  const { top, bottom, shoes, outwear, accessory, mid } = outfit.slots;
+  return [...new Set([top, bottom, shoes, outwear, accessory, mid])]
     .filter((id): id is string => !!id && id !== pinId);
 }
 

@@ -12,7 +12,7 @@
 // not treated as gospel now.
 
 import type { LAB } from './colorMath';
-import { rgbToLab, hexToRgb } from './colorMath';
+import { rgbToLab, hexToRgb, itaDeg, itaToValueAxis, chromaC } from './colorMath';
 import { HAIR_OPTIONS } from './colorSeasonData';
 import type { ColorSeason } from '../../types/profile';
 
@@ -115,6 +115,25 @@ export const TONE12_BOARDS: Record<ColorTone12, Tone12Board> = {
   },
 };
 
+// UX-simplify (2026-08-06): i18n key per tone for the result hero's
+// plain-language one-liner (`docs/personal-color-ux-simplify-instruction.md`
+// §8) — pure string mapping, NOT part of the classification math. Copy lives
+// in en.json/vi.json under these exact keys.
+export const TONE12_DESC_KEY: Record<ColorTone12, string> = {
+  light_spring:  'tone12Desc_light_spring',
+  true_spring:   'tone12Desc_true_spring',
+  bright_spring: 'tone12Desc_bright_spring',
+  light_summer:  'tone12Desc_light_summer',
+  true_summer:   'tone12Desc_true_summer',
+  soft_summer:   'tone12Desc_soft_summer',
+  soft_autumn:   'tone12Desc_soft_autumn',
+  true_autumn:   'tone12Desc_true_autumn',
+  deep_autumn:   'tone12Desc_deep_autumn',
+  bright_winter: 'tone12Desc_bright_winter',
+  true_winter:   'tone12Desc_true_winter',
+  deep_winter:   'tone12Desc_deep_winter',
+};
+
 // Derived flat palette (26 hexes: neutrals → core → accents) — every existing
 // consumer of TONE12_PALETTES (result.palette, savePersonalColor →
 // personal_palette, seasonalEdit) automatically gets the richer board without
@@ -125,6 +144,29 @@ export const TONE12_PALETTES: Record<ColorTone12, string[]> = Object.fromEntries
     return [tone, [...board.neutrals, ...board.core, ...board.accents]];
   }),
 ) as Record<ColorTone12, string[]>;
+
+// Phase B — the single most-signature drape colour per tone, used as the grid
+// compare's backing panel (DrapeSession's "SEE ALL 12 TONES" phase). Default
+// is `core[2]` of each tone's board; hand-checked visually against
+// TONE12_BOARDS and overridden where core[2] reads dull. CALIBRATION-PENDING
+// (design lead review pending, same as every other hex in this file).
+export const TONE12_DRAPE_HEX: Record<ColorTone12, string> = {
+  light_spring:  TONE12_BOARDS.light_spring.core[2],   // '#F0937E' peach coral — vivid, on-brand
+  true_spring:   TONE12_BOARDS.true_spring.core[2],    // '#E87A5A' warm coral-red
+  bright_spring: TONE12_BOARDS.bright_spring.core[2],  // '#FF8C3C' vivid orange
+  light_summer:  TONE12_BOARDS.light_summer.core[2],   // '#C8B8D8' soft lavender
+  true_summer:   TONE12_BOARDS.true_summer.core[2],    // '#C49AA4' dusty rose
+  soft_summer:   TONE12_BOARDS.soft_summer.core[2],    // '#B8A4A8' muted mauve
+  soft_autumn:   TONE12_BOARDS.soft_autumn.core[2],    // '#A88F6D' muted khaki-brown
+  // OVERRIDE: core[2] ('#8B5A2B', a flat plain brown) reads dull next to the
+  // other tones' signature swatches — core[0] ('#C4622D', rust/pumpkin) is
+  // far more recognisably "True Autumn".
+  true_autumn:   TONE12_BOARDS.true_autumn.core[0],    // '#C4622D' rust/pumpkin
+  deep_autumn:   TONE12_BOARDS.deep_autumn.core[2],    // '#6B2D1E' dark brick
+  bright_winter: TONE12_BOARDS.bright_winter.core[2],  // '#00A0A8' teal
+  true_winter:   TONE12_BOARDS.true_winter.core[2],    // '#1E6B3A' emerald
+  deep_winter:   TONE12_BOARDS.deep_winter.core[2],    // '#143C28' forest green
+};
 
 // The engine's PrimaryColor vocabulary (supabase/functions/generate-outfits/
 // engine/types.ts) — duplicated here as plain strings since this client module
@@ -186,7 +228,12 @@ export interface Tone12Inputs {
   metalKey?: string;
   skinLab?: LAB | null;
   hairLab?: LAB | null;
-  wristHueDeg?: number | null;
+  /** Calibrated skin hue angle (deg) — face-primary when a face scan landed,
+   *  falling back to wrist hue otherwise (see usePersonalColorDetection's
+   *  `combineSkinReads`). Renamed from the v2 `wristHueDeg` now that the face
+   *  is the primary sample site (v3 phase A) — still the same axis-model
+   *  role, just fed by whichever site actually classified. */
+  skinHueDeg?: number | null;
   drape?: Partial<ToneAxes>;
 }
 
@@ -194,16 +241,34 @@ function clamp(n: number, lo = -1, hi = 1): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
+// CALIBRATION-PENDING—v3: degrees past whichever of the classifyUndertone
+// thresholds (47/57) the hue is already on the far side of, normalized /10
+// and clamped to 1 — a hue just past the threshold barely nudges warmth,
+// one comfortably past it saturates the nudge. Replaces v2's raw
+// distance-from-52° formula now that the hue is calibrated (sclera-corrected
+// face read, not just a raw wrist pixel average).
+function hueMargin(hueDeg: number): number {
+  const pastWarm = hueDeg - 57;
+  const pastCool = 47 - hueDeg;
+  const past = Math.max(pastWarm, pastCool, 0);
+  return clamp(past / 10, 0, 1);
+}
+
 export function computeAxes(inputs: Tone12Inputs): ToneAxes {
   const hairOpt = inputs.hairKey != null ? HAIR_OPTIONS.find(h => h.key === inputs.hairKey) : undefined;
 
   // ── warmth ──────────────────────────────────────────────────────────────
-  // CALIBRATION-PENDING: base signal is the quiz's own undertone answer.
+  // CALIBRATION-PENDING: base signal is the quiz's own undertone answer (on
+  // the camera path this is itself already derived from the calibrated hue —
+  // see combineSkinReads in usePersonalColorDetection.ts).
   let warmth = inputs.skinUndertone === 'warm' ? 0.5 : inputs.skinUndertone === 'cool' ? -0.5 : 0;
-  // CALIBRATION-PENDING: wrist hue nudges warmth further; 52° is the
-  // classifyUndertone midpoint, 15° maps to the full ±0.35 swing.
-  if (inputs.wristHueDeg != null) {
-    warmth += clamp((inputs.wristHueDeg - 52) / 15, -0.35, 0.35);
+  // CALIBRATION-PENDING—v3: calibrated skin hue nudges warmth further, shaped
+  // by its margin past the undertone threshold (see hueMargin above) rather
+  // than a raw linear distance from the midpoint — max swing kept at ±0.35,
+  // same envelope as v2.
+  if (inputs.skinHueDeg != null) {
+    const sign = inputs.skinHueDeg >= 52 ? 1 : -1;
+    warmth += sign * hueMargin(inputs.skinHueDeg) * 0.35;
   }
   // CALIBRATION-PENDING: hair warmth is a supporting signal.
   if (hairOpt) warmth += hairOpt.warmth === 'warm' ? 0.25 : -0.25;
@@ -216,24 +281,46 @@ export function computeAxes(inputs: Tone12Inputs): ToneAxes {
   warmth = clamp(warmth);
 
   // ── value (light ↔ deep) ─────────────────────────────────────────────────
-  // CALIBRATION-PENDING: hair shade is the lead signal for depth.
-  let value = hairOpt ? (hairOpt.shade === 'light' ? 0.6 : hairOpt.shade === 'dark' ? -0.6 : 0) : 0;
-  // CALIBRATION-PENDING: skin lightness is a supporting signal; 55 is a rough
-  // mid-tone anchor, 60 maps to the full ±0.25 swing.
-  if (inputs.skinLab) value += clamp((inputs.skinLab.L - 55) / 60, -0.25, 0.25);
-  if (inputs.eyeKey === 'blue_grey') value += 0.15;
-  if (inputs.eyeKey === 'dark_brown_black') value -= 0.15;
+  // CALIBRATION-PENDING: quiz-side signal — hair shade leads, skin lightness
+  // and eye colour support. Kept as its own term so the manual-only path
+  // (no photo metrics at all) is completely unchanged.
+  let quizValue = hairOpt ? (hairOpt.shade === 'light' ? 0.6 : hairOpt.shade === 'dark' ? -0.6 : 0) : 0;
+  if (inputs.skinLab) quizValue += clamp((inputs.skinLab.L - 55) / 60, -0.25, 0.25);
+  if (inputs.eyeKey === 'blue_grey') quizValue += 0.15;
+  if (inputs.eyeKey === 'dark_brown_black') quizValue -= 0.15;
+  quizValue = clamp(quizValue);
+  // CALIBRATION-PENDING—v3: when a photo skin LAB is available, derive its
+  // ITA° and anchor the value axis on the published clinical bands
+  // (`itaToValueAxis`), blended with the quiz-side signal 0.7/0.3 (photo-led,
+  // quiz as a light tiebreaker) — per docs/personal-color-v3-research.md
+  // §4.4. No skin LAB (manual-only path, or a scan that never landed a skin
+  // read) → quizValue alone, unchanged from v2.
+  let value = inputs.skinLab != null
+    ? clamp(itaToValueAxis(itaDeg(inputs.skinLab)) * 0.7 + quizValue * 0.3)
+    : quizValue;
   value = clamp(value);
 
   // ── chroma (bright/clear ↔ soft/muted) ───────────────────────────────────
   // CALIBRATION-PENDING: skin↔hair lightness contrast is the strongest known
-  // proxy for "clear vs blended" — high contrast reads bright/clear, low
-  // contrast reads soft/muted. Without both photo metrics there's no contrast
-  // signal, so this term is 0 on the manual-only path.
-  let chroma = 0;
+  // quiz-side proxy for "clear vs blended" — high contrast reads bright/
+  // clear, low contrast reads soft/muted. Without both photo LABs there's no
+  // contrast signal, so this term is 0 on the manual-only path.
+  let contrastTerm = 0;
   if (inputs.skinLab && inputs.hairLab) {
     const contrast = Math.abs(inputs.skinLab.L - inputs.hairLab.L);
-    chroma += clamp((contrast - 35) / 30, -0.5, 0.5);
+    contrastTerm = clamp((contrast - 35) / 30, -0.5, 0.5);
+  }
+  // CALIBRATION-PENDING—v3: skin C*ab as a direct chroma signal, blended
+  // 50/50 with the lightness-contrast proxy above when both are available
+  // (photo-only when there's no hair LAB to contrast against). Anchor (20)
+  // and spread (20) are first-cut guesses pending real photo calibration —
+  // see docs/personal-color-v3-research.md §4.4.
+  let chroma: number;
+  if (inputs.skinLab) {
+    const photoChromaTerm = clamp((chromaC(inputs.skinLab) - 20) / 20, -1, 1);
+    chroma = inputs.hairLab ? photoChromaTerm * 0.5 + contrastTerm * 0.5 : photoChromaTerm;
+  } else {
+    chroma = contrastTerm;
   }
   if (inputs.eyeKey === 'blue_grey' || inputs.eyeKey === 'dark_brown_black') chroma += 0.15; // clear
   if (inputs.eyeKey === 'green_hazel_cool' || inputs.eyeKey === 'brown_hazel_warm') chroma -= 0.15; // blended
@@ -250,7 +337,22 @@ export function computeAxes(inputs: Tone12Inputs): ToneAxes {
   return { warmth: clamp(warmth), value: clamp(value), chroma: clamp(chroma) };
 }
 
-export function classifyTone12(axes: ToneAxes): ColorTone12 {
+/** Confidence bucket from the axes' minimum absolute margin — the axis
+ *  closest to 0 is the "weakest link" in the read, so it (not the average or
+ *  the dominant axis) sets the overall confidence. */
+export type Tone12Confidence = 'high' | 'medium' | 'low';
+
+export interface Tone12Classification {
+  tone: ColorTone12;
+  /** The neighbour tone that would result if the single lowest-margin axis
+   *  flipped sign — i.e. "how this read could plausibly go the other way."
+   *  Null when flipping that axis doesn't actually change the outcome tone
+   *  (the other axes are decisive enough on their own). */
+  secondary: ColorTone12 | null;
+  confidence: Tone12Confidence;
+}
+
+function classifyTone12Core(axes: ToneAxes): ColorTone12 {
   const { warmth, value, chroma } = axes;
 
   // CALIBRATION-PENDING: an all-zero read (no signal at all) has no dominant
@@ -291,6 +393,43 @@ export function classifyTone12(axes: ToneAxes): ColorTone12 {
   return winterness >= 0 ? 'true_winter' : 'true_summer';
 }
 
+// CALIBRATION-PENDING—v3: bucket thresholds on the minimum axis margin —
+// ≥0.5 reads as a comfortably clear axis ("high"), ≥0.2 as legible but not
+// emphatic ("medium"), anything closer to 0 as genuinely ambiguous ("low").
+const CONFIDENCE_HIGH_MARGIN = 0.5;
+const CONFIDENCE_MEDIUM_MARGIN = 0.2;
+
+function confidenceFromMargin(margin: number): Tone12Confidence {
+  if (margin >= CONFIDENCE_HIGH_MARGIN) return 'high';
+  if (margin >= CONFIDENCE_MEDIUM_MARGIN) return 'medium';
+  return 'low';
+}
+
+/**
+ * Classifies the 12-tone from the axes model, plus a "leaning" secondary
+ * neighbour and an overall confidence bucket — both derived from the single
+ * axis with the smallest absolute margin (the read's weakest link):
+ *   - `confidence` buckets that margin directly (see thresholds above).
+ *   - `secondary` recomputes the classification with that one axis' sign
+ *     flipped; if the resulting tone differs, that's the plausible
+ *     neighbour the read could tip into with a slightly different sample.
+ */
+export function classifyTone12(axes: ToneAxes): Tone12Classification {
+  const tone = classifyTone12Core(axes);
+
+  const entries: Array<[keyof ToneAxes, number]> = [
+    ['warmth', axes.warmth], ['value', axes.value], ['chroma', axes.chroma],
+  ];
+  const [weakestAxis, weakestValue] = entries.reduce((a, b) => (Math.abs(b[1]) < Math.abs(a[1]) ? b : a));
+  const minMargin = Math.abs(weakestValue);
+
+  const flipped: ToneAxes = { ...axes, [weakestAxis]: -weakestValue };
+  const flippedTone = classifyTone12Core(flipped);
+  const secondary = flippedTone !== tone ? flippedTone : null;
+
+  return { tone, secondary, confidence: confidenceFromMargin(minMargin) };
+}
+
 // ─── Colour-drape picks ─────────────────────────────────────────────────────
 
 // CALIBRATION-PENDING: how much a single "which drape looks better" pick
@@ -306,6 +445,59 @@ export function applyDrapePick(
 ): Partial<ToneAxes> {
   const next = clamp((current[axis] ?? 0) + direction * DRAPE_STEP);
   return { ...current, [axis]: next };
+}
+
+// ─── 12-tone grid compare — nudgeTowardTone (Phase B) ──────────────────────
+
+// CALIBRATION-PENDING—v3: canonical warmth/value/chroma SIGN pattern per
+// tone, built from the classic 12-season definitions summarised in
+// docs/personal-color-v3-research.md §2 (spring = warm·clear·light, summer =
+// cool·muted·light, autumn = warm·muted·deep, winter = cool·clear·deep) and
+// cross-checked against classifyTone12Core's own decision boundaries — every
+// row below, run back through classifyTone12Core, reproduces its own tone
+// (see tone12.test.ts). Magnitudes are illustrative only (the deciding axis
+// at ±1, supporting axes smaller) — nudgeTowardTone below reads only the
+// SIGN of each axis, never the magnitude.
+const TONE12_AXIS_SIGNATURE: Record<ColorTone12, ToneAxes> = {
+  light_spring:  { warmth: 0.3,  value: 1,    chroma: 0.4 },
+  true_spring:   { warmth: 1,    value: 0.3,  chroma: 0.5 },
+  bright_spring: { warmth: 0.3,  value: 0.2,  chroma: 1 },
+  light_summer:  { warmth: -0.3, value: 1,    chroma: -0.4 },
+  true_summer:   { warmth: -1,   value: 0.2,  chroma: -0.4 },
+  soft_summer:   { warmth: -0.3, value: -0.1, chroma: -1 },
+  soft_autumn:   { warmth: 0.3,  value: 0.1,  chroma: -1 },
+  true_autumn:   { warmth: 1,    value: -0.3, chroma: -0.5 },
+  deep_autumn:   { warmth: 0.3,  value: -1,   chroma: 0.3 },
+  bright_winter: { warmth: -0.3, value: 0.1,  chroma: 1 },
+  true_winter:   { warmth: -1,   value: -0.3, chroma: 0.5 },
+  deep_winter:   { warmth: -0.3, value: -1,   chroma: 0.3 },
+};
+
+/**
+ * Nudges the accumulated drape axes ONE `applyDrapePick` step toward `to`,
+ * for each axis where `to`'s canonical sign (`TONE12_AXIS_SIGNATURE`)
+ * differs from `from`'s. A grid tap in the "SEE ALL 12 TONES" compare view
+ * calls this instead of re-implementing the axis math — it makes a single
+ * grid pick exactly as strong as one drape-round pick (never a teleport to
+ * the tapped tone in one tap). No-op (returns `current` unchanged) when
+ * `from`/`to` share every axis' sign.
+ */
+export function nudgeTowardTone(
+  current: Partial<ToneAxes>,
+  from: ColorTone12,
+  to: ColorTone12,
+): Partial<ToneAxes> {
+  const fromSig = TONE12_AXIS_SIGNATURE[from];
+  const toSig = TONE12_AXIS_SIGNATURE[to];
+  let next = current;
+  (['warmth', 'value', 'chroma'] as DrapeAxis[]).forEach(axis => {
+    const fromSign = Math.sign(fromSig[axis]);
+    const toSign = Math.sign(toSig[axis]);
+    if (toSign !== 0 && toSign !== fromSign) {
+      next = applyDrapePick(next, axis, toSign as 1 | -1);
+    }
+  });
+  return next;
 }
 
 // ─── Seasonal lens (display-level, pure) ───────────────────────────────────

@@ -4,11 +4,20 @@
 //
 // Renders the user wearing a given outfit: feeds the user's photo + each
 // garment's reference image to gemini-3-pro-image-preview (nano banana 2),
-// preserving the person's identity/pose/body while REPLACING the original
-// photo's background with a clean, editorial studio backdrop (luxury-minimalist
-// tone) to showcase the outfit. A detailed person profile (gender/age/body
-// measurements/shape/fit preference) is passed as TEXT to guide body proportions
-// and garment fit — never to alter the face/skin/hair, which must match the photo.
+// EDITING the photo in place — same background, pose, framing, and lighting,
+// with only the clothing changed (2026-08-07; previously this regenerated the
+// whole image onto a studio backdrop, which was the root cause of face drift).
+// A person profile (gender/body measurements/shape/fit preference) is passed
+// as TEXT to guide how garments fit/drape on the body ALREADY visible in the
+// photo — never to alter the face/skin/hair/pose, which must match the photo.
+// The photo must be full-body (gated upstream in tryon-validate) and the
+// prompt forbids beautifying the body (slimming, lengthening, reshaping) —
+// the real body's size and proportions must come through unchanged.
+//
+// A post-generate verify pass (2026-08-06, extended 2026-08-08) sends the
+// checker BOTH images — the ORIGINAL person photo and the GENERATED result —
+// so it can judge by comparison whether the edit preserved identity and body
+// truthfulness, not just whether the output looks plausible in isolation.
 //
 // Input: {
 //   person_uri: string,                       // base64 data URI of the user's photo
@@ -34,6 +43,11 @@ const corsHeaders = {
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const IMAGE_GEN_MODEL = 'gemini-3-pro-image-preview'; // nano banana 2 / Gemini 3 Pro Image
 const GEN_TIMEOUT_MS = 45000;
+// Post-generate quality verify pass (2026-08-06) — cheap vision model checks
+// the GENERATED image before it's accepted. Overridable so a bad default can
+// be swapped without a code deploy.
+const VERIFY_MODEL = Deno.env.get('TRYON_VERIFY_MODEL') || 'gemini-2.5-flash';
+const VERIFY_TIMEOUT_MS = 10000;
 const TRANSIENT = new Set([429, 500, 502, 503, 504]);
 const MAX_GARMENT_IMAGES = 6;
 const MAX_IMAGE_BYTES = 8_000_000; // shared cap: person photo + each garment reference image
@@ -148,11 +162,20 @@ function describeGarment(g: Garment, i: number): string {
 }
 
 // Human-readable PERSON PROFILE lines. Empty array if nothing useful is provided.
+//
+// Edit-in-place rewrite (2026-08-07): this used to feed a from-scratch body
+// synthesis (studio backdrop, full-body re-render), so it carried derived
+// descriptors (BMI-based "build", inseam/height leg-proportion ratio, age)
+// meant to help the model INVENT a body it couldn't otherwise see. Now the
+// real body is already present in the source photo — far more accurate than
+// any of those derived cues — so this list exists ONLY to describe how
+// garments should fit/drape on that already-visible body. Age dropped
+// entirely (never affected fit) and the two derived proportion lines dropped
+// (they actively invited re-rendering the body/legs).
 function profileLines(p?: Profile): string[] {
   if (!p) return [];
   const lines: string[] = [];
   if (p.gender) lines.push(`Gender: ${p.gender}`);
-  if (typeof p.age === 'number' && p.age > 0) lines.push(`Age: ${p.age}`);
   const hw = [
     typeof p.height_cm === 'number' ? `height ${p.height_cm} cm` : null,
     typeof p.weight_kg === 'number' ? `weight ${p.weight_kg} kg` : null,
@@ -167,64 +190,59 @@ function profileLines(p?: Profile): string[] {
       .map(([k, v]) => `${k.replace(/_/g, ' ')} ${v}`);
     if (parts.length) lines.push(`Body measurements (cm): ${parts.join(', ')}`);
   }
-
-  // Derived proportion descriptors (2026-07-03): raw centimetres are a weak
-  // signal for an image model — verbal build/proportion cues anchor stature and
-  // leg length far better, so state them explicitly alongside the numbers.
-  if (typeof p.height_cm === 'number' && p.height_cm > 0 && typeof p.weight_kg === 'number' && p.weight_kg > 0) {
-    const bmi = p.weight_kg / Math.pow(p.height_cm / 100, 2);
-    const build = bmi < 18.5 ? 'slim' : bmi < 23 ? 'lean' : bmi < 27.5 ? 'average' : bmi < 32 ? 'solid' : 'full';
-    lines.push(`Overall build: ${build} (BMI ${bmi.toFixed(1)})`);
-  }
-  const inseam = m && typeof m.inseam === 'number' ? m.inseam : undefined;
-  if (typeof p.height_cm === 'number' && p.height_cm > 0 && typeof inseam === 'number' && inseam > 0) {
-    const ratio = inseam / p.height_cm;
-    const legs = ratio >= 0.47 ? 'long' : ratio >= 0.44 ? 'balanced' : 'shorter';
-    lines.push(`Leg proportion: inseam is ${(ratio * 100).toFixed(0)}% of height (${legs} legs)`);
-  }
   return lines;
 }
 
 // Human-readable OUTFIT CONTEXT line — title/style/occasion from the outfit the
-// garments were pulled from. Purely a styling/mood cue for the render (framing,
-// setting, expression); it must never override the garment list or profile above.
+// garments were pulled from. Purely a cue for HOW the garments are worn (tucked,
+// layered, buttoned); it must never override the garment list or profile above.
+// Since the edit-in-place rewrite it must NOT influence framing, setting, or
+// expression either — those all stay exactly as the source photo has them.
 function contextLine(ctx?: OutfitContext): string {
   if (!ctx) return '';
   const parts = [ctx.title, ctx.style, ctx.occasion].filter((v): v is string => Boolean(v && v.trim()));
   return parts.length ? `Outfit context: ${parts.join(' — ')}.` : '';
 }
 
+// Edit-in-place rewrite (2026-08-07): the previous prompt told the model to
+// GENERATE a new image — same person, but with the background replaced by a
+// studio backdrop, a re-angled/elongated full-length frame, and body
+// proportions extrapolated from measurements. Those instructions are
+// mutually incompatible with "preserve the face exactly": swapping the
+// background and re-composing the frame forces the model to resynthesise
+// the whole image, and the face is the first thing that drifts. This
+// version frames the task as EDITING the supplied photo — change only the
+// clothing, keep literally everything else (background, pose, framing,
+// lighting, face) as it already is in the source.
 function buildGenPrompt(garments: Garment[], profile?: Profile, context?: OutfitContext): string {
   const list = garments.map(describeGarment).join('\n');
   const pl = profileLines(profile);
   const profileBlock = pl.length
     ? [
         '',
-        'PERSON PROFILE (use ONLY to render correct body proportions and how each garment fits/drapes on THIS body — length, tightness, silhouette. Do NOT use it to change the face, skin tone, hair, or identity):',
+        'PERSON PROFILE (use ONLY to judge how the garments should fit and drape on THIS body — ease, tightness, length, whether a piece should read fitted or oversized. Do NOT use it to alter the person\'s body, proportions, pose, or face — the real body is already visible in the photo, which is a far more accurate reference than these numbers):',
         ...pl.map((l) => `- ${l}`),
       ].join('\n')
     : '';
   const ctxLine = contextLine(context);
 
   return [
-    'You are a virtual try-on image generator.',
-    'The FIRST image is a real photo of a person. The images that follow are reference photos of clothing garments.',
-    'Generate ONE photorealistic image of the SAME person from the first photo, now wearing the full outfit made of these garments:',
+    'You are a virtual try-on photo EDITOR, not an image generator.',
+    'The FIRST image is a real photo to EDIT. The images that follow are reference photos of clothing garments.',
+    'Edit the first photo so the person is wearing the full outfit made of these garments, changing ONLY the clothing:',
     list,
     ctxLine,
     profileBlock,
     '',
     'Strict requirements:',
-    '- FACE IDENTITY IS THE #1 PRIORITY — ABSOLUTE: the generated person\'s face must be the SAME individual as the first photo, unmistakably recognisable. Copy the exact face — same facial features, bone structure, eyes, nose, mouth, jawline, skin tone, complexion, hair and hairline. Do NOT regenerate, redraw, resynthesise, swap, beautify, slim, smooth, re-age, or "improve" the face in any way. Preserve identity, skin tone, hair, body and pose exactly as in the first photo; do not restyle them. If preserving the face perfectly conflicts with ANY other instruction below (framing, angle, proportions, background), PRESERVING THE FACE WINS.',
-    '- BACKGROUND: replace the original photo\'s background entirely with a clean, seamless STUDIO backdrop — a smooth warm-neutral / off-white / soft stone-grey wall (editorial fashion studio, minimalist luxury tone), evenly lit. Remove any clutter, rooms, outdoor scenery, or objects from the original photo. Keep ONLY the person. Replace only the surrounding environment — the person\'s face and head must remain exactly as in the source photo.',
-    '- Preserve the person\'s pose, body, face, skin, hair and identity EXACTLY while changing only the surrounding environment to the studio backdrop. Relight the scene as soft, even studio lighting that flatters the outfit, with realistic contact shadows on the floor.',
+    '- THIS IS AN EDIT, NOT A NEW IMAGE: change ONLY the clothing the person is wearing. Everything else in the first photo must remain identical — the background and surroundings, the person\'s pose and body position, the camera angle and distance, the crop/framing/aspect ratio of the shot, and the lighting and shadows already in the scene. Do not recompose, re-crop, zoom, or reframe the shot.',
+    '- FACE IDENTITY IS THE #1 PRIORITY — ABSOLUTE: the head and face must NOT be re-rendered, re-lit, re-angled, beautified, slimmed, smoothed, or re-aged in any way. Copy the exact face — same facial features, bone structure, eyes, nose, mouth, jawline, skin tone, complexion, hair, and hairline — pixel-faithful to the source photo. Also preserve the person\'s hands exactly. If preserving the face/hands perfectly conflicts with ANY other instruction below, PRESERVING THE FACE AND HANDS WINS.',
+    '- TRUE BODY SIZE IS THE #2 PRIORITY — ABSOLUTE: the person\'s body must keep its exact real size, shape, and proportions from the source photo. Do NOT slim, slenderise, lengthen, heighten, broaden, narrow, tone, or otherwise flatter the body. Do not lengthen or straighten the legs, do not narrow the waist or hips, do not change shoulder width or arm/thigh thickness, and do not alter posture or stance. Every body outline and proportion must stay pixel-faithful to the source photo — only the clothing covering the body changes. This matters because the user needs to see how these clothes genuinely look on their real body: an idealised or flattering figure defeats the entire purpose of this feature and is a failure. The full extent of the body visible in the source photo must remain visible in the result — if the source is a head-to-toe shot, the result stays head-to-toe, with feet and footwear still in frame and nothing cropped away.',
     '- Dress them in the provided garments faithfully (shape, colour, material, length). Layer naturally (outerwear over tops, etc.).',
-    '- Fit and drape must match the person profile: realistic contact shadows and soft studio lighting as described above.',
-    '- STATURE, BUILD & PROPORTIONS: render the body to match the PERSON PROFILE\'s exact height, weight, body shape and every listed body measurement (chest/waist/hip/shoulder/inseam/etc.) — the silhouette, girth and limb length must reflect THIS person\'s real frame, not an idealised or average fashion-model body. For parts not visible in the source photo, extrapolate to the stated height and inseam. Present that real frame with the flattering editorial framing described below — truthful proportions, flattering posture — without altering the face (see face rule above).',
-    '- FRAMING & COMPOSITION (maximise perceived HEIGHT through body composition only, never through the face): compose as a FULL-LENGTH head-to-toe editorial fashion shot in a TALL VERTICAL/PORTRAIT frame (not square, not waist-up) — feet planted at or near the BOTTOM edge of the frame with only minimal headroom above the head, so the body fills the vertical frame edge-to-edge. Render a LONG, elongated leg line as the dominant vertical element of the composition — long legs and an elongated lower body the way high-fashion editorial photography stretches stature, giving a tall, statuesque silhouette. Posture must be upright, stretched and elegant: spine long, shoulders back, standing tall — no slouching, and no bent knees that would shorten the leg line. Do NOT foreshorten or vertically compress the body, and do NOT render the body from a high/downward viewpoint that would shorten it. This is a flattering presentation of THEIR real build — keep the body girths and proportions from the PERSON PROFILE truthful; elongate the leg line and posture for a taller read, but do not distort a heavier or shorter build into a thinner or different body. IMPORTANT — reconcile with the face rule above: all of this elongation (leg line, posture, vertical framing) applies ONLY to the body, legs and overall composition. Keep the head and face at the SAME angle, orientation and rendering as the source photo — do NOT turn, tilt, re-pose, re-angle, re-light, or vertically stretch the face or head to achieve this, and do NOT change the camera angle on the head. Flatter stature through the body\'s posture, leg line and full-length vertical framing only, never by altering the face — if there is ever a conflict, the face rule wins.',
+    '- The new clothing must sit on the body with correct occlusion, drape, folds, and contact shadows consistent with the EXISTING lighting in the photo — do not invent new lighting.',
     '- Do NOT add text, watermarks, logos, extra people, or accessories that were not provided.',
     ctxLine
-      ? '- The outfit context above (title/style/occasion) is a styling cue ONLY — it may inform how the garments are worn (e.g. tucked, layered, buttoned) but must NEVER add props, extra people, text, or any scenery beyond the plain studio backdrop.'
+      ? '- The outfit context above (title/style/occasion) is a styling cue ONLY — it may inform how the garments are worn (e.g. tucked, layered, buttoned) but must NEVER add props, extra people, text, or change the setting/background in any way.'
       : '',
     'Output a single image only.',
   ].join('\n');
@@ -265,7 +283,120 @@ async function generateImage(apiKey: string, parts: GeminiPart[]): Promise<{ dat
   throw new Error(lastErr);
 }
 
+// ─── Post-generate quality verify pass ────────────────────────────────────────
+//
+// Today a 200-with-an-image was accepted unconditionally — bad anatomy or a
+// missing/wrong garment still billed a credit and reached the screen. This
+// runs a cheap vision check AFTER generation and reports whether it looks
+// right. Since the edit-in-place rewrite, "looks right" includes whether the
+// edit actually preserved identity and body truthfulness — which can only be
+// judged by comparison, so the checker is sent BOTH images: the ORIGINAL
+// person photo first, then the GENERATED result, explicitly labelled in the
+// prompt so the model knows which is which and compares the second against
+// the first. FAIL-OPEN by design: any error, timeout, or unparseable
+// response is treated as a pass — the checker must never block a paid
+// generation the user is waiting on. Only an explicit `false` verdict field
+// counts against the image. (A false verdict refunds the credit and shows a
+// quality warning — see the handler below — so this extra strictness costs
+// the user nothing; it gives them a free retry.)
+
+interface VerifyVerdict {
+  person_ok?: boolean; garments_ok?: boolean; anatomy_ok?: boolean;
+  identity_ok?: boolean; body_ok?: boolean;
+}
+
+function parseVerifyVerdict(raw: string): VerifyVerdict {
+  try {
+    const cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```\n?/g, '').trim();
+    const obj = JSON.parse(cleaned);
+    return (obj && typeof obj === 'object') ? obj as VerifyVerdict : {};
+  } catch {
+    return {};
+  }
+}
+
+function buildVerifyPrompt(garments: Garment[]): string {
+  const list = garments.map(describeGarment).join('\n');
+  return [
+    'You are a strict quality gate for an AI-generated virtual clothing try-on EDIT.',
+    'You are shown TWO images: the FIRST image is the original photo, the SECOND is the edited result — the same person, digitally re-dressed in a new outfit.',
+    'The outfit should include these garments:',
+    list,
+    '',
+    'Return ONLY a JSON object (no prose, no markdown fences):',
+    '{"person_ok": boolean, "garments_ok": boolean, "anatomy_ok": boolean, "identity_ok": boolean, "body_ok": boolean}',
+    '',
+    'Rules:',
+    '- person_ok: true only if there is one clearly identifiable MAIN SUBJECT in the second image whose face is clearly visible. Incidental people in the background (bystanders, passers-by) do NOT count against this — the source photo may have been taken in a public place.',
+    '- garments_ok: true only if the garments listed above are visibly worn by the person in the second image (type, shape, colour reasonably match).',
+    '- anatomy_ok: true only if the body in the second image looks anatomically normal — no extra/missing/deformed limbs, hands, or fingers.',
+    '- identity_ok: true only if the person in the second image is unmistakably the SAME individual as the person in the first image (same face, same identity).',
+    '- body_ok: true only if the body\'s size, shape, proportions, posture, and the framing/crop in the second image match the first image — the figure must NOT have been slimmed, lengthened, reshaped, re-posed, or re-cropped compared to the original.',
+    'Be conservative: if unsure about any field, set it to false.',
+  ].join('\n');
+}
+
+// Returns true when the image passes (or the checker itself failed/timed out
+// — fail-open). Returns false only when the model explicitly flagged a field.
+// `person` is the original source photo part (already parsed by the caller)
+// so the checker can compare the edit against it instead of judging the
+// generated image in isolation.
+async function verifyGeneratedImage(
+  apiKey: string,
+  person: GeminiPart,
+  imageData: string,
+  mimeType: string,
+  garments: Garment[],
+): Promise<boolean> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), VERIFY_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${GEMINI_BASE}/${VERIFY_MODEL}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            person,
+            { inlineData: { mimeType, data: imageData } },
+            { text: buildVerifyPrompt(garments) },
+          ],
+        }],
+        generationConfig: { responseModalities: ['TEXT'], temperature: 0, thinkingConfig: { thinkingBudget: 0 } },
+      }),
+    });
+    if (!res.ok) {
+      console.warn('[tryon-generate] verify gemini', res.status);
+      return true; // fail-open
+    }
+    const data: GeminiResponse = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.find((p) => p.text)?.text ?? '';
+    const v = parseVerifyVerdict(text);
+    // Missing/unparseable fields default to "ok" (fail-open) — only an
+    // explicit `false` from the model counts as a failure. identity_ok/body_ok
+    // are included here too: a false verdict only costs a refund + free
+    // retry (see call site), never a hard block, so the added strictness is
+    // safe even though these two checks are new and unproven in production.
+    return v.person_ok !== false && v.garments_ok !== false && v.anatomy_ok !== false
+      && v.identity_ok !== false && v.body_ok !== false;
+  } catch (e) {
+    console.warn('[tryon-generate] verify call failed (fail-open):', (e as Error).message);
+    return true;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── Credit gate helper ───────────────────────────────────────────────────────
+
+// Credit limits (2026-08-05). Source of truth: src/services/usageCreditService.ts
+// (FREE_LIMITS / PREMIUM_LIMITS). Edge functions can't import from src/, so these
+// are duplicated by hand — no shared cross-function module exists yet under
+// supabase/functions/ for this. Keep both copies (here and in generate-item-image/
+// index.ts) numerically in sync with usageCreditService.ts when a quota changes.
+const FREE_LIMITS: Record<string, number> = { ai_extraction: 2, try_on: 2 };
+const PREMIUM_LIMITS: Record<string, number> = { ai_extraction: 10, try_on: 15 };
 
 interface MinimalClient {
   from: (table: string) => { select: (col: string) => { single: () => Promise<{ data: unknown }> } };
@@ -278,26 +409,36 @@ function monthPeriod(): string {
   ).toISOString().slice(0, 10);
 }
 
-// Atomically consume one credit (premium/demo bypass). Returns a 402 Response
-// when exhausted, plus whether a credit was actually consumed so the caller can
-// refund it if the generation later fails.
+// Atomically consume one credit against the caller's tier limit. `demo` stays
+// unlimited (App Store reviewers use this account and must not hit a wall
+// mid-review — deliberate, unlike premium below). `premium` and `admin` (the
+// server treats admin as quota'd premium — the client's hasPremiumAccountType()
+// separately lumps admin in with premium for FEATURE access, a pre-existing
+// inconsistency we don't fully unify here) now consume against a real monthly
+// quota instead of bypassing the check entirely: this action calls
+// gemini-3-pro-image-preview at ~$0.13/image, so marginal cost was previously
+// unbounded for a premium subscriber. Returns a 402 Response when exhausted,
+// plus whether a credit was actually consumed so the caller can refund it if
+// the generation later fails.
 async function gateCredit(
   supabase: MinimalClient,
   type: string,
   period: string,
 ): Promise<{ response: Response | null; consumed: boolean }> {
+  let limit = FREE_LIMITS[type] ?? 2;
   try {
     const { data: prof } = await supabase.from('profiles').select('account_type').single();
     const accountType = (prof as { account_type?: string } | null)?.account_type;
-    if (accountType === 'premium' || accountType === 'demo') return { response: null, consumed: false };
+    if (accountType === 'demo') return { response: null, consumed: false };
+    if (accountType === 'premium' || accountType === 'admin') limit = PREMIUM_LIMITS[type] ?? limit;
   } catch {
-    // profile fetch failure → fail open
+    // profile fetch failure → fail open at the free limit (unchanged behavior)
   }
 
   const { data: gate, error: gateErr } = await supabase.rpc('consume_usage_credit', {
     p_type: type,
     p_period: period,
-    p_limit: 2,
+    p_limit: limit,
   });
   if (gateErr) {
     console.warn('[tryon-generate] credit gate RPC error (fail open):', gateErr.message);
@@ -380,7 +521,19 @@ Deno.serve(async (req) => {
         return json({ error: 'Could not generate the try-on image. Please try again.' }, 502);
       }
 
-      return json({ image_data: img.data, mime_type: img.mimeType }, 200);
+      // Post-generate quality verify pass: fail-open, so a checker error never
+      // blocks the response — only an explicit bad verdict refunds the credit
+      // and flags the result. The image is still returned either way; the
+      // user decides whether to keep it or regenerate for free.
+      const verifyPassed = await verifyGeneratedImage(apiKey, person, img.data, img.mimeType, garments);
+      if (!verifyPassed && gate.consumed) {
+        await refundCredit(supabase, 'try_on', period);
+      }
+
+      return json(
+        { image_data: img.data, mime_type: img.mimeType, ...(verifyPassed ? {} : { quality_warning: true }) },
+        200,
+      );
     } catch (e) {
       if (gate.consumed) await refundCredit(supabase, 'try_on', period);
       throw e;

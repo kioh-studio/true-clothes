@@ -143,3 +143,108 @@ the per-outfit `styleTag` chip above.
   control — the hint disappears on its own once the user picks real styles,
   because the server stops firing the fallback once `selectedStyles` is
   non-empty.
+
+## Swipe-left "dismissed" gesture + `viewed` on open (feed-signals, 2026-08-07)
+
+Two new behaviour signals feed the server taste vector (see `plan.md`'s
+generate-outfits engine notes and `engine/taste.ts`). Neither changes the
+card's visual composition when idle — both are interaction-triggered.
+
+- **`viewed`.** Fired (fire-and-forget, errors swallowed) whenever the feed
+  navigates into `/outfit/[id]` — the collage tap, the sparkle action button,
+  "DETAILS →", and each item thumbnail all funnel through the same `openOutfit`
+  handler in `app/(tabs)/index.tsx`. Never fired for demo/static outfits
+  (`isDemo`) or from any other entry point into the outfit detail screen
+  (saved list, builder) — those don't touch this handler.
+- **Swipe-left gesture.** Implemented with React Native's built-in
+  `PanResponder`, not `react-native-gesture-handler` — that package is listed
+  only as a transitive optional peer dependency in this repo, not an actual
+  direct dependency, and there's no `GestureHandlerRootView` anywhere, so
+  treating it as "already available" (an earlier assumption) was wrong.
+  `PanResponder`'s directional lock (`|dx| > |dy| × 1.5` before the move
+  is captured) does the same job as gesture-handler's
+  `activeOffsetX`/`failOffsetY` — plain taps and the FlatList's own vertical
+  paging are unaffected; only a clearly-horizontal, clearly-leftward drag is
+  claimed. `SWIPE_MIN_DX`/`SWIPE_DIRECTION_RATIO`/`DISMISS_THRESHOLD_FRACTION`
+  constants live next to `FeedCardInner`.
+- **Threshold + feedback.** Crossing 35% of the screen width leftward on
+  release commits the dismiss: the WHOLE card (one `Animated.View`, not just
+  the collage) fades to 0.35 opacity and a centered hairline `NOT MY STYLE` /
+  `KHÔNG HỢP GU` label fades in, both driven by one 450ms `Animated.timing`
+  (slow, no bounce — matches the app's motion language). Below the threshold,
+  the card springs back to place over 250ms. No undo in v1 — once committed,
+  the outfit stays excluded (`fitEngineStore.dismissedOutfitIds`, merged into
+  `exclude_ids` and NOT flushed on the shown-ids cycle reset). The card is not
+  removed from the currently-rendered list; ~400ms after commit the pager
+  auto-`scrollToIndex`s to the next card instead, so a user who manually
+  scrolls back up during that window still sees the fading state.
+- **Save is a tap, not a swipe.** Contrary to an earlier assumption, there was
+  no swipe-right-to-save gesture on this card before this change — save is
+  the heart `ActionBtn` (`onToggleSave`). The swipe-hint copy reflects that:
+  "Swipe left — not your style. Tap the heart to save." /
+  "Vuốt trái — không hợp gu. Chạm tim để lưu lại."
+- **First-time hint.** A quiet caption (`tabs_home_swipeHint`), same
+  text-only treatment as the style-fallback hint above, shown once — on the
+  first `HomeScreen` mount after this ships — then never again
+  (`AsyncStorage` flag `feed-swipe-hint-seen`, written the moment it's shown).
+  Not shown over demo outfits.
+
+## Shape-goal chip made self-explanatory (010-wardrobe-critic follow-up, 2026-08-10)
+
+The geometric-shape chip (`silhouetteShapeTag`, e.g. `HOURGLASS`) previously
+rendered bare, indistinguishable at a glance from a colour name or a style
+tag sitting right next to it on the same long meta line:
+
+`STYLE · 15–22°C · OLD MONEY · STRAIGHT · HOURGLASS · NAVY · 4 items`
+
+It now carries a translated label prefix, same casing/format as the rest of
+the line:
+
+`STYLE · 15–22°C · OLD MONEY · STRAIGHT · SHAPE: HOURGLASS · NAVY · 4 items`
+(`DÁNG: ĐỒNG HỒ CÁT` in Vietnamese)
+
+New i18n key `outfitShape_prefix` ("Shape" / "Dáng"). Applied identically in
+both `app/(tabs)/index.tsx`'s `silhouetteShapeMetaLabel` (the card meta line)
+and `useFitFeed.ts`'s `scoredToOutfit` (the `Outfit.tags` array, read by the
+detail screen) — same string, same place in the reading order, no new visual
+chrome (still plain uppercase text, no colour/background/shadow — luxury
+minimalism per `CLAUDE.md`). The other tags on this line (`silhouette`,
+`colorTone`, `styleTag`) are unchanged; only the shape chip gained a label,
+since it was the one users had no way to interpret unprompted (a colour name
+or style name is self-evident; "HOURGLASS" alone reads as ambiguous — a style
+descriptor, not obviously "this is the body shape this outfit creates").
+
+## Shape goal — user-set desired resulting silhouette (010-wardrobe-critic follow-up, 2026-08-10)
+
+New screen `app/shape-goal-edit.tsx`, entered via a new row in
+`app/(tabs)/profile.tsx`'s `SECTIONS` (`tabs_profile_shapeGoal`, between body
+measurements and location/weather). Single-select list of 7 options, same
+`optionRow`/`optionRowSelected`/`checkDot` primitive `personal-color-edit.tsx`
+already uses for its skin/eye/metal steps (label + short description,
+hairline underline when selected, no colour/shadow) — a dirty-check +
+`PrimaryButton` save bar, same shape as `formulas-edit.tsx`, rather than
+save-on-tap, so a stray tap can't silently change a standing preference:
+
+- **Automatic** (default) — "Balances to flatter your shape" / "Cân đối theo
+  dáng của bạn". Byte-for-byte the pre-feature behavior — see `plan.md`.
+- **Keep my natural shape** — no shape correction, neutral garment volume.
+- The 5 geometric shapes (`hourglass` / `rectangle` / `oval` /
+  `inverted-triangle` / `triangle`), reusing the SAME `outfitShape_*` i18n
+  labels the feed chip above already uses, so "Hourglass" reads identically
+  everywhere in the app — plus a new one-line description per shape
+  (`shapeGoal_*_desc`).
+
+State lives in `fitEngineStore.shapeGoal` (`'auto' | 'natural' |
+OutfitSilhouetteShape`), persisted server-side via
+`styleProfileService`/`style_profiles.shape_goal` — same table/row and
+hydrate/reset pattern as `formulaPreferences`/the 4 suggestion toggles. No
+request-body wiring needed: `generate-outfits` reads the column directly off
+`style_profiles` (already fetched with `select('*')`), same reasoning as the
+suggestion toggles (see `plan.md`).
+
+Engine side: a new cascade tier in `engine/silhouette.ts`'s
+`resolveTargetSilhouette` (`intent > shapeGoal > style silhouette >
+body_shape > neutral`) plus a small additive `shapeGoalDelta` in `ranking.ts`
+that rewards outfits whose actual `resultingBodySilhouette` matches the goal.
+Full reasoning and the `outfitWaistDefinition` fix that makes a `hourglass`
+goal reachable for non-hourglass body shapes: `plan.md`.

@@ -47,5 +47,8 @@ const styles = StyleSheet.create({
   label: {
     ...type.ui,
     color: T.color.canvas,
+    // Android rounds the measured text width down and drops the trailing
+    // letterSpacing, clipping the last glyph ("BEGIN" -> "BEGI").
+    paddingHorizontal: 2,
   },
 });

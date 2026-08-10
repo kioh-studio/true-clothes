@@ -25,7 +25,29 @@ All state and async logic lives in `useAddWizard()`. Components are pure views.
 - Each row bordered at `0.5px hairlineStrong`; photo number badge `rgba(26,24,21,0.62)` top-left
 - Dashed "ADD A / ANOTHER PHOTO" button (opens `MethodChooser`)
 - Upgrade notice (amber `warning` border) when AI credits exhausted
-- Sticky bottom bar: `PrimaryButton` "ANALYSE N PHOTOS" with `IconSparkle` — disabled when 0 photos or upgrade=true
+- Sticky bottom bar: quota note + `PrimaryButton` "ANALYSE N PHOTOS" with `IconSparkle` — disabled when 0 photos or upgrade=true
+
+#### Quota note (2026-08-08)
+
+Directly above the sticky CTA, centered, `type.caption` at 11px in `tertiary`:
+`creditQuota_scansLeft` — "Còn {{remaining}}/{{limit}} lượt quét AI trong tháng
+này". Shared component `CreditQuotaNote`
+(`src/features/monetization/components/CreditQuotaNote.tsx`), fed by
+`useCreditQuota('ai_extraction')` inside `useAddWizard` and passed down as the
+`quota` prop.
+
+Why it exists: the paywall no longer states any numbers (see
+`src/design/paywall/design.md`), so this is now one of only two places a user
+can learn their allowance. It sits at the moment of spend, not in a settings
+screen.
+
+It is informational only — plain text, no border, no tap target, no colour
+change at zero. The exhausted state keeps its existing amber upgrade banner;
+this line must not compete with it. It renders **nothing at all** when there is
+no trustworthy reading (still loading, demo account, or the usage query failed
+and `checkCredit` fell back to its fail-closed `remaining: 0`) — an empty slot
+is always better than telling a paying user they have 0 left because the
+network blipped.
 
 ### 2 · Analyse (Processing)
 

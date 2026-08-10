@@ -9,6 +9,8 @@ import { PrimaryButton, Photo } from '../src/components/ui';
 import { IconChevronLeft, IconCheck } from '../src/components/icons';
 import { STYLES, STYLE_NICHES } from '../src/data';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
+import { useAuthStore } from '../src/stores/authStore';
+import { sortStylesByGenderLean } from '../src/services/stylesCatalogService';
 import { useGridCardWidth, useGridColumns } from '../src/design/layout';
 import { useTranslation } from '../src/i18n';
 
@@ -41,6 +43,13 @@ export default function StylesEditScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const { styleProfile, setStyleProfile, hydrated } = useFitEngineStore();
+  const gender = useAuthStore(s => s.gender);
+
+  // Gender-matched styles surface first — display order only, nothing hidden
+  // or removed (2026-08-10 style catalog expansion). STYLES is the static
+  // 22-entry catalog (used here instead of the DB-backed one so niches/edit
+  // stay available offline, same as before this change).
+  const styleList = sortStylesByGenderLean(STYLES, gender);
 
   const allStored = styleProfile.selectedStyles;
   const [selected, setSelected] = useState<string[]>(() => allStored.filter(id => !id.includes(':')));
@@ -156,11 +165,11 @@ export default function StylesEditScreen() {
           <Text style={[styles.stepNum, { color: T.color.primary }]}>01</Text>
           <Text style={[styles.stepLabel, { color: T.color.primary }]}>{t('stylesEdit_aestheticsLabel')}</Text>
           <View style={styles.stepLine} />
-          <Text style={styles.stepCount}>{selected.length} / {STYLES.length}</Text>
+          <Text style={styles.stepCount}>{selected.length} / {styleList.length}</Text>
         </View>
 
         <View style={styles.grid}>
-          {STYLES.map((s) => (
+          {styleList.map((s) => (
             <StyleCard key={s.id} s={s} selected={selected.includes(s.id)} onPress={() => toggle(s.id)} />
           ))}
         </View>

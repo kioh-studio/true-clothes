@@ -14,6 +14,8 @@ import { useAppStore } from '../../src/stores/appStore';
 import { useAuthStore } from '../../src/stores/authStore';
 import { buildWearGarments } from '../../src/services/tryOnWearService';
 import { useWearOnYou } from '../../src/features/try-on/useWearOnYou';
+import { getFaceCompositeStats, type FaceCompositeStats } from '../../src/features/try-on/faceCompositeStats';
+import { CreditQuotaNote } from '../../src/features/monetization/components/CreditQuotaNote';
 import type { WearGarment, WearFrame, WearProfile } from '../../src/types/tryOn';
 import type { BodyShape, BodyMeasurements } from '../../src/types/measurements';
 import type { PreferredFit } from '../../src/types/fitEngine';
@@ -191,6 +193,18 @@ export default function WearOnYouScreen() {
 
   const itemCount = (outfit.itemIds as string[]).length + (extraGarment ? 1 : 0);
 
+  // Dev-only face-composite diagnostics (2026-08-07) — plain-English, not
+  // user-facing copy, so no i18n keys. Loads the cumulative on-device tally
+  // once per arrival at the result phase.
+  const [devFaceStats, setDevFaceStats] = useState<FaceCompositeStats | null>(null);
+  useEffect(() => {
+    if (!__DEV__) return;
+    if (w.phase !== 'result') return;
+    let cancelled = false;
+    getFaceCompositeStats().then((stats) => { if (!cancelled) setDevFaceStats(stats); });
+    return () => { cancelled = true; };
+  }, [w.phase]);
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Nav */}
@@ -325,6 +339,37 @@ export default function WearOnYouScreen() {
             <>
               <View style={{ height: 16 }} />
               <Text style={styles.h2}>{t('wearOnYou_resultTitle', { title: outfit.title })}</Text>
+              {w.result.qualityWarning && (
+                <>
+                  <View style={{ height: 8 }} />
+                  <Text style={[type.caption, { fontSize: 11, color: T.color.tertiary }]}>
+                    {t('wearOnYou_qualityWarning')}
+                  </Text>
+                </>
+              )}
+              {w.faceApplied === false && (
+                <>
+                  <View style={{ height: 8 }} />
+                  <Text style={[type.caption, { fontSize: 11, color: T.color.tertiary }]}>
+                    {t('wearOnYou_faceFallback')}
+                  </Text>
+                </>
+              )}
+              {__DEV__ && (
+                <>
+                  <View style={{ height: 8 }} />
+                  <Text style={[type.caption, { fontSize: 10, color: T.color.tertiary }]}>
+                    {`[dev] face composite: ${w.faceReason ?? 'n/a'}`}
+                    {devFaceStats
+                      ? ` · lifetime ${devFaceStats.applied}/${devFaceStats.attempts} applied · by reason: ${
+                          Object.entries(devFaceStats.byReason)
+                            .map(([reason, count]) => `${reason}=${count}`)
+                            .join(', ') || 'none yet'
+                        }`
+                      : ''}
+                  </Text>
+                </>
+              )}
             </>
           )}
 
@@ -370,6 +415,9 @@ export default function WearOnYouScreen() {
 
           {w.phase === 'ready' && (
             <>
+              {/* Monthly AI allowance, stated where it gets spent — the paywall
+                  no longer names any numbers (src/design/paywall/design.md). */}
+              <CreditQuotaNote status={w.quota} creditType="try_on" style={styles.quotaNote} />
               <PrimaryButton onPress={w.generate} disabled={garments.length === 0 || w.creditBlocked}>{t('wearOnYou_wearOn')}</PrimaryButton>
               <View style={{ height: 12 }} />
               <SecondaryButton onPress={w.pickAnother}>{t('wearOnYou_pickAnother')}</SecondaryButton>
@@ -386,6 +434,8 @@ export default function WearOnYouScreen() {
 
           {(w.phase === 'result' || w.phase === 'error') && (
             <>
+              {/* Regenerating spends another credit — same note, same reason. */}
+              <CreditQuotaNote status={w.quota} creditType="try_on" style={styles.quotaNote} />
               <PrimaryButton onPress={w.regenerate} disabled={w.creditBlocked}>{t('wearOnYou_regenerate')}</PrimaryButton>
               <View style={{ height: 12 }} />
               <SecondaryButton onPress={w.pickAnother}>{t('wearOnYou_tryAnotherPhoto')}</SecondaryButton>
@@ -407,6 +457,7 @@ const styles = StyleSheet.create({
   navTitle: { ...type.ui, fontSize: 10, color: T.color.tertiary },
   iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   body: { paddingHorizontal: 24 },
+  quotaNote: { textAlign: 'center', marginBottom: 12 },
   label: { ...type.ui, fontSize: 10, color: T.color.tertiary },
   miniLabel: { ...type.ui, fontSize: 9, color: T.color.tertiary },
   h2: { ...type.h2, color: T.color.primary },

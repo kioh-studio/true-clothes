@@ -28,4 +28,18 @@ describe('scorePersonalColor', () => {
     expect(result.palette.length).toBeGreaterThan(0);
     expect(['summer', 'winter']).toContain(result.season);
   });
+
+  // UX-simplify (2026-08-06): the result screens' new AxisMeters component
+  // reads `result.axes` directly — assert it actually flows through from
+  // computeAxes into the scored result object, not just that computeAxes
+  // itself works (that's covered separately in tone12.test.ts).
+  test('axes flow through to the result object', () => {
+    const result = scorePersonalColor({ skinUndertone: 'warm', hairKey: 'dark_brown_warm' });
+    expect(result.axes).toBeDefined();
+    expect(typeof result.axes.warmth).toBe('number');
+    expect(typeof result.axes.value).toBe('number');
+    expect(typeof result.axes.chroma).toBe('number');
+    expect(result.axes.warmth).toBeGreaterThanOrEqual(-1);
+    expect(result.axes.warmth).toBeLessThanOrEqual(1);
+  });
 });

@@ -141,7 +141,7 @@ export async function generateWearOn(args: GenerateWearOnArgs): Promise<WearOnRe
   });
   if (error) throw error;
 
-  const res = data as { image_data?: string; mime_type?: string };
+  const res = data as { image_data?: string; mime_type?: string; quality_warning?: boolean };
   if (!res?.image_data) throw new Error('No image returned from try-on generation');
 
   const dir = `${FileSystem.documentDirectory}try-on/`;
@@ -150,5 +150,5 @@ export async function generateWearOn(args: GenerateWearOnArgs): Promise<WearOnRe
   const dest = `${dir}wear_${Date.now()}.${ext}`;
   await FileSystem.writeAsStringAsync(dest, res.image_data, { encoding: FileSystem.EncodingType.Base64 });
 
-  return { localImageUri: dest };
+  return { localImageUri: dest, qualityWarning: res.quality_warning === true };
 }

@@ -17,6 +17,11 @@ export interface PremiumState {
   isPremium: boolean;
   isLoading: boolean;
   offerings: import('react-native-purchases').PurchasesOfferings | null;
+  // Product identifier of the currently-active RevenueCat 'premium' entitlement.
+  // Null when RevenueCat is unavailable (Expo Go, missing API key) or the
+  // entitlement is inactive — including when isPremium is true via the DB
+  // account_type fallback with no live RevenueCat entitlement to match.
+  activeProductId: string | null;
   purchase: (pkg: import('react-native-purchases').PurchasesPackage) => Promise<PurchaseOutcome>;
   restore: () => Promise<boolean>;
 }
@@ -25,6 +30,7 @@ export function usePremium(): PremiumState {
   const [isPremium, setIsPremium] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [offerings, setOfferings] = useState<import('react-native-purchases').PurchasesOfferings | null>(null);
+  const [activeProductId, setActiveProductId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,6 +46,9 @@ export function usePremium(): PremiumState {
         try {
           const info = await Purchases.getCustomerInfo();
           premium = premium || !!info.entitlements.active['premium'];
+          if (!cancelled) {
+            setActiveProductId(info.entitlements.active['premium']?.productIdentifier ?? null);
+          }
           const o = await Purchases.getOfferings();
           if (!cancelled) setOfferings(o);
         } catch { /* ignore in Expo Go */ }
@@ -56,6 +65,7 @@ export function usePremium(): PremiumState {
       const { customerInfo } = await Purchases.purchasePackage(pkg);
       const active = !!customerInfo.entitlements.active['premium'];
       setIsPremium(active);
+      setActiveProductId(customerInfo.entitlements.active['premium']?.productIdentifier ?? null);
       return active ? 'success' : 'error';
     } catch (err) {
       // RevenueCat SDK marks a user-dismissed purchase sheet with
@@ -71,9 +81,10 @@ export function usePremium(): PremiumState {
       const info = await Purchases.restorePurchases();
       const active = !!info.entitlements.active['premium'];
       setIsPremium(active);
+      setActiveProductId(info.entitlements.active['premium']?.productIdentifier ?? null);
       return active;
     } catch { return false; }
   }, []);
 
-  return { isPremium, isLoading, offerings, purchase, restore };
+  return { isPremium, isLoading, offerings, activeProductId, purchase, restore };
 }

@@ -1,5 +1,555 @@
 # Onboarding Logic Plan
 
+## Body-shape classifier rewrite + hysteresis + read-repair + unified volume targets (2026-08-03)
+
+Follow-up to the sim-driven findings in `backlog.md` ("Body-shape engine — findings tu sim
+(2026-08-03)"). Verification harness: `scripts/sim/body-shape-sim.ts` (`npm run
+body-shape-sim`, Deno, offline, no DB/network).
+
+**1. Classifier rewrite (`src/types/measurements.ts`, `computeBodyShape`).** Replaced the
+ratio-based rules (evaluated `apple` FIRST with no bust-vs-hip comparison — 38.6% of a 3000-
+body sweep collapsed to `apple` — and used a STRICT `H > B + 5` while every other threshold
+was inclusive) with FFIT/Simmons-style absolute-cm bust/waist/hip differences, checked in
+this order: (1) bust-hip dominance (`|B-H| >= 5cm`, now INCLUSIVE — the boundary fix) decides
+triangle/inverted_triangle outright, even over a thick waist; (2) for a column-ish torso, the
+waist decides via `WAIST_DEFINED_BUST=23`/`WAIST_DEFINED_HIP=25` (→ hourglass, plus a
+deliberate `W <= 0.75*B` ratio fallback for petite frames) or `WAIST_UNDEFINED=9` on both
+sides (→ apple), else rectangle. `computeBodyShapeLegacy` keeps the exact old rules (used only
+for read-repair below, never for new classification).
+
+Sim Section A: 14/14 archetypes pass (was 11/14 before — the male_average/BOUNDARY_hip_eq/
+BOUNDARY_waist_eq rows that previously disagreed with the judged expectation now match).
+Sim Section B (3000-body sweep): apple dropped from 38.6% → 7.3%, rectangle from 5.9% → 7.6%.
+**Design caveat (did not work exactly as anticipated):** the dominant label after the rewrite
+is now `triangle` at 40.7% (`inverted_triangle` close behind at 37.9%), NOT below the old
+38.6% apple share as the design's stated acceptance goal assumed. Root cause: the sweep draws
+bust (78–120) and hip (80–120) INDEPENDENTLY and uniformly over a ~40cm range each, so
+`|bust-hip| >= 5cm` fires on a large majority of draws by chance alone — an artifact of the
+harness's synthetic (uncorrelated) sampling, not a defect introduced by this change, and not
+something fixable by retuning `BUST_HIP_DOMINANCE` without deviating from the exact design
+given. Flagged for anh Khôi's awareness; not fixed in this session (would require either a
+different sim sampling model or a design decision, both out of scope here).
+
+**2. Hysteresis (`stabilizeBodyShape`, same file).** Sim found the hourglass archetype flips
+label with only +2cm of waist change — inside normal manual-entry/pose-scan noise. New
+function: `next = computeBodyShape(m)`; if `prev` is null, `next` is null, or they already
+agree, return `next`; otherwise probe bust/waist/hip independently at ±2cm (default
+`marginCm`) — if ANY probe still re-derives `prev`, hold `prev` (not decisive yet), else
+accept `next`. Wired into `src/features/measurements/useMeasurements.ts`'s `bodyShape`
+useMemo: `bodyShapeOverride ?? stabilizeBodyShape(measurements?.bodyShape ?? null,
+parsedMeasurements)`. The manual-override path is untouched.
+
+**3. Read-repair on load, no SQL migration (`src/services/measurementService.ts`).** Changing
+the classifier makes every already-persisted `body_shape` potentially stale, but there's only
+one column, so a stored value that matches the LEGACY classifier's output but not the CURRENT
+one is recognised as old-classifier residue (not a manual override): `rowToBody` now
+recomputes it to the current classifier's value and best-effort writes it back
+(fire-and-forget, errors swallowed — never fails the read). A value matching neither
+classifier is a genuine manual override and is left untouched. `useMeasurements.ts`'s own
+override heuristic was updated the same way: a saved shape only counts as a manual override
+when it matches NEITHER `computeBodyShape` NOR `computeBodyShapeLegacy` of the saved
+measurements.
+
+**4. Unified per-shape volume target table (single source of truth).** Previously
+`bodyShapeMultiplier` (scoring.ts) matched literal `fit` STRINGS while `fromBodyShape`
+(silhouette.ts) hard-coded its own (topVol, bottomVol) targets — two uncorrelated criteria for
+the same shape, found pointing OPPOSITE ways for `rectangle` in Section D ("Direction
+contradictions"). Also `fit === 'regular'` was invisible to the string rules (so the
+usually-winning `regular baseline` outfit got delta 0 on apple/rectangle) and `wide` didn't
+count toward hourglass's "shapeless" test. Fix: `scoring.ts` now exports
+`SHAPE_VOLUME_TARGETS: Record<BodyShape, ShapeVolumeTarget[]>` (tuples/weights/labels copied
+verbatim from the old `fromBodyShape` literals — not retuned); `silhouette.ts`'s
+`fromBodyShape` now just reads that table (import direction preserved: silhouette.ts already
+imported `VOLUME` from scoring.ts, so the shared table had to live in scoring.ts).
+`bodyShapeMultiplier(items, shape)` was rewritten to be volume-distance based: `topVol` = max
+VOLUME over top/onepiece/outwear items (undefined if none), `bottomVol` = VOLUME of the
+bottom/onepiece item (undefined if none) — `accessory`/`shoes` excluded entirely. For each
+target, sum `|Δ|` over ONLY the axes that are present (a missing axis contributes 0 distance,
+never a fake penalty — this matters because `evaluate-item/scoring.ts` calls
+`bodyShapeAdjustment([item], shape)` with a single item, routinely missing one axis).
+`bestDist` = the minimum such distance across the shape's targets; `delta = clamp(0.10 * (1 -
+bestDist/3), -0.10, +0.10)` (exact match +0.10, distance 3 neutral 0, distance ≥6 floor
+−0.10). Return contract unchanged (delta in [-0.10, +0.10]); `bodyShapeAdjustment`,
+`SHAPE_GAIN=3.2`, `SHAPE_ADJ_MAX=0.32`, and all fit/composite weights are UNCHANGED.
+
+Sim Section D verdict, before → after Part 4: `(body, outfit)` pairs with `|delta| > 0.01`:
+unchanged at 23/30 (composition shifted, not count); bodies where the shape signal changed the
+top-1 outfit: 0/5 → 1/5 (rectangle); **Direction contradictions: 1 → 0** (the rectangle
+contradiction is gone — `bodyShapeMultiplier` and `fromBodyShape` can no longer disagree,
+since they read the same table). The specific old blind-spot rows called out in the design
+(`regular baseline` on apple/rectangle, `all-oversized` on hourglass/rectangle) are all now
+non-zero.
+
+**Files changed:** `src/types/measurements.ts` (classifier rewrite + legacy classifier +
+`stabilizeBodyShape`), `src/features/measurements/useMeasurements.ts` (hysteresis wiring +
+override heuristic), `src/services/measurementService.ts` (read-repair), `supabase/functions/
+generate-outfits/engine/scoring.ts` (`SHAPE_VOLUME_TARGETS` + `bodyShapeMultiplier` rewrite),
+`supabase/functions/generate-outfits/engine/silhouette.ts` (`fromBodyShape` now reads the
+shared table), plus test updates in `engine/season-color.test.ts` (one fixture swap to keep
+demonstrating "fitted mismatch > loose mismatch" under the new math, one new test for the
+missing-axis case) and a new `src/features/measurements/__tests__/bodyShapeClassifier.test.ts`
+(14-archetype table + `stabilizeBodyShape` coverage). `tsconfig.json` gained `scripts/sim` in
+`exclude` (it was missing from the same exclude list as the sibling `scripts/eval-feed`/
+`scripts/measure-eval` Deno scripts, which made `tsc --noEmit` fail on `.ts`-extension imports
+unrelated to this change).
+
+**Verify:** `deno test supabase/functions/generate-outfits/engine/` 183/183;
+`deno test supabase/functions/evaluate-item/` 21/21; `npx jest` 355/355 (28 suites, including
+26 new); `npm run body-shape-sim` Section A 14/14; `npx tsc --noEmit` clean.
+
+**Explicitly out of scope this session** (left unchecked in backlog.md): `scoreOutfitFit`'s
+clamp-at-1.0 (loses separation at the top end for very well-fitting outfits) and
+`FIT_THRESHOLDS` not being fit-aware (oversized items always read as loosely-fit against an
+absolute-cm ease scale). Also noted but not fixed: `app/measurements-edit.tsx` has its own
+parallel `computeBodyShape`/override logic that was not wired to `stabilizeBodyShape` or the
+legacy-classifier override check (task scope was `useMeasurements.ts` only).
+
+## Fit-relative ease windows + preferred-fit anchor (2026-08-03)
+
+Follow-up to the backlog item flagged in the session above: "`FIT_THRESHOLDS` khong fit-aware" —
+`FIT_THRESHOLDS`'s ease windows were ABSOLUTE cm offsets with no notion that a garment was
+DESIGNED loose, so an oversized hoodie scored ~0.29 on nearly every measurement point
+(`ease > ok[1]` floor) regardless of whose body it was on, crushing oversized outfits before the
+body-shape signal (see prior changelog entry) could argue they suit the wearer.
+
+**Part 1 — fit-relative ease windows (`engine/scoring.ts`).** Each threshold window now SLIDES
+by how much ease the garment's declared `fit` is supposed to have, PROPORTIONAL to the body
+measurement at that point (not a flat cm offset — a flat shift would push a limb point, e.g.
+upper arm, past its real ease and score it worse than before). New tables:
+`FIT_EASE_PCT: Record<ItemFit, number>` (target ease as a fraction of body girth per fit —
+`slim 0.02 … oversized 0.22`, with `regular = 0.06` as the ANCHOR so the existing calibration for
+regular garments is preserved exactly — zero net shift) and `KEY_EASE_WEIGHT: Record<string,
+number>` (how much of the shift each measurement point absorbs — torso girths 1.0, thigh/upper_arm
+0.6, shoulder_width 0.35 since it's a WIDTH not a girth, body_length 0.25, sleeves/inseam 0 since
+pure lengths don't move with fit at all). `shiftThresholds()` computes `shiftCm = (FIT_EASE_PCT[fit]
+- FIT_EASE_PCT.regular) * bodyVal * KEY_EASE_WEIGHT[thresholdKey]`, halved when
+`item.provenance.fit !== true` (a guessed fit label shouldn't be amplified at full strength),
+clamped to ±20cm, then slides both `ideal` and `ok` by that amount before calling the unchanged
+`easeScore()`. `scoreMappings`/`scoreItemFit` now thread `item.fit` + `item.provenance.fit` through.
+`fitCategory(ease)` and the base `FIT_THRESHOLDS` numbers are UNCHANGED on purpose — `fitCategory`
+still labels how a garment physically sits (roomy/oversized) in absolute terms, independent of
+design intent, which is what keeps the "tight" warning list working for genuinely undersized
+garments (verified — see Part 3 E2 below).
+
+**Part 2 — preferred-fit anchor (`engine/scoring.ts` + `evaluate-item/scoring.ts`).** Once
+ease windows are fit-relative, a correctly-cut oversized piece scores ~1.0 just like a
+correctly-cut slim piece — the measurement term alone stops expressing whether the user actually
+LIKES loose clothes. `generate-outfits` never consumed `preferredFit` before (only `evaluate-item`
+did); left alone, the feed would drift loose for every user post-Part-1. Fix: `FIT_COMPAT` (the
+fit↔preference compatibility table) and `scoreFitPreference` MOVED from `evaluate-item/scoring.ts`
+into `engine/scoring.ts` and are exported from there — `evaluate-item/scoring.ts` now imports both
+(import direction preserved: evaluate-item imports FROM the engine, never the reverse); its own
+`fit` criterion behaviour is unchanged (still calls `scoreFitPreference` the same way, plus its own
+`bodyShapeAdjustment` sub-score). New `preferredFitDelta(items, preferredFit?)`: 0 with no stated
+preference; otherwise the mean of `scoreFitPreference(item.fit, preferredFit)` over core items
+(accessory/shoes excluded), rescaled to a DELTA in `[-0.12, +0.12]` — deliberately smaller than the
+body-shape delta (±0.32) so shape/style stay dominant. `scoreOutfitFit` now applies
+`base + shapeDelta + preferredFitDelta`, where `shapeDelta` is still 0 without `body.body_shape`
+(preserves `body_neutral` suppression) but `preferredFitDelta` is APPLIED UNCONDITIONALLY —
+`preferredFit` is a stated preference, not body data, so body-neutral mode must not suppress it.
+Double-counting check (done via grep before finishing): `evaluate-item` scores fit via
+`scoreItemFit` + its own `scoreFitPreference` criterion and never calls `scoreOutfitFit` — no
+double count introduced. `wardrobe-critic` calls `rankCandidates`/`scoreOutfitFit` indirectly via
+`ranking.ts`, so it now also gains the `preferredFitDelta` term — an expected, in-scope consequence
+of anchoring the feed, not a new double-count (it never separately scored fit preference itself).
+
+**Part 3 — sim proof (`scripts/sim/body-shape-sim.ts` Section E, new; Sections A–D untouched).**
+E1: `scoreItemFit` for the whole Section-C `WARDROBE` on the `apple` canonical body, printed both
+as the fixtures actually are (`provenance.fit=false`, i.e. GUESSED — half-strength shift, the
+realistic case for most wardrobe rows today) and with `provenance.fit=true` (REAL — full-strength
+shift). `oversized_hoodie` (the fixture the backlog quoted at 0.293): guessed-fit **0.532**,
+real-fit **0.410** — both far above the old 0.293 floor, though NOT monotonic (real-fit is lower
+than guessed-fit for this specific fixture — see "did not behave as predicted" below). E2: a
+constructed slim tee with chest ease −4 (still floors to 0.000, category `tight`, still emits the
+"Chest may be tight" warning) — proves Part 1 does not over-correct into "everything passes". E3:
+`scoreOutfitFit` for all 6 Section-C outfits under `preferredFit: 'SLIM'` / `'OVERSIZED'` /
+undefined (rectangle body, shape stripped so the shift is attributable to `preferredFitDelta`
+alone): `all-slim tailored` ranks #1 (1.000) under SLIM but drops to #3 (0.850) under OVERSIZED,
+`all-oversized` rises from 0.588 (no preference) to 0.684 (OVERSIZED) — ranking shifts sensibly
+without ever overturning a much better-fitting outfit's base score (the delta is capped at ±0.12
+specifically so it can't).
+
+**Did not behave exactly as anticipated (flagged, not "fixed" beyond design):** the motivating
+claim was "a correctly-cut garment should score high regardless of its declared fit." That holds
+for SOME Section-C fixtures (`oversized_knit` guessed→real: 0.486→0.548; `slim_tee`: 0.675→0.744)
+but not all — `oversized_hoodie` (0.532→0.410), `wide_leg_trousers` (0.646→0.420),
+`relaxed_chinos` (0.702→0.522), and `relaxed_overshirt` (0.750→0.632) all score LOWER under the
+full-strength (real) shift than the half-strength (guessed) one. Root cause: these Section-C
+fixtures were hand-authored under the OLD absolute-threshold system's assumption ("oversized ≈ far
+past the ok ceiling on every point") rather than proportionally-consistent-per-point at exactly
+`FIT_EASE_PCT`'s rate; a stronger (full) proportional shift can push a threshold window PAST a
+per-point ease that was never meant to be read that literally (e.g. `oversized_hoodie`'s waist_top
+ease of 11cm reads as "surprisingly tight for a garment claiming this much design ease" once the
+window fully shifts to `[14.08, 24.08]`). This is the formula behaving exactly as specified — the
+counter-intuitive per-fixture direction is a property of this specific fixture data, not a
+mechanism bug — but it means the "regardless of fit" claim only holds when a garment's ease is
+actually proportionally flat across all its measured points at the declared fit's rate, which
+these particular fixtures aren't. The headline number the backlog cited (`oversized_hoodie`
+0.293) is fixed either way (0.410–0.532, both ~1.4–1.8× the old floor).
+
+**Section C/D before → after** (Part 1 also moves `scoreOutfitFit`'s base term, since it feeds
+directly off `scoreItemFit`): hourglass `all-slim tailored` base 0.823→0.809, `regular baseline`
+0.800→0.815; triangle `all-slim tailored` 0.765→0.683, `slim top + wide bottom` 0.845→0.669 (this
+one's ranking-#1 outfit CHANGED — under the old absolute thresholds `slim top + wide bottom` was
+the base-highest triangle outfit; under fit-relative thresholds `all-slim tailored` reclaims #1);
+apple `all-slim tailored` 0.504→0.702, `regular baseline` 0.792→0.768; rectangle `all-slim tailored`
+0.973→0.946; inverted_triangle `all-slim tailored` 0.626→0.668. Section D verdict: "Bodies where
+the shape signal changed the top-1 outfit" moved from **1/5 → 4/5** — because the base (measured-fit)
+scores shifted, several bodies' base-vs-shaped ranking now disagree where they used to tie, so the
+body-shape delta visibly tips more rankings than before. `(body, outfit)` pairs with `|delta| >
+0.01` and "Direction contradictions" (both driven by `bodyShapeMultiplier`/`bodyShapeAdjustment`,
+untouched by this session) stayed at 23/30 and 0 respectively, as expected.
+
+**Tests touched.** `engine/season-color.test.ts`: two PRE-EXISTING tests
+("too-tight chest scores near 0" and "marginally tight chest... scores low") used a `fit: 'slim'`
+fixture whose declared fit is no longer the zero-shift anchor — under fit-relative thresholds a
+slim garment's window shifts slightly tighter, so the same absolute ease (−1cm / +1cm) no longer
+lands below `ok[0]`/matches the "ideal" fixture. Fixed by changing both fixtures' fit to `'regular'`
+(the true zero-shift anchor per the new design) — same numbers as before, direction unchanged, no
+test deleted. Six NEW tests added: fit-relative ease (oversized-correctly-cut scores >0.9 vs the
+old 0.2 floor; a genuinely too-small slim tee still scores <0.05 and still warns/tags `tight`) and
+preferred-fit anchor (`preferredFitDelta` returns 0 with no preference, stays within ±0.12,
+positive on a preference match / negative on a clash, excludes accessory/shoes from the core mean;
+`scoreOutfitFit` applies the delta even with `body_shape` absent).
+
+**Files changed:** `supabase/functions/generate-outfits/engine/scoring.ts` (`FIT_EASE_PCT`,
+`KEY_EASE_WEIGHT`, `shiftThresholds`, `scoreMappings`/`scoreItemFit` threading, `FIT_COMPAT` +
+`scoreFitPreference` moved in, new `preferredFitDelta`, `scoreOutfitFit` rewritten to apply both
+deltas), `supabase/functions/evaluate-item/scoring.ts` (imports `scoreFitPreference` from the
+engine instead of a local copy; behaviour unchanged), `engine/season-color.test.ts` (2 fixture
+fixes + 6 new tests), `scripts/sim/body-shape-sim.ts` (new Section E).
+
+**Verify:** `deno test supabase/functions/generate-outfits/engine/` 189/189; `deno test
+supabase/functions/evaluate-item/` 21/21; `npx jest` 355/355 (28 suites); `npx tsc --noEmit`
+clean; `npm run body-shape-sim` Section A 14/14, Section E all three sub-checks pass (E1 table
+printed, E2 PASS=YES, E3 ranking flips as expected).
+
+**Explicitly out of scope this session** (per instructions): `scoreOutfitFit`'s clamp-at-1.0 stays
+unchecked in backlog.md.
+
+## KEY_EASE_WEIGHT recalibration — a correctly-cut oversized garment must score high (2026-08-03, follow-up)
+
+Follow-up to the entry above: the mechanism (fit-relative windows) was correct but the WEIGHTS
+were wrong, so `oversized_hoodie` (real fit) was still scoring 0.410 with Shoulder/Upper arm/
+Sleeve length all floored at 0.20 and Waist at 0.00. Rationale for the fix, in one line:
+**`KEY_EASE_WEIGHT` encodes how a garment is CUT to deliver its declared fit, not how tolerant we
+are of misfit** — the previous values (thigh/upper_arm 0.6, shoulder_width 0.35, sleeves 0,
+body_length 0.25) treated real oversized/drop-shoulder construction as nearly rigid, which is
+backwards: a drop-shoulder genuinely widens the shoulder and sleeve and lengthens the sleeve.
+
+**Change 1 — `KEY_EASE_WEIGHT` (`engine/scoring.ts`).** `thigh 0.6→0.9`, `upper_arm 0.6→0.9`,
+`shoulder_width 0.35→0.9`, `sleeves 0→0.3`, `body_length 0.25→0.4`. `chest/waist_top/waist/
+waist_outer/hip` stay `1` (torso girths always took the shift fully) and `inseam` stays `0` (leg
+length never moves with fit). `FIT_EASE_PCT`, the base `FIT_THRESHOLDS` numbers, `easeScore`,
+`shiftThresholds`'s formula, and `preferredFitDelta` are all UNCHANGED.
+
+**Change 2 — sim fixture correction (`scripts/sim/body-shape-sim.ts`, `garmentMeasurements` only).**
+Three Section-C/E wardrobe fixtures were internally inconsistent: they tapered 13-15cm from chest
+to waist, i.e. FITTED-garment taper, despite being declared straight-hanging loose cuts (a boxy
+hoodie/knit/overshirt's waist circumference sits close to its chest circumference — it does not
+taper like a tailored piece). That taper is what made `oversized_hoodie`'s waist ease (11cm)
+smaller than its chest ease (18cm) — physically backwards for the cut. Only `waist_top`/
+`waist_outer` were touched; no other key, no declared `fit`, no outfit composition, no canonical
+body, and no Section A-D expected label changed.
+
+| id | key | before | after | reason |
+|---|---|---|---|---|
+| `oversized_hoodie` | `waist_top` | 99 | 106 | boxy hoodie hangs ~straight from chest to waist |
+| `oversized_knit` | `waist_top` | 95 | 106 | same straight-hang construction as the hoodie |
+| `relaxed_overshirt` | `waist_outer` | 87 | 98 | relaxed overshirt is not darted/tapered at the waist |
+
+**Result — `oversized_hoodie` real fit, apple body: 0.410 → 0.910.** Every point: Chest 1.00,
+Shoulder 1.00 (was 0.20), Waist 1.00 (was 0.00), Upper arm 0.72 (was 0.20), Sleeve length 0.82
+(was 0.20), Body length 0.92. No point left floored at 0.20/0.00.
+
+**Acceptance criteria (per the task):**
+1. **PASS** — `oversized_hoodie` real fit = 0.910 (≥0.85), no point floored at 0.20/0.00.
+2. **PARTIAL / see numbers** — "the canonical body" is ambiguous (E1 is coded against a single
+   fixed `apple` body for the whole `WARDROBE`, but the wardrobe's garments were hand-sized around
+   the arithmetic MEAN of the 5 canonical bodies — closest to the `rectangle` body — not around
+   `apple` specifically). Printed both readings (`≥0.80` bar), 9 wardrobe garments (`sneakers`
+   excluded, no garment measurements):
+   - **On `apple`** (E1 as coded): `slim_tee` 0.800, `regular_shirt` 0.833, `oversized_hoodie`
+     0.910, `oversized_knit` 0.837, `relaxed_overshirt` 0.868 — **PASS**. `slim_jeans` 0.750,
+     `wide_leg_trousers` 0.428, `relaxed_chinos` 0.522, `structured_slim_blazer` 0.788 — **FAIL**.
+   - **On `rectangle` (mean-representative)**: `slim_jeans` 0.943, `wide_leg_trousers` 0.948,
+     `relaxed_chinos` 1.000, `slim_tee` 0.875, `regular_shirt` 0.900 — **PASS**.
+     `oversized_hoodie` 0.485, `oversized_knit` 0.674, `relaxed_overshirt` 0.694,
+     `structured_slim_blazer` 0.640 — **FAIL**.
+   - Root cause, verified by direct computation, not a tunable weight: `apple`'s own chest-to-waist
+     gap (96→88, 8cm) is much smaller than `rectangle`'s (88→74, 14cm). A single fixed-cm garment's
+     waist/chest taper can only sit inside the ideal window for ONE of these gap sizes — tuning a
+     straight-hang garment to clear `apple` (small gap) necessarily overshoots `rectangle`'s ok
+     ceiling (big gap), and vice versa for garments sized around the mean. This is a real geometric
+     property of testing fixed-size garments against differently-shaped bodies, not fixable by any
+     `KEY_EASE_WEIGHT` value — reporting the numbers rather than forcing a pass, per instructions.
+   - `structured_slim_blazer` fails on BOTH bodies (0.788 apple / 0.640 rectangle) for a separate,
+     PRE-EXISTING reason unrelated to today's fixture scope: its chest ease (`~7-9cm`) was
+     calibrated for the OLD absolute-threshold model, which is too generous for the NEW, stricter
+     `slim` window (`FIT_EASE_PCT.slim = 0.02`) — this predates both of today's changes (chest's
+     `KEY_EASE_WEIGHT` was already 1 and is unchanged) and is out of the authorized fixture-fix
+     scope ("slim/structured pieces: keep the taper they already imply").
+3. **PASS** — E2 unchanged: chest ease −4 still scores 0.000, still floors to `tight`, still warns.
+4. **PASS** — new E4 guard added: an item DECLARED `oversized` but cut to near-body chest ease
+   (2cm) scores 0.000 (`throw`s if it doesn't) — the window moved outward, so under-sizing relative
+   to the label is now correctly caught as a miss, not a pass.
+5. **PASS** — E3 unchanged in direction: `all-slim tailored` ranks #1 under `SLIM` preference, #3
+   under `OVERSIZED`.
+
+**Tests touched:** none needed changes — `chest`/`sleeves` fixtures in
+`engine/season-color.test.ts` and `evaluate-item/scoring.test.ts` that exercise non-`regular` fits
+only key on `chest` (weight unchanged at 1) or already use `fit: 'regular'` (the zero-shift
+anchor), so no existing numeric expectation shifted. Full run: `deno test
+supabase/functions/generate-outfits/engine/` 189/189, `deno test supabase/functions/evaluate-item/`
+21/21, `npx jest` 355/355 (28 suites), `npx tsc --noEmit` clean, `npm run body-shape-sim` all
+Section E sub-checks print PASS.
+
+**Files changed:** `supabase/functions/generate-outfits/engine/scoring.ts` (`KEY_EASE_WEIGHT` +
+doc comment only), `scripts/sim/body-shape-sim.ts` (3 fixture `garmentMeasurements` values, a
+printed before/after fixture table, new E4 guard).
+
+## Guess-widening replaces half-strength shift for guessed fit labels (2026-08-03, follow-up)
+
+Follow-up to the two entries above. The `shiftThresholds()` halving for a guessed fit label
+(`shiftCm *= 0.5` when `item.provenance.fit !== true`) was WRONG: it parked the ease window
+HALFWAY between the `regular` window and the fully-shifted labelled-fit window, matching
+NEITHER — a correctly-cut GUESSED oversized garment was scored as if it were mis-cut.
+`oversized_hoodie` on the `apple` body: real-fit **0.910** but guessed-fit only **0.404** —
+worse than the 0.532 it scored before the `KEY_EASE_WEIGHT` recalibration (entry above), and
+barely above the 0.293 the whole exercise set out to fix.
+
+**Fix — `shiftThresholds()` (`engine/scoring.ts`).** A guessed label means UNCERTAINTY about
+whether the label is right, not "half as loose". `shiftCm` is no longer halved for a guessed
+fit — it shifts at the SAME full strength as a real label (best estimate of the cut). Instead,
+when the fit is guessed, only the `ok` band is WIDENED by `GUESS_WIDENING = 0.4` (a fraction of
+the ok-band half-width) on both sides, so a wrong guess degrades gracefully instead of scoring
+near 0. `ideal` is left unwidened — a guessed label should not earn a perfect score over a wider
+range than a known one, only a wider "acceptable" one. One subtlety preserved from the original
+code: when `shiftCm === 0` (i.e. `fit === 'regular'`, the zero-shift anchor — or any point whose
+`KEY_EASE_WEIGHT` is 0, e.g. `inseam`) the function still returns the base window UNTOUCHED, with
+no widening either — there is nothing to be uncertain about when there is no shift, and widening
+unconditionally regressed two pre-existing tests that explicitly probe `fit: 'regular'` as "the
+base `FIT_THRESHOLDS` curve, unperturbed" (fixed by finding this during the deno-test run, not by
+weakening those tests). `FIT_EASE_PCT`, `KEY_EASE_WEIGHT`, base `FIT_THRESHOLDS`, `easeScore`,
+`preferredFitDelta`, and the sim's fixtures/bodies/Sections A–D are all UNCHANGED.
+
+**E1 table — `scoreItemFit` on the `apple` canonical body, guessed-fit column, before → after:**
+
+| id | fit | before (half-shift) | after (full shift + widen) | Δ |
+|---|---|---|---|---|
+| `slim_jeans` | slim | 0.740 | 0.750 | +0.010 |
+| `wide_leg_trousers` | wide | 0.657 | 0.484 | **−0.173** |
+| `relaxed_chinos` | relaxed | 0.702 | 0.590 | **−0.112** |
+| `slim_tee` | slim | 0.700 | 0.800 | +0.100 |
+| `regular_shirt` | regular | 0.833 | 0.833 | 0.000 |
+| `oversized_hoodie` | oversized | 0.404 | 0.943 | **+0.539** |
+| `oversized_knit` | oversized | 0.748 | 0.904 | +0.156 |
+| `structured_slim_blazer` | slim | 0.716 | 0.792 | +0.076 |
+| `relaxed_overshirt` | relaxed | 0.980 | 0.932 | **−0.048** |
+| `sneakers` | regular | n/a | n/a | — |
+
+Real-fit column is unaffected by this change (`oversized_hoodie` real fit stays 0.910, same as
+the prior entry).
+
+**Acceptance criteria (per the task):**
+1. **PASS** — `oversized_hoodie` guessed-fit = 0.943 (≥0.75, was 0.404); real-fit stays 0.910
+   (≥0.85, no regression).
+2. **FAIL** — 3 of 9 measured wardrobe garments regress below their PRE-fix guessed-fit score:
+   `wide_leg_trousers` 0.657→0.484, `relaxed_chinos` 0.702→0.590, `relaxed_overshirt` 0.980→0.932.
+   Root cause, verified by per-point breakdown: for these fixtures a chest/hip ease that used to
+   sit exactly AT or NEAR the `ideal` window under the OLD half-strength shift now falls short of
+   the further-out FULL-strength `ideal` window; the point lands in `easeScore`'s "below ideal"
+   quadratic-girth branch, and widening only `ok` (not `ideal`) does not fully offset the larger
+   absolute gap. Example — `wide_leg_trousers` Hip: ease 10cm was inside old `ideal=[8.8,12.8]`
+   (score 1.00); under the new full shift `ideal=[13.6,17.6]`, ease 10 is now in the
+   below-ideal zone even after `ok` widens to `[6.6,27.6]` (score 0.236). This is a real,
+   reported side-effect of full-strength shifting, not a bug in the widening arithmetic.
+3. **FAIL** — E2 (genuinely-too-small slim tee, chest ease −4, `body_bust=90`) no longer floors:
+   score is **0.207** (was 0.000), still >0.15, though the tight warning still fires. Root cause:
+   `slim`'s shift is negative (moves the window toward tighter eases); at full strength
+   `ok=[-3.6,8.4]`, and widening by `GUESS_WIDENING=0.4` extends `ok[0]` down to **−6.0** — so an
+   ease of −4 (below the OLD half-shift floor of −1.8) now sits ABOVE the new, wider floor and
+   scores nonzero via the below-ideal curve instead of being floored. Per instructions, this
+   result is reported as-is: **`GUESS_WIDENING` was NOT lowered and the E2 guard was NOT relaxed**
+   to force a pass — this is the specific, anticipated risk of ok-band widening on the tight side,
+   and it materializes here.
+4. **PASS** — E4 (declared-`oversized`-but-cut-to-body item, chest ease 2cm, REAL fit label so
+   guess-widening does not apply) still scores 0.000 — unaffected, since E4 uses
+   `provenance.fit = true`.
+5. **PASS** — E3 direction unchanged: `all-slim tailored` still ranks #1 under `SLIM` preference
+   (#1) vs. lower under `OVERSIZED` (#5); `preferredFitDelta` does not depend on `shiftThresholds`
+   at all, so it is byte-identical before/after.
+
+**Net assessment:** the fix achieves its stated goal for the motivating case (`oversized_hoodie`
+guessed-fit 0.404→0.943, criterion 1) and for most of the wardrobe (6 of 9 items improve or hold),
+but criteria 2 and 3 are genuine, honestly-reported regressions inherent to "full shift + widen
+`ok` only" on fixtures/bodies where the pre-fix half-shift happened to already land in-window.
+Not silently patched per instructions — flagged here for anh Khôi to decide whether e.g. widening
+`ideal` too, a smaller `GUESS_WIDENING`, or a per-key floor guard is worth a follow-up session
+(added to `backlog.md`).
+
+**Tests touched.** `engine/season-color.test.ts`: updated the doc comment above the existing
+Part-1 fit-relative-ease test (no numeric/assertion change — it already uses `withRealFit`
+throughout, so it is unaffected by the guessed-fit path). Added ONE new test, "fit-relative ease
+(Part 1b, guess-widening 2026-08-03)": reuses the exact `oversized_hoodie`/`apple`-body fixture
+from the sim — real-fit **0.910**, guessed-fit **0.943** (both ≥ their 0.85/0.75 bars, within
+~0.03 of each other) — and a too-small top (chest ease −12, well past the widened floor) still
+scores **0.000** under a guessed label with a tight warning firing. No existing test's assertion
+was weakened or deleted.
+
+**Verify:** `deno test supabase/functions/generate-outfits/engine/` 190/190 (189 prior + 1 new);
+`deno test supabase/functions/evaluate-item/` 21/21; `npx jest` 355/355 (28 suites); `npx tsc
+--noEmit` clean; `npm run body-shape-sim` — E1 table above, E2 now prints `PASS: NO`, E3/E4
+unchanged, all other sections (A–D) untouched and still passing.
+
+**Files changed:** `supabase/functions/generate-outfits/engine/scoring.ts` (`shiftThresholds` +
+new `GUESS_WIDENING` constant + doc comment only — no other function touched),
+`engine/season-color.test.ts` (1 new test + 1 comment update), `scripts/sim/body-shape-sim.ts`
+(Section E comments/log strings updated to describe guess-widening instead of half-strength;
+no fixture, body, or Section A–D change).
+
+## Girth-floor safety clamp + bottoms fixture consistency pass (2026-08-03, follow-up)
+
+Two fixes closing out the backlog item opened by the entry above.
+
+**Fix 1 — a girth window must never slide below its original floor (SAFETY BUG, predates
+guess-widening).** `FIT_EASE_PCT.slim (0.02) < FIT_EASE_PCT.regular (0.06)`, so `slim` is the
+one declared fit that produces a NEGATIVE `shiftCm` — this dragged a girth key's `ok[0]` below
+its ORIGINAL table value (e.g. chest `ok[0]` from 0 to −3.84 on a 96cm chest), so the engine
+accepted a garment measuring LESS than the wearer's body as "acceptable". Guess-widening made
+it worse (pushed the too-small E2 fixture's score from 0.000 to 0.207, the reported E2
+regression) but did not create the bug — a real-fit slim garment with the same too-small ease
+was already silently under-penalized before guess-widening existed. Physical truth: an ideal
+ease can move with the cut, but the "unwearable" floor cannot — a body does not shrink to fit a
+smaller garment.
+
+Fixed in `shiftThresholds()` (`engine/scoring.ts`): after computing the shifted+widened window,
+for keys in `GIRTH_KEYS` only, `ok[0] = Math.max(ok[0], t.ok[0])` (the ORIGINAL, un-shifted
+value — not 0; `shoulder_width`'s base `ok[0] = -1` on purpose, a seam 1cm narrower than the
+body still wears, and clamping to the original preserves that). Guard against an inverted
+window: if the raised floor now sits above `ideal[0]`, `ideal[0]` is raised to match (this
+happens in practice for shoulder_width + slim at any realistic body size — the −1 floor and the
+shifted ideal lower bound converge, which is correct: a floor equal to the start of "ideal" is
+not a defect). Applied AFTER guess-widening so a guessed label can't use the wider band to
+sneak under the floor either. Positive shifts (oversized/wide/relaxed raising the floor) are
+unaffected — the clamp is a `max`, so it only ever engages when a shift would otherwise LOWER
+the floor.
+
+**Fix 2 — bottoms fixture consistency pass.** Last round only corrected 3 loose TOPS
+(`oversized_hoodie`/`oversized_knit`/`relaxed_overshirt`'s `waist_top`/`waist_outer`). The
+remaining regressions (`wide_leg_trousers` 0.657→0.484, `relaxed_chinos` 0.702→0.590) were the
+same defect in the bottoms: `garmentMeasurements` authored under the old absolute-threshold
+model, not internally consistent with the declared `fit` under the new fit-relative windows.
+Diagnostic confirming these were the odd ones out: both scored LOWER with a real fit label than
+a guessed one (0.428/0.522) — a correctly-cut garment must score BETTER when its label is
+trusted, never worse. Root cause per point: `wide_leg_trousers`' waist ease was −4 (tighter
+than the wearer's own waist — not just "less loose", physically smaller than the body) and its
+hip ease (10cm) undershot the wide-fit ideal window (needs ~14-18cm at this body); same pattern
+on `relaxed_chinos` (waist ease −6, hip ease 6cm vs a ~9-13cm ideal). `relaxed_overshirt` showed
+the same defect on ONE point (chest ease 6cm vs a ~7-11cm ideal for `relaxed`) even after last
+round's `waist_outer` fix, so its chest was corrected too. `thigh`/`inseam` (bottoms) and
+`shoulder_width`/`waist_outer`/`upper_arm`/`sleeves` (overshirt) were already internally
+consistent and are untouched — no declared `fit`, outfit composition, canonical body, or
+Section A–D expected label changed.
+
+| id | key | before | after | reason |
+|---|---|---|---|---|
+| `wide_leg_trousers` | `waist` | 84 | 100 | waist ease must scale with a WIDE leg (was tighter than the body itself: ease −4) |
+| `wide_leg_trousers` | `hip` | 106 | 111 | hip ease undershot the wide-fit ideal window (was ease 10, needs ~14-18) |
+| `relaxed_chinos` | `waist` | 82 | 96 | waist ease must scale with a RELAXED leg (was tighter than the body itself: ease −6) |
+| `relaxed_chinos` | `hip` | 102 | 106 | hip ease undershot the relaxed-fit ideal window (was ease 6, needs ~9-13) |
+| `relaxed_overshirt` | `chest` | 102 | 105 | chest ease undershot the relaxed-fit ideal window (was ease 6, needs ~7-11) |
+
+**E1 table (`scoreItemFit`, `apple` canonical body) — before → after both fixes:**
+
+| id | fit | guessed before → after | real before → after |
+|---|---|---|---|
+| `slim_jeans` | slim | 0.750 → 0.750 | 0.750 → 0.750 |
+| `wide_leg_trousers` | wide | 0.484 → **0.925** | 0.428 → **0.925** |
+| `relaxed_chinos` | relaxed | 0.590 → **1.000** | 0.522 → **1.000** |
+| `slim_tee` | slim | 0.800 → 0.800 | 0.800 → 0.800 |
+| `regular_shirt` | regular | 0.833 → 0.833 | 0.833 → 0.833 |
+| `oversized_hoodie` | oversized | 0.943 → 0.943 | 0.910 → 0.910 |
+| `oversized_knit` | oversized | 0.904 → 0.904 | 0.837 → 0.837 |
+| `structured_slim_blazer` | slim | 0.792 → 0.792 | 0.788 → 0.788 |
+| `relaxed_overshirt` | relaxed | 0.932 → **0.998** | 0.868 → **0.997** |
+| `sneakers` | regular | n/a | n/a |
+
+`wide_leg_trousers` and `relaxed_chinos` now score EXACTLY equal real/guessed (both points land
+inside their fit's ideal window, unaffected by widening) — up from a violation, and both now
+score above the pre-fit-aware absolute-threshold baseline quoted in the prior round's table
+(0.657 / 0.702). `relaxed_overshirt`'s gap shrank from 0.064 to 0.001 (residual explained
+below). Fix 1 alone changed nothing in this table — every affected fixture (`slim_jeans`,
+`slim_tee`, `structured_slim_blazer`'s chest point) already either floored to 0 well below the
+old, un-clamped floor, or already sat inside its shifted ideal band, so the clamp was a no-op
+for them; its effect is visible only in the E2/E4 guards below.
+
+**Acceptance criteria:**
+1. **PASS** — E2: too-small slim tee (chest ease −4) now scores **0.000** (was 0.207) and still
+   warns, under BOTH a real and a guessed fit label (both print `PASS: YES`).
+2. **PASS** — E4: declared-oversized-but-cut-to-body (chest ease 2cm) still scores **0.000**
+   under both real and guessed labels (E4 was already a real-only check; extended to also cover
+   guessed this round — unaffected either way since E4 uses a large POSITIVE shift, which the
+   floor clamp never touches).
+3. **PASS** — `oversized_hoodie` real **0.910** (≥0.85), guessed **0.943** (≥0.75) — byte-identical
+   to before this session, confirming Fix 1/2 didn't disturb it.
+4. **PARTIAL, numbers below** — 6 of 9 measured wardrobe garments now score real >= guessed
+   EXACTLY (equal): `slim_jeans`, `slim_tee`, `regular_shirt`, and — newly fixed this round —
+   `wide_leg_trousers`, `relaxed_chinos`. 4 garments still violate it by a small margin:
+   `oversized_hoodie` (real 0.910 < guessed 0.943, gap 0.033), `oversized_knit` (0.837 < 0.904,
+   gap 0.067), `structured_slim_blazer` (0.788 < 0.792, gap 0.004), `relaxed_overshirt` (0.997 <
+   0.998, gap 0.001). Root cause, verified by derivative check on `easeScore`'s loose-side
+   formula (`0.7 + 0.3*(1-(ease-ideal1)/(ok1-ideal1))`): widening `ok[1]` for a guessed label can
+   only INCREASE this formula's result for a fixed ease (larger denominator → smaller subtracted
+   fraction), so any point sitting between `ideal[1]` and `ok[1]` scores `guessed >= real` by
+   construction — Fix 1 only clamped the TIGHT side (`ok[0]`), the loose side (`ok[1]`) is
+   untouched and was out of this session's authorized scope (only `shiftThresholds`'s floor, per
+   the task). Filed as a new backlog item (`backlog.md`) rather than fixed silently — it's a
+   design trade-off (does the loose ceiling get a mirrored clamp, does `ideal` widen too, or is a
+   <0.07 gap acceptable?), not a bug fix.
+5. **PASS, with a caveat** — no garment regressed below its pre-fit-aware (absolute-threshold)
+   baseline. Reconstructed from the guess-widening entry's own before/after table:
+   `wide_leg_trousers` 0.657 → now 0.925 (both columns), `relaxed_chinos` 0.702 → now 1.000
+   (both columns). `relaxed_overshirt`'s exact PRE-fit-aware (before Part 1 ever ran) number
+   isn't printed anywhere in this changelog — the earliest recorded value is 0.750 (guessed,
+   right after Part 1 introduced fit-relative windows) — but the current 0.998/0.997 clears
+   that too, so no regression under either reading. All untouched garments
+   (`slim_jeans`/`slim_tee`/`regular_shirt`/`oversized_hoodie`/`oversized_knit`/
+   `structured_slim_blazer`) are numerically unchanged from immediately before this session.
+6. **PASS, direction preserved** — E3: `all-slim tailored` still ranks #1 under `SLIM`
+   preference. Its rank under `OVERSIZED` preference moved from #5 to #3 (an EXPECTED side
+   effect of `wide_leg_trousers`/`relaxed_chinos` scoring materially higher now, since they
+   participate in other E3 outfits' base scores) — the qualitative separation the guard checks
+   (ranked earlier under `SLIM` than under `OVERSIZED`) is unchanged: #1 vs #3 both this round
+   and #1 vs #5 last round satisfy "earlier under SLIM."
+
+**Section E4 and E2 now THROW on failure** (`scripts/sim/body-shape-sim.ts`) instead of only
+printing `PASS: NO` — both guards raise an `Error` with the actual vs. expected score if the
+condition fails, so a regression breaks the `npm run body-shape-sim` run (nonzero exit) instead
+of silently printing a line that's easy to miss.
+
+**Tests touched.** `engine/season-color.test.ts`: 2 NEW tests added (no existing assertion
+weakened/deleted) — "girth-floor clamp — a garment measuring less than the body scores ~0 for
+slim, regular AND oversized labels, real and guessed" (via `scoreItemFit`, both provenance
+values, all three fits as a control group) and "girth-floor clamp — preserves shoulder_width's
+deliberately-negative base ok[0] (-1), not 0" (distinguishes a correct −1 floor from a wrong 0
+floor via two ease points that only differ in score if the floor is actually −1).
+
+**Verify:** `deno test supabase/functions/generate-outfits/engine/` 192/192 (190 prior + 2 new);
+`deno test supabase/functions/evaluate-item/` 21/21; `npx jest` 355/355 (28 suites); `npx tsc
+--noEmit` clean; `npm run body-shape-sim` — Section A 14/14, Section D verdict numbers
+unchanged (23/30 delta pairs, 4/5 top-1 changes, 0 direction contradictions — confirms
+Sections A–D were untouched), Section E: fixture tables above, E1 table above, E2 PASS
+(both labels), E3 ranking direction preserved, E4 PASS (both labels, newly extended to
+guessed).
+
+**Files changed:** `supabase/functions/generate-outfits/engine/scoring.ts` (`shiftThresholds`
+girth-floor clamp only — no other function touched), `scripts/sim/body-shape-sim.ts`
+(`wide_leg_trousers`/`relaxed_chinos`/`relaxed_overshirt` `garmentMeasurements`, updated
+fixture-correction print block, E2 and E4 now test both real+guessed labels and `throw` on
+failure), `engine/season-color.test.ts` (2 new tests), `backlog.md` (resolved the
+guess-widening follow-up item; opened a new one for the residual loose-side asymmetry).
+
 ## Wardrobe-affinity style fallback in generate-outfits (2026-08-02)
 
 **Problem.** When a user has no selected styles (and no style intent override), the
@@ -2938,13 +3488,14 @@ Requested by anh Khôi: document the full path to real IAP; no code changes this
 - SDK `react-native-purchases` integrated and **lazy-required** in `src/features/monetization/usePremium.ts` (so Expo Go doesn't crash). `usePremium()` returns `{ isPremium, isLoading, offerings, purchase(pkg), restore() }`. `isPremium` is true if EITHER the RevenueCat `premium` entitlement is active OR `profiles.account_type` is premium/admin.
 - `app/_layout.tsx` reads `process.env['EXPO_PUBLIC_REVENUECAT_API_KEY']` and guards `if (!apiKey) return` — so with no key the SDK is **never configured** → no offerings → paywall shows the "Not available right now" fallback. The key is absent from BOTH `.env` and `eas.json`, so RevenueCat is currently disabled in dev and prod alike.
 - `app/paywall.tsx` renders `offerings.current.availablePackages[0]` (title + priceString) with purchase/restore; on success it re-hydrates `authStore` so `account_type` refreshes without waiting for the webhook.
-- Edge function `supabase/functions/revenuecat-webhook/index.ts` exists: authenticates by an `Authorization` header equal to `REVENUECAT_WEBHOOK_SECRET`, updates `profiles.account_type` on grant/revoke/transfer, idempotent via `profiles.rc_last_event_ms`. **Written but NOT deployed.**
+- Edge function `supabase/functions/revenuecat-webhook/index.ts` exists: authenticates by an `Authorization` header equal to `REVENUECAT_WEBHOOK_SECRET`, updates `profiles.account_type` on grant/revoke/transfer, idempotent via `profiles.rc_last_event_ms`. ~~**Written but NOT deployed.**~~ **CORRECTION 2026-08-04: it IS deployed** — `supabase functions list` shows slug `revenuecat-webhook`, status ACTIVE, version 3, `verify_jwt: false` (correct for this endpoint — it authenticates by its own secret header, not a Supabase JWT). What is still missing is the secret itself: `supabase secrets list` has no `REVENUECAT_WEBHOOK_SECRET`, so every incoming webhook call is currently rejected.
 - `profiles.account_type` is protected by a trigger (only `service_role` can change it) — migration `20260703000001_protect_account_type.sql`.
 
 ### Blockers (why it's not live)
 1. No RevenueCat public SDK API key configured anywhere.
-2. `Purchases.configure()` + `Purchases.logIn(supabaseUserId)` wiring must be confirmed/completed so RevenueCat's `app_user_id` == our Supabase uid (the webhook maps events to `profiles` by that id).
-3. Webhook not deployed; `REVENUECAT_WEBHOOK_SECRET` not set; RC dashboard webhook not configured.
+2. ~~`Purchases.configure()` + `Purchases.logIn(supabaseUserId)` wiring must be confirmed/completed~~ **RESOLVED (verified 2026-08-04)**: `app/_layout.tsx` already calls `Purchases.configure({ apiKey })` then `await Purchases.logIn(userId)` after auth hydration, guarded by `if (!Purchases || !isLoggedIn) return` and `if (!apiKey) return`. So RevenueCat's `app_user_id` will equal the Supabase uid as soon as a key exists. No code change needed here.
+3. ~~Webhook not deployed;~~ **webhook IS deployed** (ACTIVE v3, see above). Still missing: `REVENUECAT_WEBHOOK_SECRET` is NOT set (`supabase secrets list`, 2026-08-04), and the RC dashboard webhook is not configured.
+3b. **`react-native-purchases` is not a dependency at all** (verified 2026-08-04): absent from `package.json` AND from `node_modules`, so the lazy `require()` in `usePremium.ts` and `_layout.tsx` always fails → `Purchases === null` → paywall is a permanent dead end. This is the single biggest code-side gap and was not listed in the original blockers.
 4. Some premium gates (cloud photo storage tier, generate-outfits curation) still read the RC entitlement directly rather than `profiles.account_type` — should standardize on `account_type` so webhook-synced upgrades work even in Expo Go / before the device RC cache refreshes.
 5. No RevenueCat dashboard project / entitlement / offering / products.
 6. No App Store Connect app + IAP products + Paid-Apps agreement/banking/tax.
@@ -2956,7 +3507,7 @@ Requested by anh Khôi: document the full path to real IAP; no code changes this
 **A. External account setup (anh Khôi — cannot be automated)**
 1. App Store Connect: enroll in Apple Developer Program; create the app record (bundle id must match `app.json` `ios.bundleIdentifier`); complete Agreements/Tax/Banking so the **Paid Apps** agreement is active (IAP fails without it); create auto-renewable subscription product(s) in a subscription group (e.g. Monthly / Yearly) and note the product IDs.
 2. Google Play Console: create the app; set up a payments/merchant profile; create matching subscription products; note the product IDs.
-3. RevenueCat dashboard: create a project; connect the iOS app (App Store in-app-purchase key/shared secret) and Android app (Play service-account JSON); create an entitlement with identifier **`premium`** (MUST match the code — `usePremium` reads `entitlements.active['premium']`); create products mapped to the store product IDs and attach them to `premium`; create an **Offering** named `current` with the packages; copy the **public SDK API keys** (one per platform).
+3. RevenueCat dashboard: create a project; connect the iOS app (App Store in-app-purchase key/shared secret) and Android app (Play service-account JSON); create an entitlement with identifier **`premium`** (MUST match the code — `usePremium` reads `entitlements.active['premium']`); create products mapped to the store product IDs and attach them to `premium`; ~~create an **Offering** named `current` with the packages~~ **CORRECTION 2026-08-04: the offering does NOT need to be named `current`.** `offerings.current` in the SDK means "whichever offering is flagged as Current in the dashboard", not an offering whose identifier is the literal string `current`. Verified by probing the REST API the SDK itself uses: the response carries a separate `current_offering_id` field (observed value `"default"`), so an offering named `default` populates `offerings.current` just fine. Only the **entitlement** identifier `premium` is a literal string that must match the code. Then copy the **public SDK API keys** (one per platform).
 
 **B. Code + config (do once keys/products exist)**
 4. Add `EXPO_PUBLIC_REVENUECAT_API_KEY` to `eas.json` env (and `.env` for dev-client). This is the public SDK key — safe to embed; it is NOT the webhook secret.
@@ -3024,3 +3575,1722 @@ prebuild would clobber. Everything above was edited in place.
   the applicationId had changed. Deleted those three cache directories (not source, not
   committed) and reran; `BUILD SUCCESSFUL` on the second attempt with the new
   `tech.kioh.mien` package baked into the generated sources and `BuildConfig`.
+
+## Personal Colour v3 — Phase A: face scan + calibrated colour math (2026-08-04)
+
+Implements `docs/personal-color-v3-phase-a-instruction.md` (Fable, design lead) against
+the research/proposal at `docs/personal-color-v3-research.md`. Scope: capture + math
+hardening only (Phase A of a 3-phase plan — Phase B rebuilds the draping UX, Phase C adds
+beauty/hair/glasses deliverables, both queued in backlog.md §A). Hard constraints honoured:
+100% on-device, no new network calls, DB schema/`savePersonalColor` payload unchanged,
+manual quiz path untouched, pure colour math stays Jest-importable (no native imports).
+
+**A1 — `colorMath.ts` new pure helpers** (+ 30 new Jest cases in
+`__tests__/colorMath.test.ts`, extending the existing suite):
+- `srgbToLinear`/`linearToSrgb` — extracted the `lin()` closure that lived inside
+  `rgbToLab` into its own pair of functions (plus the delinearizing inverse, which didn't
+  exist before); `rgbToLab` now calls `srgbToLinear` internally, behaviour unchanged.
+- `subtractAmbient(flash, ambient)` — the PLOS ONE flash/no-flash reflectance-isolation
+  method: linearize both frames, per-channel `max(0, flashLin - ambientLin)`, delinearize.
+- `itaDeg(lab)` — ITA° = `atan2(L-50, b)·180/π`, the clinical skin-value metric.
+- `itaToValueAxis(ita)` — piecewise-linear map of the published ITA° bands (>55/41-55/
+  28-41/10-28/-30-10/<-30) onto the tone12 value axis; 7 anchor points (65→+1 ... -45→-1)
+  evenly spaced in VALUE so each of the 6 published bands is exactly one segment. Clamped
+  outside [-45, 65].
+- `chromaC(lab)` — `sqrt(a²+b²)`.
+- `scleraGains(pixels)` / `applyGains(rgb, gains)` — diagonal (von-Kries) white-balance
+  correction from a sclera (eye-white) sample: gains = meanLuminance / meanChannel, refused
+  (returns null) if any gain falls outside [0.6, 1.6] (bloodshot/shadowed/blue-lit guard).
+
+**A2 — `src/features/personal-color/faceRegions.ts`** (new pure module, 10 Jest cases in
+`__tests__/faceRegions.test.ts` with a synthetic keypoint fixture): given image dimensions
++ a BlazeFace box/6-keypoint detection, computes pixel sample rects — two cheek regions
+(centred between eye and mouth on each side, pushed 0.15×IOD toward the ear so they land on
+cheek not nose-fold), a forehead region (spanning between the eyes, 0.45×IOD above the eye
+line), two eye regions (sclera candidates come from inside these), and a hair band (the
+full-width strip of the frame above the face box's top edge, null if the box already
+touches the top). All rects clamped to image bounds.
+
+**faceDetect.ts extended** (`src/features/try-on/faceDetect.ts`, try-on's existing BlazeFace
+integration — reused as-is per the instruction, no new face-detection dependency added):
+`FaceLandmarks` gained `rightEar`/`leftEar` (the model already computed these keypoints
+internally but didn't return them) and a normalised `box` (decoded from the SSD box
+regression channels 0-3, same center-offset-then-width/height convention as the keypoint
+channels). CALIBRATION-PENDING alongside the file's existing `NORMALIZE_TO_UNIT` flag —
+untested on-device, same as the rest of that file. `faceComposite.ts` (try-on's only other
+consumer of `FaceLandmarks`) destructures named fields and is unaffected by the additions.
+
+**A3 — `analyzePhoto.ts` — `analyzeFace()`**: downscales both the flash and ambient selfie
+to width 192 (aspect-preserving), runs `detectFace` (try-on's detector, called directly on
+the original uri — its landmarks are already source-image-normalised, so no adaptation
+layer was actually needed), builds `faceRegions`, then: (1) per-pixel `subtractAmbient`
+across the two frames when both are present, gated by an SNR check (mean linear luminance
+of the diff over the face box > 0.015) — below that floor the subtraction is discarded and
+the flash frame is used as-is (recorded via `snrOk: false`, not treated as a failure —
+covers outdoor daylight where the screen flash barely registers); (2) sclera correction:
+top-15%-by-luminance, below-median-chroma pixels from the eye regions (≥12px required),
+`scleraGains` → null-guard → applied to every subsequent sample; (3) skin from cheeks +
+forehead (glare/shadow + skin-gamut filtered, ≥25px to answer, ≥60px + ≥3° hue margin for
+confident) → `skinLab`/`hueDeg`/`ita`/`chroma`; (4) hair from the band above the face box
+(darkest-40% cluster, ≥20px, nearest `HAIR_OPTIONS` swatch). Every step wrapped — any
+failure (no face, decode error) returns null, same as every other function in this file.
+**Deviation**: the instruction's literal A3 return shape omitted a hair swatch key (only
+`hairLab`), but A4's "hair now comes from the selfie's hairBand" requires a discrete key
+for the auto-hair UI chip and the axes model — added `hairKey: string | null` to the return
+object (smallest deviation that keeps the feature functional; documented inline in
+`FaceAnalysisResult`).
+
+`analyzeWristUndertone` retrofitted (still Jest-free — no new tests needed since its logic
+change is internal wiring, not new pure math beyond what A1 already covers): now accepts an
+optional `ambientUri`. When present, per-pixel `subtractAmbient` over the central region is
+the PRIMARY classification signal (replacing the old "classify both shots independently and
+compare" as the primary read); that old method still runs, now as an additional confidence
+cross-check layered on top (agreement boosts confidence, corroborating rather than gating).
+
+**A4 — capture rewiring**: camera path is now `face-scan → wrist-scan → (fallback
+questions) → result` (`usePersonalColorDetection.ts`'s `DetectionStep` union). The
+dedicated `hair-scan` step and `analyzeHairColor` call site are removed from the hook;
+`analyzeHairColor` itself is KEPT exported (per the instruction — nothing else currently
+calls it, but it's cheap to keep for a future hair-rescan feature). New inline
+`FaceScanStep` component (defined per-screen, matching how `WristScanStep` is duplicated
+across `app/(onboarding)/personal-color.tsx` and `app/personal-color-edit.tsx`): front
+camera, screen-flash sequence (`expo-brightness` pushed to max + a full-screen white overlay
+for the flash frame, then a near-black overlay for the ambient frame, ~300ms/~350ms holds,
+brightness restored in a `finally` + on unmount) since front cameras have no torch.
+`WristScanStep` gained the `analyzing` spinner overlay that `HairScanStep` used to have
+(the gating point for "do we need a fallback question" moved from hair-scan to wrist-scan,
+since it's now the last scan step). `combineWristReads` (which reconciled a flash-vs-ambient
+pair of the SAME site) was renamed/repurposed to `combineSkinReads` (reconciles the FACE
+read, primary, against the WRIST read, secondary — agreement is confident, disagreement
+keeps the face read but flags low-confidence). Added `expo-brightness` (`npx expo install`,
+`~14.0.8`) — **not** added to `app.json`'s plugins array: only app-level brightness
+(`setBrightnessAsync`/`getBrightnessAsync`) is used, which needs no native permission on
+either platform (the package's config plugin unconditionally adds Android's
+`WRITE_SETTINGS`, which is only required for *system-wide* brightness changes — out of
+scope here, and the native `android`/`ios` folders are hand-maintained/committed per this
+repo's convention, so a plugin that isn't needed wasn't worth a native rebuild). Backlog
+§G's iPad-no-torch entry (wrist scan) now notes the face scan's screen-flash technique
+works fine on iPad as a partial mitigation.
+
+**A5 — `tone12.ts` axes re-anchor + secondary/confidence**:
+- Value axis: when a skin LAB is present (face or wrist), blends `itaToValueAxis(itaDeg(
+  skinLab))` (0.7) with the existing quiz-derived value signal (0.3) — quiz-only when no
+  photo LAB exists (manual path unchanged).
+- Warmth axis: the wrist-hue nudge (`wristHueDeg`) was renamed to `skinHueDeg` (now
+  face-primary, wrist-fallback, matching the read `combineSkinReads` produces) and reshaped
+  from a raw linear distance-from-52° formula to a margin-past-threshold formula
+  (`hueMargin`: degrees past whichever of 47°/57° the hue already clears, /10, clamped to
+  1) — same ±0.35 max swing as v2.
+- Chroma axis: added skin `chromaC` as a signal, blended 50/50 with the existing skin/hair
+  lightness-contrast proxy when both are available (photo-only when there's no hair LAB).
+  Anchor (20) / spread (20) marked `CALIBRATION-PENDING—v3` inline.
+- `classifyTone12(axes)` now returns `{ tone, secondary, confidence }` instead of a bare
+  `ColorTone12` — **breaking change to its own signature**, all 12 existing call-site
+  assertions in `tone12.test.ts` updated to `.tone`, plus new tests for `secondary`/
+  `confidence`. `secondary`: recomputes with the single lowest-margin axis sign-flipped;
+  null if the tone doesn't change. `confidence`: `'high'`/`'medium'`/`'low'` from the
+  minimum axis margin (≥0.5 / ≥0.2 / else). `scorePersonalColorDetailed` (`colorSeasonData.
+  ts`) threads both through as additive `PersonalColorResult` fields
+  (`secondaryTone12`/`secondaryLabel`/`confidence`) — existing consumers reading `tone12`/
+  `axes`/etc. are unaffected.
+- Result screens (`app/(onboarding)/personal-color.tsx`, `app/personal-color-edit.tsx`):
+  under the 12-tone `seasonLabel`, a second `LEANING {SECONDARY LABEL}` line (same style)
+  when a secondary exists; a one-line "A quick drape session will sharpen this." nudge under
+  the existing "REFINE WITH DRAPING" button when `confidence === 'low'`. Both session-local
+  — `savePersonalColor`'s payload is unchanged (hard constraint).
+
+**A6 — hygiene**: `npx tsc --noEmit` clean; `npx jest src/features/personal-color`
+76/76 passing (4 suites — colorMath, faceRegions [new], tone12, colorSeasonData);
+`npx jest src` (whole app) 392/392 passing, nothing else regressed. i18n: added
+`onboardingPersonalColor_faceScanTitle/Caption`, `_wristScanAnalyzing`, `_facePhotoCaption`,
+`_leaningLabel`, `_lowConfidenceNudge`; updated `_introCaption`/`_scanPrivacyNote`/
+`personalColorEdit_caption` to mention the face scan; both en.json/vi.json (1025 keys each,
+verified no orphans against every `t('...')` call in the two screens + `DrapeSession.tsx`).
+`src/design/personal-color/design.md` §7 documents the visual/UX side (step order,
+`FaceScanStep`, screen-flash overlays, leaning label). backlog.md: marked the face-path
+research item done, queued Phase B/C, noted the iPad torch mitigation.
+
+**Not done in this phase** (queued in backlog.md §A): persisting `secondaryTone12`/
+`confidence` to `profiles` (session-local only for now, per the instruction), Phase B's
+draping UX rebuild (comparative same-hue pairs, gold/silver round, judge-prompts), Phase
+C's beauty-scope deliverables (wow colours, metals wiring, makeup/hair/glasses), and the
+ColorChecker validation fixture (needs a physical purchase). None of this phase's device
+behaviour has been verified on a real phone — the face-detection box decode, screen-flash
+brightness API, and sclera-correction thresholds are all first-cut CALIBRATION-PENDING
+values pending real-photo tuning, same status as v2's existing constants.
+
+## Personal Colour v3 — Phase B: draping UX rebuild (2026-08-04)
+
+Implements `docs/personal-color-v3-phase-b-instruction.md` (Fable, design lead), building on
+top of Phase A (above) without reverting any of it. Scope: rebuild `DrapeSession` on the
+professional draping methodology (`docs/personal-color-v3-research.md` §2) and add a 12-tone
+grid compare. Hard constraints unchanged: 100% on-device, no DB schema/`savePersonalColor`
+changes, manual quiz path untouched, selfie privacy rules (local state only, deleted on
+close/done/unmount) preserved exactly.
+
+**B1 — 5 professional drape rounds** (`src/features/personal-color/drapeRounds.ts`, new pure
+module, 4 Jest cases in `__tests__/drapeRounds.test.ts`): replaces the old inline 3-round
+table with `DRAPE_ROUNDS` — tomato/cherry red (warmth), mustard/lemon (warmth), light
+ivory/deep charcoal (value), clear bright/soft mauve (chroma), gold/silver lamé (warmth +
+metal side-effect). All hexes CALIBRATION-PENDING, same disclaimer as `tone12.ts`.
+`DrapeSession` now imports this list instead of its own `ROUNDS` constant. Round counter
+reads "DRAPE N OF 5" automatically (`DRAPE_ROUNDS.length`). Each round gets its own judge
+prompt (`drapeSession_round1Question`…`_round5Question`, en+vi) plus a shared educational
+sub-caption "Look at your face, not the colours." (`drapeSession_lookAtFace`) — replaces the
+old single shared `drapeSession_question` key (removed, no other callers). Round 5 (metal):
+picking gold calls `applyDrape('warmth', +1)` AND reports `'gold'` via a new optional
+`onMetal` prop; picking silver mirrors with `-1`/`'silver'`. The guard against clobbering an
+existing manual metal answer lives in the HOOK, not `DrapeSession` (only the hook knows the
+current `metalKey`): new `usePersonalColorDetection.applyDrapeMetal(metal)` sets
+`state.metalKey` only `?? metal` (never overwrites a real answer).
+
+**B2 — "SEE ALL 12 TONES" grid compare** (new phase inside `DrapeSession`): a 3×4 grid of
+every `ColorTone12`'s signature drape colour (`TONE12_DRAPE_HEX`, tone12.ts — see B3 below)
+behind the same captured selfie (92px tall, `cover`, 2px white hairline border matching the
+round cards), tone's short EN label beneath, the currently-classified tone's cell marked with
+a small white dot. Tapping a non-current cell opens a compare view (same card layout as a
+drape round) — current tone's card vs the tapped tone's card, prompt "Which looks more
+alive?"; picking the current card dismisses back to the grid unchanged, picking the
+challenger calls `nudgeTowardTone` (B3) then returns to the grid — the marker moves
+automatically since `currentTone` is a prop derived from the live `result.tone12` memo, no
+local grid state to keep in sync. Two entry points, both per the instruction: (1) a text
+link ("SEE ALL 12 TONES") on the LAST drape round's screen, alongside the existing skip link;
+(2) a new secondary button on the result screen, beneath "REFINE WITH DRAPING" — entering
+this way still runs the phase-1 selfie capture first (`DrapeSession`'s new `startAtGrid`
+prop), then jumps straight to the grid, skipping all 5 rounds.
+
+**B3 — `nudgeTowardTone` (tone12.ts, pure, Jest-covered)**: a new internal
+`TONE12_AXIS_SIGNATURE` table gives each tone a canonical warmth/value/chroma SIGN pattern
+(built from the classic season definitions — spring=warm·clear·light, summer=cool·muted·light,
+autumn=warm·muted·deep, winter=cool·clear·deep — and cross-checked so every row, run back
+through `classifyTone12Core`, reproduces its own tone; see the new `tone12.test.ts` cases).
+`nudgeTowardTone(current, from, to)` applies ONE `applyDrapePick` step per axis whose sign
+differs between `from` and `to` — reuses the existing drape-pick math rather than
+reimplementing it, so a grid tap is exactly as strong as one round pick, never a same-tap
+teleport. No-op when `from`/`to` share every axis' sign. Wired through the hook via new
+`nudgeDrapeToward(from, to)`.
+
+**TONE12_DRAPE_HEX** (tone12.ts): one signature hex per tone, defaulting to `core[2]` of that
+tone's `TONE12_BOARDS` entry as instructed; hand-checked visually and overridden for
+`true_autumn` only (`core[2]` was a flat plain brown — switched to `core[0]`, the rust/pumpkin
+that reads far more recognisably "True Autumn"). All other 11 tones' `core[2]` were already
+signature-appropriate.
+
+**B4 — screens/docs/tests**: both screens (`app/(onboarding)/personal-color.tsx`,
+`app/personal-color-edit.tsx`) updated in lockstep — new `DrapeSession` props
+(`onMetal`, `currentTone`, `onNudgeToward`, `startAtGrid`), new "SEE ALL 12 TONES" secondary
+button + local `drapeStartAtGrid` state. `src/design/personal-color/design.md` §5 rewritten
+for the 5-round table + metal round, new §5a for the grid compare, entry points noted.
+i18n: added `drapeSession_round1Question`…`_round5Question`, `_lookAtFace`,
+`_seeAllTonesLink`, `_gridTitle`, `_gridCaption`, `_gridComparePrompt`,
+`onboardingPersonalColor_seeAll12TonesButton` (en+vi); removed the now-unused
+`drapeSession_question`. Jest: `drapeRounds.test.ts` (new, 4 cases — round count, axis/hex
+sanity, metal-round-only-on-round-5), `tone12.test.ts` additions (`TONE12_DRAPE_HEX`
+completeness/hex-validity, `nudgeTowardTone` no-op/single-step/accumulation/clamp cases).
+`npx jest src/features/personal-color` 87/87 passing (5 suites); `npx tsc --noEmit` clean.
+backlog.md: Phase B entry marked done, Phase C still queued.
+
+**Not done in this phase** (unchanged from Phase A's queue, still in backlog.md §A): Phase C's
+beauty-scope deliverables (wow colours, metals wiring into generate-outfits, makeup/hair/
+glasses), the ColorChecker validation fixture. `TONE12_DRAPE_HEX` and
+`TONE12_AXIS_SIGNATURE` are both first-cut CALIBRATION-PENDING, same status as every other
+hex/constant in this file — none of this phase's device behaviour has been verified on a real
+phone either.
+
+## Personal Colour v3 — Phase C: "beyond the wardrobe" beauty deliverables (2026-08-04)
+
+Implements `docs/personal-color-v3-phase-c-instruction.md` (Fable, design lead), building on
+top of Phase A+B (above) without reverting either. Client-only phase per the instruction's
+hard constraint: no `supabase/` changes, no DB schema/`savePersonalColor` payload changes,
+manual quiz path untouched.
+
+**SCOPE CUT (decided by Fable, not implemented this phase)**: no outfit-engine/metal scoring
+wiring — item metadata has no gold/silver distinction (only a generic 'metallic' colour), and
+`supabase/functions` carries unrelated uncommitted work in a single-production-env project, so
+wiring `TONE12_BEAUTY[tone].metal` into the generate-outfits accessory scoring is deferred to
+backlog.md ("Engine metal wiring", new item, §A).
+
+**C1 — `tone12Beauty.ts`** (new pure data module,
+`src/features/personal-color/tone12Beauty.ts`): `TONE12_BEAUTY: Record<ColorTone12,
+Tone12Beauty>` — per tone, 4 hand-picked "wow" colours (a subset of that tone's 6
+`TONE12_BOARDS` accents, each pick's reasoning documented inline — e.g. dropping a hex because
+it "reads closer to" a neighbouring tone), a `metal` preference (`'gold' | 'silver' | 'both'`,
+springs/autumns → gold, summers/winters → silver, except `soft_summer`/`soft_autumn` → `'both'`
+per the research's neutral-undertone bridge-tone rule), a `makeup` block (2 hexes each for
+lips/cheeks/eyes — season-family anchors from the research, shifted per tone modifier: light →
+paler, bright → more saturated, soft → dustier, deep → darker; makeup hexes are their own
+values, not reused wardrobe swatches), and `hairKey`/`glassesKey` i18n suffixes. A module-init
+sanity check throws if any `wow` hex isn't actually one of that tone's `accents` (typo/rebalance
+guard). All hexes CALIBRATION-PENDING, same disclaimer as every other colour constant in this
+feature. New `__tests__/tone12Beauty.test.ts` (57 cases): all 12 tone keys present; `wow` is
+exactly 4 unique hexes drawn from that tone's accents; every hex (wow + makeup) parses via
+`hexToRgb`; the metal rule holds for all 12 tones; `hairKey`/`glassesKey` resolve to real
+entries in BOTH `en.json` and `vi.json` (loaded directly in the test).
+
+**C2 — "BEYOND THE WARDROBE" result-screen section**: new shared presentational component
+`src/features/personal-color/components/BeyondTheWardrobeSection.tsx` (`{ tone12 }` prop only —
+all data from `TONE12_BEAUTY[tone12]`, same self-contained-styles independence pattern as
+`DrapeSession.tsx`), rendered by both `app/(onboarding)/personal-color.tsx` and
+`app/personal-color-edit.tsx` directly after "BETTER TO SKIP" and before the "Detected/answered
+inputs" section, in lockstep. Layout: WOW COLOURS (4 swatches at 44×44, same size as the
+season-edit swatches) + caption; METALS (one text-only line, no swatches, keyed off `.metal`);
+MAKEUP (three LIPS/CHEEKS/EYES rows, each a tiny sublabel + 2 swatches at 28×28); HAIR and
+GLASSES (one text line each, from the i18n-resolved `hairKey`/`glassesKey`). No new visual
+language — every size/style is an existing token or existing screen convention (`skipListText`,
+`paletteSectionLabel`-equivalent, the two established swatch sizes).
+
+**Docs**: `src/design/personal-color/design.md` new §8 (exact labels/sizes/order, scope-cut
+note). backlog.md: Phase C queue item ticked done; new deferred item added ("Engine metal
+wiring — needs item-metadata metal vocabulary (gold/silver) + backfill + clean functions tree
+before deploy", §A).
+
+**Tests**: `npx jest src/features/personal-color` 149/149 passing (6 suites, was 87/87 across 5
+suites before this phase — `tone12Beauty.test.ts` is the new 6th suite). Full `npx jest src`
+465/465 passing (31 suites). `npx tsc --noEmit` clean.
+
+**Not done in this phase**: engine metal wiring (scope cut, see above, now tracked in
+backlog.md); the ColorChecker Classic validation fixture (still queued, needs a physical
+purchase + device access — untouched by this phase). All hexes across `tone12Beauty.ts` remain
+CALIBRATION-PENDING and unverified on a real device, same status as every other colour constant
+in this feature.
+
+## RevenueCat Test Store key wired for local testing (2026-08-04)
+
+Wired a RevenueCat **Test Store** API key (`test_JphXjgZiYMkxfTEetbSGYzzCEon`) so the paywall
+(`app/paywall.tsx` via `usePremium.ts`) can be exercised in a dev-client build without a real
+App Store/Play Store product. Changed: `.env` (new `EXPO_PUBLIC_REVENUECAT_API_KEY` line,
+gitignored, not committed) and `eas.json` `build.development.env` only.
+
+A Test Store key routes `Purchases.configure()`/purchases through RevenueCat's simulated
+purchase modal instead of real StoreKit/Play Billing — no real charge, no App Store product
+required, good enough to smoke-test the `usePremium` flow and the `revenuecat-webhook` mapping
+end to end.
+
+**Hard warning**: this key must never reach `build.preview.env` or `build.production.env` in
+`eas.json`. Both produce release-variant builds, and per RevenueCat's documented behavior, the
+SDK detects a Test Store key in a release build, shows an alert, and deliberately **crashes the
+app**. Verified after this change that `preview`/`production` env blocks do not contain
+`EXPO_PUBLIC_REVENUECAT_API_KEY`. The real per-platform keys (`appl_…`/`goog_…`, see backlog.md)
+are still required before any store submission build.
+
+`npx tsc --noEmit` clean after the change (no source files touched — `.env`/`eas.json` only).
+
+**Follow-up (2026-08-05)**: the Test Store key above was replaced by the real production iOS
+public SDK key (`appl_llObneTbxssMfXnooijYjkTNzKD`). Unlike the Test Store key, the real key does
+not crash release builds, so it is now present in all three EAS profiles —
+`build.development.env`, `build.preview.env`, and `build.production.env` — plus `.env`. The hard
+warning above ("must never reach preview/production") applied specifically to the `test_` key;
+it does not block the real `appl_` key.
+
+## Paywall: dynamic package list + Apple 3.1.2 disclosures (2026-08-05)
+
+`app/paywall.tsx` previously read `offerings?.current?.availablePackages?.[0]` — always the
+FIRST package RevenueCat returned, with no selection UI. Two problems fixed in one pass:
+
+**1. Dynamic package list.** Replaced the single-package constant with the full
+`offerings?.current?.availablePackages ?? []` array plus a `selectedId` state (defaults to the
+ANNUAL package if one exists, else the first package, via a `useEffect` keyed on the
+memoized `packages` array — never leaves selection null once packages exist). Rendering:
+exactly one package still renders as the old non-interactive `offeringCard`; two or more render
+as a vertical list of tappable cards (selected: `borderWidth: 1` + `T.color.primary`;
+unselected: the old `borderWidth: 0.5` + `hairlineStrong`), each showing a plan label derived
+from `packageType` (`MONTHLY`/`ANNUAL` → i18n, anything else falls back to the raw product
+title — never a raw enum string), price, and a period sub-line. A `SAVE {{percent}}%` badge
+renders on the ANNUAL card only when both a MONTHLY and ANNUAL package exist and
+`Math.round((1 - annual.product.price / (monthly.product.price * 12)) * 100)` is a finite,
+positive number (guards a missing/zero/negative price). Why: this makes adding a plan (e.g. a
+yearly tier) a RevenueCat-dashboard-only change — flip it on, it renders — instead of an app
+code change plus a full App Store Review cycle.
+
+**2. Apple Guideline 3.1.2 disclosures.** The paywall had zero of the disclosures Apple
+requires for auto-renewable subscriptions, which is an automatic rejection risk (see
+backlog.md, "Bo sung 2026-08-04" note under the IAP entry). Added a disclosure block below the
+package list and above the feedback message, rendered only when a package is selected: (1) plan
+name + billing period + price for the SELECTED package (`paywall_disclosureTerms`), (2) the
+auto-renewal/24h-cancellation sentence (`paywall_disclosureRenewal`), (3) tappable "Terms of
+Use" / "Privacy Policy" links (`TextLink`, `Linking.openURL(...)`, each `.catch()`-guarded so a
+failed link-open never throws unhandled). Styled `type.caption` / `T.color.tertiary` /
+centered — present but not competing with the CTA.
+
+**New `src/config/legal.ts`** — `TERMS_URL` (Apple's standard EULA — valid to use since the app
+has no custom EULA) and `PRIVACY_URL` (**placeholder**, `https://mien.app/privacy` — flagged
+loudly in-file and in backlog.md; MUST be replaced with a real hosted privacy policy before
+submission, since Apple rejects broken/absent privacy links and this app collects body
+measurements and photos).
+
+**Incidental fix required for this to type-check**: `src/types/react-native-purchases.d.ts`
+was a stub `declare module 'react-native-purchases'` written before the real package was
+installed (its own header comment said "Remove once the package is added"). It shadowed the
+real SDK's types with a looser shape (`packageType: string` instead of the real `PACKAGE_TYPE`
+enum, `product: { title, priceString }` with no `price` field) — the `product.price` reads this
+change needs for the savings-percent calculation failed to type-check under the stub. Since
+`react-native-purchases@^10.6.0` is now a real dependency (installed 2026-08-04 per backlog.md)
+with its own bundled types, the stub was deleted; `npx tsc --noEmit` is clean against the real
+package types.
+
+**i18n**: new keys `paywall_planMonthly`, `paywall_planAnnual`, `paywall_periodMonthly`,
+`paywall_periodAnnual`, `paywall_savePercent`, `paywall_disclosureTerms`,
+`paywall_disclosureRenewal`, `paywall_termsLink`, `paywall_privacyLink` — added to both
+`en.json` and `vi.json`; key-set parity verified programmatically (1079 keys each, no
+one-sided keys).
+
+**Docs**: `src/design/paywall/design.md` created (no paywall design doc existed before).
+backlog.md: the "`paywall.tsx` chi render MOT package" item ticked done; new open item added
+for the `PRIVACY_URL` placeholder.
+
+**Tests**: `npx tsc --noEmit` clean. `npx jest` 465/465 passing (31 suites) — no paywall-specific
+test suite exists yet (not requested by this change).
+
+## Paywall: plan switching (upgrade/downgrade) + manage subscription (2026-08-05)
+
+`app/paywall.tsx:309` had `disabled={busy || !selectedPkg || isPremium}` — being premium
+blocked EVERY purchase, including switching plans. A user on monthly could see the annual
+card, select it, but the button stayed dead: no way to upgrade, MIEN's highest-value
+conversion path.
+
+**1. `usePremium` now exposes the active plan.** Added `activeProductId: string | null` to
+`PremiumState`, populated from `info.entitlements.active['premium']?.productIdentifier ?? null`
+on the initial fetch, after a successful `purchase()`, and after a successful `restore()`.
+Null whenever RevenueCat is unavailable or the entitlement is inactive. Purely additive —
+`isPremium`, `isLoading`, `offerings`, `purchase`, `restore` are unchanged in type and meaning,
+so the three other call sites (`useFitFeed`, `useAddWizard`, `wardrobe-report.tsx`, all of
+which only destructure `isPremium`) needed no changes.
+
+**2. Plan-aware CTA.** `app/paywall.tsx` now derives `currentPkg` (the package whose
+`product.identifier` matches `activeProductId`) and a `planRelation` classification —
+`'none' | 'current' | 'upgrade' | 'downgrade' | 'switch'` — by comparing the selected
+package against it. The footer button's `disabled` is now `busy || !selectedPkg ||
+planRelation === 'current'` (not a blanket `isPremium`), with four labels: unchanged buy flow
+when not premium; `paywall_currentPlanButton` when the selection IS the active plan (disabled);
+`paywall_upgradeToAnnual` for MONTHLY→ANNUAL; `paywall_switchToMonthly` for ANNUAL→MONTHLY,
+paired with a new caption line (`paywall_downgradeNotice`) stating the change takes effect at
+the end of the current billing period, not immediately; and a generic `paywall_switchPlan`
+(`{{plan}}` param) for any other cross-plan combination. The upgrade/downgrade/switch paths
+call the exact same `handlePurchase` → `purchase(selectedPkg)` → `Purchases.purchasePackage`
+as a fresh buy — **Apple handles proration natively for two packages in the same subscription
+group**, so no extra purchase parameters are needed on iOS.
+
+**3. Current-plan badge.** The package card whose `product.identifier` matches
+`activeProductId` now shows `paywall_currentPlanBadge`, reusing the existing `savingsBadge`
+text style (no new visual language). If a card would otherwise qualify for both the savings
+badge and the current-plan badge, the current-plan badge wins — only one renders.
+
+**4. Default selection when already premium.** The existing default-selection effect (prefer
+ANNUAL, else first package) is extended: when `isPremium` and more than one package exists, it
+prefers a package that is NOT the current plan (still preferring ANNUAL among the remaining
+options), so opening the paywall while already premium lands on a usable (enabled) CTA instead
+of the current-plan card.
+
+**5. Manage subscription.** Inside the existing `alreadyPremium` block, below the "You already
+have Premium" text, added a `TextLink` (`paywall_manageSubscription`) that opens
+`itms-apps://apps.apple.com/account/subscriptions` via `Linking.openURL(...).catch()` — the iOS
+system subscription-management screen. Apple doesn't require an in-app cancel path, but not
+having one routes frustrated users to 1-star reviews or refund requests instead of a quiet
+self-serve cancellation.
+
+**i18n**: new keys `paywall_currentPlanButton`, `paywall_upgradeToAnnual`,
+`paywall_switchToMonthly`, `paywall_switchPlan`, `paywall_downgradeNotice`,
+`paywall_currentPlanBadge`, `paywall_manageSubscription` — added to both `en.json` and
+`vi.json`; key-set parity verified programmatically (1086 keys each, sorted key-list match,
+no one-sided keys).
+
+**Docs**: `src/design/paywall/design.md` updated with the current-plan badge, the four CTA
+states, and the downgrade notice line. backlog.md: both 2026-08-05 items ("user on monthly
+can't upgrade to annual" and "no manage/cancel subscription path") ticked done; new open item
+added — this plan-switch path is iOS-only (Apple's same-subscription-group proration), Google
+Play requires an explicit product-change/proration mode to be passed on upgrade, so it needs
+revisiting before any Android release.
+
+**Tests**: `npx tsc --noEmit` clean. `npx jest` 465/465 passing (31 suites) — no paywall-specific
+test suite exists yet (not requested by this change).
+
+## Premium usage quota: 15 try-on + 10 AI extraction per month (2026-08-05)
+
+Premium subscribers previously had NO cap on the two most expensive AI actions.
+`gateCredit()` in `generate-item-image/index.ts` and `tryon-generate/index.ts` returned early
+— skipping `consume_usage_credit` entirely — whenever `profiles.account_type` was `premium` or
+`demo`. Both actions call `gemini-3-pro-image-preview` at roughly **$0.13/image**, so marginal
+cost per premium subscriber was unbounded (see backlog.md "PREMIUM KHONG CO QUOTA" audit,
+2026-08-04).
+
+**Unit economics.** New quota: `try_on: 15`, `ai_extraction: 10` per month → 25 images/month max
+≈ **$3.25–$4.05 marginal cost** (worst case 25 × $0.13 = $3.25; up to 3 image-gen calls can fire
+per `ai_extraction` credit via the extraction fan-out, see below, so real worst case is closer to
+`15 + 10×3 = 45` calls ≈ $5.85 — still comfortably under the subscription price). Priced against
+$8.99/mo international and 179,000 VND/mo (≈ $6.9) Vietnam pricing, this keeps gross margin
+positive per subscriber even at full utilisation, which the prior unbounded-premium state did
+not guarantee.
+
+**`demo` stays unlimited — deliberate, not an oversight.** App Store reviewers sign in with the
+demo account to review the app; it must never hit a usage wall mid-review. This exemption is
+called out explicitly in a code comment on `gateCredit()` in both edge functions so a future
+edit doesn't "fix" it into a quota by accident.
+
+**`admin` now quota'd like premium — a pre-existing client/server inconsistency partially
+unified.** The client's `hasPremiumAccountType()` (`profileService.ts`) already counted `admin`
+as premium for FEATURE access, but the server's `gateCredit()` checked only `premium`/`demo` —
+meaning an `admin` account fell through to the free-tier `p_limit: 2` gate before this change.
+The server now explicitly treats `admin` as quota'd premium (`PREMIUM_LIMITS`), matching the
+client's premium-adjacent treatment for features while still applying a real cap (admin was never
+meant to be a demo-style unlimited exemption).
+
+**Implementation** (no migration — `consume_usage_credit(p_type, p_period, p_limit)` already
+accepts the limit as a caller-supplied argument; the RPC/table have no tier concept of their own,
+so per-tier enforcement is entirely a caller-side decision):
+- `src/services/usageCreditService.ts` — added `PREMIUM_LIMITS` alongside the existing (unchanged,
+  still exported) `FREE_LIMITS`, plus `resolveCreditLimit(type, accountType)`. `checkCredit()` now
+  resolves the limit by the caller's account type (via `fetchMyAccountType()`) instead of always
+  reading `FREE_LIMITS`, so a premium user's credit status reflects "X of 15" / "X of 10" rather
+  than a free-tier number. Any account-type-fetch failure falls back to the free (lower, more
+  conservative) limit — never over-reports remaining credits.
+- `generate-item-image/index.ts` and `tryon-generate/index.ts` — `gateCredit()` rewritten:
+  `demo` still bypasses `consume_usage_credit` entirely (unlimited, unchanged); `premium`/`admin`
+  now consume against `PREMIUM_LIMITS[type]`; free (or a profile-fetch failure) consumes against
+  `FREE_LIMITS[type]` (unchanged). The existing fail-open behavior on RPC error, and the existing
+  `credit_exhausted` 402 response shape the client already detects via `isCreditExhausted()`, are
+  both preserved unchanged. `FREE_LIMITS`/`PREMIUM_LIMITS` are duplicated by hand in both edge
+  functions (no shared cross-function module exists yet under `supabase/functions/`) with a
+  comment pointing at `usageCreditService.ts` as the source of truth — keep the three copies
+  numerically in sync by hand when a quota changes.
+- `generate-item-image/index.ts` — added `MAX_GARMENTS_PER_PHOTO = 3`: the per-garment
+  `Promise.all` image-generation fan-out (one paid `gemini-3-pro-image-preview` call per detected
+  garment) was uncapped, so a single `ai_extraction` credit on a busy photo could trigger an
+  unbounded number of paid generations. Garments beyond the cap are dropped before the fan-out,
+  with a `console.log` stating how many were dropped — never a silent truncation. This only
+  bounds the fan-out; it does not make credits 1:1 with images (a single credit can still trigger
+  up to 3 paid generations) — tracked as an open backlog item, not fully resolved by this change.
+
+**Known drift, out of scope for this task, verification still required.** Migration
+`20260608000007_usage_credits.sql` creates `usage_credits` with columns `used`/`free_limit` and a
+`credit_type in ('worn_outfit_scan')` check constraint. The consume RPC
+(`20260625000002_usage_credit_consume_rate_limit.sql`) and `usageCreditService.ts` both
+read/write `credits_used`/`credits_limit` and use `credit_type` values `ai_extraction`/`try_on` —
+no migration in the repo reconciles this. If the live DB still matches the older migration
+verbatim, the RPC errors and `gateCredit()` fails open for every tier, meaning the new premium
+quota (like the pre-existing free quota) would not actually be enforced. The live DB was
+deliberately **not** queried as part of this task (out of scope); see backlog.md, this item's
+priority raised because it now gates revenue correctness, not just free-tier enforcement.
+
+**i18n**: no new keys. Four existing credit-exhausted/upgrade messages
+(`extraction_outOfCreditsMessage`, `scanScreen_upgradeText`, `wearOnYou_creditBlocked`,
+`uploadStep_upgradeText`) previously said things like "free AI scans" / "upgrade to Premium for
+unlimited try-ons" — now false or misleading, since these same states can now be reached by an
+already-premium user who hit their new monthly cap (the client already routes any
+`credit_exhausted` 402 into the same "upgrade" UI state regardless of tier — it never checked
+account type before showing this copy). Reworded to tier-neutral phrasing ("You've used this
+month's try-on credits.") that reads correctly for both a free user and a premium user at their
+cap. Key-set parity verified programmatically (1086 keys each, no one-sided keys) — no keys
+added or removed, only values changed.
+
+**Not changed (flagged, not fixed):** `paywall_subtitle` ("...unlimited AI-powered outfit
+suggestions — no limits, no interruptions.") and `premium_upgradeSubtitle` ("Unlock unlimited AI
+scans and more.") are general marketing/upsell copy, not credit-exhausted messages, and are now
+technically inaccurate (premium is no longer unlimited). Left untouched — out of the stated scope
+("the credit-exhausted user-facing message") and a marketing-copy change deserves explicit
+product sign-off rather than being folded into a cost-control change. Logged in backlog.md.
+
+**Tests**: `npx tsc --noEmit` clean. `npx jest` — see backlog.md / session notes for pass count.
+`deno test --allow-all` on `generate-outfits/engine/` and `evaluate-item/` unaffected by this
+change (no files under those paths were touched).
+
+## Personal Colour UX-simplify — guided flow, shared ResultView, explicit failure states (2026-08-06)
+
+Full spec: `docs/personal-color-ux-simplify-instruction.md`; visual/UI detail in
+`src/design/personal-color/design.md` §9. This was a UX-shell rebuild — **no classification
+math changed** (`tone12.ts`'s `computeAxes`/`classifyTone12`, `colorMath.ts`, `analyzePhoto.ts`
+untouched). Logged here per CLAUDE.md's "non-UI logic → plan.md" policy for the one state-machine
+change involved; everything else is documented in design.md.
+
+**State machine** (`src/features/personal-color/usePersonalColorDetection.ts`): camera path
+gained a `'prepare'` step between `intro` and `face-scan` (`DetectionStep` union). `startCameraPath()`
+now lands on `'prepare'` instead of `'face-scan'` directly; `next()` gained a `'prepare' → 'face-scan'`
+case; `canAdvance()` returns `true` for `'prepare'` (single-tap CTA, no data gate). Manual path
+(`MANUAL_STEPS`) is untouched — it never visits `'prepare'`.
+
+**`tone12.ts`** — added `TONE12_DESC_KEY: Record<ColorTone12, string>`, a pure i18n-key lookup
+table (`tone12Desc_<tone>` → the new per-tone plain-language one-liner in en.json/vi.json) for the
+result hero. String mapping only, not part of the axes/classification math the file's header
+warns against touching.
+
+**New/changed components**:
+- NEW `src/features/personal-color/components/AxisMeters.tsx` — renders `result.axes` (already
+  computed and carried on `PersonalColorResult`, no hook change needed to surface it) as three
+  hairline meters instead of raw jargon.
+- NEW `src/features/personal-color/components/ResultView.tsx` — the single shared result-screen
+  implementation, replacing the near-duplicate `ResultStep` functions that used to live separately
+  in `app/(onboarding)/personal-color.tsx` and `app/personal-color-edit.tsx`. Both screens now
+  pass their own save/discard labels and callbacks as props; the live-recompute behaviour of the
+  detected/refine chips is unchanged (same `setSkin`/`setHair`/`setEye`/`setMetal` callbacks from
+  the hook).
+- `BeyondTheWardrobeSection.tsx` — added an optional `showLabel` prop (default `true`, so every
+  existing caller is unaffected) so `ResultView`'s collapsible wrapper doesn't render the "BEYOND
+  THE WARDROBE" label twice.
+- `DrapeSession.tsx` — the 12-tone grid/compare labels now resolve the active app language
+  (previously hard-coded to `TONE12_LABELS[tone].en`).
+
+**i18n**: ~35 new/changed keys added to BOTH `en.json` and `vi.json` (key-set parity verified
+programmatically — 0 one-sided keys), including 24 new `tone12Desc_<tone>` per-tone one-liners.
+See design.md §9 for the full list and copy.
+
+**Tests**: `npx tsc --noEmit` clean. `npx jest` — 466/466 passing (full suite), including a new
+`colorSeasonData.test.ts` assertion that `result.axes` flows through to the scored result object.
+Not device-tested this session — see backlog.md §B.
+
+## 2026-08-06 — Engine fixes đợt 1: generate-outfits wiring + try-on quality (backlog §K)
+
+Review 3 engine (Fable + 3 Explore agent) → fix theo docs/engine-fixes-phase1-instruction.md
+và docs/tryon-fixes-instruction.md. Không đổi công thức chấm điểm nào — chỉ nối dây các
+đường bị đứt và thêm lớp kiểm tra chất lượng.
+
+**generate-outfits (Phase 1)**:
+- NEW `engine/enrichment.ts` `toBodyMeasurements()` — mapper snake→camel tại boundary
+  (`index.ts:151-156`). Bug thật được fix: `preferred_fit` (DB) chưa bao giờ tới
+  `body.preferredFit` (engine) → `preferredFitDelta` ±0.12 luôn = 0 trong feed. Audit
+  toàn bộ field khác: `body_shape` + 15 cột `body_*` vốn trùng tên nên không bị. Kèm
+  allow-list phòng giá trị legacy lạ.
+- Cascade silhouette theo style sống lại: `computeUserAttributes(selectedStyles)` được
+  set vào `styleProfile.computedAttributes` TRƯỚC `resolveTargetSilhouette`
+  (`index.ts:376-395`, sau intent + wardrobe-affinity fallback). Trước đây level style
+  của cascade không bao giờ chạy — minimalist/tailored, streetwear/oversized không lái
+  generation. Guard null trong `applyIntent` giữ nguyên (bảo vệ data client gửi lên).
+- `primary_hex`/`secondary_hex`/`graphics` (backfill 2026-06-30 trả tiền extract nhưng
+  không ai đọc) giờ vào SELECT + row mapper → kích hoạt lớp measured-hex refinement có
+  sẵn trong enrichment; `graphics` jsonb (LogoSignal) được ưu tiên hơn suy đoán từ tên
+  item (`resolveGraphics()`, fallback name-keyword khi cột null). wardrobe-critic SELECT
+  cũng đã thêm 3 cột (mapper hoàn thiện ở Phase 2).
+- Tests: NEW `engine/engine-fixes-phase1.test.ts` (21 test, có regression chứng minh
+  từng bug); deno test 209/209 engine + 9/9 wardrobe-critic + 21/21 evaluate-item.
+
+**tryon-generate + client try-on (Phase 3)**:
+- Verify pass sau generate: `verifyGeneratedImage()` gọi `TRYON_VERIFY_MODEL` (env,
+  default gemini-2.5-flash, temp 0) chấm `{person_ok, garments_ok, anatomy_ok}` trên ảnh
+  đã gen. FAIL-OPEN — checker lỗi/timeout không bao giờ chặn response. Verdict xấu →
+  hoàn credit (reuse `refundCredit`) + `quality_warning: true`, ảnh vẫn trả về; client
+  hiện caption "đã hoàn credit, thử lại không mất lượt" (i18n en/vi).
+- 2-pass face detect: NEW `src/features/try-on/faceDetectMath.ts` (pure math —
+  ngưỡng inter-eye 4% CALIBRATION-PENDING, crop 40% trên, map toạ độ crop→full,
+  chọn pass thắng); `detectFace` chạy pass 2 trên crop khi pass 1 yếu/miss. Giải mâu
+  thuẫn khung full-body vs BlazeFace short-range. 15 jest test thuần, không cần device.
+- Composite hết silent: `useWearOnYou.faceApplied` (null/true/false) + caption khi
+  fallback; counter local `{attempts, applied, fallbacks}` qua AsyncStorage
+  (`faceCompositeStats.ts`) để debug device sau này.
+- Copy privacy: disclosure rõ ảnh được Google AI xử lý (không lưu ở cả 2 phía); claim
+  "~10 seconds" đổi thành "under a minute" cho khớp budget thật.
+- Tests: tsc clean; jest 482/482 toàn repo. Lưu ý deno check tryon-generate còn 4 lỗi
+  TS2345 MinimalClient-vs-SupabaseClient — PRE-EXISTING (đã verify bằng stash trên file
+  gốc), không phải lỗi mới.
+
+CHƯA deploy — deploy gộp sau khi Phase 2 (evaluate-item) xong và review. Device-test
+composite vẫn pending (backlog §B/K).
+
+## 2026-08-06 — Engine fixes đợt 2: evaluate-item scoring quality (backlog §K)
+
+Theo docs/engine-fixes-phase2-instruction.md:
+- **Single-item scorers**: `scoreSingleItemColor` (base = paletteAlignment full-weight, bỏ 5
+  sub-term hằng số; bonus season/weather/tone12 giữ nguyên magnitude) và `scoreSingleItemFabric`
+  (SEASON_COMPAT trực tiếp, bỏ hằng internal 0.8). Trước: màu bó [70–91], fabric kẹp [32–92].
+  Sau: đen/Deep Winter = 100, cam ấm = 0; len giữa hè = 0, linen = 100. Engine chỉ export thêm
+  5 sub-function, không đổi công thức.
+- **Provenance gate**: fit đoán từ TYPE_DEFAULT_FIT (không có `fit` trong request) → criterion
+  unavailable + renormalise, hết cảnh chấm 10/100 tự tin trên dữ liệu đoán.
+- **Song ngữ**: toàn bộ explanation templates của 5 criterion en/vi theo `locale` request
+  (pattern của note.ts); client `wardrobeFit` chuyển sang i18n keys (8 keys × 2 locale).
+- **wardrobe-critic mapper** hoàn thiện: `primary_hex`/`secondary_hex`/`graphics` vào
+  ClothingItemRow (SELECT đã thêm ở đợt 1) — critic giờ cùng nhận measured-color như feed.
+- Tests: deno 250/250 (3 function dirs), deno check + lint sạch trên file sửa, tsc clean,
+  jest 483/483. Deploy 4 function (generate-outfits, evaluate-item, wardrobe-critic,
+  tryon-generate) qua Supabase CLI ngay sau changelog này.
+
+## 2026-08-07 — Feed signals: `viewed` + swipe-left `dismissed` (thay phương án dwell)
+
+Dwell bị loại (card tĩnh → phân phối thời gian xem bị nén, anh Khôi chỉ ra đúng). Thay bằng
+2 tín hiệu theo docs/feed-signals-instruction.md:
+- **DB**: constraint live `outfit_interactions_type_check` đã ALTER trực tiếp qua Management
+  API (thêm 'viewed','dismissed'); migration 20260807000001 tạo để đồng bộ lịch sử (KHÔNG
+  chạy lại — schema drift đã biết, migration gốc còn thiếu cả 'impression').
+- **Client**: `openOutfit` (feed → detail) ghi `viewed` fire-and-forget (ignoreDuplicates,
+  gated !isDemo). Swipe trái trên feed card (PanResponder thuần RN — react-native-gesture-
+  handler KHÔNG có trong deps, tránh native rebuild; directional lock |dx|>|dy|×1.5) → card
+  mờ 0.35 + label "KHÔNG HỢP GU" → ghi `dismissed` → auto-advance ~400ms. Hint 1 lần
+  (AsyncStorage). LƯU Ý premise cũ trong CLAUDE.md sai: save là tap tim, không phải swipe
+  phải — đã ghi vào src/design/feed/design.md. `fitEngineStore.dismissedOutfitIds` persist
+  (cap 200) merge vào exclude_ids, không flush theo cycle, clear khi sign-out.
+- **Engine taste.ts**: positives có trọng số VIEWED 0.5 / SAVED 1 / WORN 2 (CALIBRATION-
+  PENDING), confidence = min(1, weightedSum/8). Negative: `buildDismissVector` (4 đặc trưng
+  như positive) + `tasteDismissPenalty` = affinity × min(1, dismissals/8) × 0.04, TRỪ trong
+  ranking.ts:309, tổng taste delta bounded [−0.04, +0.06]. Exposure baseline/lift giữ nguyên.
+- Tests: 6 deno test mới (taste-feed-signals.test.ts) — 256/256 deno, 483/483 jest, tsc clean.
+- Client cần build app mới mới thấy gesture/hint; server deploy generate-outfits ngay.
+
+## 2026-08-07 — Try-on: chuyển sang EDIT-IN-PLACE (bỏ studio backdrop) + harden face composite
+
+Quyết định thiết kế đã chốt (không phải đề xuất): AI try-on trước giờ REGENERATE toàn bộ
+ảnh (nền studio, reframe full-length head-to-toe, kéo dài chân) → mặt user ra thành người
+khác vì "giữ mặt y hệt" và "vẽ lại toàn ảnh" là 2 yêu cầu mâu thuẫn nhau, và mặt luôn thua.
+Đổi hẳn sang sửa-tại-chỗ: giữ nguyên nền/dáng/khung hình gốc, chỉ đổi trang phục.
+
+**`supabase/functions/tryon-generate/index.ts`** (server-side, CHƯA deploy — 1 Supabase env
+duy nhất, anh Khôi tự quyết khi nào deploy):
+- `buildGenPrompt` viết lại hoàn toàn: framing "bạn là photo EDITOR, sửa ảnh thứ nhất" thay
+  vì "generate ảnh mới". Giữ nguyên nền, dáng, góc máy, crop/framing, ánh sáng/bóng đổ, mặt,
+  tóc, tay — chỉ đổi quần áo. Xoá hẳn: block BACKGROUND (studio backdrop), block FRAMING &
+  COMPOSITION (kéo chân, khung dọc cao, chân sát mép dưới, kéo dáng), block STATURE/BUILD/
+  PROPORTIONS (extrapolate theo chiều cao). `contextLine` vẫn chỉ là cue phong cách (tucked/
+  layered/buttoned), không được đổi bối cảnh.
+- `profileLines` bớt việc: xoá dòng Age, xoá 2 dòng derived (BMI "Overall build", tỉ lệ
+  inseam/height "Leg proportion") — 2 dòng này vốn sinh ra để giúp model TỰ DỰNG thân người
+  từ số 0; giờ thân thật đã có sẵn trong ảnh (chính xác hơn hẳn số đo dạng text) nên 2 dòng
+  này chỉ còn tác dụng xúi model vẽ lại người. Header đổi mục đích: chỉ dùng để định fit/drape
+  (rộng/chật/dài, fitted hay oversized), KHÔNG được dùng để đổi thân/tư thế/mặt. Giữ nguyên
+  gender, height/weight, body_shape, preferred_fit, measurements_cm. Payload client không đổi
+  (field age vẫn gửi lên nhưng server không dùng nữa — vô hại).
+- `buildVerifyPrompt`'s `person_ok`: đổi "exactly ONE person" → "một MAIN SUBJECT nhận diện
+  rõ mặt; người qua đường phía sau không tính" — hệ quả tất yếu của việc giữ nền gốc (ảnh đời
+  thực hay dính người lạ phía sau), tránh false-fail verify → hoàn nhầm credit + cảnh báo oan
+  trên ảnh tốt. `garments_ok`/`anatomy_ok`/fail-open giữ nguyên.
+
+**Face composite hardening** (`src/features/try-on/faceComposite.ts`,
+`faceCompositeMath.ts`, `faceCompositeStats.ts`, `useWearOnYou.ts`, `app/try-on/wear.tsx`):
+- `compositeFace()` đổi return từ `string | null` → `CompositeOutcome { uri, reason }` với
+  `CompositeReason` = ok | no_face_source | no_face_generated | decode_failed |
+  implausible_alignment | degenerate_mask | encode_failed | error — trước giờ 6 nguyên nhân
+  fallback khác nhau gộp chung 1 `null`, không ai biết composite có từng chạy thành công lần
+  nào không. Vẫn KHÔNG BAO GIỜ throw.
+- `faceCompositeMath.faceMaskRadii(interEyePx, earSpanPx)` (pure, unit-test được): mask giờ
+  dùng ear-span (rightEar/leftEar mà faceDetect đã trả nhưng composite trước giờ bỏ phí) để
+  vươn tới jaw/hairline/tai — đúng những đặc điểm khiến mặt "là ai đó cụ thể" mà mask cũ
+  (chỉ mắt/mũi/miệng/má) không có. Trước đây mở rộng mask rủi ro vì ảnh gen có thể lệch góc
+  với ảnh gốc; giờ edit-in-place khiến alignment gần như identity nên mở an toàn. Ear span vô
+  lý (non-finite/0/lệch >6x inter-eye) → fallback null, dùng factor cũ 1.9x. Hằng số 0.62/
+  1.28/clamp 1.4–2.6x CALIBRATION-PENDING.
+- `MASK_FEATHER` 0.25 → 0.30 (mask rộng hơn cần seam mềm hơn); `WORK_MAX` 1024 → 1600 (vùng
+  mặt được dán giờ cần nhiều pixel hơn, đổi lại RGBA buffer nặng hơn ~2.4x).
+- `faceCompositeStats` thêm `byReason: Record<string,number>`, backward-compatible với
+  payload cũ (thiếu field → default {}). `recordFaceCompositeOutcome(applied, reason)`.
+- `useWearOnYou` thêm state `faceReason` (CompositeReason | null), trả ra cùng `faceApplied`;
+  behaviour khi fail không đổi (vẫn dùng ảnh gen thô).
+- `app/try-on/wear.tsx`: caption `__DEV__`-only ở phase result, hiện `faceReason` hiện tại +
+  cumulative stats từ `getFaceCompositeStats()` (load qua `useEffect` khi vào phase result).
+  Tiếng Anh thường, không thêm i18n key (chỉ dev thấy).
+- `faceDetect.ts`'s `NORMALIZE_TO_UNIT` KHÔNG đổi — cố tình để lại, vì đây chính là ẩn số mà
+  diagnostics mới (byReason) sẽ giúp xác định thay vì đoán mù.
+- 5 test mới trong `faceCompositeMath.test.ts` cho `faceMaskRadii` (ear-span path, clamp
+  dưới, clamp trên, null-ear fallback, degenerate/non-finite inter-eye).
+
+**Copy**: `wearOnYou_intro` (en/vi) đổi từ hứa "dùng số đo thật để fit" → nói đúng thực tế
+mới ("giữ nguyên ảnh gốc, chỉ đổi trang phục"), giọng editorial ngắn gọn không chấm than.
+Các key khác không đổi vì không sai về mặt thực tế.
+
+Verify: `npx tsc --noEmit` clean; jest xem log verify bên dưới. Không deploy edge function,
+không chạy expo/eas build. Xem `backlog.md` mục Try-on cho 3 việc treo: NORMALIZE_TO_UNIT
+vẫn cần calibrate device thật, hằng số faceMaskRadii cần tune device thật, và cân nhắc thêm
+lựa chọn studio-backdrop optional cho user sau này (look đó bị bỏ có chủ đích ở đợt này).
+
+## 2026-08-08 — Try-on: bắt buộc ảnh toàn thân + cấm "làm đẹp" thân người + verify pass 2 ảnh
+
+Yêu cầu sản phẩm mới (cứng): kết quả try-on PHẢI thấy toàn thân user, VÀ phải giữ đúng vóc
+dáng/tỉ lệ thật — mục đích cả tính năng là để user thấy outfit thật sự lên người mình ra sao.
+Bản prompt cũ (đã xoá ở đợt edit-in-place 2026-08-07) từng có block full-length framing
+nhưng lại kéo dài chân/kéo cao dáng — chính xác là thứ KHÔNG được làm lại, vì "làm đẹp méo
+tỉ lệ" ngược hoàn toàn với "giữ vóc dáng thật".
+
+Cách giải quyết đúng với kiến trúc edit-in-place: toàn thân phải đến từ ẢNH ĐẦU VÀO, không
+phải model tự vẽ thêm. Nếu ảnh gốc đã chụp từ đầu đến chân, sửa-tại-chỗ tự động giữ nguyên
+khung hình đó → tỉ lệ đúng 100% vì đó chính là thân thể thật của họ. Nếu bắt model tự vẽ
+thêm chân/bàn chân không có trong ảnh, nó buộc phải bịa tỉ lệ (sai) VÀ phải render lại cả
+người (mặt trôi lại, như bài học 2026-08-07). Nên: chặn ở đầu vào (validate), và cấm model
+làm đẹp thân người trong prompt generate.
+
+**`supabase/functions/tryon-validate/index.ts`** (server-side, CHƯA deploy):
+- Verdict JSON thêm field `full_body_visible` (thấy trọn từ đầu đến chân — kể cả chân/giày,
+  không bị cắt ở eo/đùi/gối), tách biệt với `body_visible` (thân trên đủ rõ để đặt đồ lên) —
+  2 field giờ kiểm 2 thứ khác nhau, cả 2 đều bắt buộc trong `valid`.
+- Ladder default-reason thêm nhánh mới, đặt SAU `body_visible` (đúng thứ tự ưu tiên trong
+  system prompt): `'Cần thấy toàn thân từ đầu đến chân, kể cả bàn chân. Hãy chọn ảnh chụp
+  toàn thân.'`
+- Đây là hard-reject có chủ đích: validate rẻ (gemini-2.5-flash, không tốn credit try_on),
+  nên bắt user chọn lại ảnh không tốn gì cả — trong khi để lọt ảnh nửa người sẽ đốt ~$0.13
+  credit generate cho một kết quả không dùng được.
+
+**`supabase/functions/tryon-generate/index.ts`**, `buildGenPrompt()` (server-side, CHƯA
+deploy):
+- Thêm rule "Strict requirements" mới, đặt ngay sau FACE IDENTITY (ưu tiên #2, tuyệt đối):
+  cấm slim/kéo dài/nâng cao/nới rộng/thu hẹp/tone cơ hay bất kỳ kiểu "làm đẹp" thân người
+  nào; cấm kéo dài/duỗi thẳng chân, thu eo/hông, đổi bề ngang vai/độ dày tay-đùi, đổi tư thế.
+  Outline và tỉ lệ thân phải pixel-faithful với ảnh gốc — chỉ trang phục phủ lên thân thay
+  đổi. Prompt nêu rõ lý do (để model bám theo): user cần thấy đồ lên đúng thân thật của họ,
+  vóc dáng lý tưởng hoá là THẤT BẠI của tính năng. Cũng yêu cầu: toàn bộ phần thân thấy được
+  trong ảnh gốc phải còn thấy được trong kết quả — ảnh gốc toàn thân thì kết quả vẫn toàn
+  thân, chân/giày vẫn trong khung, không bị cắt mất.
+- KHÔNG thêm lại studio backdrop, reframe, hay kéo dài chân — đúng constraint đã chốt.
+
+**`verifyGeneratedImage()`** (cùng file) — trước giờ chỉ gửi ẢNH GEN, không có gì để so
+sánh nên không thể biết model có tuân thủ edit-in-place/giữ thân thật hay không:
+- Giờ gửi 2 ảnh: ảnh NGƯỜI GỐC (param `person`, đã parse sẵn ở handler) trước, ảnh GEN sau,
+  prompt nói rõ "FIRST image is the original photo, the SECOND is the edited result".
+- Verdict schema thêm `identity_ok` (cùng 1 người với ảnh gốc) và `body_ok` (vóc dáng/tỉ lệ/
+  tư thế/khung hình khớp ảnh gốc — không bị slim/kéo dài/đổi tư thế/đổi crop). Giữ nguyên
+  `person_ok`/`garments_ok`/`anatomy_ok` và nội dung của chúng.
+- Fail-open contract KHÔNG đổi: lỗi/timeout/parse fail vẫn tính là pass; chỉ `false` tường
+  minh mới tính là fail. 2 field mới nằm trong cùng check `!== false`. Verdict `false` chỉ
+  hoàn credit + hiện cảnh báo chất lượng (`wearOnYou_qualityWarning`) — user được thử lại
+  miễn phí, nên strict hơn không tốn gì của user cả.
+
+**Copy** (`src/i18n/locales/en.json`, `vi.json`): `wearOnYou_intro` và `wearOnYou_photoHint`
+viết lại để nói rõ yêu cầu toàn thân (đầu đến chân, kể cả bàn chân) là BẮT BUỘC (trước đây
+photoHint chỉ nói "for the most accurate proportions" — nghe như gợi ý, không phải bắt
+buộc), kèm mẹo chụp ngắn gọn (lùi xa / dựng điện thoại). `wearOnYou_generateHint` và các key
+`wearOnYou_*` còn lại không đổi vì không mâu thuẫn với yêu cầu mới.
+
+Verify: `npx tsc --noEmit` clean; jest xem log verify bên dưới (không có test mới cho 2 edge
+function này — repo không có test harness cho `supabase/functions/`). Không deploy edge
+function, không chạy expo/eas build. `deno check tryon-generate` vẫn còn đúng 4 lỗi
+`MinimalClient` TS2345 đã biết từ trước (không liên quan đợt này, không sửa).
+
+---
+
+## Paywall copy: drop the quota numbers; surface them where credit is spent (2026-08-08)
+
+**Trigger:** anh Khoi asked for the paywall to stop listing per-month counts. Decision
+taken with him: replace the subtitle + 3-bullet benefit list with a single value
+sentence, no bullets at all. UI side documented in `src/design/paywall/design.md`
+("Value copy 2026-08-08"); this entry covers the non-UI half.
+
+### Copy / i18n
+
+- `paywall_subtitle` no longer takes interpolation params. `paywall_benefit1`,
+  `paywall_benefit2`, `paywall_benefit3` deleted from both `en.json` and `vi.json`.
+- `app/paywall.tsx` no longer imports `PREMIUM_LIMITS`; `quotaParams` and the `BENEFITS`
+  array are gone, along with the `benefitList/benefitRow/benefitDot/benefitText` styles.
+- New keys (both locales): `creditQuota_scansLeft`, `creditQuota_tryOnsLeft`.
+- Key-set parity verified programmatically: 1131 keys each, no one-sided keys.
+- The "never claim unlimited" rule from 2026-08-05 still stands. Premium IS capped, so
+  "unlimited"/"khong gioi han" would be false and an App Store 3.1.2 risk. The new
+  wording ("a higher AI allowance" / "tang gioi han") is honest about being finite.
+
+### `CreditStatus` gained two display-only fields
+
+`src/services/usageCreditService.ts`. Both are additive; every existing gate ignores
+them, so gating behaviour is byte-for-byte unchanged.
+
+- `accountType: AccountType` — the type the `limit` was resolved against. Needed because
+  `resolveCreditLimit()` maps `demo` to the FREE limit purely as a placeholder, while a
+  demo account is actually unmetered server-side. Display must hide rather than quote a
+  number that isn't the user's real cap.
+- `degraded?: boolean` — set only on the fail-closed branch, where a failed usage query
+  returns `used = limit, remaining = 0` so the gate blocks. That zero is a safety
+  default, not a reading. Gates must keep treating it as exhausted; display must hide.
+
+This is the crux of the design: the SAME status object has to read as "blocked" to a
+gate and as "unknown" to a counter. One boolean is cheaper than a second query path, and
+keeps the two consumers from drifting.
+
+`CreditType` is now exported (the display hook needs it).
+
+### `useCreditQuota(type, enabled?)`
+
+New: `src/features/monetization/useCreditQuota.ts`. Read-only, never gates anything.
+Loads once on mount, exposes `{ status, refresh }`, and returns `status: null` whenever
+the reading isn't trustworthy (`degraded`, `demo`, still loading, or a thrown error —
+signed out / offline). Callers render nothing on null.
+
+Two guards: a `mounted` ref (fetch resolving after unmount) and a monotonic `runId` so a
+slow pre-action read can't overwrite the fresher post-action `refresh()`.
+
+Wired in:
+
+- `useAddWizard` — `useCreditQuota('ai_extraction')`, returned as `quota`, refreshed in
+  `analyse()`'s `finally`. `finally` and not the success path: the batch loop consumes
+  server-side per photo, so even a mid-batch failure spent credit.
+- `useWearOnYou` — `useCreditQuota('try_on')`, returned as `quota`, refreshed in
+  `generate()`'s `finally`. Left the pre-existing `creditsRemaining` state untouched
+  (non-premium only, block/completion only) rather than folding the two together; it
+  feeds different logic and merging them would have widened this change into the gate.
+
+Both call sites still call `checkCredit()` themselves at action time. The hook is
+display, never authority.
+
+### Verify
+
+`npx tsc --noEmit` clean. Full jest suite: 32 suites / 488 tests passed. No new tests —
+the added surface is a React hook plus a presentational component, neither of which the
+repo currently has a harness for (no react-native testing-library setup). Not run:
+expo/eas build (quota), no edge function touched, no deploy.
+
+---
+
+## 4 suggestion toggles (2026-08-10)
+
+New `style_profiles` columns `suggest_by_style` / `suggest_by_personal_color` /
+`suggest_by_formula` / `suggest_by_measurements` (all `boolean not null default true`),
+each independently opting one outfit-suggestion dimension out. Toggling one off never
+blocks generation — the engine keeps scoring/generating from whichever dimensions stay
+on (formality, season, texture, anchor clarity, taste, and — for the `color` dimension
+specifically — the user's own manual color preferences always remain live even with
+personal-color off). Design was chốt going in; this entry covers the non-UI half plus
+the reasoning behind the few places the literal design had to be extended to a second
+or third consuming edge function.
+
+### DB — verified live schema before touching it
+
+This repo's migration files are known to drift from the live DB (see the schema-drift
+notes throughout this file). Queried `information_schema.columns` for
+`public.style_profiles` via the Supabase Management API before writing anything: live
+columns were `id, user_id, selected_styles, color_preferences, formula_preferences,
+updated_at, active_formula_id` — no pre-existing `suggest_by_*` columns, nothing
+unexpected. Migration file:
+`supabase/migrations/20260810000001_style_profiles_suggestion_toggles.sql` — additive,
+default `true` on all four, so every existing row/user is byte-for-byte unchanged until
+they explicitly opt out.
+
+`supabase db push` refused with `LegacyDbPushMissingLocalError` (pre-existing drift —
+remote migration history has entries with no local file, unrelated to this change).
+Applied the `alter table` directly via the Management API instead (same pattern as
+`20260807000001`'s header note) and re-queried `information_schema.columns` afterward to
+confirm all four columns landed as `boolean not null default true`. Migration file kept
+in-repo for history/diff-review; it is *not* what actually ran.
+
+### `generate-outfits` — the reference mapping
+
+`supabase/functions/generate-outfits/index.ts` reads the four columns off `styleData`
+(already `select('*')`, so no query change needed) into `suggestByStyle` /
+`suggestByPersonalColor` / `suggestByFormula` / `suggestByMeasurements` (each
+`!== false`, so a missing row/column reads as on). Logs
+`[generate-outfits] suggestion toggles off: …` when any are off, mirroring the existing
+`body-neutral:` log line style.
+
+- **style** → `EngineContext.suggestByStyle`, threaded into `rankCandidates`
+  (`engine/ranking.ts`). The `dims` array's `styleCoherence` entry's `valid` flag now
+  reads `userAttributes !== undefined && suggestByStyle` instead of just the former —
+  same "drops out, weight renormalizes over the rest" mechanism the existing provenance
+  gates (`fitHasData`, `seasonHasData`, …) already use, not a new one.
+- **measurements** → `EngineContext.suggestByMeasurements`, gates BOTH `fitScore` and
+  `proportionBalance`'s `valid` flags the same way. Deliberately does **not** touch
+  `bodyMeasurements.body_shape` or `resolveTargetSilhouette`'s body-shape cascade tier
+  (`engine/silhouette.ts:219`) — body shape still shapes which candidates get
+  *generated* (via `ctx.targetSilhouette`, resolved once in `index.ts` and passed to
+  `generateCandidates`) even when the corresponding *scoring* dims are off. Suppressing
+  body_shape itself is `bodyNeutralMode`'s job (a separate, pre-existing, untouched
+  toggle) — new tests assert both that `resolveTargetSilhouette` still resolves via the
+  `body_shape=…` cascade tier and that `ranking.ts` never mutates
+  `ctx.bodyMeasurements` when this toggle is off.
+- **personal color** → applied entirely upstream of `EngineContext`, before it's built:
+  `personalPalette` is `[]` (not `profiles.personal_palette`) and `colorSeason`/
+  `colorTone12` are `undefined` when off. `colorPreferences` still carries
+  `style_profiles.color_preferences` (the user's own manual picks), so the `color`
+  dimension's `valid` flag stays `true` unconditionally — it never goes dark, exactly as
+  designed ("chiều color VẪN SỐNG"). The curator prompt's `Personal color season: …`
+  line (`index.ts` ~521) drops automatically since it was already `colorSeason ? … : ''`
+  — no separate edit needed there. The `Body shape: …` line stays unconditional on any
+  toggle, as specified.
+- **formula** → `formulaPreferences` reads `[]` instead of
+  `styleData?.formula_preferences` when off, so `effectiveFormulas` falls through to
+  `undefined` (full formula library) unless an explicit `formula_id` request param or
+  intent-resolved formula preference is present — those are a separate channel and stay
+  unaffected either way, per spec ("Đây KHÔNG phải chiều chấm điểm").
+
+`engine/types.ts`'s `EngineContext` gained `suggestByStyle?`/`suggestByMeasurements?`
+(undefined = on). Personal-color/formula never needed a context field — they're fully
+resolved before the context object exists.
+
+### `evaluate-item` and `wardrobe-critic` — same principle, extended with judgment calls
+
+Both were explicitly in scope ("áp dụng cùng nguyên tắc") without a literal mapping
+spelled out beyond personal-color, so here is where reasoning had to fill gaps — flagged
+per the task's "note bất kỳ chỗ nào phải suy luận ngoài thiết kế" instruction:
+
+- **`evaluate-item`** scores a *single item* against five independent criteria (color,
+  style, fit, measurement, fabric) — there's no outfit-level `proportionBalance`
+  equivalent here, and body_shape scoring lives entirely inside the separate **`fit`**
+  criterion (body_shape + preferredFit), not inside `measurement` (the numeric
+  garment-vs-body-girth comparison — the direct analog of the feed's `fitScore`). So
+  `suggestByMeasurements=false` here turns off only the `measurement` criterion, and
+  deliberately leaves `fit` fully scored — turning `fit` off too would have suppressed
+  100% of body_shape's influence on the verdict (unlike the feed, where body_shape still
+  drives candidate generation even with its scoring dim off), which would have
+  contradicted the explicit "body shape vẫn giữ" instruction more than the feed case
+  does. `suggestByStyle=false` turns off the `style` criterion the same way `styleCoherence`
+  turns off on the feed; it deliberately leaves `fabric`'s minor style-aware
+  banned/allowed-fabric bonus untouched (that bonus isn't the `style` dimension, mirrors
+  how the feed's `formalityConsistency`/`textureInterest` dims — which also don't read
+  `selectedStyles` — stay on too). `suggest_by_formula` is a structural no-op: this
+  endpoint scores one item, never an outfit formula, so nothing reads
+  `formula_preferences` here to begin with. New copy: `toggledOffExplanation()` in
+  `scoring.ts` — deliberately distinct wording from the existing "missing data"
+  explanations, since a toggled-off criterion may have full data behind it and telling
+  the user to go add a style preference or body measurement they already have would be
+  wrong. Verified as a real distinct string via a new determinism/uniqueness test, not
+  just "renders something."
+- **`wardrobe-critic`** reuses `rankCandidates` directly (`analyze.ts`
+  `qualifiedOutfits`), so `AnalyzeInput` gaining `suggestByStyle?`/
+  `suggestByMeasurements?` and passing them straight into its own `EngineContext` gets
+  the identical `dims` mechanism for free — no new logic, same tests already cover it.
+  `suggest_by_formula` is also a structural no-op here: `qualifiedOutfits` always calls
+  `generateCandidates(items, undefined, seed)` — formula preference was never read in
+  this pipeline. **Bug fixed in passing**: the Try-On-bridge candidate path
+  (`index.ts`'s `candidateItem` branch) was re-reading
+  `profileData?.color_season?.toLowerCase() || undefined` straight off the profile row
+  instead of reusing the already-toggle-gated `colorSeason` variable computed a few
+  lines above for the main report — meaning that one code path would have silently
+  ignored `suggest_by_personal_color` had it shipped as originally written. Fixed to
+  reuse the gated variable (and now also threads `suggestByStyle`/
+  `suggestByMeasurements` through). Both `profiles`/`style_profiles` `select()`s in both
+  functions gained the four new columns.
+
+### Client
+
+- `src/services/styleProfileService.ts`: `StyleProfileRow`/`StyleProfileData` gained the
+  four boolean fields (`rowToApp` defaults each to `true` if absent, defensive against a
+  device that fetched the row before the migration landed); `fetchMyStyleProfile`'s
+  `select()` and `upsertMyStyleProfile`'s patch-building gained the matching columns.
+- `src/stores/fitEngineStore.ts`: four new state fields (`suggestByStyle` /
+  `suggestByPersonalColor` / `suggestByFormula` / `suggestByMeasurements`, default
+  `true`) plus one setter, `setSuggestionToggles(patch)` — a single function taking a
+  partial patch of any subset, mirroring `setBodyMeasurements`'s merge-and-persist
+  shape rather than four separate setters (all four ultimately write to the same
+  `style_profiles` row via `upsertMyStyleProfile`, same as `setFormulaPreferences`).
+  Wired into `reset()` (back to `true` on sign-out — cross-account leak guard, same as
+  every other per-user field there) and `hydrate()` (pulled from `fetchMyStyleProfile`,
+  `?? true` defensive default). The store's `onAuthStateChange` re-hydrate registration
+  (`_fitAuthListenerRegistered`, fixed in an earlier session — see
+  `project_store_auth_rehydrate` memory) already covers these new fields for free; no
+  changes needed there. No request-body wiring needed anywhere (`fetchOutfits` /
+  `fetchMoreOutfits` / `fetchMixMatchOutfits`) — unlike `genderAwareStyling`/
+  `bodyNeutralMode` (client-only `appStore` flags sent per-request), these four persist
+  server-side in `style_profiles` and every edge function reads that table directly, so
+  there's nothing to add to the request body.
+
+### UI
+
+New "Suggestions" section in `app/settings.tsx` (four `Switch` rows, same primitive as
+every other toggle on the screen), and a new `SECTIONS` row in
+`app/(tabs)/profile.tsx` pointing at `/settings` — that screen's gear icon routes to
+`/profile-edit` (a different screen), so Profile itself had no path to `/settings`
+before this (it was previously reachable only via the separate tabs-menu overlay). See
+`src/design/settings/design.md` (new file — the screen had none) for the full visual
+spec.
+
+### i18n
+
+Both `en.json` and `vi.json`: `settings_suggestionsSection` + 4×(label + description)
+keys, plus `tabs_profile_settings`. Parity verified programmatically: 1141 keys each,
+no one-sided keys.
+
+### Verify
+
+`npx tsc --noEmit` clean. `npx jest`: 32 suites / 488 tests passed (unchanged — no
+existing test broke; the store/service changes are additive pass-throughs mirroring
+`formulaPreferences`, covered indirectly by the existing `fitEngineStore` tests still
+passing). `deno test supabase/functions/generate-outfits/engine/`: 221/221 (215 prior +
+6 new, `suggestion-toggles.test.ts`). `deno test supabase/functions/evaluate-item/`:
+37/37 (32 prior + 5 new). `deno test supabase/functions/wardrobe-critic/`: 11/11 (9
+prior + 2 new). New tests cover, per toggle: the dim's raw score is unchanged but drops
+out of `totalScore`; `undefined` behaves identically to explicit `true`; and — the
+specifically-required guarantee — `suggestByMeasurements=false` neither changes
+`resolveTargetSilhouette`'s `body_shape=…` cascade source nor mutates
+`ctx.bodyMeasurements.body_shape`. Not run: `expo`/`eas` build (quota). Migration
+applied to live via Management API (see above); no edge function deployed — that's left
+for anh Khôi to trigger.
+
+## Shape goal (010-wardrobe-critic follow-up, 2026-08-10)
+
+Design was chốt going in ("thiết kế đã chốt với chủ dự án"); this entry covers the
+non-UI reasoning. Builds directly on top of the still-undeployed 4-suggestion-toggles
+session above — does not touch `bodyNeutralMode` or any `suggest_by_*` column/field;
+`shapeGoal` is an independent axis.
+
+### Bug fixed first (blocking): `resultingBodySilhouette` could never tag `hourglass` for a non-hourglass body
+
+`engine/silhouette.ts`'s `resultingBodySilhouette` (the "what does your body read as
+AFTER wearing this outfit" display tag) decided its balanced-read branch with
+`if (base.rounded) return 'oval'; if (base.waist) return 'hourglass'; return
+'rectangle';` — and `BODY_BASELINE.waist` is `true` on exactly one entry, `hourglass`.
+No outfit, however waist-defining, could ever produce the `hourglass` tag for a
+triangle/rectangle/inverted_triangle/apple body — the tag was reading the WEARER'S
+starting shape, not what the CLOTHES did. This made the shapeGoal feature's most
+requested case ("show me how to dress to look more hourglass") structurally
+impossible before any cascade/scoring work could matter.
+
+Fix: a new pure function, `outfitWaistDefinition(items): boolean` — does THIS outfit
+(not the body) create a defined waist? Priority-ordered signals, any one sufficient: (a)
+a `BELT` accessory; (b) a structurally waist-defining garment type — `typeName` in
+`{CORSET, BLAZER, VEST}`, verified against `enrichment.ts`'s real `CATEGORY_MAP`/
+`TYPE_DEFAULT_FIT` vocabulary, not invented — whose own `fit` isn't oversized/wide; (c)
+a fitted top (slim/regular) + fitted bottom (slim/regular) with at least one item
+`drape === 'structured'`. Deliberately excludes `DRESS` (typeName can't distinguish a
+waist-defining wrap/fit-and-flare cut from a shapeless shift — no silhouette-cut
+attribute exists on the item today, flagged in `backlog.md`) and `COAT`/`OVERCOAT`/
+`JACKET` (their `TYPE_DEFAULT_FIT` is `relaxed` — boxy by default; a belted trench
+already reads via signal (a), not via the coat type itself). Magnitude/list
+CALIBRATION-PENDING per repo convention.
+
+`resultingBodySilhouette`'s balanced-read branch became:
+```
+if (avg >= 5)                    return 'oval';
+if (outfitWaistDefinition(items)) return 'hourglass';  // NEW — outfit-made waist wins
+if (base.rounded)                return 'oval';
+if (base.waist)                  return 'hourglass';
+return 'rectangle';
+```
+`avg >= 5` (voluminous everywhere) still wins unconditionally — even a belt can't read
+as hourglass under a fully oversized outfit, matching how a real cocoon coat washes out
+any waist a belt might otherwise create. Every pre-existing `resultingBodySilhouette`/
+`resolveTargetSilhouette` test still passes unmodified (246/246 in
+`generate-outfits/engine/`) — the new branch is additive and only fires when
+`outfitWaistDefinition` is true, which none of the old fixtures trigger (they never set
+a belt/CORSET/BLAZER/VEST typeName or a structured drape).
+
+### shapeGoal cascade tier
+
+`EngineContext` (`engine/types.ts`) gained `shapeGoal?: 'auto' | 'natural' |
+'hourglass' | 'rectangle' | 'oval' | 'inverted-triangle' | 'triangle'` — an inline
+union, not imported from `silhouette.ts`, mirroring how `ScoredOutfit.silhouetteShape`
+already avoids a `types.ts` <-> `silhouette.ts` import cycle.
+
+`resolveTargetSilhouette`'s override cascade became `intent > shapeGoal > style
+silhouette > body_shape > neutral`. shapeGoal sits above style/body_shape (an explicit,
+standing user choice about their own body should outrank passive signals) but below
+intent (a one-off "make me a business look" request should still win for that single
+generation). `undefined`/`'auto'` is a hard no-op — `fromShapeGoal` returns `undefined`
+immediately, so `??` falls through to the exact next tier, byte-for-byte identical to
+the pre-feature cascade (asserted directly: `JSON.stringify` equality between a ctx with
+no `shapeGoal` field and one with `shapeGoal: undefined`/`'auto'`, for both the
+body_shape and style-silhouette fallback paths).
+
+`'natural'` returns balanced neutral volume (`{topVol:2, bottomVol:2}` — no
+reshaping bias). A specific shape calls the new `targetsForDesiredShape(desired,
+bodyShape)`, a best-effort INVERSE of `resultingBodySilhouette`'s own diff/avg math
+against `BODY_BASELINE`:
+- `oval` → `{topVol:5, bottomVol:5}` — `avg>=5` wins unconditionally regardless of body
+  baseline (every `BODY_BASELINE` entry has top/bottom ≥ 2).
+- `triangle` / `inverted-triangle` → `{topVol:1,bottomVol:5}` / `{topVol:5,bottomVol:1}`
+  — the most extreme volume split, verified algebraically to clear the `diff` ≥/≤ 2
+  threshold even against the worst-case opposing body baseline.
+- `rectangle` → counters the body baseline's OWN top/bottom asymmetry
+  (`topVol = clamp(2 + (base.bottom - base.top), 1, 5)`, `bottomVol = 2`) so
+  `eTop ≈ eBottom`. **Known limitation, not fixed here** (documented in code +
+  `backlog.md`): an `apple` baseline's `rounded: true` outranks a balanced read whenever
+  `avg < 5`, so no volume pair can make an apple-body wearer's outfit literally tag
+  `rectangle` short of `avg>=5` (→ `oval` instead) or an outfit-made waist (→
+  `hourglass` instead, via the fix above) — a real gap in the model, not this feature's
+  to close.
+- `hourglass` → `{topVol:2, bottomVol:2}` (balanced, not volume-extreme) **on purpose**
+  — per the design instruction, hourglass is reached mostly through
+  `outfitWaistDefinition`, not garment volume; the cascade target just keeps generation
+  from actively fighting it (no oversized-everywhere bias), and the ranking-time delta
+  below does the real work.
+
+### shapeGoalDelta (ranking.ts)
+
+Small additive delta, same `±0.05`/`+0.08` band as the existing `houseDelta`/
+`genderDelta`: `resulting = resultingBodySilhouette(items, ctx.bodyMeasurements.
+body_shape); return resulting === goal ? +0.08 : -0.05;` — `0` when `shapeGoal` is
+unset/`'auto'`/`'natural'`. This is the layer that actually rewards outfits creating the
+hourglass waist (or hitting any other goal), since the volume target alone can't force
+a specific `outfitWaistDefinition` combination. Applied in the same line as
+`genderDelta`/`tasteDelta`/`dismissPenalty`/`houseDelta` in `rankCandidates`'s
+`totalScore` computation. `ranking.ts` now imports `resultingBodySilhouette` from
+`silhouette.ts` — no import cycle (`scoring.ts`, which `silhouette.ts` itself imports,
+never imports `ranking.ts` or `silhouette.ts`).
+
+**Scope note**: only `generate-outfits` was wired (per the explicit task scope — unlike
+the suggestion-toggles session, this feature was NOT specified for `evaluate-item`/
+`wardrobe-critic`). Both still compile/pass unmodified since `shapeGoal` is an optional
+`EngineContext` field they simply never set (`fromShapeGoal`/`shapeGoalDelta` both
+no-op on `undefined`). Flagged in `backlog.md` as a scope gap, not silently dropped.
+
+### DB — verified live schema before touching it, same discipline as the toggles session
+
+Queried `information_schema.columns` for `public.style_profiles` via the Management API
+first: live columns were the 7 from the suggestion-toggles migration above (`id,
+user_id, selected_styles, color_preferences, formula_preferences, updated_at,
+active_formula_id, suggest_by_style, suggest_by_personal_color, suggest_by_formula,
+suggest_by_measurements`) — no pre-existing `shape_goal`. Migration:
+`supabase/migrations/20260810000002_style_profiles_shape_goal.sql` — `shape_goal text`,
+nullable (default null = `'auto'`), plus a check constraint restricting it to the 7
+valid values. `supabase db push` refused with the same known `LegacyDbPushMissingLocalError`
+drift as before; applied via the Management API's `database/query` endpoint instead and
+re-verified via `information_schema.columns` + `pg_get_constraintdef` afterward — both
+confirmed present exactly as written. Migration file kept in-repo for history; not what
+actually ran.
+
+### Client
+
+- `src/services/styleProfileService.ts`: new exported `ShapeGoal` type (mirrors the
+  engine's inline union); `StyleProfileRow` gained `shape_goal: string | null`,
+  `StyleProfileData` gained `shapeGoal: ShapeGoal`. `normalizeShapeGoal()` maps any
+  non-recognized/null DB value to `'auto'` defensively (stale row, pre-migration cache,
+  DB-constraint-bypassing direct write). `upsertMyStyleProfile` stores `'auto'` as SQL
+  `null` (not the literal string) — keeps a never-touched row indistinguishable from one
+  explicitly reset to auto, matching the column's own `null = auto` meaning.
+- `src/stores/fitEngineStore.ts`: new `shapeGoal` field (default `'auto'`) +
+  `setShapeGoal(goal)` setter, following the exact same shape as
+  `setFormulaPreferences`/`setSuggestionToggles` (write-through to `style_profiles` via
+  `upsertMyStyleProfile`). Wired into `reset()` (back to `'auto'` on sign-out) and
+  `hydrate()` (`styleData?.shapeGoal ?? 'auto'`). No request-body wiring needed anywhere
+  (`fetchOutfits`/`fetchMoreOutfits`/`fetchMixMatchOutfits`) — same reasoning as the
+  suggestion toggles: this persists server-side and `generate-outfits` reads the column
+  directly.
+- `supabase/functions/generate-outfits/index.ts`: reads `styleData?.shape_goal` (already
+  `select('*')`, no query change), validates against the same 7-value set the DB check
+  constraint enforces (defensive — a stale row can't slip an invalid value into the
+  engine), defaults to `'auto'`, threads onto `ctx.shapeGoal`. Logs
+  `[generate-outfits] shape goal: …` only when it's not `'auto'`.
+
+### UI
+
+New screen `app/shape-goal-edit.tsx`, entered via a new `SECTIONS` row in
+`app/(tabs)/profile.tsx` (between body measurements and location/weather). Single-select
+list (7 options), dirty-check + `PrimaryButton` save bar (mirrors `formulas-edit.tsx`'s
+shape, not save-on-tap, so a stray tap can't silently overwrite a standing preference).
+Feed-card shape chip (`silhouetteShapeTag`) gained a translated label prefix
+(`SHAPE: HOURGLASS` / `DÁNG: ĐỒNG HỒ CÁT`) so it reads as self-explanatory instead of a
+bare, ambiguous shape name lost in the meta line — applied identically in
+`app/(tabs)/index.tsx` and `useFitFeed.ts`. Full visual spec: `src/design/feed/design.md`
+(both the chip-label change and the new screen are documented there, alongside the
+existing shape/silhouette tag sections it extends).
+
+### i18n
+
+Both `en.json` and `vi.json`: `tabs_profile_shapeGoal`, `outfitShape_prefix`,
+`shapeGoalEdit_title`/`_caption`, and 7×(label/desc) keys for the shape-goal options (the
+5 geometric shapes reuse the existing `outfitShape_*` label keys — only their
+descriptions are new). Parity verified programmatically: 1154 keys each, no one-sided
+keys.
+
+### Verify
+
+`npx tsc --noEmit` clean. `npx jest`: 32 suites / 488 tests passed (unchanged count —
+the store/service/screen additions are additive, no existing test touched this surface).
+`deno test supabase/functions/generate-outfits/engine/`: 246/246 (221 prior + 25 new,
+split across `silhouette.test.ts` additions and the new `shape-goal.test.ts`). `deno
+test supabase/functions/evaluate-item/`: 37/37 unchanged. `deno test
+supabase/functions/wardrobe-critic/`: 11/11 unchanged. New tests cover, per the task's
+explicit list: (1) apple body + waist-defining outfit → `hourglass` (previously
+impossible) + a rectangle-body-plus-belt equivalent; (2) `shapeGoal` undefined/`'auto'`
+→ `resolveTargetSilhouette` returns a source/target byte-for-byte identical to the
+pre-feature cascade, at both the body_shape and style-silhouette fallback tiers; (3)
+`shapeGoalDelta` contributes exactly `0` for `undefined`/`'auto'`/`'natural'`, and is
+directionally verified (match raises `totalScore`, miss lowers it) for a concrete case;
+(4) `ctx.bodyMeasurements.body_shape` is asserted untouched both in the silhouette
+cascade test and after a full `rankCandidates` pass. Not run: `expo`/`eas` build
+(quota). Migration applied to live via Management API (verified above); no edge function
+deployed — left for anh Khôi to trigger.
+
+## Profile stats: stop showing mock data (2026-08-10)
+
+`app/(tabs)/profile.tsx`'s three header stats ("ITEMS"/"OUTFITS"/"COLLECTIONS") had two
+bugs: the outfits stat was `OUTFITS.length` — the length of the static demo catalogue
+in `src/data`, a hardcoded constant identical for every user regardless of any activity
+— and the items stat fell back to the demo `items` array (`wardrobeItems.length > 0 ?
+wardrobeItems.length : items.length`) whenever a user's real wardrobe was empty, so a
+brand-new install showed a borrowed non-zero item count instead of 0.
+
+Real per-user sources, one per stat (traced, not assumed):
+- items → `wardrobeItems.length` only, no mock fallback. `wardrobeItems` is the
+  Supabase-backed wardrobe (`fetchMyItems` in `wardrobeService.ts`, loaded into
+  `appStore` by `loadServerState`).
+- outfits → `savedSet.size`. `savedSet` is hydrated from the `outfit_interactions`
+  table (`type = 'saved'`) via `fetchInteractions()` in `outfitInteractionService.ts` —
+  the same source `app/saved.tsx` ("Saved Outfits") filters against. This is the closest
+  real analogue to what "OUTFITS" was gesturing at; there is no other per-user "outfit
+  count" concept in the schema (no separate outfits table — outfits are
+  engine-generated on the fly and only persisted as interaction rows).
+- collections → `collections.length`, unchanged — this one was already real
+  (`fetchMyCollections` via Supabase), with the small seeded `COLLECTIONS` list from
+  `src/data` used only as a transient placeholder before hydration/auth resolves, same
+  as it always was. Not a mock-data bug; left as is.
+
+Extracted into `src/features/profile/useProfileStats.ts` (selectors into `appStore`,
+per CLAUDE.md's "no business logic in components") plus a dependency-free
+`src/features/profile/profileStatsFormat.ts` holding `formatStatValue(n)`: renders a
+positive count as-is, and 0 as "—" instead of a bare "0", so a brand-new account's empty
+stats read as an intentional calm empty state (luxury minimalism) rather than a
+loading/broken number — mirrors the existing '—' fallback already used elsewhere on
+this screen for a missing name/phone/email. No new `design.md` file created for this
+(none existed for profile.tsx before); the convention is captured here instead per the
+non-UI-logic documentation policy, and the visual delta is this one-line formatting
+rule, not a layout/interaction change.
+
+Split into two files instead of one specifically so `formatStatValue` — the only part
+worth unit-testing — doesn't drag in `appStore`'s native-module import graph (NetInfo,
+expo-localization, …), which `ts-jest`'s node test environment can't parse. Matches this
+repo's existing pattern of testing pure math/formatting functions in isolation
+(`colorMath.test.ts`, `tone12.test.ts`, etc.) rather than reaching for a React hook
+renderer that isn't set up here.
+
+**Other screens still reading the mock catalogues** (`OUTFITS`/`ITEMS` from
+`src/data`) — surveyed, not touched, out of scope for this pass:
+- `app/(tabs)/index.tsx` (home feed) — falls back to two `OUTFITS` demo cards when the
+  engine hasn't generated a real feed yet (`isGenerated` false). Intentional fallback
+  content, not a mislabeled stat — worth a product call on whether a new user should
+  ever see generic demo outfit cards, but that's a feed-behaviour decision, not a bug
+  fix like the profile stats were.
+- `app/history.tsx`, `app/saved.tsx` — both correctly union `OUTFITS` (static ids) with
+  `generatedOutfits` (`gen_…` ids) so a save/worn-mark on either kind still resolves;
+  this is a lookup-fallback pattern, not a fake-data bug.
+- `app/outfit/[id].tsx`, `app/try-on/wear.tsx` — fall back to an `OUTFITS.find(...)`
+  lookup only when navigated without a `data` param (deep link / demo id), same pattern.
+- `app/item/[id].tsx` — "Wear with" section reads `OUTFITS` but is explicitly gated
+  off for real wardrobe items (`vm.isWardrobe ? [] : OUTFITS.filter(...)`) — only
+  applies to the demo catalogue's own items.
+- **`app/build.tsx` ("Build an Outfit")** — flagged as the one worth anh Khôi's
+  attention: it destructures `items` (the demo `ClothingItem[]` catalogue) from
+  `appStore`, not `wardrobeItems` (the real Supabase-backed wardrobe), for every pool/
+  anchor/generation step. As far as this pass traced, the manual outfit builder is
+  built entirely on the mock catalogue, not the user's actual wardrobe — a
+  significantly bigger issue than the profile stats, but a separate screen/feature and
+  explicitly out of scope for this task; not fixed here.
+
+### Verify
+
+`npx tsc --noEmit` clean. `npx jest`: 33 suites / 491 tests passed (488 prior + 3 new
+`formatStatValue` cases; no existing test touched). Not run: `expo`/`eas` build (quota).
+
+## Sentry crash reporting — install + privacy-guarded init, DSN not yet issued (2026-08-10)
+
+App had zero crash reporting or analytics pre-launch; one App Store submission already
+went out blind. This pass wires up crash reporting only (`@sentry/react-native`) —
+analytics is explicitly a separate later task per instruction.
+
+`npx expo install @sentry/react-native` (SDK 54.0.33, RN 0.81.5) resolved
+`@sentry/react-native@~7.2.0` and auto-added a bare `"@sentry/react-native"` entry to
+`app.json`'s `plugins`. **Removed that entry again** after reading the plugin's own
+source (`node_modules/@sentry/react-native/plugin/build/withSentryAndroid.js` +
+`sentry.gradle`): with no org/project/token configured, the Android path still
+unconditionally chains an upload task (`bundleTask.finalizedBy cliTask`) onto every
+release bundle task, and that task's `sentry-cli react-native gradle` call has nothing
+to authenticate with — `SENTRY_AUTH_TOKEN` unset — so it fails, and a `finalizedBy`
+task failure fails the whole build. Confirmed against upstream reports of exactly this
+(`getsentry/sentry-android-gradle-plugin#525`). anh Khôi's release builds are local
+Gradle (`./gradlew bundleRelease`, no EAS — see project memory), so this would have
+landed as a landmine in his own release pipeline the next time `expo prebuild -p
+android` regenerates `android/app/build.gradle` from `app.json`. Leaving the plugin out
+costs nothing functionally right now — it only wires automatic source-map upload,
+which needs a real Sentry project anyway; `Sentry.init()` at the JS layer still fully
+works without it (native module autolinking is separate from Expo's config-plugin
+system). **Follow-up once anh Khôi creates the Sentry project**: re-add
+`"@sentry/react-native"` (optionally with `{organization, project, url}`) to
+`app.json`'s plugins, set `SENTRY_AUTH_TOKEN` in the local Gradle env before running
+`bundleRelease`, then `expo prebuild -p android` (no `--clean`) to pick it up.
+
+DSN wired through `EXPO_PUBLIC_SENTRY_DSN` — added as an empty placeholder to `.env`
+(with a `#` comment above it) and to all three `eas.json` build profiles
+(development/preview/production; JSON has no comment syntax, so the "needs filling in"
+note lives here instead). Empty/missing DSN is the expected current state (no Sentry
+project exists yet) and must be inert, not an error — verified by construction: the
+guard in `app/_layout.tsx` is `if (!Sentry) …` then `if (dsn) { Sentry.init(...) }`,
+mirroring the existing RevenueCat lazy-require + guarded-init pattern in the same file
+line-for-line (try/catch around `require()`, `if (!apiKey) return`-shaped early-out,
+try/catch around the actual native call) so a missing DSN or an incompatible runtime
+(Expo Go — native crash capture needs a dev client, JS-level SDK still loads) both
+degrade to a silent no-op.
+
+Privacy: the app's hard constraint is 100%-on-device body measurements/selfie photos
+(see CLAUDE.md + project memory) — Sentry's defaults are exactly the kind of thing that
+could violate that, so all three are explicitly turned off rather than left at
+(mostly-safe-by-default) defaults: `sendDefaultPii: false`, `attachScreenshot: false`,
+and no replay integration is registered at all (session replay is opt-in via an
+integration, not a boolean — omitting it is how it stays off). `tracesSampleRate` /
+`profilesSampleRate` are also left unset on purpose — performance tracing/profiling is
+out of scope for this pass. A `beforeSend` hook additionally scrubs the event payload
+recursively: any object key matching `/(body_|measurement|photo|uri|skinlab|hairlab|
+undertone)/i` is replaced with `'[scrubbed]'`, and any string starting with `file://`
+(the scheme every on-device photo/measurement asset uses) is replaced with
+`'[scrubbed:file-uri]'`, wherever either appears in the payload. `beforeSend` fails
+closed — a scrub error drops the event (`return null`) instead of risking a leak.
+
+Dev-only manual verification: `app/dev-sentry-test.tsx`, `__DEV__`-guarded identically
+to the existing `app/dev-seed.tsx` (inert screen in production, plus excluded from the
+EAS build archive via `.easignore` as defense-in-depth). Three buttons: send a test
+message, capture a handled exception, throw an uncaught error — exercises
+`Sentry.wrap`'s error boundary path as well as manual capture. Shows whether the SDK
+loaded and whether a DSN is configured, so anh Khôi can confirm wiring the moment he
+pastes a real DSN in without needing to read source. Not linked from any production
+screen/menu.
+
+i18n: added `devSentryTest_*` keys to both `en.json` and `vi.json` (title, three button
+labels, three status strings) — dev-only screen still follows the project's en+vi
+requirement.
+
+### Verify
+
+`npx tsc --noEmit` clean. `npx jest`: 33 suites / 491 tests passed (unchanged from the
+profile-stats entry above — this task has no unit-testable pure logic beyond what's
+already covered; the scrub function lives inline in `_layout.tsx` and wasn't extracted,
+since its only caller is the guarded `Sentry.init` block itself). Not run: `expo`/`eas`
+build, no native prebuild, no Supabase deploy, no commit/push — all per instruction.
+
+## Style catalog expansion — 8 → 22 styles + gender_lean (2026-08-10)
+
+The 8-style catalog (`oldmoney`, `minimalist`, `streetwear`, `smartcasual`, `preppy`,
+`athleisure`, `y2k`, `bohemian`) read as masculine/unisex overall. Added 14 styles (12
+feminine-leaning, 2 gender-neutral) to both places that must stay in sync — engine
+`STYLE_CONFIGS` (`supabase/functions/generate-outfits/engine/filtering.ts`) and
+`public.styles` — plus a `gender_lean` column driving client-side (display only) sort
+priority. Design (which 14 ids, which are feminine vs neutral, the two required-pair
+neighbor hints) was handed down and followed as given; every numeric/vocabulary value
+inside each `StyleConfig` (palette tiers, fabrics, fits, formality range, weights,
+`attributes`, full neighbor graph, popularity, niches, `gender_lean` for the 8 old
+styles) was my own inference — see the per-field reasoning below and in
+`filtering.ts`'s own comments.
+
+New ids: `feminine`, `officechic`, `parisian`, `coquette`, `cleangirl`, `darkacademia`,
+`cottagecore`, `grunge`, `athflow`, `elegant`, `kfashion`, `vintage` (feminine-leaning),
+`resort`, `artsy` (neutral).
+
+**Vocabulary discipline**: every palette color / fabric / fit / banned feature /
+`attributes` value used across all 14 new configs is drawn from the unions already in
+`types.ts`/`enrichment.ts` (`PrimaryColor`, `FabricName`, `ItemFit`, `BannedFeature`,
+`ColorPalette`, `Silhouette`, `Mood`) — nothing new was invented, so no vocabulary gap
+forced a stop-and-report. `supabase/functions/generate-outfits/engine/
+style-catalog-consistency.test.ts` (new) asserts this by construction: it holds runtime
+mirrors of each union and checks every value in every `STYLE_CONFIGS` entry against
+them.
+
+**Neighbors are bidirectional for every edge touching a new style** — verified by the
+same test file, plus explicit assertions for the 6 pairs named in the design
+(`officechic↔smartcasual`, `cleangirl↔minimalist`, `darkacademia↔oldmoney`,
+`darkacademia↔preppy`, `athflow↔athleisure`, `coquette↔feminine`). One PRE-EXISTING
+asymmetry was found and left alone (out of scope — see backlog.md): `bohemian`'s
+original neighbor list points at `y2k` (0.3) and `athleisure` (0.2), but neither of
+those return the favor. The new consistency test explicitly excludes old-old edges from
+its bidirectionality check so it doesn't fail on a bug this task didn't introduce.
+
+**Popularity** (thang [0,1], differentiated per instruction, judged against the VN
+market): `officechic` .700 and `kfashion` .650 highest (both genuinely strong in VN —
+công sở nữ and Korean-influenced street style); `cottagecore` .350 and `artsy` .300
+lowest (niche aesthetics). Full list in `filtering.ts`.
+
+**`gender_lean` backfill for the original 8** (not specified by the design, my own
+call): `oldmoney`/`streetwear`/`smartcasual`/`preppy` → `masculine` (menswear-coded
+silhouettes/pieces — blazers, chinos+polo, rugby/duck-boots register); `minimalist`/
+`athleisure` → `neutral` (genuinely unisex, no gendered signal); `y2k`/`bohemian` →
+`feminine` (both are female-dominant in mainstream/revival usage — baby tees/low-rise
+vs. maxi dresses/embroidery). This produces the 4-masculine/2-neutral/2-feminine split
+that matches the "toàn style nam" complaint the expansion is responding to.
+
+**A real emergent conflict, found and resolved during verification**: adding
+`darkacademia` (tweed + relaxed fit + formality 2.5–4.0, matching the design's
+"darkacademia ↔ oldmoney" pairing) made it ALSO naturally cover the exact tweed-wardrobe
+fixture in `style-fallback.test.ts` that was asserting Old Money as the *only* natural
+match. This is a correct, intended overlap (tweed cardigans/blazers are as core to dark
+academia as to old money — the two aesthetics are described as adjacent in real fashion
+taxonomy, which is exactly why the design calls for them to be neighbors) — the test's
+assertion was updated (`assertEquals(result.length, 1)` → checks both ids now) rather
+than tuning `darkacademia`'s config to dodge it. Separately, `artsy`'s initial
+`formalityRange` draft ([1.0, 4.0]) combined with its intentionally empty
+`fabricsAllowed`/`bannedFeatures` (mirroring streetwear/y2k's "permissive" pattern) made
+it ALSO naturally cover both the tweed wardrobe and the pre-existing 3-way-tie
+`tieWardrobe` fixture — tightened to `[1.0, 3.5]` (documented inline in `filtering.ts`)
+specifically so trousers/loafers-register formality (~4.5) falls outside it, which
+removed both false-positive matches without touching any old style's config. Verified
+by re-running `style-fallback.test.ts` after each change until green.
+
+**`public.styles`** (migration `20260810000003_style_catalog_expansion.sql`, applied
+via Management API — `supabase db push` still refused, same known drift as
+`20260810000001`/`20260810000002`): added `gender_lean text not null default 'neutral'`
++ check constraint; backfilled all 8 existing rows' `gender_lean` and appended their new
+neighbor entries (idempotent `UPDATE ... SET` to a fixed final value, not an increment);
+inserted the 14 new rows (`ON CONFLICT (id) DO NOTHING`). Verified post-apply: 22 total
+rows, 0 null `gender_lean`; a Node script byte-diffed every row's `popularity`/
+`attributes`/`neighbors` against a `deno run`-dumped `STYLE_CONFIGS` — 0 mismatches
+across all 22 styles. `niches` (2–4 short names per style, no descriptions — matches the
+existing 8 rows' shape) and `description` are new content I wrote (not derivable from
+the engine config), styled after the existing rows' tone.
+
+**Client**: `src/data/index.ts`'s `STYLES`/`STYLE_NICHES` (static fallback + used
+directly by `app/styles-edit.tsx`, which doesn't read the DB catalog at all — see
+below) grew from 8 to 22 entries, each with a `genderLean` field.
+`stylesCatalogService.ts` gained `genderLean` on `StyleCatalogItem` (mapped from the new
+`gender_lean` DB column) and an exported `sortStylesByGenderLean(list, profileGender)` —
+pure, display-order-only, stable within each group, returns the input order unchanged
+for anything other than `profiles.gender` = `'WOMAN'`/`'MAN'` (unset/`NON-BINARY`/
+`PREFER NOT TO SAY` all no-op, matching the existing binary-only gating pattern
+`genderAwareStyling` already uses). Wired into both `app/(onboarding)/styles.tsx` and
+`app/styles-edit.tsx`, reading `profiles.gender` off `useAuthStore`. Nothing is hidden —
+every style stays in the list, just reordered. `src/design/style-catalog/design.md`
+(new) documents the grid/scroll/niches behavior at 22 tiles and this sort.
+
+**i18n**: verified before touching anything — style names/descriptions have NO
+Vietnamese translation path today. They come either from `public.styles` (English only,
+`name`/`description` columns) or from the static English `STYLES` fallback in
+`src/data/index.ts`; `src/i18n/locales/{en,vi}.json` has zero entries for any style name
+(only the surrounding screen chrome — "onboarding_styles_title" etc. — is translated).
+Kept that mechanism exactly as-is for the 14 new styles (English name/description, same
+as the 8 existing) rather than inventing a new translation system — flagged as a
+pre-existing gap in backlog.md, not fixed here.
+
+**Explicitly out of scope, left untouched** (per instruction — "KHÔNG đụng suggestion
+toggles/shape_goal", and design scoped engine changes to `STYLE_CONFIGS` only): (1)
+`supabase/functions/wardrobe-critic/archetypes.ts`'s `ALL_STYLES` const still lists only
+the original 8 ids (used as some archetypes' `styleAffinity`) — a user who only ever
+selects new styles may see fewer wardrobe-critic gap suggestions; (2)
+`generate-outfits/engine/ranking.ts`'s `PATTERN_FRIENDLY_STYLES` and `scoring.ts`'s
+`HOUSE_OPPOSED_STYLES` are separate hardcoded 8-id sets driving scoring nuances
+unrelated to `STYLE_CONFIGS` itself — not extended to e.g. `grunge`/`artsy`/`cottagecore`
+even though they'd thematically qualify; (3) the pre-existing `bohemian→y2k`/
+`bohemian→athleisure` neighbor asymmetry noted above. All three logged in backlog.md.
+
+### Verify
+
+`npx tsc --noEmit` clean. `npx jest`: 34 suites / 501 tests passed (491 prior + 10 new
+in `stylesCatalogService.test.ts`, covering the gender_lean sort — WOMAN/MAN priority,
+stability, all-other-gender-values no-op, no mutation, empty-list). `deno test
+supabase/functions/generate-outfits/engine/`: 252/252 (246 prior + 6 new in
+`style-catalog-consistency.test.ts` — id-set parity with the DB migration, neighbor
+target validity, new-style neighbor bidirectionality + the 6 required pairs, full
+vocabulary validity, differentiated popularity — plus the 1 pre-existing test updated
+for the darkacademia/oldmoney tweed-wardrobe overlap). `deno test
+supabase/functions/evaluate-item/`: 37/37 unchanged. `deno test
+supabase/functions/wardrobe-critic/`: 11/11 unchanged. Migration applied + verified live
+(22 rows, 0 mismatches vs. engine config, see above). Not run: `expo`/`eas` build, no
+Supabase Edge Function deploy, no commit/push — all per instruction.
+
+## Style catalog expansion batch 2 — 22 → 31 styles (2026-08-10)
+
+Design (which 11 ids, their gender_lean, required neighbor pairs) was handed down
+and followed as given, same as batch 1. 9 of the 11 requested styles shipped:
+`glam`, `businessformal`, `gothic`, `utility`, `sporty`, `normcore`, `retro70s`,
+`pinup`, `whimsigoth`. **2 were stopped, not shipped** — see below.
+
+**Stopped for a real vocabulary gap** (per the instruction's own "DỪNG và BÁO CÁO"
+rule — not silently approximated):
+- **`mobwife`** — its defining material is fur ("lông thú"). `FabricName`
+  (`types.ts`) has no fur/faux-fur entry, and unlike `glam`'s sequin/satin (which
+  maps reasonably onto the existing `silk`/`velvet` fabrics + a `metallic` color
+  grade), there is no adjacent fabric that reads as fur without stretching the
+  vocabulary past what it actually means. Leather + gold-tone + high
+  `textureRichness` could be assembled, but that isn't mob wife — it's a
+  differently-labeled `elegant`/`gothic` blend, which is exactly the "pretend it's
+  expressible when it isn't" failure mode the instruction called out by name.
+- **`modest`** — its defining constraint is skin coverage (sleeve/hem/neckline
+  minimums). `filterByStyle` (`filtering.ts`) only ever checks five axes — color,
+  fabric, fit, formality, banned features (`colorPasses`/`fabricPasses`/
+  `fitPasses`/`formalityPasses`/`featuresPasses`) — none of which touch garment
+  coverage. `FitItem`/`GarmentMeasurements` carry no sleeve-length/neckline/hemline
+  signal at all (checked `types.ts` in full). There is no way to build a `modest`
+  `StyleConfig` that actually enforces "covered" rather than merely correlating
+  with it by accident (e.g. banning `bodycon` silhouette bans plenty of covered
+  bodycon pieces too, and passes plenty of short/sleeveless `relaxed` ones).
+- Both need either a vocabulary extension (new `FabricName` value for fur; a new
+  coverage attribute on `FitItem`/`StyleConfig` — itself a design decision with
+  ripple into ingestion/enrichment, not something to invent unilaterally mid-task)
+  or an explicit design call to accept a lossy approximation. Neither decision
+  was authorized here — logged in backlog.md for anh Khôi to decide.
+
+**Vocabulary discipline** for the 9 shipped styles: every palette color / fabric /
+fit / banned feature / `attributes` value is drawn from the same closed unions as
+batch 1 (`PrimaryColor`, `FabricName`, `ItemFit`, `BannedFeature`, `ColorPalette`,
+`Silhouette`, `Mood`) — nothing new invented. `glam`'s "sequin/satin" reads as
+`silk`+`velvet` fabric with `metallic`-graded color and the highest
+`textureRichness` in the catalog, which is a legitimate mapping (unlike fur, satin
+and sequin are finishes/weaves of fibers already in the union, not a distinct
+material class). `style-catalog-consistency.test.ts` extended to cover the new 9
+(same construction: runtime vocabulary mirrors checked against every field).
+
+**Self-check: every new style vs. its nearest existing neighbor, on the required
+axes** (`formalityRange`, `attributes.colorPalette`, `attributes.silhouette`,
+`attributes.patternLevel`, `attributes.textureRichness`, `fabricsAllowed/Banned`,
+`allowedFits` — instruction requires ≥2 axes to differ per pair):
+- `glam` vs `elegant`: formalityRange `[4.5,5.0]` vs `[3.0,5.0]`; fabricsAllowed
+  `{silk,velvet,cashmere}` vs `{silk,wool,cashmere,velvet,cotton,leather}`;
+  colorPalette `[dark,bold]` vs `[dark,monochrome]`. 3 axes.
+- `businessformal` vs `officechic`: formalityRange `[4.0,5.0]` vs `[3.0,4.5]`;
+  fabricsAllowed `{wool,silk,cashmere}` vs `{cotton,wool,linen,silk,cashmere,
+  polyester}` (officechic's daily-office register). 2 axes.
+- `gothic` vs `grunge`: fabricsAllowed/Banned literally inverted (gothic allows
+  velvet/silk, bans denim/flannel; grunge is the reverse); colorPalette
+  `[dark,monochrome]` vs `[dark,bold]`; silhouette `[bodycon,structured]` vs
+  `[oversized,relaxed]`; allowedFits drops `oversized`/`wide`. 4 axes.
+- `utility` vs `streetwear`: fabricsAllowed restricted `{canvas,cotton,denim,
+  nylon}` vs streetwear's unrestricted (empty = permissive) list; colorPalette
+  `[earth,neutral]` vs `[bold,dark]`. 2 axes. (Also checked vs `cottagecore`,
+  its other new neighbor: patternLevel `1.5` vs `3.5`, fabricsAllowed differs on
+  denim/nylon vs wool/cashmere/linen. 2 axes.)
+- `sporty` vs `athleisure`: fabricsAllowed/Banned inverted (sporty allows
+  wool+leather for varsity jackets, bans fleece; athleisure is the reverse);
+  formalityRange `[1.0,3.0]` vs `[1.0,2.5]`; allowedFits drops `oversized`;
+  silhouette `[structured,relaxed]` vs `[relaxed,oversized]`. 4 axes.
+- `normcore` vs `minimalist`: fabricsAllowed/Banned inverted (normcore allows
+  fleece/polyester/nylon "mall basics", bans minimalist's refined silk/cashmere/
+  leather/linen); formalityRange `[1.0,2.5]` vs `[2.0,4.5]`; allowedFits drops
+  `slim`, adds `oversized`; silhouette drops `tailored`; colorPalette `[neutral]`
+  (no accent tier at all) vs `[neutral,monochrome,dark]`. 5 axes — this is the
+  pair the design doc explicitly named ("cố ý tầm thường" vs "cố ý tinh tế").
+- `retro70s` vs `vintage`: fabricsAllowed swaps tweed/wool/velvet for corduroy/
+  suede/jersey; patternLevel `4.0` (geometric prints) vs `3.0`; silhouette drops
+  `structured`, adds `oversized`. 3 axes.
+- `pinup` vs `vintage`: colorPalette `[bold,neutral]` (red/white/black Americana)
+  vs `[earth,bold]`; silhouette `[bodycon,structured]` vs `[relaxed,structured]`;
+  fabricsAllowed bans vintage's wool/tweed/corduroy/leather; allowedFits drops
+  `relaxed`/`wide`, adds `slim`. 4 axes.
+- `whimsigoth` vs `bohemian`: colorPalette `[dark,bold]` vs `[earth,bold]` — black
+  is bohemian's one *banned* color and whimsigoth's dominant one, a direct
+  inversion; fabricsAllowed drops bohemian's denim/leather/suede/canvas;
+  silhouette drops `oversized`, adds `bodycon`. 3 axes. (Also checked vs `gothic`,
+  its other close neighbor — 4+ axes differ, see filtering.ts comments; and vs
+  `darkacademia` — colorPalette/fabricsAllowed/silhouette/patternLevel all differ.)
+
+No pair fell short of 2 axes — nothing shipped as a quiet duplicate.
+
+**Neighbors bidirectional for every edge touching a new style** (same pattern as
+batch 1, verified by `style-catalog-consistency.test.ts`'s existing bidirectionality
+test plus 8 new `REQUIRED_SYMMETRIC_PAIRS` entries for the pairs named in the
+design: `businessformal↔officechic`, `gothic↔grunge`, `sporty↔athleisure`,
+`normcore↔minimalist`, `retro70s↔vintage`, `whimsigoth↔bohemian`, `glam↔elegant`,
+`pinup↔vintage`). 12 pre-existing configs gained a reverse edge as a result:
+`oldmoney`, `minimalist`, `streetwear`, `athleisure`, `bohemian`, `officechic`,
+`coquette`, `darkacademia`, `cottagecore`, `grunge`, `elegant`, `vintage` — each
+edit is additive only (existing entries in those arrays untouched).
+
+**Popularity** (VN market judgment, differentiated): `utility` .520 highest (cargo/
+utility trending strongly in current VN streetwear) and `businessformal` .460
+(common in banking/finance office culture); `pinup` .200 lowest (very niche in the
+VN market, little mainstream presence). Full list in `filtering.ts`.
+
+**`public.styles`** (migration `20260810000004_style_catalog_expansion_2.sql`,
+applied via Management API — verified live row count first: 22 rows, matching
+batch 1's documented end state, no drift). No schema change (gender_lean column
+already exists). Idempotent: 12 `UPDATE ... SET neighbors = <fixed final array>`
+statements for the existing rows gaining a new edge, `INSERT ... ON CONFLICT (id)
+DO NOTHING` for the 9 new rows. Verified post-apply: 31 total rows; a `deno run`
+dump of `STYLE_CONFIGS` byte-diffed against a live SQL dump of `popularity`/
+`attributes`/`neighbors`/`gender_lean`/`active` — 0 mismatches across all 31 rows.
+`niches` (2 short names per style) and `description` are new content, styled after
+the existing rows.
+
+**Client**: `src/data/index.ts`'s `STYLES`/`STYLE_NICHES` grew from 22 to 31
+entries, each with `genderLean` (`businessformal`/`utility`/`normcore` →
+`'neutral'`, the other 6 → `'feminine'`, matching the DB). No i18n keys added for
+the new style names/descriptions — same pre-existing gap as batch 1 (style catalog
+has no translation path at all today; still flagged in backlog.md, not fixed
+here).
+
+**UX at 31 tiles**: no layout change made. `styles.tsx`/`styles-edit.tsx`'s grid is
+an unbounded `flexWrap` grid inside a `ScrollView` (confirmed unchanged from batch
+1's design.md notes) — 31 cards render correctly, just a taller scroll (roughly 16
+rows at 2 columns vs. 11 at 22 styles). This is a real UX cost (a much longer
+scroll to reach late-popularity styles before selecting), proposed but NOT
+implemented — see backlog.md for the "top-N + show more" recommendation, since the
+instruction was explicit that only small layout fixes should be made directly and
+larger UX changes should be proposed instead.
+
+**Out of scope, left untouched** (same three items batch 1 logged, still true):
+`wardrobe-critic/archetypes.ts`'s `ALL_STYLES`, `ranking.ts`'s
+`PATTERN_FRIENDLY_STYLES`, `scoring.ts`'s `HOUSE_OPPOSED_STYLES` — all three still
+list only the original 8 ids. Not extended here either; still in backlog.md.
+
+### Verify
+
+`npx tsc --noEmit` clean. `npx jest` (run from repo root): 34 suites / 501 tests
+passed — unchanged from the batch-1 entry above (no client-side pure-logic change
+beyond static data, which isn't separately unit-tested). `deno test
+supabase/functions/generate-outfits/engine/`: 261/261 (252 prior + 9 new in
+`style-catalog-consistency.test.ts` — id-set parity extended to 31, 8 new required
+bidirectional pairs, differentiated-popularity check for the 9 new styles). `deno
+test supabase/functions/evaluate-item/`: 37/37 unchanged. `deno test
+supabase/functions/wardrobe-critic/`: 11/11 unchanged. Migration applied +
+verified live (31 rows, 0 mismatches vs. engine config). Not run: `expo`/`eas`
+build, no Supabase Edge Function deploy, no commit/push — all per instruction.
+
+## Mid layer for the outfit engine — blazer over hoodie (2026-08-10)
+
+Design was chosen and handed down (option (b) from the backlog.md AB entry, not decided
+here): add a real `mid` slot rather than the cheap fix (reclassify `HOODIE` as `'top'`,
+which would have killed "hoodie worn open over a tee"). Root cause recap: `enrichment.ts`
+`CATEGORY_MAP` files BOTH `HOODIE` and `BLAZER` under `ItemCategory` `'outwear'`, but
+`OutfitSlots` only had one `outwear?` slot — the two fight over it and can never coexist,
+so `kfashion`'s signature "blazer over hoodie" formula could never be generated even
+though `fabric.layerRole` already distinguished them (`HOODIE:'mid'` vs `BLAZER:'outer'`,
+added 2026-07-03) and scoring was already primed to reward the pairing (`high_low`'s
+formality-gap bonus covers BLAZER 4.5 / HOODIE 1.5 = gap 3.0, top of its reward band).
+
+**`OutfitSlots.mid?: string`** (`engine/types.ts`, mirrored in `src/types/fitEngine.ts`)
+— optional, absent by default, so every pre-existing outfit shape is byte-for-byte
+unaffected (zero regression, see the dedicated test below).
+
+**Resolved by `fabric.layerRole`, not `CATEGORY_MAP`** (`generation.ts`'s
+`generateFromPool`): `midOptions` unifies mid-role items from BOTH `pool.tops`
+(SWEATER/KNIT/CARDIGAN/VEST — CATEGORY_MAP files these as `'top'`) and `pool.outwear`
+(HOODIE/KIMONO — CATEGORY_MAP files these as `'outwear'`). That CATEGORY_MAP split
+(same `layerRole:'mid'`, two different `ItemCategory` buckets) is a pre-existing
+inconsistency the design flagged, not something to fix in `CATEGORY_MAP` itself — it's
+papered over here by drawing the mid pool from both buckets, which is what "resolve by
+LAYER_ROLE" means in practice. `trueOuterOptions` is `pool.outwear` filtered to
+`layerRole === 'outer'`, excluding the mid-role items in that same bucket.
+
+**Physical rule** (the core ask, CALIBRATION-PENDING per repo convention): a mid+outer
+combo is only valid when `mid.fabric.fabricWeight !== 'heavy'` — a heavy hoodie/knit
+doesn't physically fit under a blazer. Banning heavy mid outright already rules out
+heavy-on-heavy stacking too, so no separate outer-weight check was needed. Enforced
+TWICE: `generation.ts` never emits the combo (`midFitsUnderOuter`), and `ranking.ts`
+re-asserts it as defense-in-depth (every candidate, from any generator, passes through
+`rankCandidates` before scoring — so it doesn't rely on every producer having applied the
+rule correctly).
+
+**New variant, bounded growth**: exactly ONE extra optional variant per core (same shape
+as the existing +accessory/+outwear/+canLayer additions in `variantsFor`) — no
+combinatorial blowup. Fires only when the core's `top` is a TRUE base
+(`layerRole:'base'`) — a mid-role `c.top` (e.g. sweater-as-base) is skipped so two mid
+pieces never stack in one look. `generateFromPool`'s existing `PER_FORMULA_CAP` cutoff
+now logs when it actually cuts (`console.log(...'hit PER_FORMULA_CAP'...)`, new) so a
+real cutoff is visible instead of silently dropping remaining rounds.
+
+**Dual-role preserved, not re-implemented**: a mid-role item with no true outer present
+still occupies `outwear` ALONE — that's the pre-existing "hoodie over a tee" outfit,
+completely untouched (the full `pool.outwear` array, mid+outer mixed, still feeds the
+existing bare-outwear variant). Mirrors the idiom `canLayer` already established
+(`generation.ts:528-534`'s "a canLayer top from this pool may occupy the outwear slot
+OVER a true base top") rather than inventing a parallel mechanism.
+
+**`silhouette.ts`'s `resultingBodySilhouette`/`outfitSilhouetteTag`**: deliberately NOT
+changed to fold `mid` into the top-volume math — documented inline at
+`resultingBodySilhouette`. Reasons: (a) the heavy-mid-under-outer ban already excludes
+the case where a mid layer would add meaningful extra bulk on top of the outer; (b)
+folding a third garment into `topGarmentVol` would mean re-deriving the diff/avg
+thresholds and `SHAPE_VOLUME_TARGETS`/`BODY_BASELINE` against a 3-garment top read —
+explicitly out of scope (`SHAPE_VOLUME_TARGETS` is on the do-not-touch list) and would
+risk the golden-case assertions in `silhouette.test.ts`. `items` ordering (mid appended
+LAST everywhere it's flattened — `ranking.ts` `slotsToIds`, `index.ts` `itemsOf`) means
+`.find(i => i.category === …)` in `scoring.ts`/`silhouette.ts` always resolves the real
+top/outwear slot item before a same-category mid one, so this is a no-op for those
+functions rather than requiring any changes there.
+
+**Ordering convention, applied everywhere slots flatten to an id list or a key** — `mid`
+always LAST: `ranking.ts` `slotsToIds`, `index.ts` `itemsOf` + the exclude-key `full` +
+curator image collection + curator `describeItem` + the per-outfit debug log. Client
+mirror (grepped `outwear` across `src/` to find every hardcoded slot list):
+`src/types/fitEngine.ts` `OutfitSlots`, `src/stores/fitEngineStore.ts` `outfitKey` (the
+canonical exclude_ids / dedup / interaction-id builder), `src/features/feed/
+useFitFeed.ts` `slotsToIds` + `fullKey`, `src/features/try-on/components/
+MatchFeedCard.tsx` `pieceIds` (Mix & Match — not itself extended to generate mid
+candidates, but updated so it doesn't silently drop a mid id if one ever appears there).
+`generatePinnedCandidates`/`generateHeroCandidates` were left untouched — the design
+scoped the new variant to `generateCandidates`'s formula-pool path only.
+
+**Tests** (`engine/mid-layer.test.ts`, new): blazer+thin-hoodie+tee+jeans+sneakers is
+generated; a HEAVY hoodie is never placed under the blazer (and never assigned to `mid`
+at all in a wardrobe where it's the only mid-role item); a MEDIUM-weight mid still is
+(only `heavy` is banned); the hoodie still anchors `outwear` alone with no blazer present
+(dual-role preserved); `mid` is never the same item as `top` or `outwear`; a wardrobe
+with no mid-role item never sets `slots.mid` (zero regression) and stays deterministic
+under a fixed seed; the mid+blazer wardrobe is also deterministic under a fixed seed.
+
+`backlog.md`'s AB entry for this bug marked `[x]` RESOLVED with the summary of what was
+built (see there for the two design options that were weighed before (b) was chosen).
+
+### Verify
+
+`npx tsc --noEmit` clean. `npx jest` (run from repo root): 34 suites / 501 tests passed,
+unchanged — this feature has no client business-logic test surface beyond the slot
+key/id-list plumbing, which is exercised indirectly by the existing
+`fitEngineStore.mixmatch.test.ts` (unaffected — mid stays undefined on that path).
+`deno test supabase/functions/generate-outfits/engine/`: 260/260 (252 prior + 8 new in
+`mid-layer.test.ts`). `deno test supabase/functions/evaluate-item/`: 37/37 unchanged.
+`deno test supabase/functions/wardrobe-critic/`: 11/11 unchanged (its own test run now
+also prints the new `PER_FORMULA_CAP` cutoff log lines for `texture_stack`/
+`one_two_three`/`layering_stack` — pre-existing cutoffs made visible by the new log
+statement, not new cutoffs it introduced; no assertion depends on them). Not run:
+`expo`/`eas` build, no Supabase Edge Function deploy, no commit/push — all per
+instruction.

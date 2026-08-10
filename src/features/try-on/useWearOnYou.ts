@@ -16,8 +16,10 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { validatePersonPhoto, generateWearOn } from '../../services/tryOnWearService';
 import { checkCredit, isCreditExhausted } from '../../services/usageCreditService';
+import { useCreditQuota } from '../monetization/useCreditQuota';
 import { hasPremiumAccountType } from '../../services/profileService';
-import { compositeFace } from './faceComposite';
+import { compositeFace, type CompositeReason } from './faceComposite';
+import { recordFaceCompositeOutcome } from './faceCompositeStats';
 import type { WearGarment, WearProfile, WearOnResult } from '../../types/tryOn';
 import i18n from '../../i18n';
 
@@ -39,6 +41,22 @@ export function useWearOnYou({ garments, profile, context }: UseWearOnYouArgs) {
   const [creditBlocked, setCreditBlocked] = useState(false);
   const [creditsRemaining, setCreditsRemaining] = useState<number | null>(null);
   const [result, setResult] = useState<WearOnResult | null>(null);
+  // Composite outcome (feature: try-on fixes, 2026-08-06) — was previously
+  // __DEV__ console-only, so nobody outside a dev build could tell whether
+  // the face composite is actually working. null = not attempted yet this
+  // generation, true = composited, false = attempted and fell back to the
+  // raw generated image.
+  const [faceApplied, setFaceApplied] = useState<boolean | null>(null);
+  // Specific outcome reason from the last compositeFace() call (diagnostics,
+  // 2026-08-07) — null until a generation has run. See faceComposite.ts's
+  // CompositeReason for the full set of causes.
+  const [faceReason, setFaceReason] = useState<CompositeReason | null>(null);
+
+  // Display-only monthly allowance. Distinct from `creditsRemaining` above,
+  // which is only ever set for a non-premium user at the moment they're
+  // blocked or right after a generation — this one loads on mount and covers
+  // premium accounts too, which now have a real cap of their own.
+  const { status: quota, refresh: refreshQuota } = useCreditQuota('try_on');
 
   // Guards against a stale validate/generate resolving after the user moved on.
   const runId = useRef(0);
@@ -106,6 +124,8 @@ export function useWearOnYou({ garments, profile, context }: UseWearOnYouArgs) {
     const id = ++runId.current;
     setErrorMsg('');
     setCreditBlocked(false);
+    setFaceApplied(null);
+    setFaceReason(null);
 
     try {
       // Credit gate (skip for premium).
@@ -141,18 +161,29 @@ export function useWearOnYou({ garments, profile, context }: UseWearOnYouArgs) {
         // behaviour). Never blocks or throws into the result flow.
         let finalResult = out;
         try {
-          const compositeUri = await compositeFace(photoUri, out.localImageUri);
+          const { uri: compositeUri, reason } = await compositeFace(photoUri, out.localImageUri);
           if (id !== runId.current) return;
+          setFaceReason(reason);
           if (compositeUri) {
-            finalResult = { localImageUri: compositeUri };
+            finalResult = { ...out, localImageUri: compositeUri };
             // The raw generated file is superseded by the composite — drop it
             // so we don't leak a duplicate image per generation.
             FileSystem.deleteAsync(out.localImageUri, { idempotent: true }).catch(() => {});
+            setFaceApplied(true);
+            void recordFaceCompositeOutcome(true, reason);
             if (__DEV__) console.log('[wearOnYou] face composite applied');
-          } else if (__DEV__) {
-            console.log('[wearOnYou] face composite skipped (no face / implausible alignment) — using raw generated image');
+          } else {
+            setFaceApplied(false);
+            void recordFaceCompositeOutcome(false, reason);
+            if (__DEV__) console.log(`[wearOnYou] face composite skipped (${reason}) — using raw generated image`);
           }
         } catch (compositeErr) {
+          // compositeFace() itself is documented to never throw, but this
+          // guard is kept as a last resort so a surprise error still
+          // degrades to the raw generated image instead of breaking the flow.
+          setFaceApplied(false);
+          setFaceReason('error');
+          void recordFaceCompositeOutcome(false, 'error');
           if (__DEV__) console.log('[wearOnYou] face composite failed, using raw generated image:', compositeErr);
         }
 
@@ -179,8 +210,12 @@ export function useWearOnYou({ garments, profile, context }: UseWearOnYouArgs) {
       }
     } finally {
       generating.current = false;
+      // A generation that reached the server consumed a credit; one that was
+      // blocked didn't. Re-reading on both paths is cheaper than tracking which
+      // happened, and keeps the counter honest after a mid-flight 402.
+      refreshQuota();
     }
-  }, [photoUri, garments, profile, context]);
+  }, [photoUri, garments, profile, context, refreshQuota]);
 
   // Back to the upload step to choose a different photo.
   const pickAnother = useCallback(() => {
@@ -189,6 +224,8 @@ export function useWearOnYou({ garments, profile, context }: UseWearOnYouArgs) {
     setReason('');
     setErrorMsg('');
     setResult(null);
+    setFaceApplied(null);
+    setFaceReason(null);
     setPhase('upload');
   }, []);
 
@@ -200,7 +237,7 @@ export function useWearOnYou({ garments, profile, context }: UseWearOnYouArgs) {
 
   return {
     phase, photoUri, reason, errorMsg, result,
-    creditBlocked, creditsRemaining,
+    creditBlocked, creditsRemaining, quota, faceApplied, faceReason,
     pickFromLibrary, pickFromCamera,
     generate, regenerate, pickAnother,
   };

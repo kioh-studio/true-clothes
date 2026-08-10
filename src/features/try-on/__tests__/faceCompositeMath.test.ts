@@ -1,6 +1,6 @@
 import {
   estimateSimilarity, applySim, invertSim, similarityScaleRot, isAlignmentPlausible,
-  ellipseAlpha, channelStats, colorTransfer, bilinearSample,
+  ellipseAlpha, channelStats, colorTransfer, bilinearSample, faceMaskRadii,
   type Pt, type Similarity,
 } from '../faceCompositeMath';
 
@@ -130,6 +130,44 @@ describe('channelStats + colorTransfer', () => {
   test('clamps to the 0..255 range', () => {
     expect(colorTransfer(300, 100, 10, 400, 10)).toBeLessThanOrEqual(255);
     expect(colorTransfer(-50, 100, 10, -400, 10)).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('faceMaskRadii', () => {
+  const interEye = 20;
+
+  test('ear-span path: rx derives from earSpan*0.62 when within the clamp range', () => {
+    const earSpan = 60; // raw = 60*0.62 = 37.2, within [interEye*1.4=28, interEye*2.6=52]
+    const { rx, ry } = faceMaskRadii(interEye, earSpan);
+    expect(rx).toBeCloseTo(37.2, 5);
+    expect(ry).toBeCloseTo(37.2 * 1.28, 5);
+  });
+
+  test('clamps to the lower bound (interEye * 1.4) when the ear-span-derived rx is too small', () => {
+    const earSpan = 10; // raw = 6.2, below the 28 lower bound
+    const { rx, ry } = faceMaskRadii(interEye, earSpan);
+    expect(rx).toBeCloseTo(interEye * 1.4, 5);
+    expect(ry).toBeCloseTo(rx * 1.28, 5);
+  });
+
+  test('clamps to the upper bound (interEye * 2.6) when the ear-span-derived rx is too large', () => {
+    const earSpan = 200; // raw = 124, above the 52 upper bound
+    const { rx, ry } = faceMaskRadii(interEye, earSpan);
+    expect(rx).toBeCloseTo(interEye * 2.6, 5);
+    expect(ry).toBeCloseTo(rx * 1.28, 5);
+  });
+
+  test('falls back to interEye * 1.9 when earSpanPx is null', () => {
+    const { rx, ry } = faceMaskRadii(interEye, null);
+    expect(rx).toBeCloseTo(interEye * 1.9, 5);
+    expect(ry).toBeCloseTo(rx * 1.28, 5);
+  });
+
+  test('returns zero radii for a degenerate/non-finite interEyePx', () => {
+    expect(faceMaskRadii(0, 40)).toEqual({ rx: 0, ry: 0 });
+    expect(faceMaskRadii(-5, 40)).toEqual({ rx: 0, ry: 0 });
+    expect(faceMaskRadii(NaN, 40)).toEqual({ rx: 0, ry: 0 });
+    expect(faceMaskRadii(Infinity, 40)).toEqual({ rx: 0, ry: 0 });
   });
 });
 

@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
     const [profileRes, measurementsRes, styleRes, wardrobeIdRes] = await Promise.all([
       supabase.from('profiles').select('color_season, color_tone12, personal_palette, location_country, location_country_code').eq('id', userId).single(),
       supabase.from('body_measurements').select('*').eq('user_id', userId).single(),
-      supabase.from('style_profiles').select('selected_styles, color_preferences').eq('user_id', userId).single(),
+      supabase.from('style_profiles').select('selected_styles, color_preferences, suggest_by_style, suggest_by_personal_color, suggest_by_formula, suggest_by_measurements').eq('user_id', userId).single(),
       supabase.from('wardrobes').select('id').eq('user_id', userId).single(),
     ]);
 
@@ -73,7 +73,12 @@ Deno.serve(async (req) => {
     const wardrobeRes = wardrobeId
       ? await supabase
           .from('clothing_items')
-          .select('id, type, name, color, material, fit, pattern, warmth_season, can_layer, print_scale, drape, visual_interest, m_chest, m_shoulder_width, m_sleeves, m_body_length, m_upper_arm, m_waist, m_hip, m_inseam, m_thigh, m_rise')
+          // primary_hex/secondary_hex/graphics added (Fix 3, 2026-08-06) to match
+          // generate-outfits' SELECT, and now threaded into ClothingItemRow below
+          // (evaluate-item phase 2, 2026-08-06) — mirrors generate-outfits/index.ts
+          // so both endpoints run enrichment.ts's hex refinement and structured-
+          // graphics preference the same way instead of always seeing undefined.
+          .select('id, type, name, color, material, fit, pattern, warmth_season, can_layer, print_scale, drape, visual_interest, primary_hex, secondary_hex, graphics, m_chest, m_shoulder_width, m_sleeves, m_body_length, m_upper_arm, m_waist, m_hip, m_inseam, m_thigh, m_rise')
           .eq('wardrobe_id', wardrobeId)
       : { data: [] as Record<string, unknown>[], error: null };
 
@@ -107,6 +112,9 @@ Deno.serve(async (req) => {
         printScale: row.print_scale as string | null | undefined,
         drape: row.drape as string | null | undefined,
         visualInterest: row.visual_interest as number | null | undefined,
+        primary_hex: row.primary_hex as string | null | undefined,
+        secondary_hex: row.secondary_hex as string | null | undefined,
+        graphics: row.graphics as ClothingItemRow['graphics'],
         measurements: measurements.length > 0 ? measurements : undefined,
       };
     });
@@ -121,7 +129,13 @@ Deno.serve(async (req) => {
     const profileData = profileRes.data as
       | { color_season?: string; color_tone12?: string; personal_palette?: string[]; location_country?: string; location_country_code?: string }
       | null;
-    const styleData = styleRes.data as { selected_styles?: string[]; color_preferences?: string[] } | null;
+    const styleData = styleRes.data as
+      | {
+          selected_styles?: string[]; color_preferences?: string[];
+          suggest_by_style?: boolean; suggest_by_personal_color?: boolean;
+          suggest_by_formula?: boolean; suggest_by_measurements?: boolean;
+        }
+      | null;
     const bodyMeasurements: BodyMeasurements = measurementsRes.data ?? {};
     // Body-neutral styling (recommendation #6): suppress body_shape BEFORE it
     // reaches analyzeWardrobe/unlockCountFor — both thread bodyMeasurements
@@ -131,9 +145,29 @@ Deno.serve(async (req) => {
       bodyMeasurements.body_shape = undefined;
       console.log('[wardrobe-critic] body-neutral: body_shape suppressed');
     }
+
+    // 4 suggestion toggles (2026-08-10) — mirrors generate-outfits/index.ts.
+    // suggest_by_formula has no effect here: this pipeline never reads
+    // formula_preferences (qualifiedOutfits calls generateCandidates(items,
+    // undefined, seed)), so the toggle is a structural no-op for this endpoint.
+    const suggestByStyle = styleData?.suggest_by_style !== false;
+    const suggestByPersonalColor = styleData?.suggest_by_personal_color !== false;
+    const suggestByMeasurements = styleData?.suggest_by_measurements !== false;
+    {
+      const off = [
+        !suggestByStyle && 'style',
+        !suggestByPersonalColor && 'personal_color',
+        !suggestByMeasurements && 'measurements',
+      ].filter((v): v is string => typeof v === 'string');
+      if (off.length > 0) console.log(`[wardrobe-critic] suggestion toggles off: ${off.join(', ')}`);
+    }
+
     const selectedStyles: string[] = styleData?.selected_styles ?? [];
+    // suggest_by_personal_color=false: same rule as generate-outfits/evaluate-item
+    // — drop the detected palette from the union, null the season/tone12 read below.
+    const personalPalette: string[] = suggestByPersonalColor ? (profileData?.personal_palette ?? []) : [];
     const colorPreferences: string[] = [
-      ...new Set([...(styleData?.color_preferences ?? []), ...(profileData?.personal_palette ?? [])]),
+      ...new Set([...(styleData?.color_preferences ?? []), ...personalPalette]),
     ];
     const weatherSeason = seasonForMonth(
       new Date().getUTCMonth(),
@@ -142,17 +176,20 @@ Deno.serve(async (req) => {
     const seed = `${userId}:${new Date().toISOString().slice(0, 10)}`;
 
     const t0 = Date.now();
-    const colorTone12 = profileData?.color_tone12?.toLowerCase() || undefined;
+    const colorSeason = suggestByPersonalColor ? (profileData?.color_season?.toLowerCase() || undefined) : undefined;
+    const colorTone12 = suggestByPersonalColor ? (profileData?.color_tone12?.toLowerCase() || undefined) : undefined;
 
     const report = analyzeWardrobe({
       wardrobeRows,
       selectedStyles,
       colorPreferences,
       bodyMeasurements,
-      colorSeason: profileData?.color_season?.toLowerCase() || undefined,
+      colorSeason,
       colorTone12,
       weatherSeason,
       seed,
+      suggestByStyle,
+      suggestByMeasurements,
     });
 
     // Optional Try-On bridge: unlock count for one concrete scanned item.
@@ -173,9 +210,13 @@ Deno.serve(async (req) => {
       // bridge's unlock_count is measured against the identical feed-eligible
       // pool (analyze.ts styleFilter) instead of the full unfiltered wardrobe.
       const styleFilteredItems = styleFilter(fitItems, selectedStyles);
+      // Reuse the already-toggle-gated colorSeason/colorTone12 (not a fresh
+      // read off profileData) so this bridge respects suggest_by_personal_color
+      // the same way the baseline/recommendations report above does.
       const { count } = unlockCountFor(styleFilteredItems, candFit, {
         bodyMeasurements, styleProfile: { selectedStyles }, colorPreferences,
-        colorSeason: profileData?.color_season?.toLowerCase() || undefined, colorTone12, weatherSeason,
+        colorSeason, colorTone12, weatherSeason,
+        suggestByStyle, suggestByMeasurements,
       }, seed);
       candidate = { unlock_count: count, matched_archetype_id: matchArchetype(candFit)?.id ?? null };
     }

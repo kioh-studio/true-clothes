@@ -5,7 +5,8 @@
 import {
   ClothingItemRow, FitItem, ItemCategory, ColorProfile, PrimaryColor,
   ColorLightness, ColorSaturation, GraphicsProfile, FabricProfile,
-  Pattern, ItemFit, FabricName, GarmentMeasurements,
+  Pattern, ItemFit, FabricName, GarmentMeasurements, LogoSignal,
+  BodyMeasurements, PreferredFit, BodyShape,
 } from './types.ts';
 
 // ─── Category mapping ─────────────────────────────────────────────────────────
@@ -440,6 +441,35 @@ function inferGraphics(name: string): GraphicsProfile {
   return { graphicWeight: 'none', artworkType: 'none' };
 }
 
+// ─── Structured graphics (clothing_items.graphics jsonb, wired 2026-08-06) ──
+// backfill-item-metadata / generate-item-image populate a structured
+// {present,size,kind,text} signal (LogoSignal) that's strictly more reliable
+// than guessing from the item NAME — prefer it when present. A LogoSignal
+// with `kind` present but no size still carries real information (something
+// IS there), so it lands on 'medium_logo' rather than silently degrading to
+// 'none'. There is no LogoSignal kind for an all-over print, so a structured
+// signal can never yield 'full_print'/'all_over_print' — only the name-
+// keyword fallback ('print' in the name) can.
+function graphicsFromLogoSignal(sig: LogoSignal): GraphicsProfile {
+  if (!sig.present) return { graphicWeight: 'none', artworkType: 'none' };
+  const artworkType: GraphicsProfile['artworkType'] =
+    sig.kind === 'brand_logo'   ? 'brand_logo' :
+    sig.kind === 'slogan_text'  ? 'slogan_text' :
+    'graphic_illustration'; // kind === 'graphic', or present but unclassified
+  const graphicWeight: GraphicsProfile['graphicWeight'] =
+    sig.size === 'large'  ? 'large_graphic' :
+    sig.size === 'small'  ? 'small_logo' :
+    'medium_logo'; // 'medium' or unrecorded-but-present
+  return { graphicWeight, artworkType };
+}
+
+// Prefer the structured jsonb signal; fall back to the name-keyword scan when
+// the column is null/absent (most rows, until backfill/re-ingest catches up).
+function resolveGraphics(item: ClothingItemRow): GraphicsProfile {
+  if (item.graphics) return graphicsFromLogoSignal(item.graphics);
+  return inferGraphics(item.name);
+}
+
 // ─── Fit derivation ──────────────────────────────────────────────────────────
 
 const FIT_FROM_STRING: Record<string, ItemFit> = {
@@ -662,7 +692,7 @@ function applyStoredWarmth(fabric: FabricProfile, item: ClothingItemRow): Fabric
 export function toFitItem(item: ClothingItemRow): FitItem {
   const category = categoryOf(item.type);
   const pattern = resolvePattern(item);
-  const graphics = inferGraphics(item.name);
+  const graphics = resolveGraphics(item);
   const fabric = applyStoredWarmth(fabricProfileOf(item.material, category), item);
   // Measured-hex color layer (2026-07-06): when the item's isolated photo has
   // yielded a measured primary_hex, refine hue/sat/lum with the ACTUAL pixel
@@ -721,5 +751,48 @@ export function toFitItem(item: ClothingItemRow): FitItem {
       pattern: patternIsReal(item),
       warmthSeason: warmthSeasonIsReal(item),
     },
+  };
+}
+
+// ─── Build BodyMeasurements from a public.body_measurements row (Fix 1, 2026-08-06) ──
+// The row's numeric body_* columns already share the exact same name as the
+// engine's BodyMeasurements fields (verified against
+// src/services/measurementService.ts's MeasurementRow — the client's own
+// source of truth for the live schema, since supabase/migrations/** is known
+// to drift from prod), so those pass straight through. `body_shape` also
+// keeps its name on both sides. `preferred_fit` (DB, snake_case) was the real
+// mismatch: the raw row was previously assigned directly to the camelCase
+// `BodyMeasurements` type (`measurementsRes.data ?? {}`), so `preferredFit`
+// was always undefined and `preferredFitDelta` (scoring.ts) silently
+// contributed 0 to every score. Unrecognized enum values (stale/dirty rows)
+// map to undefined instead of being passed through and later crashing
+// FIT_COMPAT/bodyShapeAdjustment's exhaustive lookups.
+const PREFERRED_FIT_VALUES: ReadonlySet<string> = new Set(['SLIM', 'REGULAR', 'RELAXED', 'OVERSIZED']);
+const BODY_SHAPE_VALUES: ReadonlySet<string> = new Set(['hourglass', 'rectangle', 'triangle', 'inverted_triangle', 'apple']);
+
+const num = (v: unknown): number | undefined => typeof v === 'number' ? v : undefined;
+
+export function toBodyMeasurements(row: Record<string, unknown> | null | undefined): BodyMeasurements {
+  if (!row) return {};
+  const rawFit = typeof row.preferred_fit === 'string' ? row.preferred_fit : undefined;
+  const rawShape = typeof row.body_shape === 'string' ? row.body_shape : undefined;
+  return {
+    body_height:            num(row.body_height),
+    body_weight:            num(row.body_weight),
+    body_bust:              num(row.body_bust),
+    body_waist:             num(row.body_waist),
+    body_shoulder_width:    num(row.body_shoulder_width),
+    body_sleeve_length:     num(row.body_sleeve_length),
+    body_upper_body_length: num(row.body_upper_body_length),
+    body_upper_arm:         num(row.body_upper_arm),
+    body_neck:              num(row.body_neck),
+    body_hip:               num(row.body_hip),
+    body_inseam:            num(row.body_inseam),
+    body_thigh:             num(row.body_thigh),
+    body_rise:              num(row.body_rise),
+    body_foot_length:       num(row.body_foot_length),
+    body_foot_width:        num(row.body_foot_width),
+    preferredFit: rawFit && PREFERRED_FIT_VALUES.has(rawFit) ? (rawFit as PreferredFit) : undefined,
+    body_shape:   rawShape && BODY_SHAPE_VALUES.has(rawShape) ? (rawShape as BodyShape) : undefined,
   };
 }

@@ -31,6 +31,14 @@ export interface AnalyzeInput {
   colorTone12?: string;
   weatherSeason?: Season;
   seed: string;
+  // 4 suggestion toggles (2026-08-10) — threaded straight into the shared
+  // EngineContext below, same undefined/true = on convention as
+  // generate-outfits. suggest_by_formula has no equivalent here:
+  // qualifiedOutfits always calls generateCandidates(items, undefined, seed) —
+  // formula preference was never read in this pipeline, so that toggle is a
+  // structural no-op for wardrobe-critic.
+  suggestByStyle?: boolean;
+  suggestByMeasurements?: boolean;
 }
 
 export interface Recommendation {
@@ -159,6 +167,8 @@ export function analyzeWardrobe(input: AnalyzeInput): GapReport {
     colorSeason: input.colorSeason,
     colorTone12: input.colorTone12,
     weatherSeason: input.weatherSeason,
+    suggestByStyle: input.suggestByStyle,
+    suggestByMeasurements: input.suggestByMeasurements,
   };
 
   const hasCore = (cat: string) => filtered.some(i => i.category === cat);

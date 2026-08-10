@@ -1,6 +1,9 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useAuthStore } from '../../stores/authStore';
-import { type BodyMeasurements, type BodyShape, computeBodyShape } from '../../types/measurements';
+import {
+  type BodyMeasurements, type BodyShape,
+  computeBodyShape, computeBodyShapeLegacy, stabilizeBodyShape,
+} from '../../types/measurements';
 import { useTranslation } from '../../i18n';
 import type { TFunction } from 'i18next';
 
@@ -58,13 +61,18 @@ export function useMeasurements() {
   const [consentGiven, setConsentGiven] = useState(measurements?.measurementsConsent ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // A saved shape counts as a manual override ONLY if it differs from what the
-  // saved measurements derive — otherwise treat it as AUTO so editing bust/waist/
-  // hip keeps re-deriving the shape instead of pinning a stale value forever.
+  // A saved shape counts as a manual override ONLY if it matches NEITHER the
+  // current classifier NOR the legacy (pre-2026-08-03) classifier's output for
+  // the saved measurements — otherwise it's just current or old-classifier
+  // output (never a real user choice), so treat it as AUTO and keep editing
+  // bust/waist/hip re-deriving the shape instead of pinning a stale value
+  // forever.
   const [bodyShapeOverride, setBodyShapeOverride] = useState<BodyShape | null>(() => {
     const saved = measurements?.bodyShape ?? null;
     if (!saved) return null;
-    return saved === computeBodyShape(measurements ?? {}) ? null : saved;
+    const current = computeBodyShape(measurements ?? {});
+    const legacy = computeBodyShapeLegacy(measurements ?? {});
+    return saved === current || saved === legacy ? null : saved;
   });
 
   const setField = useCallback((key: NumericKey, val: string) => {
@@ -81,8 +89,8 @@ export function useMeasurements() {
   }, [values]);
 
   const bodyShape = useMemo(
-    () => bodyShapeOverride ?? computeBodyShape(parsedMeasurements),
-    [bodyShapeOverride, parsedMeasurements],
+    () => bodyShapeOverride ?? stabilizeBodyShape(measurements?.bodyShape ?? null, parsedMeasurements),
+    [bodyShapeOverride, parsedMeasurements, measurements?.bodyShape],
   );
 
   const isDirty = JSON.stringify(values) !== JSON.stringify(initialValues) || consentGiven !== (measurements?.measurementsConsent ?? false);

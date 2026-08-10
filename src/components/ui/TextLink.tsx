@@ -23,5 +23,7 @@ const styles = StyleSheet.create({
   text: {
     ...type.ui,
     textDecorationLine: 'underline',
+    // Same trailing-letterSpacing clip guard as PrimaryButton.
+    paddingHorizontal: 2,
   },
 });

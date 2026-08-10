@@ -540,13 +540,43 @@ function generateFromPool(pool: FormulaPool, rand: () => number, target?: Target
           (FIT_VOLUME[l.fit] ?? 2) >= (FIT_VOLUME[baseTop.fit] ?? 2))
       : [];
 
+  // Mid layer (2026-08-10) — resolved by fabric.layerRole, NOT the coarse
+  // CATEGORY_MAP that files both HOODIE and BLAZER under the 'outwear'
+  // ItemCategory (see enrichment.ts CATEGORY_MAP / LAYER_ROLE_BY_TYPE). That
+  // split is also why the SAME layerRole ('mid') lands in two different
+  // ItemCategory buckets today — SWEATER/KNIT/CARDIGAN/VEST under 'top',
+  // HOODIE/KIMONO under 'outwear' — so the candidate pool is unified here
+  // from BOTH pool.tops and pool.outwear rather than re-deriving that split.
+  const midOptions = [...pool.tops, ...pool.outwear].filter(i => i.fabric.layerRole === 'mid');
+  // A TRUE outer (blazer/jacket/coat/…) — excludes the mid-role items that
+  // also happen to share the 'outwear' ItemCategory (hoodie/kimono), which
+  // must never be treated as the true shell for this variant.
+  const trueOuterOptions = pool.outwear.filter(i => i.fabric.layerRole === 'outer');
+  // CALIBRATION-PENDING: a true outer worn over a HEAVY mid doesn't physically
+  // fit (a thick hoodie/heavy knit under a blazer) — banned outright rather
+  // than merely discouraged by scoring. Banning heavy mid here already rules
+  // out heavy-on-heavy stacking too (a heavy outer over a light/medium mid is
+  // still fine, so only the mid side needs the check).
+  const midFitsUnderOuter = (mid: FitItem) => mid.fabric.fabricWeight !== 'heavy';
+
   const variantsFor = (c: Core): OutfitSlots[] => {
     const base: OutfitSlots = { top: c.top.id, bottom: c.bottom.id, shoes: c.shoe.id };
-    // Outerwear-anchored core: the coat is fixed — only the accessory varies.
+    // Outerwear-anchored core: the coat is fixed — only the accessory (and,
+    // when the anchor is a true outer, a mid layer) varies.
     if (c.outwear) {
       base.outwear = c.outwear.id;
       const vs: OutfitSlots[] = [{ ...base }];
       if (accs.length > 0) vs.push({ ...base, accessory: pick(accs).id });
+      // Dual-role mid layer (blazer OVER a thin hoodie): only when the anchor
+      // is a TRUE outer over a TRUE base top — an anchor that is itself a mid
+      // piece (e.g. hoodie anchoring alone) has nothing sensible to layer
+      // under it, and a mid-role c.top (e.g. sweater as the base) would double
+      // up two mid pieces in one look.
+      if (c.outwear.fabric.layerRole === 'outer' && c.top.fabric.layerRole === 'base') {
+        const midChoices = midOptions.filter(m =>
+          m.id !== c.top.id && m.id !== c.outwear!.id && midFitsUnderOuter(m));
+        if (midChoices.length > 0) vs.push({ ...base, mid: pick(midChoices).id });
+      }
       return shuffle(vs, rand);
     }
     const vs: OutfitSlots[] = [{ ...base }];
@@ -555,6 +585,17 @@ function generateFromPool(pool: FormulaPool, rand: () => number, target?: Target
     if (outwear.length > 0 && accs.length > 0) vs.push({ ...base, outwear: pick(outwear).id, accessory: pick(accs).id });
     const layers = layerOptionsFor(c.top);
     if (layers.length > 0)                     vs.push({ ...base, outwear: pick(layers).id });
+    // Mid + true outer together (2026-08-10): the base top stays fixed, a
+    // TRUE outer takes the outwear slot and a compatible mid layers between
+    // them — e.g. blazer over a thin hoodie over a tee. Bounded to ONE extra
+    // variant, same as the other optional-slot additions above — no
+    // combinatorial blowup.
+    if (c.top.fabric.layerRole === 'base' && trueOuterOptions.length > 0) {
+      const outer = pick(trueOuterOptions);
+      const midChoices = midOptions.filter(m =>
+        m.id !== c.top.id && m.id !== outer.id && midFitsUnderOuter(m));
+      if (midChoices.length > 0) vs.push({ ...base, outwear: outer.id, mid: pick(midChoices).id });
+    }
     return shuffle(vs, rand);
   };
   const coreVariants = cores.map(variantsFor);
@@ -565,7 +606,14 @@ function generateFromPool(pool: FormulaPool, rand: () => number, target?: Target
     for (const vs of coreVariants) {
       if (round >= vs.length) continue;
       candidates.push({ slots: vs[round], formula: pool.formula });
-      if (candidates.length >= PER_FORMULA_CAP) return candidates;
+      if (candidates.length >= PER_FORMULA_CAP) {
+        // Bounded growth: the mid-layer variant above adds at most ONE extra
+        // variant per core (same shape as +accessory/+outwear/+layer), so this
+        // cap is unchanged from before that feature — logged so a real cutoff
+        // is visible rather than silently dropping remaining rounds/cores.
+        console.log(`[generate-outfits] formula '${pool.formula}' hit PER_FORMULA_CAP=${PER_FORMULA_CAP} (${cores.length} cores, round ${round}/${maxRounds}) — remaining variants dropped`);
+        return candidates;
+      }
     }
   }
   return candidates;

@@ -1,8 +1,124 @@
+## AB. Phát hiện phiên 2026-08-10 (review toàn app + khảo sát engine)
+
+- [ ] 🔴 **`app/build.tsx` "Build an Outfit" chạy hoàn toàn trên MOCK** (2026-08-10) —
+  `build.tsx:398` lấy `const { items, ... } = useAppStore()`, chỉ `items` chứ KHÔNG lấy
+  `wardrobeItems`. Mà `appStore.items` khởi tạo = `ITEMS` (14 món demo hardcoded trong
+  `src/data/index.ts`). So sánh: `app/(tabs)/index.tsx:104` lấy CẢ `items` lẫn
+  `wardrobeItems`. Nghĩa là một mục chính trong Options Menu đang cho user phối quần áo
+  KHÔNG PHẢI của họ — mọi pool/anchor/bước gợi ý đều chạy trên catalogue demo. Đây là
+  bug user thấy được ngay. Chưa sửa (ngoài phạm vi phiên phát hiện ra nó).
+
+- [x] **Engine KHÔNG sinh được outfit layer blazer-chồng-hoodie** (2026-08-10, phát
+  hiện khi anh Khôi đưa ảnh K-fashion thật để khảo sát). RESOLVED 2026-08-10 (cùng
+  session, option (b) đã chốt) — thêm slot `mid?: string` vào `OutfitSlots`
+  (`engine/types.ts`), resolved bằng `fabric.layerRole` (không dùng CATEGORY_MAP thủ
+  công) trong `generation.ts`'s `generateFromPool`: một biến thể mới `{ outwear:
+  <true outer>, mid: <layerRole 'mid' item> }` khi core's `top` là true base
+  (`layerRole:'base'`) và pool có true outer. Quy tắc vật lý: mid+outer chỉ hợp lệ
+  khi `mid.fabric.fabricWeight !== 'heavy'` (banned outright, CALIBRATION-PENDING),
+  enforced ở cả generation.ts (không sinh) và ranking.ts (defense-in-depth, loại bỏ
+  candidate nếu lọt qua). Dual-role giữ nguyên: mid-role item (hoodie/kimono) vẫn
+  chiếm được slot `outwear` một mình khi không có true outer (hành vi cũ không đổi).
+  `resultingBodySilhouette` (silhouette.ts) CỐ Ý không tính mid vào volume — lý do
+  ghi trong comment ngay tại hàm đó. Client (`fitEngineStore.ts` outfitKey,
+  `useFitFeed.ts` slotsToIds/fullKey, `MatchFeedCard.tsx` pieceIds,
+  `types/fitEngine.ts` OutfitSlots) đã thêm `mid` vào full-slot key/id list. Tests
+  mới: `engine/mid-layer.test.ts`. Chưa deploy (chủ dự án tự deploy sau khi review).
+
+- [ ] **Personal colour: KHÔNG có telemetry chẩn đoán nào** (2026-08-10) — `hueDeg`,
+  `ITA°`, `snrOk`, `scleraCorrected`, các cờ confidence đều được tính rồi bay hơi: không
+  log, không render, không lưu (verify: không một `console.log` nào trong
+  `src/features/personal-color/`; các field đó không xuất hiện ở `ResultView`). Chỉ
+  `season`/`palette`/`tone12` tới được Supabase. Hệ quả: KHÔNG đo được độ chính xác —
+  cầm máy chụp 15 lần cũng chỉ đọc được `tone12`/`season` từ màn kết quả, không biết
+  hue bao nhiêu độ hay SNR có đạt không. Chặn thẳng Tier 1 của
+  `docs/personal-color-device-test-protocol.md`. Doc đã ghi rõ chỗ chèn `console.log`
+  tạm trong `analyzeFace` (instrumentation vứt đi, không ship).
+
+- [ ] **`takePictureAsync` không try/catch — CHƯA loại trừ được** (2026-08-10) — smoke-test
+  trên emulator-5554 không ép được reject nên giả thuyết "treo vĩnh viễn ở màn camera"
+  vẫn mở. Rủi ro thật trên máy thật: app khác chiếm camera, thoát app giữa lúc chụp, thu
+  hồi quyền. Đã ghi triệu chứng cần báo ("đứng im ở màn camera, không crash") vào
+  protocol test.
+  ✅ Tin tốt từ cùng lần smoke-test: nhánh FALLBACK chạy đúng — face-scan → wrist-scan →
+  câu hỏi fallback → result `TRUE SPRING` → save thành công, không crash, sạch trong ~25k
+  dòng logcat. Ghi chú: deep link `mien://onboarding/personal-color` KHÔNG hoạt động
+  (route group không nằm trong URL), phải dùng `mien://personal-color`.
+
+- [ ] **Sentry: cần DSN + cân nhắc thêm lại Gradle plugin** (2026-08-10) —
+  `EXPO_PUBLIC_SENTRY_DSN` đang RỖNG ở `.env` + cả 3 profile `eas.json`; code guard sẵn
+  nên chạy im lặng, nhưng chưa thu được crash nào cho tới khi anh Khôi tạo project Sentry
+  và dán DSN. `expo install` tự thêm config plugin vào `app.json` và agent đã GỠ RA có
+  chủ đích: plugin đó chain `sentry-cli` upload vào Android release bundle và FAIL nếu
+  thiếu `SENTRY_AUTH_TOKEN` → sẽ làm gãy pipeline Gradle release local (dự án không dùng
+  EAS build cho Android). Thêm lại khi đã có project + token, nếu muốn source map.
+  Có `app/dev-sentry-test.tsx` (dev-only, đã `.easignore`) để tự bắn lỗi thử.
+  Analytics (khác crash reporting) vẫn CHƯA có gì — cố ý hoãn sang sau.
+
+- [x] **Deploy 3 edge function** — XONG 2026-08-10: `generate-outfits` (v51),
+  `evaluate-item` (v20), `wardrobe-critic` (v10), tất cả ACTIVE và `verify_jwt = true`
+  (đã verify qua Management API sau khi deploy). Deploy bằng CLI, KHÔNG dùng
+  `--no-verify-jwt`. Trước khi deploy đã verify sạch: `tsc` clean, jest 34 suites/501
+  tests, deno 252 + 37 + 11.
+
+## AA. Suggestion toggles — follow-ups (2026-08-10)
+
+- [ ] **No client-visible hint when a toggle is suppressing a dimension** — unlike the
+  wardrobe-affinity `style_fallback` envelope (surfaced as a quiet feed hint, see git log
+  2026-08-08), turning off `suggest_by_style`/`suggest_by_personal_color`/
+  `suggest_by_formula`/`suggest_by_measurements` currently has zero client-visible signal
+  beyond the Settings switch itself and a server console log
+  (`[generate-outfits] suggestion toggles off: …`, same in `evaluate-item`/
+  `wardrobe-critic`). Not requested by the chốt design, but worth considering later: a
+  small "not scoring by X today" note somewhere in the feed/verdict/critic UI, so a user
+  who toggled something off months ago and forgot isn't confused by shifted suggestions.
+- [ ] **`evaluate-item`'s AI fit-note context (`note.ts` `buildNoteContext`) still passes
+  the user's full `selectedStyles` list even when `suggest_by_style=false`** — the LLM is
+  correctly told the `style` criterion is `available: false` (via `verdict.criteria`,
+  which the toggle already gates) and its system prompt is instructed to only use that
+  JSON, so this is not currently a bug. But it's an extra raw signal in the payload that
+  a future prompt-engineering change could accidentally start reading. Consider blanking
+  `profile.styles` too when the toggle is off, for defense-in-depth.
+- [ ] **`wardrobe-critic`/`evaluate-item` response schemas don't surface which toggles
+  were off for that call** — `generate-outfits` doesn't either (this was intentionally
+  out of scope per the chốt design — DB-only toggles, no request/response wiring). If a
+  future debugging need arises (e.g. support ticket "why did my gaps report change"),
+  consider echoing the four booleans back in the response for traceability.
+
+---
+
 # Backlog — review later
 
 Deferred items flagged during development. Each has enough context to pick up cold.
 Dọn 2026-07-03 theo yêu cầu anh Khôi: mọi mục đã implement bị XÓA (lịch sử đầy đủ nằm
 trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
+
+---
+
+## Z. Wardrobe photos — dangling `photo_storage='local'` refs (2026-08-08)
+
+- [ ] **3 demo-wardrobe items có ảnh gãy (broken image placeholder)** — phát hiện
+  2026-08-08. Trong DB live (user `19595dec-bad6-48e7-a859-fbabee490b7d`), 3/35
+  `clothing_items` có `photo_storage='local'` + `photo_url='wardrobe-photos/<uuid>.png'`:
+  - `Navy blue crew neck t-shirt` → `eabb3870-7ffb-4d2a-9e72-c8b7eea14bab.png`
+  - `Black fitness tracker` → `54731323-45ef-4e06-9895-79bbcb6a57fc.png`
+  - `Small silver stud earring` → `b2d81d1a-d953-4a3b-b291-91c8c672ceb6.png`
+
+  3 uuid này KHÔNG tồn tại ở đâu khác: không có trong bucket `wardrobe-photos`
+  (32 object, tất cả đều được reference, không orphan), không có trong
+  `seedLocalPhotos.dev.ts`, không có trong `assets/items/`. Tức là ảnh chỉ từng
+  nằm trong app sandbox của đúng cái máy đã thêm item → cài lại app / đổi máy là
+  mất vĩnh viễn. `resolveItemPhotoSource` (`src/features/wardrobe-photos/useItemPhoto.ts:46`)
+  trả `status:'missing'` → UI hiện placeholder. Code đúng theo FR-009, lỗi nằm ở data.
+  Cần chốt: chụp/gán lại ảnh cho 3 item, hay set `photo_url=NULL, photo_storage='none'`
+  để về empty-state sạch. `/dev-seed` KHÔNG fix được (3 id này không nằm trong seed list).
+
+- [ ] **Free tier: ảnh item không có bản cloud → mất khi cài lại app** — `storePhoto()`
+  (`src/services/wardrobeService.ts:261`) chỉ upload cloud khi `tier==='premium'`;
+  free tier dừng ở `writeDeviceCopy` → `photo_storage='local'`. Đây là nguyên nhân gốc
+  của mục trên. Có `promoteToCloud()` nhưng nó cần file trên máy còn sống, nên không cứu
+  được sau khi mất. Cân nhắc: cảnh báo user free rằng ảnh chỉ nằm trên máy, hoặc chạy
+  promote khi user nâng cấp premium (trước khi file kịp bị reclaim).
 
 ---
 
@@ -25,8 +141,14 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   identical and undertone results are unreliable. Detect iPad (or no-torch
   device) and either hide/skip the wrist-flash step or fall back to a
   single-shot ambient path with a warning. Discovered 2026-07-22 while
-  auditing iOS feature parity after enabling `supportsTablet`. (Hair scan
-  doesn't use torch — unaffected.)
+  auditing iOS feature parity after enabling `supportsTablet`. STILL NOT
+  SOLVED for the wrist step — but as of Personal Colour v3 Phase A
+  (2026-08-04) the wrist is now only the SECONDARY undertone site: the new
+  `FaceScanStep`'s screen-flash technique (full-screen white overlay +
+  `expo-brightness` pushed to max, standing in for a torch on the front
+  camera) works on any device with a screen, iPad included — so the PRIMARY
+  face read is unaffected by this gap. Fixing the wrist step itself is still
+  open, just lower priority now that it's not the primary signal.
 - [ ] **Share sheet not anchored on iPad** — `app/(tabs)/index.tsx:290` and
   `app/outfit/[id].tsx` call `Share.share({ message })` with no `anchor`;
   on iPad the popover appears from a default corner instead of the share
@@ -34,6 +156,151 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   polish. (2026-07-22)
 
 ## A. Chờ anh Khôi duyệt — trade-off lớn (chi phí / UX / phạm vi)
+
+- [x] **Định vị body-shape: "flattering" cổ điển vs. cho user chọn dáng đích** — CHỐT
+  hướng (B), IMPLEMENT 2026-08-10 (feature "shape goal"). Anh Khôi duyệt hướng cho user
+  tự chọn dáng đích thay vì ngầm kéo mọi dáng về hourglass. Đã làm: cột
+  `style_profiles.shape_goal` (nullable text + check constraint, null = auto); bậc mới
+  trong `resolveTargetSilhouette` cascade (`intent > shapeGoal > style silhouette >
+  body_shape > neutral`) — `'auto'`/undefined là no-op tuyệt đối (giữ nguyên hành vi cũ,
+  có test khoá); `'natural'` = không sửa dáng; dáng cụ thể gọi
+  `targetsForDesiredShape`; `shapeGoalDelta` (ranking.ts, ±0.08/−0.05, cùng band với
+  `genderDelta`/`houseDelta`) thưởng outfit có `resultingBodySilhouette` thực tế khớp
+  goal. Màn hình `app/shape-goal-edit.tsx`, entry từ `profile.tsx`. Chi tiết đầy đủ:
+  `plan.md` mục "Shape goal (010-wardrobe-critic follow-up, 2026-08-10)". Vẫn còn treo:
+  chưa nối `shapeGoal` vào `evaluate-item`/`wardrobe-critic` (ngoài phạm vi task này —
+  xem mục riêng bên dưới); nghiên cứu body-shape dở dang (9/15) resume bằng
+  `scripts/research/body-shape-verify-continue.workflow.js` vẫn chưa dùng tới.
+
+- [x] **`resultingBodySilhouette:319` `if (base.rounded) return 'oval'` khoá cứng —
+  apple mặc blazer chiết eo vẫn ra oval, engine chưa biết "chiết eo"** — FIXED
+  2026-08-10 cùng session "shape goal" trên. Hàm mới `outfitWaistDefinition(items)`
+  (silhouette.ts) đọc tín hiệu chiết eo THẬT từ chính outfit — thắt lưng, món kết cấu
+  (`CORSET`/`BLAZER`/`VEST`, fit không oversized/wide), hoặc top+bottom fitted +
+  `drape==='structured'` — và cho outfit-made waist THẮNG `base.rounded`/thiếu
+  `base.waist`. Kết quả: apple/triangle/rectangle/inverted_triangle mặc đồ chiết eo
+  đúng giờ ra `hourglass`, điều trước đây bất khả thi trừ phi body_shape vốn đã là
+  hourglass. Test mới: `silhouette.test.ts` (apple+blazer→hourglass,
+  rectangle+belt→hourglass, + case âm giữ nguyên hành vi cũ khi không có tín hiệu eo).
+
+- [ ] **`resultingBodySilhouette` vẫn chỉ đọc ~2.5 biến (volume top/bottom + 1 cờ nhị
+  phân "có eo do outfit tạo hay không")** (2026-08-10, còn treo sau fix trên) — mô hình
+  vẫn bỏ qua các đòn bẩy stylist kinh điển khác: vị trí eo cụ thể (cạp cao/thấp), đường
+  vai/vai độn, độ dài áo (crop vs tunic), cổ áo (V vs thuyền), khối màu dọc/monochrome,
+  mức độ "chiết eo" (nhị phân có/không, không có thang độ). Hai thứ rẻ nhất để thêm
+  trước vì dữ liệu ĐÃ có: vị trí eo (formula `rule_of_thirds` đã tồn tại nhưng chưa nối
+  vào shape read) và monochrome (formula đã có, cũng chưa nối). Vai/cổ cần thêm trường
+  vào wardrobe item → đắt hơn, làm sau.
+
+- [ ] **`WAIST_DEFINING_TYPES` chỉ có CORSET/BLAZER/VEST — DRESS và COAT/OVERCOAT/JACKET
+  bị loại có chủ đích** (2026-08-10, CALIBRATION-PENDING) — `typeName` không phân biệt
+  được kiểu dáng cắt may (wrap dress chiết eo vs shift dress thẳng thùng; trench coat có
+  đai vs coat suông) vì wardrobe item chưa có trường "silhouette cut". `DRESS` bị loại
+  hoàn toàn khỏi tín hiệu chiết eo dù nhiều wrap/fit-and-flare dress chiết eo rất rõ; một
+  trench có đai vẫn được nhận diện NHƯNG chỉ qua tín hiệu (a) thắt lưng phụ kiện, không
+  qua chính type COAT. Muốn làm đúng cần thêm trường silhouette-cut vào extract-garments
+  hoặc backfill-item-metadata.
+
+- [ ] **`shapeGoal` chưa nối vào `evaluate-item`/`wardrobe-critic`** (2026-08-10) — task
+  "shape goal" chỉ định rõ phạm vi `generate-outfits`, không như phiên "4 suggestion
+  toggles" (2026-08-10, mục dưới) vốn yêu cầu áp dụng cả 3 function. Cả hai function vẫn
+  compile/pass bình thường (field optional, no-op khi absent), nhưng verdict của
+  `evaluate-item` và report của `wardrobe-critic` hiện KHÔNG biết tới dáng đích user đã
+  chọn. Cần quyết định có đáng làm không trước khi tự ý mở rộng phạm vi.
+
+- [ ] **`targetsForDesiredShape('rectangle', 'apple')` không thể đạt được về mặt toán học**
+  (2026-08-10, giới hạn đã biết, KHÔNG sửa trong task này) — baseline `apple` có
+  `rounded: true`, luôn thắng nhánh "cân bằng" bất cứ khi nào `avg < 5` trong
+  `resultingBodySilhouette` — nên user apple chọn goal `rectangle` hoặc `triangle` không
+  bao giờ nhận đúng nhãn đó (ra `oval` khi avg thấp, ra `hourglass` nếu outfit có tín
+  hiệu chiết eo). `shapeGoalDelta` vẫn sẽ trừ điểm những outfit này dù engine đã cố hết
+  sức — trade-off cần anh Khôi cân nhắc: có nên sửa `base.rounded` logic hay chấp nhận
+  giới hạn này.
+
+- [x] **Personal Colour v3 Phase A — face scan + calibrated colour math** — DONE 2026-08-04
+  (implemented this session per `docs/personal-color-v3-phase-a-instruction.md`, scope
+  approved by anh Khôi: full face-path). Face selfie (screen-flash dual capture) is now the
+  primary skin/hair sample site, sclera white-reference + PLOS-ONE flash/ambient subtraction
+  calibrate the read, value axis anchors on ITA° bands, 12-tone classification now surfaces
+  a "leaning {neighbour}" secondary + high/medium/low confidence. Details: plan.md changelog
+  "Personal Colour v3 — Phase A: face scan + calibrated colour math (2026-08-04)". Original
+  full proposal at `docs/personal-color-v3-research.md`. Phase B and Phase C (below) remain
+  queued — Phase A was capture/math hardening only.
+
+- [x] **Personal Colour v3 Phase B — draping UX rebuild** — DONE 2026-08-04 (implemented this
+  session per `docs/personal-color-v3-phase-b-instruction.md`). `DrapeSession.tsx` rebuilt on
+  the professional methodology: 5 comparative rounds (`drapeRounds.ts` — tomato/cherry red,
+  mustard/lemon, light ivory/deep charcoal, clear bright/soft mauve, gold/silver lamé) with
+  judge-prompts teaching the analyst's actual criteria (under-eye shadows, jawline definition,
+  brightening-without-washing-out, eye brightness, skin glow) instead of "which looks better";
+  the gold/silver round both nudges warmth AND sets `metalKey` (guarded — never clobbers an
+  existing manual answer, new `usePersonalColorDetection.applyDrapeMetal`). New "SEE ALL 12
+  TONES" phase: 3×4 grid of every tone's signature drape colour (`TONE12_DRAPE_HEX`, tone12.ts)
+  behind the same selfie, tap-to-compare against the current tone, picking a challenger calls
+  the new pure `nudgeTowardTone` (tone12.ts, `TONE12_AXIS_SIGNATURE` canonical sign table) —
+  one grid tap = exactly one drape-round-strength nudge, never a teleport. Entry points: a text
+  link on the last drape round, and a new "SEE ALL 12 TONES" secondary button on the result
+  screen (runs the selfie capture, then jumps straight to the grid). Both onboarding + edit
+  screens updated in lockstep. All hexes/signature table CALIBRATION-PENDING per usual. Details:
+  plan.md changelog "Personal Colour v3 — Phase B: draping UX rebuild (2026-08-04)".
+
+- [x] **Personal Colour v3 Phase C — beauty-scope deliverables** — DONE (client scope)
+  2026-08-04, per `docs/personal-color-v3-phase-c-instruction.md`. New pure module
+  `tone12Beauty.ts` (`TONE12_BEAUTY`: 4 hand-picked wow colours per tone, metal rule
+  springs/autumns→gold, summers/winters→silver, soft_summer/soft_autumn→both, makeup
+  lip/cheek/eye swatch families per season anchor shifted by tone modifier, hair + glasses
+  direction i18n keys) + shared `BeyondTheWardrobeSection` component rendered on both result
+  screens after "BETTER TO SKIP". All hexes CALIBRATION-PENDING. Details: plan.md changelog
+  "Personal Colour v3 — Phase C (2026-08-04)". Two sub-items were split out below.
+
+- [ ] **Engine metal wiring** (2026-08-04, deferred out of Phase C by design decision —
+  plan.md Phase C entry has the rationale). Scoring gold-vs-silver accessories needs:
+  (1) item-metadata metal vocabulary (`gold`/`silver` — engine PrimaryColor only has
+  'metallic') + backfill of existing accessories, (2) a clean `supabase/functions` tree
+  (currently carries uncommitted wardrobe-critic work; single production env — deploying
+  now would ship unfinished code). Do after wardrobe-critic lands.
+
+- [ ] **ColorChecker validation fixture** (2026-08-04, blocked on anh Khôi's purchase
+  decision — Classic Mini ~$50–60). Capture the physical card through the app's own flow,
+  assert recovered LAB within published bands, retiring the `CALIBRATION-PENDING` markers
+  on the colour-math constants for real. Needs the physical card + a real device.
+
+- [x] **Guess-widening (`GUESS_WIDENING=0.4`) regresses 2/5 acceptance criteria** (2026-08-03,
+  opened in session "Guess-widening replaces half-strength shift for guessed fit labels").
+  RESOLVED 2026-08-03 (session "girth-floor safety clamp + bottoms fixture pass") by option
+  **(c)**: `shiftThresholds()` now clamps a GIRTH key's `ok[0]` to never fall below its
+  ORIGINAL (un-shifted) `FIT_THRESHOLDS` value, applied AFTER guess-widening so a guessed
+  label can't use the wider band to sneak under the floor either (see plan.md changelog
+  "Girth-floor safety clamp + bottoms fixture consistency pass (2026-08-03)"). E2 (slim tee
+  ease −4) is back to floor-0 + warns, verified under both real and guessed labels — new deno
+  tests added in `engine/season-color.test.ts`. `wide_leg_trousers`/`relaxed_chinos` were
+  additionally re-authored (their waist/hip ease didn't scale with the declared fit at all —
+  a separate, pre-existing fixture defect, not the widening mechanism) and now land inside
+  their fit's ideal window on both labels.
+  - Residual, NOT covered by this fix (new item below): the guess-widening mechanism still
+    structurally allows guessed-fit score > real-fit score on the LOOSE side (widening
+    `ok[1]` can only raise a "too roomy" point's score, never lower it) — this is untouched
+    by the girth-floor clamp (floor-only) and shows up as a small residual gap on
+    `oversized_hoodie`/`oversized_knit`/`structured_slim_blazer`/`relaxed_overshirt` (largest:
+    `oversized_hoodie` guessed 0.943 vs real 0.910). See new item below.
+
+- [ ] **Guess-widening still lets a guessed-fit score exceed its real-fit counterpart on the
+  LOOSE side** (2026-08-03, discovered while resolving the item above). The girth-floor clamp
+  only fixes the TIGHT side (`ok[0]`); `ok[1]` widening is untouched, and widening `ok[1]` can
+  mathematically only raise (never lower) a "too roomy but still ok" point's `easeScore` for a
+  fixed ease value — so `guessed >= real` per point whenever a garment's ease lands between
+  `ideal[1]` and `ok[1]` (proved by direct derivative check on `easeScore`'s loose-side
+  formula). Current wardrobe residuals (apple body, E1 table): `oversized_hoodie` 0.943
+  guessed vs 0.910 real, `oversized_knit` 0.904 vs 0.837, `structured_slim_blazer` 0.792 vs
+  0.788, `relaxed_overshirt` 0.998 vs 0.997 — all small, none violate the E1/E4 safety
+  guards, but they do violate the stricter "real must never score below guessed" ideal.
+  Needs a design decision (Opus/Fable triage, not Sonnet execute) before touching: (a) mirror
+  the girth-floor clamp on `ok[1]` too (a ceiling clamp — but the loose-side ceiling
+  legitimately DOES need to move outward for looser fits, unlike the tight-side floor which
+  never should, so this isn't a straightforward mirror), (b) widen `ideal` a little on the
+  loose side too so more well-cut guessed garments land inside it (changes E1's numbers
+  again), or (c) accept this as an inherent, bounded (<0.07 observed) property of
+  "uncertainty widening" and stop chasing it further.
 
 - [x] **Side-photo depth capture** — DONE 2026-07-12 (implemented this session, anh Khôi
   đã duyệt trade-off): thêm bước chụp nghiêng 90° (turn interstitial + side scanning
@@ -108,6 +375,23 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
 
 ## B. Cần thiết bị thật / dữ liệu thật (không verify được từ máy dev)
 
+- [ ] **Try-on face composite — `faceDetect.ts`'s `NORMALIZE_TO_UNIT` vẫn chưa calibrate
+  trên thiết bị thật** (2026-08-07, đợt edit-in-place + composite diagnostics). Chưa biết
+  BlazeFace short-range cần input [0,1] hay [-1,1] — diagnostics mới thêm ở
+  `compositeFace()`/`faceCompositeStats.ts` (`CompositeReason` + `byReason` tally, caption
+  `__DEV__` trên `wear.tsx`) sẽ giúp XÁC ĐỊNH thay vì đoán mù (nếu `no_face_source`/
+  `no_face_generated` chiếm phần lớn `byReason`, gần như chắc chắn normalisation sai — lúc
+  đó mới flip flag, không đoán trước).
+- [ ] **Try-on face composite — hằng số `faceMaskRadii()` cần tune trên thiết bị thật**
+  (2026-08-07): 0.62 (ear-span → rx), clamp 1.4x/2.6x inter-eye, fallback 1.9x, tỉ lệ
+  ry/rx 1.28 — toàn bộ CALIBRATION-PENDING, chưa chạy qua ảnh thật lần nào. Cần verify mask
+  rộng hơn (tới jaw/hairline/tai) có làm seam lộ rõ hơn không, và ear-span guard (reject nếu
+  < inter-eye hoặc > inter-eye×6) có đúng ngưỡng không.
+- [ ] **Try-on — cân nhắc thêm lựa chọn "studio backdrop" làm optional cho user** (2026-08-07):
+  đợt edit-in-place bỏ hẳn nền studio/editorial framing (chủ đích, để fix mặt bị đổi thành
+  người khác). Look đó (nền sạch, khung người mẫu cao) có giá trị thẩm mỹ riêng — có thể sau
+  này thêm như 1 lựa chọn user tự bật (trade-off rõ: nhận nền đẹp hơn, đổi lại rủi ro mặt lệch
+  quay lại). Chưa duyệt, chỉ ghi nhận ý tưởng.
 - [ ] **Personal color v2 — device verify + curation** (2026-07-06): drape colours & 12
   palette (draft) cần design review trên máy thật; dual-flash timing 350ms cần thử
   iOS/Android. (countryCode ĐÃ wire qua `authStore.locationCountryCode` — chỉ còn verify
@@ -119,6 +403,39 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   sửa, nên `soft_summer`/`deep_autumn` giờ fire đủ danh sách draft gốc. Design review trực
   quan trên máy thật vẫn CHƯA làm — vẫn cần design lead xác nhận bảng màu/skip-list nhìn có
   đúng ý không.) `TONE12_AVOID_MAX = 0.06` cũng CALIBRATION-PENDING, chưa tune với feedback thật.
+- [ ] **Personal Colour v3 Phase A — chưa test trên thiết bị thật** (2026-08-04, session
+  implement Phase A). Toàn bộ pipeline face-scan (screen-flash dual capture, BlazeFace box
+  decode mới thêm ở `faceDetect.ts`, sclera white-reference correction, ambient subtraction,
+  ITA°-anchored value axis) là code-complete + unit-tested (pure math) nhưng CHƯA chạy qua
+  camera thật lần nào. Cần verify trên máy thật: (1) `expo-brightness` setBrightnessAsync/
+  getBrightnessAsync hoạt động đúng trên cả iOS/Android không cần permission thêm; (2) box
+  regression decode (channel 0-3 của BlazeFace SSD output) cho ra bounding box hợp lý — nếu
+  sai thứ tự channel, `hairBand` region sẽ lệch; (3) SNR threshold 0.015 và sclera gain range
+  [0.6, 1.6] có phù hợp ánh sáng thật không; (4) FACE_WORKING_WIDTH=192 có đủ pixel cho vùng
+  má/trán sau khi co theo aspect ratio của các máy khác nhau không.
+- [ ] **Personal Colour UX-simplify — chưa test trên thiết bị thật** (2026-08-06, xem
+  `docs/personal-color-ux-simplify-instruction.md` + plan.md changelog cùng ngày). Rebuild
+  UX shell (intro → prepare → face 1/2 → wrist 2/2 → result; AxisMeters; ResultView dùng
+  chung cho onboarding + edit; collapsible FULL PALETTE/BEYOND THE WARDROBE/ADJUST THE
+  RESULT; failure-state copy cho permission-denied/photo-fallback/save-error) là code-
+  complete + `tsc`/`jest` xanh nhưng CHƯA chạy qua thiết bị thật lần nào — cần verify:
+  (1) `LayoutAnimation` mượt trên Android thật (New Arch); (2) prepare→face-scan tap
+  chuyển step đúng, back() từ face-scan quay lại đúng prepare (không nhảy thẳng về intro);
+  (3) bố cục AxisMeters (dot vị trí theo axis) không bị lệch trên các kích thước màn hình
+  khác nhau; (4) toàn bộ acceptance checklist trong instruction doc (5 taps camera happy
+  path, zero jargon labels, v.v.) trên máy thật, không chỉ đọc code.
+- [ ] **AxisMeters — highlight trục thấp nhất khi confidence thấp** (2026-08-06, đề xuất
+  trong instruction doc §10 nhưng chưa duyệt implement): khi `result.confidence === 'low'`,
+  khoanh một vòng tròn quanh dot của trục có margin thấp nhất (`classifyTone12`'s weakest
+  axis) trên `AxisMeters.tsx` để chỉ rõ "đây là trục không chắc chắn" thay vì chỉ có caption
+  chung "A quick drape session will sharpen this." bên dưới. Cần chốt UX với anh Khôi trước
+  (thêm state/prop mới cho AxisMeters) nên để lại backlog thay vì tự quyết trong session này.
+- [ ] **Persist `secondaryTone12`/`confidence` vào `profiles`** (deferred từ Phase A,
+  2026-08-04) — theo đúng hợp đồng A5.5, hai field này hiện chỉ session-local (tính lại mỗi
+  lần result screen mount, không lưu qua `savePersonalColor`). Nếu muốn hiển thị "leaning
+  {tone}" ở profile/feed sau khi rời màn hình kết quả thì cần thêm cột + migration + thread
+  qua `savePersonalColor` payload — ngoài phạm vi Phase A (hard constraint: không đổi DB
+  schema/payload trong phase này).
 - [ ] **Camera scan — EXIF fix efficacy**: xác nhận trên Android thật rằng bỏ
   `skipProcessing` cho pixel đứng thẳng và MoveNet detect được pose.
 - [ ] **Camera scan — overlay/preview alignment**: skeleton SVG có thể lệch khi aspect
@@ -748,3 +1065,620 @@ published so no store-side migration needed, but three things are still open:
   pause (INACTIVE) do khong co traffic — toan bo backend offline cho toi khi restore
   thu cong. Can quyet: nang plan Pro hoac dat cron ping giu project active truoc khi
   co user that.
+
+## Body-shape engine — findings tu sim (2026-08-03)
+
+Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offline).
+
+- [x] **`apple` nuot qua nhieu body** (2026-08-03) — FIXED cung ngay: classifier viet lai
+  theo FFIT/Simmons (absolute-cm bust/waist/hip diff, bust-vs-hip dominance check TRUOC
+  apple/rectangle). Sweep 3000 body sau fix: apple 7.3%, rectangle 7.6% (xem plan.md
+  changelog "Body-shape classifier rewrite"). Luu y: dominant label gio la `triangle`
+  40.7% (do bust/hip duoc sample DOC LAP tren khoang rong trong harness — xem ghi chu
+  "design caveat" trong changelog) — khong dat tieu chi "duoi 38.6%" nhu ky vong ban dau,
+  nhung day la he qua truc tiep cua design da chot (bust-hip dominance check truoc), khong
+  phai regression tu classifier cu.
+- [x] **Boundary `H > B + 5` dung dau strict** (2026-08-03) — FIXED cung ngay: doi thanh
+  `bustHip <= -BUST_HIP_DOMINANCE` (`>=5` inclusive) dong bo voi cac nguong khac.
+- [x] **Classifier nhay khong deu** (2026-08-03) — FIXED cung ngay: them `stabilizeBodyShape`
+  (hysteresis, `src/types/measurements.ts`) — giu `prev` khi mot probe ±2cm tren
+  bust/waist/hip van ra `prev`. Wired vao `useMeasurements.ts`'s `bodyShape` useMemo (nhanh
+  manual-override khong doi).
+- [x] **Rule shape chi bat o fit cuc doan, `regular` vo hinh** (2026-08-03) — FIXED cung
+  ngay: `bodyShapeMultiplier` viet lai thanh volume-distance dua tren `SHAPE_VOLUME_TARGETS`
+  (scoring.ts) thay vi so khop chuoi fit — `regular`/`wide` gio deu co volume so sanh duoc,
+  khong con "vo hinh". Xem Section C truoc/sau trong plan.md changelog.
+- [ ] **`scoreOutfitFit` bi clamp o 1.0** (2026-08-03) — hourglass + all-slim tailored:
+  base 0.823 + delta 0.224 = 1.047 -> clamp 1.0, mat separation o dau tren dung cai ma
+  comment trong `scoring.ts` noi la da tranh khi doi tu multiplier sang delta. NGOAI PHAM
+  VI phien 2026-08-03 (chi lam Part 1-4 da chot voi anh Khoi).
+- [x] **Mau thuan huong giua `bodyShapeMultiplier` va `fromBodyShape`** (2026-08-03) — FIXED
+  cung ngay: ca hai gio doc chung `SHAPE_VOLUME_TARGETS` (scoring.ts) — `silhouette.ts`'s
+  `fromBodyShape` khong con literal rieng. Sim Section D "Direction contradictions": 1 -> 0.
+- [x] **`FIT_THRESHOLDS` khong fit-aware** (2026-08-03) — FIXED cung ngay: ease window gio
+  SLIDE theo `FIT_EASE_PCT[item.fit]` (ti le theo body measurement qua `KEY_EASE_WEIGHT`, khong
+  phai flat cm), `regular` la anchor 0-shift, guessed fit (`provenance.fit !== true`) chi ap
+  nua strength. Them `preferredFitDelta` (engine/scoring.ts, ±0.12) neo feed theo `preferredFit`
+  cua user vi sau fix nay outfit oversized dung kieu se khong con tu dong thua diem thap nua.
+  `oversized_hoodie` fixture: 0.293 -> 0.532 (guessed)/0.410 (real, provenance.fit=true) — xem
+  plan.md changelog "Fit-relative ease windows + preferred-fit anchor (2026-08-03)" cho chi
+  tiet + finding "khong hoan toan monotonic" (vai fixture Section C thap hon voi real-fit vi
+  du lieu fixture goc khong proportionally-consistent per-point). `scoreOutfitFit` clamp-at-1.0
+  van CHUA fix (ngoai pham vi, xem muc rieng ben tren).
+- [x] **`app/measurements-edit.tsx` chua duoc wire vao hysteresis/legacy-override-check moi**
+  (2026-08-03, phat hien khi lam classifier rewrite) — FIXED cung ngay 2026-08-03: `derivedShape`
+  gio goi `stabilizeBodyShape(bm.bodyShape ?? null, {...})` thay vi goi `computeBodyShape` truc
+  tiep; `shapeOverride` init check ca `computeBodyShape(bm)` lan `computeBodyShapeLegacy(bm)`
+  truoc khi coi la manual override, dong bo voi `useMeasurements.ts`. `npx tsc --noEmit` sach,
+  `npx jest src/features/measurements` 187/187 pass.
+
+- [ ] **App Store screenshots upscale tu ban da bi nen** (2026-08-03) — 9 anh trong
+  `submit-assets/` la screenshot iPhone 17 THAT (anh Khoi xac nhan; 942x2048 = ti le 0.4600,
+  dung bang native iPhone 17 / 6.3" = 1206x2622), NHUNG da bi ha xuong 2048px chieu cao trung
+  gian (nen khi gui qua chat / Google Photos). Da resize sang `submit-assets/appstore-1284x2778/`
+  (1284x2778, size Apple chap nhan cho 6.5"/6.7") — upscale x1.36 tu ban nen nen chu hoi mem.
+  Neu lay lai duoc ban goc 1206x2622 (AirDrop / export full-res tu Photos) thi resize lai chi
+  upscale x1.06, net hon han. Luu y: 1206x2622 KHONG nam trong danh sach size Apple nhan, nen
+  du co ban goc van phai resize sang 1284x2778 — huong xu ly khong doi.
+- [ ] **Trung anh trong submit-assets** (2026-08-03) — `e7c22fc4-...(1).jpg` va
+  `e7c22fc4-....jpg` identical (cung MD5); cap `00a71162-...(1).jpg` (1284x2791) va
+  `00a71162-....jpg` (942x2048) cung 1 screenshot khac scale. Chon 1 ban khi upload.
+
+- [x] **Deploy lai edge functions sau khi doi engine scoring** (2026-08-03) — DONE 2026-08-04
+  sau khi anh Khoi resume project Supabase. Ngay 2026-08-03 da sua `engine/scoring.ts`
+  (fit-relative ease, girth floor, preferredFitDelta, SHAPE_VOLUME_TARGETS) va
+  `engine/silhouette.ts`.
+  **Danh sach deploy la 3 fn, khong phai 2 nhu entry goc ghi** — dependency trace 2026-08-04:
+  `wardrobe-critic` cung an thay doi nay qua `ranking.ts` (import `scoring.ts`) va
+  `generation.ts` (import `silhouette.ts`), nen neu chi deploy 2 fn thi khuyen nghi mua do se
+  cham theo scoring CU trong khi feed cham theo scoring MOI. `backfill-item-metadata` va
+  `generate-item-image` chi import `colorCluster.ts` (khong doi) -> dung deploy.
+  Da chay: `npx supabase functions deploy {generate-outfits,evaluate-item,wardrobe-critic}`
+  (KHONG dung --no-verify-jwt). Deno test truoc khi deploy: engine 192/192, evaluate-item
+  21/21, wardrobe-critic 9/9 — tat ca xanh. Van CHUA kiem chung tren du lieu tu do that,
+  moi chay tren fixture cua sim.
+
+- [ ] **Paywall gay trong build submit (khong co `react-native-purchases`)** (2026-08-04, phat hien
+  khi soan khai bao App Store) — `package.json` KHONG co dependency `react-native-purchases`, nen
+  `usePremium.ts` require() that bai -> `Purchases = null` -> `app/paywall.tsx` luon hien fallback
+  "unavailable" va nut Upgrade bi `disabled`. Entry point lai rat de cham: Profile tab ->
+  "Subscription" (`app/(tabs)/profile.tsx:26`), ScanScreen, UploadStep. Rui ro Apple reject
+  Guideline 2.1 (tinh nang khong hoat dong). Huong xu ly cho ban 1.0.0: an muc Subscription +
+  cac CTA tro toi /paywall, HOAC set `account_type='premium'` cho demo account de reviewer khong
+  gap paywall. Ban sau: cai that RevenueCat SDK + tao IAP product tren ASC.
+  **Bo sung 2026-08-04 (neu chon duong lam IAP that):** `app/paywall.tsx` hien KHONG co bat ky
+  disclosure nao ma Apple Guideline 3.1.2 bat buoc voi auto-renewable subscription — thieu ca
+  5 thu: ten subscription, do dai chu ky, gia moi chu ky, cau "tu dong gia han tru khi huy",
+  va 2 link Terms(EULA) + Privacy Policy ngay tren man paywall canh nut mua. Grep toan repo chi
+  thay dong text thuan `onboarding_account_terms` trong en.json (khong phai link). Ngoai ra
+  con phai dien 2 field trong App Store Connect: License Agreement (dung duoc ban chuan cua
+  Apple) va Privacy Policy URL (**phai tu host — Apple khong cap, va bat buoc voi MOI app ke ca
+  ban free/khong IAP**). Thieu -> reject 3.1.2.
+  **Trang thai da verify 2026-08-04 (goi y do kho hon plan.md ghi):** `revenuecat-webhook` DA
+  deploy (ACTIVE v3, verify_jwt=false — dung); `app/_layout.tsx` DA wire `Purchases.configure()`
+  + `Purchases.logIn(userId)` dung chuan. Con thieu phia minh: dependency
+  `react-native-purchases`, `EXPO_PUBLIC_REVENUECAT_API_KEY` trong eas.json, va secret
+  `REVENUECAT_WEBHOOK_SECRET` (chua co trong `supabase secrets list`).
+  **Cap nhat 2026-08-04**: anh Khoi DA chay install — `react-native-purchases@^10.6.0` +
+  `react-native-purchases-ui@^10.6.0` gio co trong `package.json` va `node_modules`. Con lai
+  la 2 key + setup Apple/RevenueCat dashboard.
+  **Cap nhat 2026-08-04 (Test Store key)**: da wire `EXPO_PUBLIC_REVENUECAT_API_KEY` (Test Store
+  key `test_…`, KHONG phai key that) vao `.env` + `eas.json` `build.development.env` — chi de
+  test paywall local qua dev-client, khong dung duoc cho build submit (Test Store key lam SDK
+  crash tren release build). Van con thieu key that (`appl_…`/`goog_…`) truoc khi build store.
+  **Cap nhat 2026-08-05 (disclosure code-side DA XONG)**: `app/paywall.tsx` gio co du 4/5 thu code
+  lam duoc — ten plan, gia, cau auto-renew/24h, 2 link Terms+Privacy (xem `plan.md` "Paywall:
+  dynamic package list + Apple 3.1.2 disclosures"). Con lai la phan KHONG lam bang code duoc:
+  Privacy Policy URL van la placeholder chua host that (xem item rieng phia tren), va 2 field
+  trong App Store Connect (License Agreement, Privacy Policy URL) van chua dien — do chi lam
+  duoc trong dashboard ASC.
+
+## J. Kinh te don vi / chi phi bien — audit 2026-08-04 (truoc khi dinh gia subscription)
+
+- [x] **PREMIUM KHONG CO QUOTA cho 2 action dat nhat — rui ro chi phi khong tran** (2026-08-04,
+  audit truoc khi chot gia; FIXED 2026-08-05). `gateCredit()` trong `generate-item-image/index.ts`
+  va `tryon-generate/index.ts` deu `return` som khi `account_type` la `premium`/`demo`,
+  BO QUA hoan toan `consume_usage_credit`. Ca hai action nay goi
+  `gemini-3-pro-image-preview` (~$0.13/anh). `FREE_LIMITS` chi la
+  `{ ai_extraction: 2, try_on: 2 }`/thang cho free — premium thi vo han.
+  Nghiem trong hon: **`tryon-generate` khong he co `consume_rate_limit`** (chi
+  `tryon-validate` co, 30/gio). Nghia la 1 tai khoan premium co the goi image-gen
+  lien tuc; tran ly thuyet ~30 lan/gio (bi chan giay to boi validate) = ~21.600 lan/thang
+  = **~$2.800/thang cho MOT user**. Phai dat quota premium truoc khi ban.
+  → Da them `PREMIUM_LIMITS = { try_on: 15, ai_extraction: 10 }`/thang; `gateCredit()` gio
+  consume RPC voi limit theo tier thay vi bypass. `demo` van vo han (tai khoan reviewer App
+  Store, co ghi chu trong code). `admin` gio bi tinh nhu premium co quota (truoc day
+  server chi check `premium`/`demo`, khong check `admin` — da thong nhat). Xem
+  `plan.md` "Premium usage quota" (2026-08-05) va `src/services/usageCreditService.ts`.
+  `tryon-generate` van chua co `consume_rate_limit` rieng — quota thang moi la chan chinh,
+  van con lo hong burst-trong-thang (chua xu ly, ngoai scope task nay).
+- [x] **`ai_extraction` tinh 1 credit/ANH nhung fan-out N lan image-gen** (2026-08-04,
+  PARTIALLY ADDRESSED 2026-08-05) — `generate-item-image/index.ts` chay `Promise.all` mot lan
+  image-gen cho MOI mon do detect duoc trong anh, khong co cap. Anh 4 mon = 1 credit nhung
+  ~4 x $0.13 = $0.52. → Da them `MAX_GARMENTS_PER_PHOTO = 3` de chan so mon fan-out ra
+  image-gen (co log khi truncate). Van CHUA giai quyet triet de: 1 credit van co the kich
+  hoat toi 3 lan generation tra tien (~3 x $0.13 = $0.39), tuc credit KHONG con ty le 1:1
+  voi so anh sinh ra — can quyet dinh tiep: tinh credit theo so mon thuc te, hay chap nhan
+  cap 3 la du re de bo qua.
+- [ ] **Thong nhat MOI ten model qua env override (chuan bi cho deadline 16/10)** (2026-08-05).
+  Hien 3/9 cho da doc env, doi model chi can `supabase secrets set`, KHONG can deploy:
+  `describe-outfit` (`DESCRIBE_MODEL`), `evaluate-item/note.ts` (`VERDICT_NOTE_MODEL`),
+  `generate-outfits/engine/curator.ts` (`CURATOR_MODEL`).
+  6 cho con lai hardcode, phai sua code + deploy: `backfill-item-metadata:44`,
+  `generate-item-image:36` (VISION_MODEL) va `:37` (IMAGE_GEN_MODEL), `tryon-generate:35`,
+  `tryon-validate:25`, `map-measurements:25`.
+  Nen doi ca 6 cho sang pattern `Deno.env.get('X_MODEL') ?? DEFAULT` — sau do dot migrate
+  2.5 -> 3.x (va bat ky lan A/B model nao) chi la doi secret, rollback tuc thi neu chat luong
+  te di, khong ton lan deploy nao. Dac biet dang lam voi 2 cho IMAGE_GEN_MODEL de co the thu
+  Flash Image roi quay ve Pro ngay trong vai giay.
+
+- [ ] **Deadline cung: `gemini-2.5-*` bi Google tat 16/10/2026** (2026-08-04) — repo dang dung
+  `gemini-2.5-flash` (generate-item-image detect, tryon-validate, curator, map-measurements)
+  va `gemini-2.5-flash-lite` (evaluate-item note, describe-outfit). Phai migrate sang 3.x
+  truoc ngay do neu khong toan bo tinh nang AI chet.
+- [ ] **Don bay giam gia von lon nhat: doi model image-gen** (2026-08-04) —
+  `gemini-3-pro-image-preview` ~$0.13/anh. Gemini 3.1 Flash Image ~$0.067 (1K), Imagen 4 Fast
+  ~$0.02. Doi sang Flash Image giam ~50% gia von cua ca try-on lan extraction. Can A/B chat
+  luong anh truoc khi doi (day la tinh nang ban tien, khong duoc xau di).
+- [x] **VERIFY LIVE DB: `usage_credits` co cot `credits_used`/`credits_limit` khong?** — DONE
+  2026-08-05, KET QUA: **live DB dung ten MOI, khop voi RPC va client.** Probe qua PostgREST
+  bang anon key:
+  `GET /rest/v1/usage_credits?select=credits_used,credits_limit&limit=1` -> **200** (tra `[]`
+  do RLS, nhung cot ton tai);
+  `GET /rest/v1/usage_credits?select=used,free_limit&limit=1` -> **400
+  `column usage_credits.used does not exist`**.
+  Ket luan: schema drift chi nam o FILE migration `20260608000007_usage_credits.sql`, khong
+  phai o live DB. `consume_usage_credit` chay dung -> quota premium se duoc thuc thi that,
+  khong bi fail-open. (Con lai chua verify truc tiep: check constraint tren `credit_type` —
+  migration cu ghi `in ('worn_outfit_scan')`. Kha nang cao da duoc sua tren live vi free-tier
+  credit `ai_extraction`/`try_on` van dang chay binh thuong tren production; neu constraint
+  con chan thi RPC da fail-open tu lau va free user cung se khong bi tru credit.)
+
+- [ ] **VERIFY LIVE DB (cu, da thay the bang muc tren): `usage_credits` cot**
+  (2026-08-04, **NANG MUC DO UU TIEN 2026-08-05 — gio anh huong ca revenue correctness,
+  khong chi free-tier enforcement**) — migration `20260608000007_usage_credits.sql:4-11` tao
+  cot `used`/`free_limit` VA constraint `credit_type in ('worn_outfit_scan')` (khong co
+  `ai_extraction`/`try_on`), nhung RPC `consume_usage_credit` (`20260625000002_...sql:39-47`)
+  va `usageCreditService.ts` deu doc/ghi `credits_used`/`credits_limit` va dung credit_type
+  `ai_extraction`/`try_on`. Khong co migration nao trong repo sua cot hay constraint nay —
+  drift chua xac minh duoc voi live DB (KHONG duoc tu y query DB trong task nay). Neu live DB
+  con theo migration cu, RPC loi -> `gateCredit` FAIL OPEN (khong doi voi task 2026-08-05:
+  hanh vi fail-open nay duoc GIU NGUYEN co chu dinh) -> **CA free lan premium deu khong bi tru
+  credit** — tuc quota premium 15 try-on + 10 ai_extraction vua them (2026-08-05) se KHONG
+  duoc enforce thuc te, khong chi anh huong free tier nhu truoc. Phai query live DB xac nhan
+  TRUOC KHI tin tuong credit gate co hieu luc that (ca free va premium).
+- [x] **Marketing copy con noi "unlimited" sau khi premium co quota** (2026-08-05, phat sinh
+  tu task them premium quota) — **FIXED 2026-08-05**: `paywall_subtitle`, `paywall_benefit1`,
+  `paywall_benefit2`, va `premium_upgradeSubtitle` trong `en.json`/`vi.json` da bo het claim
+  "unlimited"/"khong gioi han". `paywall_subtitle`/`benefit1`/`benefit2` gio hien so quota that
+  qua interpolation param `{{extraction}}`/`{{tryOn}}` (khong hardcode 15/10 trong string —
+  lay tu `PREMIUM_LIMITS` trong `usageCreditService.ts`, wired o `app/paywall.tsx`).
+  `premium_upgradeSubtitle` hien khong con call site nao render no, nen chi bo claim
+  "unlimited" ma khong can so (headline chung chung).
+  **SUPERSEDED 2026-08-08**: theo yeu cau anh Khoi, paywall bo han con so quota — xoa
+  `paywall_benefit1/2/3` + benefit list, `paywall_subtitle` gio la MOT cau khong co
+  interpolation ("Tang gioi han su dung AI de bo sung trang phuc vao tu do va thu do
+  truoc khi mua"), `app/paywall.tsx` khong con import `PREMIUM_LIMITS`. Rang buoc "khong
+  duoc noi unlimited" van giu nguyen. Xem `src/design/paywall/design.md` "Value copy
+  (2026-08-08)".
+
+- [x] **Khong co noi nao hien "con lai bao nhieu luot" cho user** (2026-08-05, phat sinh tu
+  task sua marketing copy "unlimited") — `usageCreditService.checkCredit()` da tra ve
+  `{ used, limit, remaining }` nhung khong man hinh nao hien thi con lai bao nhieu (try-on /
+  ai_extraction). User trả phí hiện chỉ biết mình hết quota khi đâm thẳng vào cap — đúng lúc
+  tệ nhất (giữa flow, sau khi đã trả tiền). Nên hiển thị remaining count ở các entry point
+  chính: try-on (trước khi bấm generate) và add-item / wardrobe scan (UploadStep, cạnh
+  `uploadStep_upgradeText`). Chưa làm trong task này — task này chỉ sửa copy, không đổi
+  UI/logic ngoài phạm vi paywall params.
+  **NANG MUC DO 2026-08-08**: paywall vua bo het con so quota (xem muc tren), nen gio
+  KHONG CON CHO NAO trong app hien limit/remaining cho user — truoc do it nhat paywall
+  con noi "15 luot thu / 10 luot quet". Item nay tu "nice to have" thanh can lam truoc
+  khi ban premium rong rai.
+  **DONE 2026-08-08** (cung session): them `useCreditQuota` +
+  `CreditQuotaNote`, hien 1 dong caption tertiary ngay tren nut hanh dong o 2 cho —
+  try-on (`ready` truoc WEAR ON, `result`/`error` truoc REGENERATE) va add-item
+  UploadStep (tren nut ANALYSE). `CreditStatus` them 2 field display-only
+  (`accountType`, `degraded`) de counter AN DI khi khong co so dang tin (query loi
+  fail-closed remaining:0, hoac account demo khong bi meter) thay vi bao user "con 0".
+  Gate khong doi hanh vi. Xem `plan.md` "Paywall copy: drop the quota numbers".
+
+- [x] **`paywall.tsx` chi render MOT package -> khoa cung viec them goi ve sau** (2026-08-04,
+  phat sinh khi anh Khoi hoi co nen them goi yearly). `app/paywall.tsx:48` doc
+  `offerings?.current?.availablePackages?.[0]` — chi lay phan tu DAU TIEN. Hau qua: du
+  RevenueCat co bao nhieu package trong offering, user van chi thay 1 goi, va goi nao duoc
+  hien phu thuoc thu tu RevenueCat tra ve (khong kiem soat duoc tu client).
+  **Nen sua thanh render DONG toan bo `availablePackages` NGAY TU 1.0.0**, ke ca khi hien tai
+  moi co mot goi monthly. Ly do: neu 1.0 hardcode `[0]`, sau nay them goi yearly phai sua code
+  + build lai + cho Apple review lai. Neu render dong ngay tu dau thi them goi chi can bat tren
+  RevenueCat dashboard, co hieu luc ngay khong can update app — dung dung tinh than "dynamic
+  paywall" ma RevenueCat thiet ke. Kem theo can UI chon goi (2 the/segmented) + hien
+  `priceString` cua tung goi.
+  **FIXED 2026-08-05** — `app/paywall.tsx` gio render dong toan bo `availablePackages`, co the
+  chon (selected border `T.color.primary`, unselected hairline nhu cu), badge tiet kiem khi co
+  ca MONTHLY va ANNUAL, va them day du disclosure Apple 3.1.2 (xem `plan.md` "Paywall: dynamic
+  package list + Apple 3.1.2 disclosures (2026-08-05)"). Item moi phat sinh tu phase nay: xem
+  `PRIVACY_URL` placeholder ben duoi.
+
+- [ ] **`src/config/legal.ts` `PRIVACY_URL` la PLACEHOLDER, chua phai link that** (2026-08-05,
+  phat sinh khi lam disclosure Apple 3.1.2 cho paywall). Gia tri hien tai la
+  `https://mien.app/privacy` — domain chua host trang nao. Phai thay bang link that, cong khai
+  truy cap duoc, truoc khi submit App Store: Apple reject app neu Privacy Policy URL gay loi
+  hoac khong ton tai, va app nay thu thap ca body measurements lan anh (face selfie cho personal
+  color, anh tu do/try-on) nen reviewer se doc ky trang nay. Can lam ca 2 viec: (1) host mot
+  trang privacy policy that mo ta dung du lieu dang thu thap, (2) dien URL do vao ca
+  `src/config/legal.ts` lan truong "Privacy Policy URL" trong App Store Connect.
+
+- [x] **User dang co goi thang KHONG the nang len goi nam — nut bi disable cung**
+  (2026-08-05, phat hien khi anh Khoi hoi "user da mua goi thang thi vao thay gi").
+  `app/paywall.tsx:309` co `disabled={busy || !selectedPkg || isPremium}` — he premium la
+  chan MOI giao dich, ke ca doi sang goi khac. Hau qua: paywall van hien goi nam, van cho
+  tap chon, nhung bam mua thi khong duoc — vua mat doanh thu (monthly->annual la luong
+  upgrade gia tri nhat, tang LTV + giam churn) vua la UX kho hieu.
+  Apple DA ho tro san: hai goi trong CUNG mot subscription group thi mua goi kia = upgrade,
+  Apple tu prorate phan con lai va doi ngay. Khong can code xu ly thanh toan gi them.
+  **Cach sua**: `usePremium` hien chi tra `isPremium: boolean` — can mo rong de tra ve
+  product identifier dang active (`customerInfo.entitlements.active['premium']
+  .productIdentifier`). Sau do trong paywall: goi TRUNG voi goi dang dung -> disable + gan
+  nhan "goi hien tai"; goi KHAC -> cho mua binh thuong. Phai lam TRUOC hoac CUNG luc voi
+  viec them goi nam, neu khong goi nam gan nhu khong ban duoc cho user hien huu.
+  **FIXED 2026-08-05** — `usePremium` tra them `activeProductId`; `app/paywall.tsx` gio phan
+  loai `planRelation` (current/upgrade/downgrade/switch) va chi disable nut khi goi chon
+  TRUNG goi dang dung; upgrade/downgrade/switch deu goi lai `handlePurchase` binh thuong,
+  Apple tu prorate. Xem `plan.md` "Paywall: plan switching (upgrade/downgrade) + manage
+  subscription (2026-08-05)".
+
+- [x] **Thieu duong huy / quan ly goi dang ky trong app** (2026-08-05, cung phat hien).
+  Khi `isPremium`, paywall chi hien dong chu "You already have Premium. Enjoy."
+  (`paywall.tsx:296-299`) va khong co gi khac. Nen them nut mo thang trang quan ly
+  subscription cua iOS: `Linking.openURL('itms-apps://apps.apple.com/account/subscriptions')`.
+  Apple khong bat buoc, nhung user khong tim duoc cho huy thuong di thang toi 1-sao review
+  hoac yeu cau hoan tien qua Apple — ca hai deu ton hai hon nhieu so voi viec de ho tu huy.
+  **FIXED 2026-08-05** — them `TextLink` (`paywall_manageSubscription`) trong block
+  `alreadyPremium`, mo `itms-apps://apps.apple.com/account/subscriptions` qua
+  `Linking.openURL(...).catch()`. Xem `plan.md` cung entry o tren.
+
+- [ ] **Plan switching moi wire cho iOS, chua xu ly Android** (2026-08-05, phat sinh tu viec
+  fix hai item tren). Luong upgrade/downgrade goi trong `handlePurchase` -> `purchase(pkg)`
+  -> `Purchases.purchasePackage(pkg)` khong truyen them tham so gi, dua vao viec Apple tu
+  prorate cho hai goi CUNG mot subscription group (dung tren iOS). Google Play KHONG lam vay
+  tu dong — doi/nang cap goi tren Android can truyen ro `oldProductId` +
+  `googleProductChangeInfo`/proration mode (`purchasePackage` co tham so rieng cho viec nay
+  tren RevenueCat SDK). Truoc khi ra ban Android, phai quay lai `handlePurchase` trong
+  `app/paywall.tsx` va them nhanh xu ly rieng cho `Platform.OS === 'android'` khi
+  `planRelation` la 'upgrade'/'downgrade'/'switch', neu khong upgrade/downgrade tren Android
+  se fail hoac tao subscription thu hai thay vi thay the.
+
+- [ ] **Edge case da biet (chap nhan duoc, KHONG phai bug): premium qua `account_type` nhung
+  khong co RevenueCat entitlement -> nut hien "CHUYEN SANG ..." thay vi "GOI HIEN TAI"**
+  (2026-08-05, ghi lai khi review ban plan-switching de session sau khong tuong la loi).
+  `planRelation` trong `app/paywall.tsx` tra `'switch'` khi `currentPkg` la null. `currentPkg`
+  duoc suy ra tu `activeProductId` = `entitlements.active['premium'].productIdentifier`, nen
+  no null khi user la premium theo DB (`account_type` = premium/admin, VD set tay qua
+  service_role, hoac tai khoan admin) chu khong phai qua giao dich RevenueCat.
+  Hau qua: nut bam duoc, nhung KHONG mat tien oan — Apple chan mua trung cung product va bao
+  "already subscribed". Rui ro thap, tan suat thap. Neu muon sach hon thi khi `isPremium &&
+  !currentPkg` co the disable nut kem nhan trung tinh.
+
+- [ ] **Quyet dinh: giu paywall tu code hay chuyen sang RevenueCat Paywall Builder?**
+  (2026-08-04, phat sinh khi anh Khoi hoi ve o "Custom URL Scheme" tren RC dashboard).
+  `react-native-purchases-ui@^10.6.0` DA cai nhung CHUA duoc import o bat ky dau
+  (grep `src/` + `app/`: 0 hit) — app dang dung `app/paywall.tsx` tu code theo design
+  luxury-minimalism rieng. Hai duong: (a) giu paywall tu code -> co the go
+  `react-native-purchases-ui` cho nhe bundle, va o "Custom URL Scheme" tren dashboard
+  khong can dien (no chi phuc vu Paywall Preview cua Paywall Builder); (b) chuyen sang
+  Paywall Builder -> doi duoc paywall tu dashboard khong can update app, nhung bi gioi han
+  trong template cua RevenueCat nen kho khop design system MIEN. Scheme cua app da co san
+  la `mien` (`app.json:11`) neu chon (b). Chua chot — can anh Khoi quyet.
+
+- [ ] **`_layout.tsx` chi doc MOT bien RevenueCat key -> chi chay duoc 1 platform** (2026-08-04,
+  phat hien khi huong dan dan key). `app/_layout.tsx:81` doc duy nhat
+  `process.env['EXPO_PUBLIC_REVENUECAT_API_KEY']`, nhung RevenueCat cap key RIENG cho tung store
+  (`appl_…` cho iOS, `goog_…` cho Android) — khong dung chung duoc. iOS-first thi khong sao,
+  nhung khi len Google Play phai sua thanh chon key theo `Platform.OS` (VD 2 bien
+  `..._IOS` / `..._ANDROID`, hoac giu 1 bien cho iOS va them bien thu 2). Neu quen, ban Android
+  se configure bang key iOS -> SDK loi hoac khong tra ve offering nao.
+  **XAC NHAN BANG RUNTIME 2026-08-10** (logcat, bản debug trên emulator Android):
+  `[RevenueCat] The specified API Key is not recognized. Ensure that you are using the public
+  app-specific API key, which should look like 'goog_1a2b3c4d5e6f7h'...` — đúng như dự đoán,
+  `eas.json:14,29,41` đang đặt `appl_llObneTbxssMfXnooijYjkTNzKD` cho CẢ 3 profile, nên bản
+  Android configure bằng key iOS. Đây là lỗi THẬT của bản Android production, không phải hạn
+  chế emulator (lỗi `BILLING_UNAVAILABLE` đi kèm mới là do emulator không có Play Billing).
+  → Phải sửa trước khi phát hành Play: tách key theo `Platform.OS` ở `app/_layout.tsx:81`.
+- [ ] **Bucket `avatars` dang public** (2026-08-04) — `profileService.uploadAvatar` dung
+  `getPublicUrl` (path `{userId}/{timestamp}.ext`), khac voi `wardrobe-photos` (private + signed
+  URL). Anh dai dien nguoi dung do la doan duoc URL neu biet userId. Nen doi sang private +
+  signed URL cho dong bo voi cam ket privacy trong App Privacy / Privacy Policy.
+- [ ] **Chu bi cat ky tu cuoi do letterSpacing (Android)** (2026-08-04) — token `type.ui` /
+  `type.micro` co `letterSpacing` 1.5/1.8; Android lam tron chieu rong text xuong nen glyph cuoi
+  bi clip ("BEGIN" -> "BEGI"). Da vá `PrimaryButton`, `SecondaryButton`, `TextLink` bang
+  `paddingHorizontal: 2`. Cac cho khac dung cung token van chua vá: `Tag.tsx`, `Segmented.tsx`,
+  `Field.tsx` (label + TextInput), `Photo.tsx`, `OfflineBanner.tsx`, va cac style inline
+  `...type.ui` trong app/*. Can ra soat tren may Android that roi vá dong loat (hoac them padding
+  ngay trong token, tru cho TextInput).
+
+## K. Review 3 engine (suggest / rating / try-on) — 2026-08-06 (đề xuất, chưa duyệt)
+
+Phát hiện từ đợt review Fable + 3 Explore agent. Các mục dưới đây CHƯA có trong backlog
+trước đó (những mục đã có — rate-limit tryon, model hardcode, gemini-2.5-flash kill date
+16/10/2026, hiển thị credit, device-test face composite, wardrobe-critic RNG — giữ nguyên
+ở các section cũ).
+
+### Bug thật / code chết (sửa rẻ, ăn ngay)
+- [x] ĐÃ FIX 2026-08-06 (toBodyMeasurements mapper + regression test) — **`preferredFitDelta` (±0.12) luôn = 0 trong feed** — `generate-outfits/index.ts:151`
+  gán raw DB row (snake_case `preferred_fit`) thẳng vào `BodyMeasurements` (camelCase
+  `preferredFit`) không map → scorer đọc undefined. `evaluate-item` không bị vì nhận
+  profile đã map từ client. (2026-08-06)
+- [x] ĐÃ FIX 2026-08-06 (computedAttributes set trước resolveTargetSilhouette) — **Cascade silhouette theo style chết** — `silhouette.ts:224` đọc
+  `ctx.styleProfile.computedAttributes?.silhouette` nhưng index.ts không bao giờ set,
+  `applyIntent` còn null nó → target silhouette luôn rơi xuống body_shape/fallback;
+  "tailored" của minimalist / "oversized" của streetwear không bao giờ lái generation. (2026-08-06)
+- [x] ĐÃ FIX 2026-08-06 (SELECT + mapper generate-outfits; wardrobe-critic mapper hoàn thiện Phase 2) — **`primary_hex`/`secondary_hex`/`graphics` backfill xong không ai đọc** — engine select
+  (generate-outfits/index.ts:137, wardrobe-critic, evaluate-item) đều bỏ qua; lớp
+  measured-color refinement trong `enrichment.ts:674-683` chết; graphics đoán từ TÊN item
+  bằng keyword thay vì đọc cột jsonb có sẵn. (2026-08-06)
+- [ ] **`StyleConfig.neighbors` + `overrides` khai báo đủ 8 style nhưng không code nào đọc**;
+  `FitItem.warmth` derive xong không scorer nào dùng; `silhouetteAffinity()` export không
+  ai gọi. (2026-08-06)
+- [x] ĐÃ FIX 2026-08-06 (missingItem check thêm !provenance.fit → criterion unavailable thay vì chấm đoán) — **evaluate-item bỏ qua provenance** — fit đoán từ `TYPE_DEFAULT_FIT` vẫn được chấm
+  tự tin (hoodie không nhãn → "oversized" → 10/100 cho user thích slim, kèm copy khẳng
+  định); feed thì có gate provenance (`ranking.ts:268-288`) — cần đồng bộ. (2026-08-06)
+- [x] ĐÃ FIX 2026-08-06 (templates en/vi theo locale; wardrobeFit → i18n keys client) — **Copy giải thích 5 criterion của verdict hard-code tiếng Anh** (`evaluate-item/
+  scoring.ts:72-148`) dù contract hứa theo locale; `wardrobeFit.ts:52-68` cũng EN-only.
+  User VN nhận verdict tiếng Anh + AI note tiếng Việt lẫn lộn. (2026-08-06)
+
+### Chất lượng chấm điểm
+- [x] ĐÃ FIX 2026-08-06 (scoreSingleItemColor/Fabric — full range, giữ nguyên bonus magnitude) — **Single-item degeneracy trong evaluate-item** — chấm 1 món bằng scorer outfit làm
+  5/7 sub-term màu thành hằng số → điểm màu bó trong ~70–91 trước bonus; fabric kẹp
+  [32,92]. Cần biến thể single-item của scorer màu/fabric. (2026-08-06)
+- [ ] **Verdict và feed dùng 2 định nghĩa "đẹp" khác nhau** — verdict không có proportion/
+  formality/anchor/taste; item 88 "Great pick" vẫn có thể "A bit of a stretch" với tủ đồ,
+  2 con số hiện cạnh nhau không hoà giải. (2026-08-06)
+- [ ] **`confidence` từ extraction bị bỏ** — không scale trọng số; đoán 0.3 nặng ngang
+  0.95. Client còn drop `print_scale`/`drape`/`visual_interest`/`can_layer`/`color_hex`
+  khi map (`imageGenerationService.ts:42-68`) → backfill phải re-derive thứ đã trả tiền
+  extract. (2026-08-06)
+- [ ] **Giày/phụ kiện không bao giờ được chấm measurement** (0.25 weight rơi);
+  `m_skirt_length`/`m_shoe_size` extract xong bị drop ở request boundary. (2026-08-06)
+
+### Vòng lặp dữ liệu (ROI cao nhất, quyết định thay cho câu hỏi "cần LLM?")
+- [x] ĐÃ LÀM 2026-08-07 (viewed + swipe-left dismissed, taste 2 chiều bounded) — **Không có negative feedback** — `outfit_interactions` chỉ có saved/worn/scheduled/
+  impression, KHÔNG có skip/dismiss; prod 1016 impressions / 0 saved → taste vector ngủ
+  đông. Cần event skip (swipe-away / dwell-time) trước mọi nâng cấp ranking. (2026-08-06)
+- [ ] **Occasion/mood wired server-side nhưng client không bao giờ gửi** — intent duy nhất
+  client gửi là seasonOverride từ 4-band nhiệt độ; `times_worn`/`worn_cooldown_ids` cũng
+  không ai gửi → không có rotation/novelty. (2026-08-06)
+- [ ] **Try-on là ngõ cụt dữ liệu** — signal "đang cân nhắc look này" đắt nhất app không
+  ghi interaction, không save được look, không feed về taste/critic (cầu nối
+  candidate_item của wardrobe-critic T032 server có sẵn, client chưa viết). (2026-08-06)
+
+### Try-on riêng
+- [x] ĐÃ FIX 2026-08-06 (copy en/vi disclosure Google AI + latency claim; Privacy Policy doc vẫn cần rà) — **Privacy copy thiếu disclosure** — "Your photo is never stored on our servers" đúng
+  về storage nhưng im lặng việc ảnh đi qua Google Gemini (2 lần); cần sửa copy + Privacy
+  Policy trước khi App Store review soi. (2026-08-06)
+- [x] ĐÃ FIX 2026-08-06 (verify pass fail-open + refund + quality_warning) — **Không có output-quality check sau generate** — anatomy lỗi/sai áo vẫn tính $0.13
+  và hiện lên màn; pattern validate bằng flash rẻ đã có sẵn (tryon-validate), thêm 1 pass
+  verify sau generate. (2026-08-06)
+- [x] ĐÃ FIX 2026-08-06 (2-pass detect + faceApplied + counter local; device-test vẫn pending) — **Mâu thuẫn kiến trúc face-composite** — prompt ép khung full-body (mặt ~5-8% chiều
+  cao ảnh) nhưng BlazeFace short-range detect ở 128×128 → mặt ~8-10px, dò biên; cần
+  crop-vùng-mặt rồi detect lại (2-pass) ở cả ảnh gốc lẫn ảnh gen. Kèm: composite fail
+  chỉ log __DEV__, không telemetry — không biết tính năng có chạy thật không. (2026-08-06)
+
+### K-bis. Phát sinh từ đợt fix 2026-08-06 (nhỏ, chưa làm)
+- [ ] `pinItemToRow` (Mix & Match item scan transient, generate-outfits/index.ts ~690) chưa
+  mang `primary_hex`/`secondary_hex`/`graphics` — item pin chưa hưởng measured-color. (2026-08-06)
+- [ ] `wardrobe-critic/analyze.ts` build styleProfile không có computedAttributes giống bug cũ
+  của generate-outfits — hiện VÔ HẠI vì analyze không gọi resolveTargetSilhouette; chỉ cần nhớ
+  nếu wardrobe-critic sau này dùng silhouette-first. (2026-08-06)
+- [ ] `tryon-generate` deno check còn 4 lỗi TS2345 MinimalClient-vs-SupabaseClient — PRE-EXISTING
+  (verify bằng stash), dọn khi nào rảnh cho `deno check` sạch. (2026-08-06)
+- [ ] Caption "đã hoàn credit" của quality_warning hơi lệch với account demo (không trừ credit
+  nên không hoàn) — chỉ gặp ở account reviewer, ưu tiên thấp. (2026-08-06)
+- [ ] `evaluate-item/index.ts:199` lỗi type PRE-EXISTING (`pattern: string|null|undefined` vào
+  `buildNoteContext` expect `string|undefined`) — fix 1 dòng `?? undefined` khi nào tiện. (2026-08-06)
+
+## L. Gemini prepay credits CẠN — phát hiện 2026-08-07 khi debug try-on
+- [ ] **NGUYÊN NHÂN try-on "Không kiểm tra được ảnh": Google API key hết prepay credits**
+  (2026-08-07). Log function: Gemini 429 RESOURCE_EXHAUSTED "Your prepayment credits are
+  depleted" → tryon-validate trả 502 → client hiện copy "kiểm tra kết nối" (gây hiểu nhầm).
+  CHỈ anh Khôi nạp được: https://ai.studio/projects. Ảnh hưởng MỌI tính năng Gemini:
+  tryon-validate/generate, generate-item-image (scan), evaluate-item note, curator
+  (curator fail-open nên feed vẫn chạy, chỉ mất curated).
+- [ ] Client map lỗi 502 của tryon-validate thành copy "kiểm tra kết nối" — misleading;
+  nên phân biệt lỗi dịch vụ AI ("Dịch vụ AI đang gián đoạn — thử lại sau") vs lỗi mạng
+  thật. Tương tự cho generateWearOn. (2026-08-07)
+- [x] Verify constraint live `outfit_interactions.type` (2026-08-07, qua Management API
+  /database/query): CHECK in ('saved','worn','scheduled','impression') — migration files
+  thiếu 'impression' (drift xác nhận). Muốn thêm 'viewed'/'dismissed' phải ALTER constraint
+  trên live + tạo migration đồng bộ.
+
+## M. Try-on full-body hard gate — theo dõi sau khi deploy (2026-08-08)
+- [ ] **`full_body_visible` gate ở tryon-validate có thể reject nhầm ảnh thật của user** —
+  Vietnamese trong nhà thường chụp thiếu chân/bị gương/kệ che phần dưới; nếu tỉ lệ reject
+  cao gây khó chịu, cân nhắc nút "Dùng ảnh này luôn" (bỏ qua gate, chấp nhận rủi ro
+  proportion/crop không hoàn hảo) thay vì chặn cứng 100%. Cần xem log/feedback thật sau khi
+  deploy rồi mới quyết — chưa deploy đợt này. (2026-08-08)
+- [ ] **`identity_ok`/`body_ok` verify field mới có thể gây hoàn credit oan (false refund)** —
+  2 field này chưa có dữ liệu thực tế nào để biết gemini-2.5-flash so sánh 2 ảnh (gốc vs
+  edit) có hay bị false-negative không (vd: ánh sáng/crop khác nhẹ do nén ảnh cũng có thể bị
+  chấm `body_ok:false` dù thực ra đúng). Hậu quả nếu sai chỉ là hoàn nhầm credit (rẻ, không
+  hại user) nhưng vẫn nên theo dõi tỉ lệ `quality_warning` sau khi deploy, so với baseline
+  trước khi thêm 2 field này. (2026-08-08)
+
+## N. APK size & emulator storage (2026-08-09)
+- [x] **App treo ở splash trên emulator — KHÔNG phải lỗi code** (2026-08-09). Triệu chứng:
+  `expo run:android` cài xong, app đứng ở splash vô hạn. Bằng chứng loại trừ: Metro serve
+  `/index.bundle` 12.4 MB HTTP 200 trong 14s, app đã kéo được bundle (thread OkHttp tới
+  `10.0.2.2:8081`), `authStore.hydrate`/`appStore.hydrate` đều có `withTimeout` +
+  `set({hydrated:true})` trong `finally` nên không thể treo vĩnh viễn.
+  Nguyên nhân thật, đọc từ logcat:
+  `Verification of ReconnectingWebSocket$$ExternalSyntheticLambda0.<init> took 20.071s
+  (0.30 bytecodes/s)` — ART verify dex bò vì emulator đói tài nguyên. Bối cảnh: `hw.ramSize`
+  chỉ 2048, `/data` đầy 89%, VÀ lúc đó Gradle release build đang chiếm CPU.
+  FIX: `~/.android/avd/Medium_Phone.avd/config.ini` → `hw.ramSize` 2048→**4096**,
+  `vm.heapSize` 228→512, `hw.cpu.ncore` 4→6, rồi cold boot (`-no-snapshot-load`).
+  Kết quả đo: `am start` từ >60s xuống **0.6s**.
+  CẢNH BÁO (đã sửa lại chẩn đoán): emulator chết sau vài phút KHÔNG phải do thiếu RAM host
+  — lần chết thứ hai host còn 19.8 GB trống mà vẫn chết. Nguyên nhân thật: emulator được
+  spawn từ tool call của Claude thì bị giết theo process tree của lệnh đó khi lệnh kết thúc.
+  → **Emulator phải do anh Khôi tự mở** (Android Studio / terminal riêng), Claude chỉ
+  `adb` vào máy ảo đã có sẵn. Cùng bản chất với bẫy Metro đã ghi ở
+  [project_metro_run_android_gotcha].
+  BÀI HỌC: đừng chạy Gradle build song song với việc mở app trên emulator — nó vừa đói CPU
+  vừa giết Metro watcher.
+- [ ] **Emulator `Medium_Phone` sắp hết đĩa** — data partition chỉ 6G, system image
+  google_apis_playstore_ps16k đã ăn 4.9G, còn ~700M. Install APK debug 174M (4 ABI) fail
+  `INSTALL_FAILED_INSUFFICIENT_STORAGE`. Workaround đang dùng: build 1 ABI
+  (`./gradlew assembleDebug -PreactNativeArchitectures=x86_64` → 102.5M, cài OK).
+  Fix dứt điểm: sửa `disk.dataPartition.size` lên 16G trong
+  `~/.android/avd/Medium_Phone.avd/config.ini` — CHƯA làm vì có rủi ro phải wipe data
+  (mất state login/wardrobe trên máy ảo). (2026-08-09)
+- [ ] **`expo run:android` build đủ 4 ABI → APK 170M → `INSTALL_FAILED_INSUFFICIENT_STORAGE`**
+  CHƯA có cách tự động. Đã THỬ VÀ THẤT BẠI 2026-08-10: đặt `ndk { abiFilters }` trong
+  buildType `debug` của `android/app/build.gradle` → APK **phình lên 265 MB và vẫn đủ 4
+  ABI**; `abiFilters.clear()` không lọc được mà còn phá khâu strip symbol (libs vào APK ở
+  dạng chưa strip). Đã revert.
+  Cách DUY NHẤT đang chắc chắn chạy: `./gradlew assembleDebug -PreactNativeArchitectures=x86_64`
+  (→ ~102 MB), nhưng `expo run:android` không truyền được property này.
+  Các hướng chưa thử: (a) đặt `reactNativeArchitectures=x86_64` trong
+  `~/.gradle/gradle.properties` — user-level đè project-level, EAS không bị ảnh hưởng,
+  NHƯNG nguy hiểm vì anh Khôi build AAB release cục bộ → có thể vô tình ship AAB thiếu
+  arm64 lên Play; (b) tăng data partition emulator để 170 MB vừa thoải mái. (2026-08-10)
+- [ ] **ML Kit chiếm ~28M native + 4M assets trong APK, có thể có phần thừa** — breakdown
+  lib/x86_64 (71.5M tổng): `libmlkitcommonpipeline` 11.6M, `libmlkit_google_ocr_pipeline`
+  11.1M, `libbarhopper_v3` (barcode) 5.6M. Assets bundle 4M thì 100% là model ML Kit
+  (`mlkit_label_default_model` 1.95M, `mlkit-google-ocr-models` 1.22M,
+  `mlkit_barcode_models` 0.84M) — không có asset nào của MIEN.
+  Nguồn: `modules/expo-item-extract/android/build.gradle:75` khai `text-recognition:16.0.1`
+  (OCR ~11M — kiểm tra xem code có thật sự gọi không, nếu không thì bỏ);
+  `node_modules/expo-camera/android/build.gradle:31` kéo `barcode-scanning:17.3.0`
+  transitive (~6M — có thể exclude nếu app không dùng scanner). Chưa đụng vì cần verify
+  call-site trước. (2026-08-09)
+
+## O. Production readiness — phát hiện khi review build (2026-08-09)
+- [x] **`.easignore` KHÔNG loại thư mục build native → EAS upload thừa ~2 GB** — ĐÃ VÁ
+  2026-08-09 (`.easignore:15-25`): thêm `android/build/`, `android/app/build/`,
+  `android/app/.cxx/`, `android/.gradle/`, `modules/*/android/{build,.cxx}/`,
+  `ios/{build,Pods}/`. Lý do phải lặp lại dù `.gitignore` đã có: khi tồn tại `.easignore`,
+  EAS dùng nó THAY cho `.gitignore`.
+- [x] **Bật R8/minify cho release** — ĐÃ BẬT 2026-08-09
+  (`android/gradle.properties:28-35` → `android.enableMinifyInReleaseBuilds=true`).
+  `shrinkResources` CỐ Ý để tắt: nó xoá resource chỉ tham chiếu theo tên lúc runtime, mà
+  `res/` chỉ ~2 MB → đánh đổi không đáng.
+  `android/app/proguard-rules.pro` viết lại: chỉ bù cho thư viện KHÔNG tự ship consumer
+  rules (JNI native methods, `com.tflite.**`, `com.revenuecat.purchases.**`,
+  `-dontwarn com.google.mlkit.vision.barcode.**`). RN / expo-modules-core / react-native-svg
+  đã tự lo qua `consumerProguardFiles`. Xoá 2 rule `reanimated` chết (package không cài).
+- [ ] **BẮT BUỘC QA bản release trên máy thật trước khi upload store** — R8 build PASS
+  không chứng minh app chạy đúng; lỗi minify lộ ở runtime (`ClassNotFoundException`,
+  deserialize sai field name). Phải đi hết: đăng nhập → wardrobe add/extract (ML Kit
+  segmentation + OCR) → generate outfit → try-on → **paywall/restore purchase**
+  (RevenueCat là chỗ rủi ro nhất vì deserialize theo tên field). Nếu gãy, cách lùi nhanh:
+  đặt `android.enableMinifyInReleaseBuilds=false`. (2026-08-09)
+  LƯU Ý: **không QA được RevenueCat trên emulator** — xác nhận 2026-08-09 qua logcat:
+  `PurchasesError(code=PurchaseNotAllowedError, ... BILLING_UNAVAILABLE ... Billing service
+  unavailable on device)`. Phải test paywall trên máy thật có Play Store + tài khoản
+  license tester. Đây cũng đúng là nhánh code R8 dễ gãy nhất → không thể bỏ qua bước này.
+- [x] **Metro crash `ENOENT ... watch` khi build Gradle song song với `expo start`** —
+  FIX 2026-08-09 (`metro.config.js`): thêm `resolver.blockList` chặn
+  `android/**/build/`, `android/**/.cxx/`, `ios/build/`, `ios/Pods/`. Nguyên nhân: Gradle
+  tạo/xoá thư mục trong `node_modules/*/android/build/intermediates/`, Metro watcher crawl
+  trúng lúc thư mục biến mất → chết cả dev server. Regex đã test bằng
+  scratchpad/check-metro.js (bản đầu sót `android/app/build` vì thiếu segment module).
+- [ ] **AAB release: 54.8 MB / ~94 MB là model TFLite nhúng cứng** — ĐO THẬT 2026-08-09 từ
+  `app-release.aab` (108.35 MB, trừ 13.61 MB BUNDLE-METADATA không giao cho user →
+  **~94 MB tải về cho máy arm64**). Cơ cấu: `res/raw` **54.8 MB**
+  (blazepose-heavy 24.97 + modnet 22.88 + movenet-lightning 2.2 + selfie-segmenter/
+  face-detector), `lib/arm64-v8a` 16.02, `drawable-mdpi` 9.43, `dex` 8.15, `assets` 4.66.
+  → **Model chiếm hơn nửa app, không phải ML Kit/RN như phán đoán ban đầu.**
+  Hướng giảm (chưa làm, cần anh Khôi quyết): (a) tải model theo yêu cầu lần đầu dùng thay
+  vì nhúng — KHÔNG vi phạm ràng buộc "body data on-device only" vì đó là tải model xuống,
+  không phải gửi ảnh đi; (b) đổi BlazePose Heavy → Full/Lite; (c) quantize fp16→int8.
+  Bị `require()` tĩnh ở `poseEstimate.ts:129,154`, `silhouette.ts:70,91`,
+  `faceDetect.ts:48` nên Metro luôn nhúng. (2026-08-09)
+- [ ] **9.43 MB ảnh demo wardrobe (`drawable-mdpi`, 97 file) nằm trong bản production** —
+  `src/data/index.ts:51+` `require()` tĩnh toàn bộ `assets/items/*.png` (nặng nhất:
+  jacket-ma1-navy 1.09 MB, jacket-utility-olive 1.01 MB…). Đây là code production, KHÔNG
+  bị `.easignore` loại (chỉ `seedLocalPhotos.dev.ts` bị loại). Cần xác định: dữ liệu demo
+  này có thật sự cần ship cho user thật không, hay chỉ phục vụ dev/onboarding — nếu không
+  cần thì cắt gần 10 MB. (2026-08-09)
+- [ ] **`com.amazon.device:amazon-appstore-sdk:3.0.5` bị kéo vào build** — phát hiện qua
+  R8 warning khi build release. Nhiều khả năng do RevenueCat kéo transitive (hỗ trợ Amazon
+  Appstore). MIEN chỉ phát hành Play + App Store → nhiều khả năng loại được để giảm dex.
+  Chưa đụng vì chưa verify RevenueCat có gọi tới nó vô điều kiện lúc init không. (2026-08-09)
+- [ ] **`EXPO_PUBLIC_DEMO_PASSWORD` nằm trong `eas.json` đã commit** — mọi biến
+  `EXPO_PUBLIC_*` đều được nhúng thẳng vào JS bundle, ai tải app về cũng trích ra được.
+  Nên coi mật khẩu tài khoản demo là CÔNG KHAI. Cần verify tài khoản demo không có quyền
+  ghi/đọc dữ liệu user khác qua RLS. (2026-08-09)
+- [x] Verify `react-native-purchases` đã cài thật (2026-08-09): `package.json:42` có
+  `^10.6.0`, gradle build có `:react-native-purchases` + `:react-native-purchases-ui` →
+  mục "Paywall gãy trong build" coi như đã xử lý ở phần dependency.
+- [x] Verify `/dev-seed` không lọt production (2026-08-09): có guard `!__DEV__` ở
+  `app/dev-seed.tsx:22` render màn hình trơ, VÀ bị loại qua `.easignore:53-55`. An toàn
+  hai lớp.
+- [ ] **Style catalog (22 style, 2026-08-10): toàn bộ `image_url` là null, kể cả 14 style
+  mới** — DB `public.styles.image_url` null cho cả 22 row (đúng như 8 style cũ trước đây).
+  8 style cũ còn có ảnh Unsplash qua fallback tĩnh `src/data/index.ts` `STYLES[].img`; 14
+  style mới KHÔNG có ảnh thật nào (client dùng `img: ''` → `Photo` render tile màu +
+  label, không phải ảnh thật). Cần ảnh đại diện thật cho `feminine`, `officechic`,
+  `parisian`, `coquette`, `cleangirl`, `darkacademia`, `cottagecore`, `grunge`, `athflow`,
+  `elegant`, `kfashion`, `vintage`, `resort`, `artsy` — cả ở DB (`image_url`) lẫn client
+  fallback. (2026-08-10)
+- [ ] **Tên/mô tả style KHÔNG có đường dịch tiếng Việt** — xác nhận trước khi làm gì
+  (2026-08-10): style name/description luôn đến từ `public.styles` (tiếng Anh) hoặc
+  fallback tĩnh `src/data/index.ts` `STYLES` (cũng tiếng Anh); `src/i18n/locales/
+  {en,vi}.json` không có key nào cho tên style — kể cả 8 style cũ. Giữ nguyên cơ chế này
+  cho 14 style mới (không tự chế hệ dịch mới), nhưng đây là gap có thật nếu app cần hiển
+  thị tên style bằng tiếng Việt.
+- [ ] **`wardrobe-critic/archetypes.ts`'s `ALL_STYLES` chưa có 14 style mới** —
+  `ALL_STYLES` (dòng ~25) hardcode đúng 8 id cũ, dùng làm `styleAffinity` cho vài
+  archetype (VD white tee, black tee). User chỉ chọn style mới (VD chỉ `feminine` +
+  `coquette`) có thể nhận ít gợi ý "gap" hơn từ Wardrobe Critic vì các archetype này
+  không khai `styleAffinity` bao gồm style mới. Nằm ngoài scope của việc mở catalog lần
+  này (chỉ động tới `STYLE_CONFIGS` + `public.styles`), cần đánh giá riêng có nên mở rộng
+  `ALL_STYLES` hay đổi archetype's styleAffinity không. (2026-08-10)
+- [ ] **`PATTERN_FRIENDLY_STYLES` (ranking.ts) / `HOUSE_OPPOSED_STYLES` (scoring.ts)
+  chưa có style mới** — 2 set hardcode riêng (khác `STYLE_CONFIGS`) chỉ liệt kê
+  `streetwear`/`y2k`/`bohemian`. Về mặt thẩm mỹ, `grunge`/`artsy`/`cottagecore`/`vintage`
+  cũng "pattern-friendly" tương tự — nhưng đây là tinh chỉnh scoring ngoài phạm vi
+  STYLE_CONFIGS, cần anh Khôi duyệt trước khi đụng scoring.ts/ranking.ts. (2026-08-10)
+- [ ] **Neighbor một chiều CÓ SẴN TỪ TRƯỚC: `bohemian → y2k` (0.3) và
+  `bohemian → athleisure` (0.2) không được đáp lại** — phát hiện khi viết test
+  bidirectionality cho việc mở catalog (2026-08-10), nhưng đây là bug có sẵn trong 8
+  style gốc, không phải do lần mở catalog này gây ra. Không sửa vì ngoài scope (chỉ được
+  phép "thêm neighbors hai chiều" cho style MỚI, không phải sửa quan hệ cũ-cũ). Sửa thì
+  cần thêm `bohemian` vào neighbors của `y2k` và `athleisure` ở cả `filtering.ts` lẫn
+  `public.styles`.
+- [ ] **`mobwife` (Mob Wife) — style bị DỪNG, chưa ship, thiếu vocabulary "fur"** —
+  yêu cầu đợt 2 (22→33) có `mobwife`, nhưng vật liệu định danh của style này là lông thú
+  ("lông thú, da, vàng kim"). `FabricName` (`supabase/functions/generate-outfits/engine/
+  types.ts`) không có entry fur/faux-fur nào, và không có fabric nào trong union hiện tại
+  đóng vai trò xấp xỉ hợp lý (khác với `glam`'s sequin/satin, vốn map được vào `silk`/
+  `velvet` đã có). Cần anh Khôi quyết: (a) thêm `FabricName` value mới cho fur (có ripple
+  sang ingestion/enrichment, cần đánh giá riêng), hoặc (b) chấp nhận xấp xỉ mất mát (leather
+  + `metallic` color + textureRichness cao — nhưng lúc đó không còn là "mob wife" thật, chỉ
+  là bản sao khác tên của elegant/gothic). Chưa thêm vào `STYLE_CONFIGS` hay `public.styles`.
+  (2026-08-10)
+- [ ] **`modest` — style bị DỪNG, chưa ship, thiếu attribute "độ phủ da"** — yêu cầu đợt 2
+  có `modest`, nhưng ràng buộc định danh của style này (tay/chân dài, cổ kín) không có trục
+  nào trong `StyleConfig`/`FitItem` diễn tả được. `filterByStyle` chỉ kiểm 5 trục: màu,
+  fabric, fit, formality, banned features — không trục nào liên quan tới độ dài tay áo/gấu
+  quần/cổ áo. `GarmentMeasurements` có số đo (`sleeves`, `body_length`...) nhưng không có
+  ngưỡng tối thiểu nào gắn với style, và không có field categorial nào cho "độ phủ da". Cần
+  anh Khôi quyết: thêm attribute coverage mới vào `FitItem`/`StyleConfig` (thiết kế mới, có
+  ripple sang enrichment/ingestion) trước khi style này diễn tả được đúng nghĩa — không tự
+  chế bằng cách cấm `bodycon` (vừa thừa vừa thiếu: cấm nhiều đồ bodycon vẫn kín, lọt nhiều
+  đồ relaxed nhưng hở). Chưa thêm vào `STYLE_CONFIGS` hay `public.styles`. (2026-08-10)
+- [ ] **UX đề xuất: 31 style tile là dài — cân nhắc "show more" hoặc gom nhóm** — sau đợt 2
+  (22→31), `styles.tsx`/`styles-edit.tsx` vẫn là một `flexWrap` grid không giới hạn trong
+  `ScrollView`, không vỡ layout nhưng cuộn dài hơn hẳn (~16 hàng so với ~11 hàng ở 22 style).
+  Đề xuất (chưa làm — xem `src/design/style-catalog/design.md` mục "Catalog size: 22 → 31"):
+  (a) hiện 8–10 tile đầu (đã sort theo gender-match + popularity) rồi "Show all 31 styles"
+  dạng text link, diff nhỏ, không cần taxonomy mới; (b) gom theo nhóm chủ đề (Refined /
+  Casual & Athletic / Romantic & Feminine / Dark & Alternative / Vintage) — đúng tinh thần
+  stylist hơn nhưng cần gán taxonomy mới cho từng style + sửa layout cả hai màn, nặng hơn.
+  Nghiêng về (a). Cần anh Khôi quyết trước khi implement (đợt này chỉ được sửa layout nhỏ,
+  không được tự ý làm thay đổi lớn). (2026-08-10)
+- [ ] **`wardrobe-critic/archetypes.ts`'s `ALL_STYLES`, `ranking.ts`'s
+  `PATTERN_FRIENDLY_STYLES`, `scoring.ts`'s `HOUSE_OPPOSED_STYLES` vẫn chưa có 9 style đợt
+  2** — cùng gap đã log cho đợt 1 (22 style), giờ càng rộng hơn ở 31 style. Chưa đụng, vẫn
+  ngoài scope theo instruction (chỉ STYLE_CONFIGS + public.styles). (2026-08-10)

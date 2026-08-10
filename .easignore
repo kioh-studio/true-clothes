@@ -12,6 +12,19 @@ node_modules/
 dist/
 expo-env.d.ts
 
+# --- Native build caches (EAS recompiles from scratch on the build server) ---
+# These are covered by android/.gitignore, but .easignore REPLACES .gitignore for
+# the upload archive, so they must be repeated here or ~2 GB of object files,
+# unstripped .so and CMake caches get uploaded on every build.
+android/build/
+android/app/build/
+android/app/.cxx/
+android/.gradle/
+modules/*/android/build/
+modules/*/android/.cxx/
+ios/build/
+ios/Pods/
+
 # --- Secrets: env is injected via eas.json build.*.env, never from .env ---
 .env
 .env.local
@@ -53,3 +66,6 @@ jest.config.js
 app/dev-seed.tsx
 **/*.dev.ts
 **/*.dev.tsx
+
+# --- Dev-only Sentry manual-verification screen (also __DEV__-guarded) ---
+app/dev-sentry-test.tsx

@@ -83,10 +83,61 @@ export const MEASUREMENT_FIELDS: MeasurementFieldMeta[] = [
   { key: 'body_foot_width', labelEn: 'Foot width', labelVi: 'Chiều rộng bàn chân', unit: 'cm', required: false, tooltipEn: 'At the widest part of the foot.', tooltipVi: 'Tại phần rộng nhất của bàn chân.', animationKey: 'foot_width' },
 ];
 
-/** Rule-based body shape classifier per Decision 3 (research.md).
+// FFIT/Simmons-style absolute-centimetre thresholds (2026-08-03 rewrite — see
+// plan.md changelog "Body-shape classifier rewrite" for the full rationale
+// and scripts/sim/body-shape-sim.ts for the verification harness).
+
+/** Bust-vs-hip dominance threshold (cm), INCLUSIVE. This is the boundary fix:
+ *  the old rule required a STRICT `H > B + 5`, so a body exactly 5cm apart
+ *  silently fell through to a straight-column read instead of triangle/
+ *  inverted_triangle, while every other threshold in the old rule was already
+ *  inclusive. Common convention ("hip >=5cm bigger = pear") is inclusive. */
+const BUST_HIP_DOMINANCE = 5;
+/** ~FFIT's 9in (≈23cm) bust-to-waist drop that reads as a "defined" waist. */
+const WAIST_DEFINED_BUST = 23;
+/** ~FFIT's 10in (≈25cm) hip-to-waist drop that reads as a "defined" waist. */
+const WAIST_DEFINED_HIP = 25;
+/** Below this drop on BOTH the bust side and the hip side, the waist reads as
+ *  undefined (no natural indentation either way) → apple. */
+const WAIST_UNDEFINED = 9;
+
+/** Rule-based body shape classifier per Decision 3 (research.md), rewritten
+ *  2026-08-03 to FFIT/Simmons-style absolute-cm bust/waist/hip differences
+ *  (the prior ratio-based rules checked `apple` FIRST with no bust-vs-hip
+ *  comparison, so a straight-column body with a merely thick waist collapsed
+ *  to `apple` ~38.6% of the time — see scripts/sim/body-shape-sim.ts Section B).
  *  Requires bust (B), waist (W), hip (H). Returns null if any required
  *  measurement is missing. */
 export function computeBodyShape(m: BodyMeasurements): BodyShape | null {
+  const B = m.body_bust;
+  const W = m.body_waist;
+  const H = m.body_hip;
+  if (!B || !W || !H) return null;
+
+  const bustHip = B - H;
+  const bustWaist = B - W;
+  const hipWaist = H - W;
+
+  // 1. A clearly dominant top or bottom half decides the shape, even if the
+  //    waist is thick — bust/hip asymmetry is the stronger visual signal.
+  if (bustHip >= BUST_HIP_DOMINANCE) return 'inverted_triangle';
+  if (bustHip <= -BUST_HIP_DOMINANCE) return 'triangle';
+
+  // 2. Column-ish torso (|bustHip| < 5) → the waist decides.
+  //    The `|| W <= 0.75 * B` branch is DELIBERATE and must be kept: absolute-
+  //    cm drops under-serve petite frames (a petite hourglass may show a
+  //    smaller absolute drop despite a proportionally very defined waist), so
+  //    this preserves the old ratio-based hourglass behaviour for them.
+  if (bustWaist >= WAIST_DEFINED_BUST || hipWaist >= WAIST_DEFINED_HIP || W <= 0.75 * B) return 'hourglass';
+  if (bustWaist < WAIST_UNDEFINED && hipWaist < WAIST_UNDEFINED) return 'apple';
+  return 'rectangle';
+}
+
+/** The pre-2026-08-03 ratio-based classifier. Kept ONLY to recognise
+ *  body_shape values that were persisted by the old rules, so they can be
+ *  distinguished from a genuine manual user override. Do not use for new
+ *  classification. */
+export function computeBodyShapeLegacy(m: BodyMeasurements): BodyShape | null {
   const B = m.body_bust;
   const W = m.body_waist;
   const H = m.body_hip;
@@ -97,4 +148,38 @@ export function computeBodyShape(m: BodyMeasurements): BodyShape | null {
   if (H > B + 5) return 'triangle';
   if (Math.abs(B - H) <= 5 && W <= B * 0.75) return 'hourglass';
   return 'rectangle';
+}
+
+/** Noise-resistant shape derivation. Returns `prev` when the newly derived
+ *  shape is not robust — i.e. some perturbation within ±marginCm of the
+ *  entered girths still derives `prev`. Only meant for AUTO-derived shapes; a
+ *  manual user override must bypass this entirely (see useMeasurements.ts).
+ *  Addresses the classifier-sensitivity finding in backlog.md: the hourglass
+ *  archetype could flip label with only +2cm of waist change — inside normal
+ *  measurement noise (manual entry or pose-scan estimate). */
+export function stabilizeBodyShape(
+  prev: BodyShape | null,
+  m: BodyMeasurements,
+  marginCm = 2,
+): BodyShape | null {
+  const next = computeBodyShape(m);
+  if (prev == null || next == null || next === prev) return next;
+
+  const { body_bust: B, body_waist: W, body_hip: H } = m;
+  // computeBodyShape returning non-null above guarantees B/W/H are all set;
+  // this guard just keeps the compiler happy without a non-null assertion.
+  if (B == null || W == null || H == null) return next;
+
+  const probes: BodyMeasurements[] = [];
+  for (const d of [-marginCm, marginCm]) {
+    probes.push({ body_bust: B + d, body_waist: W, body_hip: H });
+    probes.push({ body_bust: B, body_waist: W + d, body_hip: H });
+    probes.push({ body_bust: B, body_waist: W, body_hip: H + d });
+  }
+  // If ANY probe within the noise margin still re-derives `prev`, the change
+  // isn't decisive yet — hold the previous shape rather than flicker.
+  for (const probe of probes) {
+    if (computeBodyShape(probe) === prev) return prev;
+  }
+  return next;
 }

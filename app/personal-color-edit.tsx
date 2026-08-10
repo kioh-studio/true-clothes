@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable,
   Image, useWindowDimensions, Alert, ActivityIndicator,
@@ -6,41 +6,21 @@ import {
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as Brightness from 'expo-brightness';
 import { T, type } from '../src/design/tokens';
 import { PrimaryButton } from '../src/components/ui';
-import { IconChevronLeft } from '../src/components/icons';
+import { IconChevronLeft, IconCheck } from '../src/components/icons';
 import { usePersonalColorDetection } from '../src/features/personal-color/usePersonalColorDetection';
 import {
   SKIN_OPTIONS, HAIR_OPTIONS, EYE_OPTIONS, METAL_OPTIONS, SEASON_DESC,
 } from '../src/features/personal-color/colorSeasonData';
-import { weatherSeasonNow, seasonalEdit } from '../src/features/personal-color/tone12';
 import { DrapeSession } from '../src/features/personal-color/components/DrapeSession';
+import { ResultView } from '../src/features/personal-color/components/ResultView';
 import { useAuthStore } from '../src/stores/authStore';
 import { useTranslation } from '../src/i18n';
 
 const PAD = 24;
 const QUESTION_STEPS = ['skin', 'hair', 'eye', 'metal'] as const;
-
-// Engine "avoid colour" vocabulary (see tone12.ts TONE12_AVOID) is a fixed set
-// of lowercase English colour names — not screen chrome, so not duplicated
-// into the i18n json. Translated here, same pattern as colorSeasonData.ts's
-// labelEn/labelVi option data and as onboarding's personal-color.tsx.
-const AVOID_COLOR_LABEL: Record<string, { en: string; vi: string }> = {
-  black:    { en: 'Black',    vi: 'Đen' },
-  charcoal: { en: 'Charcoal', vi: 'Than chì' },
-  burgundy: { en: 'Burgundy', vi: 'Đỏ burgundy' },
-  navy:     { en: 'Navy',     vi: 'Xanh navy' },
-  olive:    { en: 'Olive',    vi: 'Xanh ô liu' },
-  beige:    { en: 'Beige',    vi: 'Be' },
-  brown:    { en: 'Brown',    vi: 'Nâu' },
-  orange:   { en: 'Orange',   vi: 'Cam' },
-  rust:     { en: 'Rust',     vi: 'Cam gỉ' },
-  mustard:  { en: 'Mustard',  vi: 'Vàng mù tạt' },
-  camel:    { en: 'Camel',    vi: 'Nâu lạc đà' },
-  fuchsia:  { en: 'Fuchsia',  vi: 'Hồng cánh sen' },
-  pink:     { en: 'Pink',     vi: 'Hồng' },
-  gray:     { en: 'Gray',     vi: 'Xám' },
-};
 
 const SEASON_LABEL_KEYS: Record<'spring' | 'summer' | 'autumn' | 'winter', string> = {
   spring: 'personalColor_seasonSpring',
@@ -54,11 +34,6 @@ function useLang(): Lang {
   const { i18n } = useTranslation();
   return i18n.language?.toLowerCase().startsWith('vi') ? 'vi' : 'en';
 }
-function avoidColorLabel(name: string, lang: Lang): string {
-  const entry = AVOID_COLOR_LABEL[name];
-  if (entry) return entry[lang];
-  return name.charAt(0).toUpperCase() + name.slice(1);
-}
 
 export default function PersonalColorEditScreen() {
   const router = useRouter();
@@ -69,10 +44,10 @@ export default function PersonalColorEditScreen() {
   const existingSeason = useAuthStore(s => s.colorSeason);
   const {
     path, step,
-    wristPhotoUri, hairPhotoUri,
+    facePhotoUri, wristPhotoUri,
     skinUndertone, hairKey, eyeKey, metalKey, result,
-    saving, analyzing, autoSkin, autoHair, skinConfident, hairConfident,
-    drape, applyDrape, resetDrape,
+    saving, error, analyzing, autoSkin, autoHair, skinConfident, hairConfident,
+    drape, applyDrape, resetDrape, applyDrapeMetal, nudgeDrapeToward,
     startCameraPath, startManualPath,
     setCameraPhoto,
     setSkin, setHair, setEye, setMetal,
@@ -81,10 +56,7 @@ export default function PersonalColorEditScreen() {
   } = usePersonalColorDetection();
   const [permission, requestPermission] = useCameraPermissions();
   const [draping, setDraping] = useState(false);
-  // Hemisphere lens: the profile's reverse-geocoded country code (null when
-  // the user skipped/overrode GPS — weatherSeasonNow then defaults northern).
-  const countryCode = useAuthStore(s => s.locationCountryCode);
-  const weather = weatherSeasonNow(countryCode ?? undefined);
+  const [drapeStartAtGrid, setDrapeStartAtGrid] = useState(false);
 
   const handleSave = async () => {
     const ok = await save();
@@ -135,17 +107,24 @@ export default function PersonalColorEditScreen() {
       )}
 
       {/* Camera steps */}
+      {step === 'face-scan' && (
+        <FaceScanStep onCapture={(uri, ambientUri) => setCameraPhoto('face', uri, ambientUri)} />
+      )}
       {step === 'wrist-scan' && (
-        <WristScanStep onCapture={(uri, ambientUri) => setCameraPhoto('wrist', uri, ambientUri)} />
+        <WristScanStep onCapture={(uri, ambientUri) => setCameraPhoto('wrist', uri, ambientUri)} analyzing={analyzing} />
       )}
-      {step === 'hair-scan' && (
-        <HairScanStep onCapture={uri => setCameraPhoto('hair', uri)} analyzing={analyzing} />
-      )}
-      {draping && (
-        <DrapeSession onDone={() => setDraping(false)} applyDrape={applyDrape} />
+      {draping && result && (
+        <DrapeSession
+          onDone={() => { setDraping(false); setDrapeStartAtGrid(false); }}
+          applyDrape={applyDrape}
+          onMetal={applyDrapeMetal}
+          currentTone={result.tone12}
+          onNudgeToward={nudgeDrapeToward}
+          startAtGrid={drapeStartAtGrid}
+        />
       )}
 
-      {!draping && step !== 'wrist-scan' && step !== 'hair-scan' && (
+      {!draping && step !== 'face-scan' && step !== 'wrist-scan' && (
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
@@ -194,13 +173,16 @@ export default function PersonalColorEditScreen() {
             </View>
           )}
 
+          {step === 'prepare' && <PrepareStep onReady={next} />}
+
           {step === 'skin' && (
             <SkinStep
               selected={skinUndertone}
               onSelect={setSkin}
-              photoUri={path === 'camera' ? wristPhotoUri : null}
+              photoUri={path === 'camera' ? facePhotoUri : null}
               auto={autoSkin}
               analyzing={analyzing}
+              isFallback={path === 'camera'}
             />
           )}
 
@@ -209,9 +191,10 @@ export default function PersonalColorEditScreen() {
               selected={hairKey}
               onSelect={setHair}
               width={W}
-              photoUri={path === 'camera' ? hairPhotoUri : null}
+              photoUri={path === 'camera' ? facePhotoUri : null}
               auto={autoHair}
               analyzing={analyzing}
+              isFallback={path === 'camera'}
             />
           )}
 
@@ -256,169 +239,35 @@ export default function PersonalColorEditScreen() {
           )}
 
           {step === 'result' && result && (
-            <View>
-              <View style={{ height: 40 }} />
-              <Text style={styles.seasonLabel}>{result.label[lang].toUpperCase()}</Text>
-              <Text style={styles.h1}>{t('personalColor_resultTitle')}</Text>
-              <View style={{ height: 16 }} />
-              <Text style={styles.caption}>{SEASON_DESC[result.season][lang]}</Text>
-              <View style={{ height: 32 }} />
-              <Text style={styles.paletteSectionLabel}>{t('onboardingPersonalColor_neutralsLabel')}</Text>
-              <View style={{ height: 12 }} />
-              <View style={styles.paletteRow}>
-                {result.board.neutrals.map(hex => (
-                  <View key={hex} style={[styles.paletteSwatchSmall, { backgroundColor: hex }]} />
-                ))}
-              </View>
-
-              <View style={{ height: 20 }} />
-              <Text style={styles.paletteSectionLabel}>{t('onboardingPersonalColor_coreLabel')}</Text>
-              <View style={{ height: 12 }} />
-              <View style={styles.paletteRow}>
-                {result.board.core.map(hex => (
-                  <View key={hex} style={[styles.paletteSwatchSmall, { backgroundColor: hex }]} />
-                ))}
-              </View>
-
-              <View style={{ height: 20 }} />
-              <Text style={styles.paletteSectionLabel}>{t('onboardingPersonalColor_accentsLabel')}</Text>
-              <View style={{ height: 12 }} />
-              <View style={styles.paletteRow}>
-                {result.board.accents.map(hex => (
-                  <View key={hex} style={[styles.paletteSwatchSmall, { backgroundColor: hex }]} />
-                ))}
-              </View>
-
-              <View style={{ height: 28 }} />
-              <Text style={styles.paletteSectionLabel}>
-                {t('onboardingPersonalColor_seasonEditLabel', { season: t(SEASON_LABEL_KEYS[weather]).toUpperCase() })}
-              </Text>
-              <View style={{ height: 12 }} />
-              <View style={styles.paletteRow}>
-                {seasonalEdit(result.palette, weather).edit.map(hex => (
-                  <View key={hex} style={[styles.seasonEditSwatch, { backgroundColor: hex }]} />
-                ))}
-              </View>
-              <Text style={[styles.caption, { fontSize: 11, color: T.color.tertiary, marginTop: 8 }]}>
-                {t('onboardingPersonalColor_seasonEditCaption')}
-              </Text>
-
-              <View style={{ height: 24 }} />
-              <Text style={styles.paletteSectionLabel}>{t('onboardingPersonalColor_betterToSkipLabel')}</Text>
-              <View style={{ height: 8 }} />
-              <Text style={styles.skipListText}>
-                {result.avoidColors.map(c => avoidColorLabel(c, lang)).join(' · ')}
-              </Text>
-
-              {/* Detected / answered inputs — editable, result recomputes live */}
-              <View style={styles.answerSection}>
-                <Text style={styles.paletteSectionLabel}>
-                  {(autoSkin || autoHair) ? t('onboardingPersonalColor_detectedFromScan') : t('onboardingPersonalColor_yourAnswers')}
-                </Text>
-
-                <View style={styles.answerRow}>
-                  <View style={styles.answerRowHeader}>
-                    <Text style={styles.answerRowLabel}>{t('onboardingPersonalColor_skinUndertoneLabel')}</Text>
-                    {autoSkin && <Text style={styles.autoTag}>{t('onboardingCommon_autoTag')}</Text>}
-                  </View>
-                  <View style={styles.chipRow}>
-                    {SKIN_OPTIONS.map(opt => (
-                      <Pressable key={opt.key} onPress={() => setSkin(opt.key)} style={styles.chipCol}>
-                        <View style={[
-                          styles.skinChip, { backgroundColor: opt.swatchHex },
-                          skinUndertone === opt.key && styles.swatchSelected,
-                        ]} />
-                        <Text style={styles.chipLabel}>{lang === 'vi' ? opt.labelVi : opt.labelEn}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                  {!skinConfident && (
-                    <Text style={styles.lowConfidenceCaption}>{t('onboardingPersonalColor_lowConfidenceCaption')}</Text>
-                  )}
-                </View>
-
-                <View style={styles.answerRow}>
-                  <View style={styles.answerRowHeader}>
-                    <Text style={styles.answerRowLabel}>{t('onboardingPersonalColor_hairColourLabel')}</Text>
-                    {autoHair && <Text style={styles.autoTag}>{t('onboardingCommon_autoTag')}</Text>}
-                  </View>
-                  <View style={styles.chipRow}>
-                    {HAIR_OPTIONS.map(opt => (
-                      <Pressable key={opt.key} onPress={() => setHair(opt.key)} style={styles.chipCol}>
-                        <View style={[
-                          styles.hairChip, { backgroundColor: opt.swatchHex },
-                          hairKey === opt.key && styles.swatchSelected,
-                        ]} />
-                      </Pressable>
-                    ))}
-                  </View>
-                  {!hairConfident && (
-                    <Text style={styles.lowConfidenceCaption}>{t('onboardingPersonalColor_lowConfidenceCaption')}</Text>
-                  )}
-                </View>
-              </View>
-
-              {/* Optional refinements */}
-              <View style={styles.refineSection}>
-                <Text style={styles.paletteSectionLabel}>{t('onboardingPersonalColor_refineOptionalLabel')}</Text>
-                <Text style={styles.refineCaption}>{t('onboardingPersonalColor_refineCaption')}</Text>
-
-                <View style={styles.answerRow}>
-                  <Text style={styles.answerRowLabel}>{t('onboardingPersonalColor_eyeColourLabel')}</Text>
-                  <View style={{ height: 10 }} />
-                  <View style={styles.chipRow}>
-                    {EYE_OPTIONS.map(opt => (
-                      <Pressable key={opt.key} onPress={() => setEye(opt.key)} style={styles.chipCol}>
-                        <View style={[
-                          styles.eyeChip, { backgroundColor: opt.swatchHex },
-                          eyeKey === opt.key && styles.swatchSelected,
-                        ]} />
-                      </Pressable>
-                    ))}
-                  </View>
-                </View>
-
-                <View style={styles.answerRow}>
-                  <Text style={styles.answerRowLabel}>{t('onboardingPersonalColor_metalLabel')}</Text>
-                  <View style={{ height: 10 }} />
-                  <View style={styles.chipRow}>
-                    {METAL_OPTIONS.map(opt => (
-                      <Pressable key={opt.key} onPress={() => setMetal(opt.key as 'gold' | 'silver' | 'both')} style={styles.chipCol}>
-                        <View style={[
-                          styles.metalChip, { backgroundColor: opt.swatchHex },
-                          metalKey === opt.key && styles.swatchSelected,
-                        ]} />
-                      </Pressable>
-                    ))}
-                  </View>
-                </View>
-              </View>
-
-              <View style={{ height: 32 }} />
-              <Pressable onPress={() => setDraping(true)} style={styles.secondaryBtn}>
-                <Text style={styles.secondaryBtnText}>{t('onboardingPersonalColor_refineWithDrapingButton')}</Text>
-              </Pressable>
-              {Object.values(drape).some(v => typeof v === 'number' && v !== 0) && (
-                <>
-                  <View style={{ height: 12 }} />
-                  <Pressable onPress={resetDrape} style={{ alignItems: 'center' }}>
-                    <Text style={styles.skipInline}>{t('onboardingPersonalColor_resetDrapingButton')}</Text>
-                  </Pressable>
-                </>
-              )}
-
-              <View style={{ height: 48 }} />
-              <PrimaryButton onPress={handleSave} disabled={saving}>
-                {saving ? t('addItem_savingText') : t('common_save')}
-              </PrimaryButton>
-              <View style={{ height: 16 }} />
-              <Pressable onPress={() => router.back()} style={{ alignItems: 'center' }}>
-                <Text style={styles.skipInline}>{t('personalColorEdit_discardChangesLink')}</Text>
-              </Pressable>
-            </View>
+            <ResultView
+              result={result}
+              skinUndertone={skinUndertone}
+              hairKey={hairKey}
+              eyeKey={eyeKey}
+              metalKey={metalKey}
+              autoSkin={autoSkin}
+              autoHair={autoHair}
+              skinConfident={skinConfident}
+              hairConfident={hairConfident}
+              setSkin={setSkin}
+              setHair={setHair}
+              setEye={setEye}
+              setMetal={setMetal}
+              drape={drape}
+              onStartDrape={() => setDraping(true)}
+              onStartDrapeGrid={() => { setDrapeStartAtGrid(true); setDraping(true); }}
+              onResetDrape={resetDrape}
+              saving={saving}
+              saveError={error}
+              onSave={handleSave}
+              saveLabel={t('common_save')}
+              savingLabel={t('addItem_savingText')}
+              discardLabel={t('personalColorEdit_discardChangesLink')}
+              onDiscard={() => router.back()}
+            />
           )}
 
-          {step !== 'intro' && step !== 'result' && (
+          {step !== 'intro' && step !== 'prepare' && step !== 'result' && (
             <View style={styles.ctaRow}>
               <PrimaryButton onPress={next} disabled={!canAdvance()}>{t('onboardingPersonalColor_nextButton')}</PrimaryButton>
             </View>
@@ -430,8 +279,76 @@ export default function PersonalColorEditScreen() {
 }
 
 // ─── Camera steps ──────────────────────────────────────────────────────────
+//
+// Screen-flash dual capture (face): the phone's own screen (pushed to max
+// brightness) stands in for a torch on the front camera. A full-screen white
+// overlay + max brightness for the flash frame, then a near-black overlay for
+// the ambient frame — same "flash then ambient" shape as the wrist's torch
+// on/off, so `analyzeFace` can run the same per-pixel subtraction. Prior
+// screen brightness is restored in a `finally` and on unmount.
 
-function WristScanStep({ onCapture }: { onCapture: (uri: string, ambientUri?: string) => void }) {
+function FaceScanStep({ onCapture }: { onCapture: (uri: string, ambientUri?: string) => void }) {
+  const { t } = useTranslation();
+  const cameraRef = useRef<CameraView>(null);
+  const insets = useSafeAreaInsets();
+  const [flashPhase, setFlashPhase] = useState<'idle' | 'bright' | 'dim'>('idle');
+  const busyRef = useRef(false);
+  const priorBrightnessRef = useRef<number | null>(null);
+
+  const restoreBrightness = useCallback(async () => {
+    if (priorBrightnessRef.current != null) {
+      try { await Brightness.setBrightnessAsync(priorBrightnessRef.current); } catch { /* best-effort */ }
+      priorBrightnessRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => { restoreBrightness(); }, [restoreBrightness]);
+
+  const handleCapture = async () => {
+    if (!cameraRef.current || busyRef.current) return;
+    busyRef.current = true;
+    try {
+      try {
+        priorBrightnessRef.current = await Brightness.getBrightnessAsync();
+        await Brightness.setBrightnessAsync(1);
+      } catch {
+        priorBrightnessRef.current = null;
+      }
+      setFlashPhase('bright');
+      await new Promise(r => setTimeout(r, 300));
+      const flash = await cameraRef.current.takePictureAsync({ quality: 0.7 });
+      setFlashPhase('dim');
+      await new Promise(r => setTimeout(r, 350));
+      const ambient = await cameraRef.current.takePictureAsync({ quality: 0.7 });
+      setFlashPhase('idle');
+      if (flash?.uri) onCapture(flash.uri, ambient?.uri);
+    } finally {
+      await restoreBrightness();
+      busyRef.current = false;
+    }
+  };
+
+  return (
+    <View style={{ flex: 1 }}>
+      <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="front" />
+      {flashPhase === 'bright' && <View style={styles.flashOverlayWhite} pointerEvents="none" />}
+      {flashPhase === 'dim' && <View style={styles.flashOverlayDim} pointerEvents="none" />}
+      <View style={[styles.scanOverlay, { paddingBottom: insets.bottom + 32 }]}>
+        <View style={[styles.scanFrame, styles.scanFrameFace]} />
+        <Text style={styles.scanStepLabel}>{t('personalColor_stepLabel', { current: 1, total: 2 })}</Text>
+        <View style={{ height: 8 }} />
+        <Text style={styles.scanTitle}>{t('onboardingPersonalColor_faceScanTitle')}</Text>
+        <Text style={styles.scanCaption}>{t('onboardingPersonalColor_faceScanCaption')}</Text>
+        <View style={{ height: 32 }} />
+        <Pressable onPress={handleCapture} style={styles.captureBtn}>
+          <View style={styles.captureBtnInner} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function WristScanStep({ onCapture, analyzing }: { onCapture: (uri: string, ambientUri?: string) => void; analyzing: boolean }) {
   const { t } = useTranslation();
   const cameraRef = useRef<CameraView>(null);
   const insets = useSafeAreaInsets();
@@ -439,9 +356,11 @@ function WristScanStep({ onCapture }: { onCapture: (uri: string, ambientUri?: st
   const busyRef = useRef(false);
 
   // Dual-flash ambient-light cancellation: capture once with the torch on,
-  // then again immediately after with it off, so the hook can reconcile the
-  // two reads and cancel out the room's own lighting. Guarded against
-  // double-taps since the sequence takes ~350ms+ and isn't reentrant.
+  // then again immediately after with it off, so `analyzeWristUndertone` can
+  // subtract them and cancel out the room's own lighting. Guarded against
+  // double-taps since the sequence takes ~350ms+ and isn't reentrant. Now the
+  // last scan step before the camera path branches, so it also shows the
+  // analysing spinner (moved here from v2's now-removed hair-scan step).
   const handleCapture = async () => {
     if (!cameraRef.current || busyRef.current) return;
     busyRef.current = true;
@@ -460,38 +379,15 @@ function WristScanStep({ onCapture }: { onCapture: (uri: string, ambientUri?: st
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" enableTorch={torch} />
       <View style={[styles.scanOverlay, { paddingBottom: insets.bottom + 32 }]}>
         <View style={styles.scanFrame} />
+        <Text style={styles.scanStepLabel}>{t('personalColor_stepLabel', { current: 2, total: 2 })}</Text>
+        <View style={{ height: 8 }} />
         <Text style={styles.scanTitle}>{t('onboardingPersonalColor_wristScanTitle')}</Text>
         <Text style={styles.scanCaption}>{t('onboardingPersonalColor_wristScanCaption')}</Text>
-        <View style={{ height: 32 }} />
-        <Pressable onPress={handleCapture} style={styles.captureBtn}>
-          <View style={styles.captureBtnInner} />
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
-function HairScanStep({ onCapture, analyzing }: { onCapture: (uri: string) => void; analyzing: boolean }) {
-  const { t } = useTranslation();
-  const cameraRef = useRef<CameraView>(null);
-  const insets = useSafeAreaInsets();
-  const handleCapture = async () => {
-    if (!cameraRef.current) return;
-    const photo = await cameraRef.current.takePictureAsync({ quality: 0.7 });
-    if (photo?.uri) onCapture(photo.uri);
-  };
-  return (
-    <View style={{ flex: 1 }}>
-      <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" enableTorch />
-      <View style={[styles.scanOverlay, { paddingBottom: insets.bottom + 32 }]}>
-        <View style={styles.scanFrame} />
-        <Text style={styles.scanTitle}>{t('onboardingPersonalColor_hairScanTitle')}</Text>
-        <Text style={styles.scanCaption}>{t('onboardingPersonalColor_hairScanCaption')}</Text>
         {analyzing && (
           <>
             <View style={{ height: 16 }} />
             <ActivityIndicator color="#FFF" />
-            <Text style={[styles.scanCaption, { marginTop: 8 }]}>{t('onboardingPersonalColor_hairScanAnalyzing')}</Text>
+            <Text style={[styles.scanCaption, { marginTop: 8 }]}>{t('onboardingPersonalColor_wristScanAnalyzing')}</Text>
           </>
         )}
         <View style={{ height: 32 }} />
@@ -503,22 +399,62 @@ function HairScanStep({ onCapture, analyzing }: { onCapture: (uri: string) => vo
   );
 }
 
+// ─── Prepare (camera path only, one tap) ────────────────────────────────────
+
+const PREPARE_ITEM_KEYS = [
+  'onboardingPersonalColor_prepareItem1',
+  'onboardingPersonalColor_prepareItem2',
+  'onboardingPersonalColor_prepareItem3',
+];
+
+function PrepareStep({ onReady }: { onReady: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={{ height: 32 }} />
+      <Text style={styles.h1}>{t('onboardingPersonalColor_prepareTitle')}</Text>
+      <View style={{ height: 32 }} />
+      {PREPARE_ITEM_KEYS.map(key => (
+        <View key={key} style={styles.prepareRow}>
+          <View style={styles.prepareCheck}>
+            <IconCheck size={12} color={T.color.primary} strokeWidth={1.6} />
+          </View>
+          <Text style={styles.prepareItemText}>{t(key)}</Text>
+        </View>
+      ))}
+      <View style={{ height: 24 }} />
+      <Text style={[styles.caption, { fontSize: 11, color: T.color.tertiary }]}>
+        {t('onboardingPersonalColor_prepareCaption')}
+      </Text>
+      <View style={{ height: 40 }} />
+      <PrimaryButton onPress={onReady}>{t('onboardingPersonalColor_prepareButton')}</PrimaryButton>
+    </View>
+  );
+}
+
 // ─── Shared question components ────────────────────────────────────────────
 
 function SkinStep({
-  selected, onSelect, photoUri, auto, analyzing,
+  selected, onSelect, photoUri, auto, analyzing, isFallback,
 }: {
   selected: string | null;
   onSelect: (k: 'warm' | 'cool' | 'neutral') => void;
   photoUri?: string | null;
   auto?: boolean;
   analyzing?: boolean;
+  isFallback?: boolean;
 }) {
   const { t } = useTranslation();
   const lang = useLang();
   return (
     <View>
       <View style={{ height: 32 }} />
+      {isFallback && (
+        <>
+          <Text style={styles.fallbackReason}>{t('onboardingPersonalColor_photoFallbackReason')}</Text>
+          <View style={{ height: 8 }} />
+        </>
+      )}
       <Text style={styles.h1}>{t('onboardingPersonalColor_skinTitle')}</Text>
       <View style={{ height: 8 }} />
       <Text style={styles.caption}>{t('onboardingPersonalColor_skinCaption')}</Text>
@@ -531,7 +467,7 @@ function SkinStep({
               ? t('personalColorEdit_wristAnalyzing')
               : auto
                 ? t('personalColorEdit_autoDetectedCaption')
-                : t('onboardingPersonalColor_wristPhotoCaption')}
+                : t('onboardingPersonalColor_facePhotoCaption')}
           </Text>
         </>
       )}
@@ -555,7 +491,7 @@ function SkinStep({
 }
 
 function HairStep({
-  selected, onSelect, width, photoUri, auto, analyzing,
+  selected, onSelect, width, photoUri, auto, analyzing, isFallback,
 }: {
   selected: string | null;
   onSelect: (k: string) => void;
@@ -563,6 +499,7 @@ function HairStep({
   photoUri?: string | null;
   auto?: boolean;
   analyzing?: boolean;
+  isFallback?: boolean;
 }) {
   const { t } = useTranslation();
   const lang = useLang();
@@ -570,6 +507,12 @@ function HairStep({
   return (
     <View>
       <View style={{ height: 32 }} />
+      {isFallback && (
+        <>
+          <Text style={styles.fallbackReason}>{t('onboardingPersonalColor_photoFallbackReason')}</Text>
+          <View style={{ height: 8 }} />
+        </>
+      )}
       <Text style={styles.h1}>{t('onboardingPersonalColor_hairTitle')}</Text>
       <View style={{ height: 8 }} />
       <Text style={styles.caption}>{t('onboardingPersonalColor_hairCaption')}</Text>
@@ -582,7 +525,7 @@ function HairStep({
               ? t('personalColorEdit_hairAnalyzing')
               : auto
                 ? t('personalColorEdit_autoDetectedCaption')
-                : t('onboardingPersonalColor_hairPhotoCaption')}
+                : t('onboardingPersonalColor_facePhotoCaption')}
           </Text>
         </>
       )}
@@ -645,6 +588,10 @@ const styles = StyleSheet.create({
     width: 160, height: 100, borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)',
     borderRadius: 8, position: 'absolute', top: '30%',
   },
+  scanFrameFace: { width: 190, height: 240, borderRadius: 120, top: '18%' },
+  flashOverlayWhite: { ...StyleSheet.absoluteFillObject, backgroundColor: '#FFFFFF' },
+  flashOverlayDim:   { ...StyleSheet.absoluteFillObject, backgroundColor: '#050505' },
+  scanStepLabel: { ...type.ui, color: 'rgba(255,255,255,0.6)', letterSpacing: 2, fontSize: 9, textAlign: 'center' },
   scanTitle:   { ...type.ui, color: '#FFF', letterSpacing: 2, fontSize: 13 },
   scanCaption: { ...type.caption, color: 'rgba(255,255,255,0.75)', textAlign: 'center', marginTop: 8, lineHeight: 18 },
   captureBtn:  { width: 72, height: 72, borderRadius: 36, borderWidth: 2, borderColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
@@ -666,32 +613,13 @@ const styles = StyleSheet.create({
   swatchSelected: { borderWidth: 1.5, borderColor: T.color.primary },
   swatchLabel:    { ...type.ui, fontSize: 10, color: T.color.secondary, textAlign: 'center', marginTop: 6, lineHeight: 14 },
 
-  seasonLabel:         { ...type.ui, fontSize: 10, color: T.color.tertiary, letterSpacing: 2, marginBottom: 8 },
-  paletteSectionLabel: { ...type.ui, fontSize: 10, color: T.color.tertiary, letterSpacing: 1.5 },
-  paletteRow:          { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  paletteSwatch:       { width: 36, height: 36, borderRadius: 2 },
-  paletteSwatchSmall:  { width: 28, height: 28, borderRadius: 2 },
-  seasonEditSwatch:    { width: 44, height: 44, borderRadius: 2 },
-  skipListText:        { ...type.caption, color: T.color.tertiary },
+  fallbackReason: { ...type.ui, fontSize: 10, color: T.color.tertiary, letterSpacing: 1, lineHeight: 16 },
 
-  // Result — editable answers / refine sections
-  answerSection: { marginTop: 40 },
-  answerRow:     { marginTop: 20 },
-  answerRowHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  answerRowLabel:  { ...type.ui, fontSize: 11, color: T.color.secondary, letterSpacing: 1 },
-  autoTag: {
-    ...type.ui, fontSize: 9, color: T.color.primary, letterSpacing: 1,
-    borderWidth: 0.5, borderColor: T.color.primary, paddingHorizontal: 6, paddingVertical: 2,
+  // Prepare checklist
+  prepareRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 20 },
+  prepareCheck: {
+    width: 28, height: 28, borderRadius: 14, borderWidth: 0.5, borderColor: T.color.primary,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  lowConfidenceCaption: { ...type.caption, fontSize: 11, color: T.color.tertiary, marginTop: 8 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  chipCol: { alignItems: 'center' },
-  skinChip:  { width: 32, height: 32, borderRadius: 4 },
-  hairChip:  { width: 28, height: 28, borderRadius: 4 },
-  eyeChip:   { width: 32, height: 32, borderRadius: 999 },
-  metalChip: { width: 32, height: 32, borderRadius: 4 },
-  chipLabel: { ...type.ui, fontSize: 9, color: T.color.secondary, textAlign: 'center', marginTop: 4, maxWidth: 48 },
-
-  refineSection: { marginTop: 32 },
-  refineCaption: { ...type.caption, fontSize: 11, color: T.color.tertiary, marginTop: 4, marginBottom: 16 },
+  prepareItemText: { ...type.bodyL, color: T.color.primary, flex: 1 },
 });

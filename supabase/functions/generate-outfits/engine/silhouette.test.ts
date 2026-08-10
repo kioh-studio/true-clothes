@@ -13,7 +13,7 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.208.0/assert/mod.ts';
 import {
   resolveTargetSilhouette, pairSilhouetteMatch, measurementPriorityBoost, outfitSilhouetteTag,
-  resultingBodySilhouette,
+  resultingBodySilhouette, outfitWaistDefinition,
 } from './silhouette.ts';
 import { EngineContext, FitItem, ItemCategory, GarmentMeasurements, TargetSilhouette } from './types.ts';
 
@@ -26,12 +26,14 @@ function fi(
     fit?: FitItem['fit'];
     provenanceFit?: boolean;
     garmentMeasurements?: GarmentMeasurements;
+    typeName?: string;
+    drape?: FitItem['drape'];
   } = {},
 ): FitItem {
   return {
     id,
     category,
-    typeName: 'TEE',
+    typeName: opts.typeName ?? 'TEE',
     colorProfile: {
       primaryColor: 'gray', colorLightness: 'medium', colorSaturation: 'muted',
       sat: 20, lum: 50, undertone: 'neutral',
@@ -44,6 +46,7 @@ function fi(
     warmth: 2,
     formality: 2.5,
     statementStrength: 0.5,
+    drape: opts.drape,
     provenance: { fit: opts.provenanceFit ?? false, material: false, pattern: false, warmthSeason: false },
   };
 }
@@ -326,4 +329,170 @@ Deno.test('resultingBodySilhouette: rectangle body + regular top/bottom + oversi
     fi('o1', 'outwear', { fit: 'oversized' }),
   ];
   assertEquals(resultingBodySilhouette(items, 'rectangle'), 'inverted-triangle');
+});
+
+// ─── outfitWaistDefinition (2026-08-10 fix) ──────────────────────────────────
+
+Deno.test('outfitWaistDefinition: belt accessory alone is enough', () => {
+  const items = [
+    fi('t1', 'top', { fit: 'oversized' }),
+    fi('b1', 'bottom', { fit: 'wide' }),
+    fi('belt', 'accessory', { typeName: 'BELT' }),
+  ];
+  assert(outfitWaistDefinition(items));
+});
+
+Deno.test('outfitWaistDefinition: structural piece (BLAZER) with non-oversized/wide fit is enough', () => {
+  const items = [fi('o1', 'outwear', { typeName: 'BLAZER', fit: 'regular' })];
+  assert(outfitWaistDefinition(items));
+});
+
+Deno.test('outfitWaistDefinition: structural piece (CORSET) with non-oversized/wide fit is enough', () => {
+  const items = [fi('t1', 'top', { typeName: 'CORSET', fit: 'slim' })];
+  assert(outfitWaistDefinition(items));
+});
+
+Deno.test('outfitWaistDefinition: an OVERSIZED blazer does not count — construction washed out', () => {
+  const items = [fi('o1', 'outwear', { typeName: 'BLAZER', fit: 'oversized' })];
+  assert(!outfitWaistDefinition(items));
+});
+
+Deno.test('outfitWaistDefinition: fitted top + fitted bottom + structured drape is enough', () => {
+  const items = [
+    fi('t1', 'top', { fit: 'slim', typeName: 'SHIRT' }),
+    fi('b1', 'bottom', { fit: 'regular', typeName: 'TROUSERS', drape: 'structured' }),
+  ];
+  assert(outfitWaistDefinition(items));
+});
+
+Deno.test('outfitWaistDefinition: fitted top + fitted bottom WITHOUT structured drape does not count', () => {
+  const items = [
+    fi('t1', 'top', { fit: 'slim', typeName: 'SHIRT' }),
+    fi('b1', 'bottom', { fit: 'regular', typeName: 'TROUSERS' }),
+  ];
+  assert(!outfitWaistDefinition(items));
+});
+
+Deno.test('outfitWaistDefinition: plain oversized top + wide bottom, no belt/structural piece/drape -> false', () => {
+  const items = [
+    fi('t1', 'top', { fit: 'oversized', typeName: 'TEE' }),
+    fi('b1', 'bottom', { fit: 'wide', typeName: 'JEANS' }),
+  ];
+  assert(!outfitWaistDefinition(items));
+});
+
+// ─── resultingBodySilhouette: outfit-made waist beats base.rounded (2026-08-10 fix) ──
+// Before this fix, `base.rounded` (apple) or the absence of `base.waist`
+// (triangle/rectangle/inverted_triangle) made 'hourglass' UNREACHABLE for
+// anyone whose body_shape wasn't already hourglass — no matter how
+// waist-defining the outfit. These are the two guarantees required by the fix.
+
+Deno.test('resultingBodySilhouette: apple body + waist-defining blazer + non-wide bottom -> hourglass (previously impossible)', () => {
+  const items = [
+    fi('o1', 'outwear', { typeName: 'BLAZER', fit: 'regular' }),
+    fi('b1', 'bottom', { fit: 'regular', typeName: 'TROUSERS' }),
+  ];
+  assertEquals(resultingBodySilhouette(items, 'apple'), 'hourglass');
+});
+
+Deno.test('resultingBodySilhouette: rectangle body + belt -> hourglass (previously impossible)', () => {
+  const items = [
+    fi('t1', 'top', { fit: 'regular' }),
+    fi('b1', 'bottom', { fit: 'regular' }),
+    fi('belt', 'accessory', { typeName: 'BELT' }),
+  ];
+  assertEquals(resultingBodySilhouette(items, 'rectangle'), 'hourglass');
+});
+
+Deno.test('resultingBodySilhouette: apple body + plain regular top/bottom (no waist signal) -> still oval, unchanged', () => {
+  // Guards against over-correcting: apple with no belt/structural piece/drape
+  // signal must keep its pre-fix behavior exactly.
+  const items = [fi('t1', 'top', { fit: 'regular' }), fi('b1', 'bottom', { fit: 'regular' })];
+  assertEquals(resultingBodySilhouette(items, 'apple'), 'oval');
+});
+
+Deno.test('resultingBodySilhouette: outfit-made waist is still capped by avg>=5 (very voluminous everywhere reads oval even with a belt)', () => {
+  const items = [
+    fi('t1', 'top', { fit: 'oversized' }),
+    fi('b1', 'bottom', { fit: 'oversized' }),
+    fi('belt', 'accessory', { typeName: 'BELT' }),
+  ];
+  assertEquals(resultingBodySilhouette(items, 'apple'), 'oval');
+});
+
+// ─── shapeGoal cascade tier (2026-08-10) ─────────────────────────────────────
+
+Deno.test('shapeGoal undefined -> resolveTargetSilhouette is byte-for-byte identical to the pre-feature cascade (body_shape tier)', () => {
+  const withoutField = resolveTargetSilhouette(baseCtx({ bodyMeasurements: { body_shape: 'triangle' } }), NO_ITEMS);
+  const explicitUndefined = resolveTargetSilhouette(
+    baseCtx({ bodyMeasurements: { body_shape: 'triangle' }, shapeGoal: undefined }), NO_ITEMS,
+  );
+  assertEquals(withoutField.source, 'body_shape=triangle');
+  assertEquals(JSON.stringify(withoutField), JSON.stringify(explicitUndefined));
+});
+
+Deno.test("shapeGoal='auto' -> resolveTargetSilhouette falls through exactly like undefined (zero regression)", () => {
+  const auto = resolveTargetSilhouette(
+    baseCtx({ bodyMeasurements: { body_shape: 'triangle' }, shapeGoal: 'auto' }), NO_ITEMS,
+  );
+  const unset = resolveTargetSilhouette(baseCtx({ bodyMeasurements: { body_shape: 'triangle' } }), NO_ITEMS);
+  assertEquals(JSON.stringify(auto), JSON.stringify(unset));
+});
+
+Deno.test("shapeGoal='auto' also falls through to the style-silhouette tier unchanged when no body_shape is set", () => {
+  const ctx = baseCtx({
+    shapeGoal: 'auto',
+    styleProfile: {
+      selectedStyles: [],
+      computedAttributes: {
+        formality: 3, colorPalette: [], silhouette: ['oversized'], patternLevel: 2, textureRichness: 2, mood: [],
+      },
+    },
+  });
+  const target = resolveTargetSilhouette(ctx, NO_ITEMS);
+  assertEquals(target.source, 'style.silhouette=oversized');
+});
+
+Deno.test("shapeGoal specific value overrides BOTH style silhouette and body_shape", () => {
+  const ctx = baseCtx({
+    bodyMeasurements: { body_shape: 'hourglass' },
+    styleProfile: {
+      selectedStyles: [],
+      computedAttributes: {
+        formality: 3, colorPalette: [], silhouette: ['oversized'], patternLevel: 2, textureRichness: 2, mood: [],
+      },
+    },
+    shapeGoal: 'triangle',
+  });
+  const target = resolveTargetSilhouette(ctx, NO_ITEMS);
+  assert(target.source.startsWith('shapeGoal=triangle'), `expected shapeGoal tier to fire, got source=${target.source}`);
+  for (const t of target.targets) assert(t.bottomVol > t.topVol, `expected a bottom-heavy target, got ${JSON.stringify(t)}`);
+});
+
+Deno.test("intent still overrides a set shapeGoal (intent > shapeGoal in the cascade)", () => {
+  const ctx = baseCtx({
+    shapeGoal: 'triangle',
+    intent: { proportionRule: 'oversized_top' },
+  });
+  const target = resolveTargetSilhouette(ctx, NO_ITEMS);
+  assertEquals(target.source, 'intent.proportionRule=oversized_top');
+});
+
+Deno.test("shapeGoal='natural' returns neutral balanced volume, not a body_shape-flattering one", () => {
+  const ctx = baseCtx({ bodyMeasurements: { body_shape: 'apple' }, shapeGoal: 'natural' });
+  const target = resolveTargetSilhouette(ctx, NO_ITEMS);
+  assertEquals(target.source, 'shapeGoal=natural');
+  assertEquals(target.targets, [{ topVol: 2, bottomVol: 2, weight: 1.0, label: 'shape_goal_natural' }]);
+});
+
+Deno.test("shapeGoal='oval' targets maximum volume on both halves", () => {
+  const ctx = baseCtx({ bodyMeasurements: { body_shape: 'rectangle' }, shapeGoal: 'oval' });
+  const target = resolveTargetSilhouette(ctx, NO_ITEMS);
+  for (const t of target.targets) { assertEquals(t.topVol, 5); assertEquals(t.bottomVol, 5); }
+});
+
+Deno.test("shapeGoal='hourglass' targets balanced volume (the waist itself comes from outfitWaistDefinition/shapeGoalDelta, not volume)", () => {
+  const ctx = baseCtx({ bodyMeasurements: { body_shape: 'triangle' }, shapeGoal: 'hourglass' });
+  const target = resolveTargetSilhouette(ctx, NO_ITEMS);
+  assertEquals(target.targets, [{ topVol: 2, bottomVol: 2, weight: 1.0, label: 'shape_goal_hourglass_balanced' }]);
 });

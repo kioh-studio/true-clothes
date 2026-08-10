@@ -72,6 +72,7 @@ export function AddWizard({ onClose, onDone }: Props) {
       {wizard.step === 'upload' && (
         <UploadStep
           photos={wizard.photos}
+          quota={wizard.quota}
           upgrade={wizard.upgrade}
           error={wizard.error}
           onSetNote={wizard.setNote}

@@ -10,6 +10,7 @@ import { IconChevronLeft } from '../src/components/icons';
 import { Bounded } from '../src/components/ui';
 import { useAuthStore } from '../src/stores/authStore';
 import { useAppStore } from '../src/stores/appStore';
+import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { useTranslation } from '../src/i18n';
 
 const APP_VERSION = '1.0.0';
@@ -24,6 +25,10 @@ export default function SettingsScreen() {
     genderAwareStyling, setGenderAwareStyling,
     bodyNeutralMode, setBodyNeutralMode,
   } = useAppStore();
+  const {
+    suggestByStyle, suggestByPersonalColor, suggestByFormula, suggestByMeasurements,
+    setSuggestionToggles,
+  } = useFitEngineStore();
 
   const [units, setUnits] = useState<'metric' | 'imperial'>(unitPreference);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -117,6 +122,63 @@ export default function SettingsScreen() {
             <Switch
               value={bodyNeutralMode}
               onValueChange={setBodyNeutralMode}
+              trackColor={{ false: T.color.muted, true: T.color.primary }}
+              thumbColor={T.color.canvas}
+            />
+          </View>
+        </View>
+
+        {/* Suggestion toggles — each independently opts a scoring dimension
+            out; the feed keeps generating from whichever stay on. */}
+        <Text style={[styles.sectionLabel, { marginTop: 32 }]}>{t('settings_suggestionsSection')}</Text>
+        <View style={styles.section}>
+          <View style={styles.row}>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowTitle}>{t('settings_suggestByStyle')}</Text>
+              <Text style={styles.rowDesc}>{t('settings_suggestByStyleDesc')}</Text>
+            </View>
+            <Switch
+              value={suggestByStyle}
+              onValueChange={(v) => setSuggestionToggles({ suggestByStyle: v })}
+              trackColor={{ false: T.color.muted, true: T.color.primary }}
+              thumbColor={T.color.canvas}
+            />
+          </View>
+
+          <View style={styles.row}>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowTitle}>{t('settings_suggestByPersonalColor')}</Text>
+              <Text style={styles.rowDesc}>{t('settings_suggestByPersonalColorDesc')}</Text>
+            </View>
+            <Switch
+              value={suggestByPersonalColor}
+              onValueChange={(v) => setSuggestionToggles({ suggestByPersonalColor: v })}
+              trackColor={{ false: T.color.muted, true: T.color.primary }}
+              thumbColor={T.color.canvas}
+            />
+          </View>
+
+          <View style={styles.row}>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowTitle}>{t('settings_suggestByFormula')}</Text>
+              <Text style={styles.rowDesc}>{t('settings_suggestByFormulaDesc')}</Text>
+            </View>
+            <Switch
+              value={suggestByFormula}
+              onValueChange={(v) => setSuggestionToggles({ suggestByFormula: v })}
+              trackColor={{ false: T.color.muted, true: T.color.primary }}
+              thumbColor={T.color.canvas}
+            />
+          </View>
+
+          <View style={styles.row}>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowTitle}>{t('settings_suggestByMeasurements')}</Text>
+              <Text style={styles.rowDesc}>{t('settings_suggestByMeasurementsDesc')}</Text>
+            </View>
+            <Switch
+              value={suggestByMeasurements}
+              onValueChange={(v) => setSuggestionToggles({ suggestByMeasurements: v })}
               trackColor={{ false: T.color.muted, true: T.color.primary }}
               thumbColor={T.color.canvas}
             />

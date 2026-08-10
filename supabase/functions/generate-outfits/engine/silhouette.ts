@@ -14,7 +14,7 @@
 import {
   FitItem, EngineContext, BodyShape, Silhouette, IntentContext, TargetSilhouette,
 } from './types.ts';
-import { VOLUME } from './scoring.ts';
+import { VOLUME, SHAPE_VOLUME_TARGETS } from './scoring.ts';
 
 export type { TargetSilhouette } from './types.ts';
 
@@ -190,67 +190,11 @@ function fromStyleSilhouette(silhouettes?: Silhouette[]): DerivedTarget | undefi
   }
 }
 
-// Per-body_shape flattering default. MUST agree in direction with
-// bodyShapeMultiplier (scoring.ts) — read that function before changing any
-// of these. E.g. it rewards a wide/relaxed/oversized bottom for 'triangle'
-// (+0.07) and penalises a slim one (-0.07), so the triangle target below also
-// points at a wider bottom, never a slimmer one.
+// Per-body_shape flattering default — reads SHAPE_VOLUME_TARGETS (scoring.ts),
+// the single source of truth also consumed by bodyShapeMultiplier, so this
+// target can never contradict that scoring delta again (2026-08-03).
 function fromBodyShape(shape: BodyShape): DerivedTarget {
-  switch (shape) {
-    case 'triangle':
-      // bodyShapeMultiplier: +0.07 wide/relaxed/oversized bottom, +0.03 broad
-      // (wide/oversized) top, -0.07 slim bottom.
-      return {
-        source: 'body_shape=triangle',
-        targets: [
-          { topVol: 4, bottomVol: 4, weight: 0.6, label: 'triangle_broad_top_wide_bottom' },
-          { topVol: 3, bottomVol: 5, weight: 0.4, label: 'triangle_wide_bottom' },
-        ],
-      };
-    case 'inverted_triangle':
-      // bodyShapeMultiplier: -0.08 wide/oversized top, +0.06 wide/relaxed
-      // bottom, -0.05 slim bottom.
-      return {
-        source: 'body_shape=inverted_triangle',
-        targets: [
-          { topVol: 2, bottomVol: 4, weight: 0.6, label: 'inverted_triangle_fitted_top_wide_bottom' },
-          { topVol: 1, bottomVol: 3, weight: 0.4, label: 'inverted_triangle_slim_top' },
-        ],
-      };
-    case 'hourglass':
-      // bodyShapeMultiplier: +0.07 tailored slim/regular fit, -0.07 for 2+
-      // oversized pieces.
-      return {
-        source: 'body_shape=hourglass',
-        targets: [
-          { topVol: 2, bottomVol: 2, weight: 0.7, label: 'hourglass_tailored' },
-          { topVol: 1, bottomVol: 2, weight: 0.3, label: 'hourglass_fitted' },
-        ],
-      };
-    case 'apple':
-      // bodyShapeMultiplier: +0.07 loose/relaxed/oversized top, -0.07 slim
-      // top; no bottom-specific rule.
-      return {
-        source: 'body_shape=apple',
-        targets: [
-          { topVol: 4, bottomVol: 2, weight: 0.6, label: 'apple_loose_top' },
-          { topVol: 3, bottomVol: 2, weight: 0.4, label: 'apple_relaxed_top' },
-        ],
-      };
-    case 'rectangle':
-    default:
-      // bodyShapeMultiplier: +0.05 for a layered look (3+ items), no
-      // fit-specific volume direction — a mild top/bottom volume contrast
-      // (either direction) is the generic flattering default, matching what
-      // scoreProportionBalance already rewards for this shape.
-      return {
-        source: 'body_shape=rectangle',
-        targets: [
-          { topVol: 3, bottomVol: 2, weight: 0.5, label: 'rectangle_top_led' },
-          { topVol: 2, bottomVol: 3, weight: 0.5, label: 'rectangle_bottom_led' },
-        ],
-      };
-  }
+  return { source: `body_shape=${shape}`, targets: SHAPE_VOLUME_TARGETS[shape] };
 }
 
 function neutralFallback(): DerivedTarget {
@@ -263,20 +207,99 @@ function neutralFallback(): DerivedTarget {
   };
 }
 
+// ─── Shape-goal cascade tier (2026-08-10) ────────────────────────────────────
+// The user's durable "desired resulting body silhouette" choice — sourced
+// from style_profiles.shape_goal, threaded onto ctx.shapeGoal. undefined or
+// 'auto' means the tier is OFF: it must fall through to the EXACT same target
+// the cascade would have picked without this feature (zero regression — see
+// silhouette.test.ts). 'natural' means "don't try to reshape me" — neutral
+// garment volume on both halves. A specific OutfitSilhouetteShape targets that
+// resulting read via targetsForDesiredShape.
+function fromShapeGoal(shapeGoal: EngineContext['shapeGoal'], bodyShape?: BodyShape): DerivedTarget | undefined {
+  if (!shapeGoal || shapeGoal === 'auto') return undefined;
+  if (shapeGoal === 'natural') {
+    return { source: 'shapeGoal=natural', targets: [{ topVol: 2, bottomVol: 2, weight: 1.0, label: 'shape_goal_natural' }] };
+  }
+  return targetsForDesiredShape(shapeGoal, bodyShape);
+}
+
+/**
+ * Volume target(s) that push generation/ranking toward outfits whose
+ * RESULTING BODY SILHOUETTE (resultingBodySilhouette below) reads as `desired`,
+ * starting from this body_shape's BODY_BASELINE (or the neutral 3/3 column
+ * when body_shape is unknown). CALIBRATION-PENDING — a best-effort inverse of
+ * resultingBodySilhouette's own diff/avg thresholds, not independently tuned.
+ */
+function targetsForDesiredShape(desired: OutfitSilhouetteShape, bodyShape?: BodyShape): DerivedTarget {
+  const base = bodyShape ? BODY_BASELINE[bodyShape] : NEUTRAL_BASELINE;
+  const tag = `shapeGoal=${desired}(body=${bodyShape ?? 'none'})`;
+
+  switch (desired) {
+    case 'oval':
+      // avg >= 5 wins the resulting-shape read unconditionally (checked first
+      // in resultingBodySilhouette) — max volume on both halves guarantees it
+      // regardless of body baseline (every BODY_BASELINE entry has top/bottom
+      // >= 2, so eTop/eBottom >= 2 + (5-2) = 5).
+      return { source: tag, targets: [{ topVol: 5, bottomVol: 5, weight: 1.0, label: 'shape_goal_oval' }] };
+
+    case 'triangle':
+      // Slimmest top + widest bottom maximizes eBottom-eTop; guarantees
+      // diff <= -2 even against the worst-case base (inverted_triangle's own
+      // top>bottom lean, top=4/bottom=2): (bottom-top delta -2) + (1-5 delta
+      // -4) = -6, comfortably past the -2 threshold for every shape.
+      return { source: tag, targets: [{ topVol: 1, bottomVol: 5, weight: 1.0, label: 'shape_goal_triangle' }] };
+
+    case 'inverted-triangle':
+      // Mirror of 'triangle' above — widest top + slimmest bottom.
+      return { source: tag, targets: [{ topVol: 5, bottomVol: 1, weight: 1.0, label: 'shape_goal_inverted_triangle' }] };
+
+    case 'rectangle': {
+      // Balance eTop ≈ eBottom by countering the body baseline's OWN
+      // top/bottom asymmetry: topVol - bottomVol = base.bottom - base.top
+      // (anchoring bottomVol at 2/regular) makes eTop - eBottom = 0 exactly
+      // for triangle/inverted_triangle bases, and leaves symmetric bases
+      // (hourglass/rectangle/apple, top===bottom) at neutral 2/2.
+      // CALIBRATION-PENDING / known limitation: an 'apple' base has
+      // rounded=true, which outranks a balanced read in resultingBodySilhouette
+      // whenever avg < 5 (see the balanced-read branch above) — no volume pair
+      // can make an apple-body wearer's outfit literally tag 'rectangle' short
+      // of avg >= 5 (which tags 'oval' instead) or an outfit-made waist (which
+      // tags 'hourglass' instead). Not fixed here — see backlog.md.
+      const topVol = Math.max(1, Math.min(5, 2 + (base.bottom - base.top)));
+      return { source: tag, targets: [{ topVol, bottomVol: 2, weight: 1.0, label: 'shape_goal_rectangle' }] };
+    }
+
+    case 'hourglass':
+    default:
+      // Hourglass is reached mostly through outfitWaistDefinition (belt /
+      // structured tailored piece / fitted-and-structured combo), not through
+      // volume alone — return balanced/neutral volume here and let
+      // shapeGoalDelta (ranking.ts) reward outfits whose OWN items create the
+      // waist, per the design instruction for this goal.
+      return { source: tag, targets: [{ topVol: 2, bottomVol: 2, weight: 1.0, label: 'shape_goal_hourglass_balanced' }] };
+  }
+}
+
 /**
  * Resolve the target silhouette for this generation pass. Override cascade:
- * explicit intent (proportionRule, then bodyGoal) > style silhouette
- * attribute > body_shape flattering default > neutral fallback. `confidence`
- * is computed independently of which cascade level fired — it reflects how
- * much of the wardrobe's top/bottom items carry REAL fit data, which is what
- * gates how strongly the target is allowed to influence generation/ranking
- * downstream (see generation.ts / scoring.ts). Fully deterministic.
+ * explicit intent (proportionRule, then bodyGoal) > shapeGoal (user's durable
+ * desired-shape choice, 2026-08-10) > style silhouette attribute > body_shape
+ * flattering default > neutral fallback. shapeGoal sits ABOVE style/body_shape
+ * because it is an explicit, standing user choice about their own body — but
+ * BELOW intent, since intent is a one-off request for THIS generation ("make
+ * me a business look") that should still win even when a shape goal is set.
+ * `confidence` is computed independently of which cascade level fired — it
+ * reflects how much of the wardrobe's top/bottom items carry REAL fit data,
+ * which is what gates how strongly the target is allowed to influence
+ * generation/ranking downstream (see generation.ts / scoring.ts). Fully
+ * deterministic.
  */
 export function resolveTargetSilhouette(ctx: EngineContext, items: FitItem[]): TargetSilhouette {
   const confidence = computeConfidence(items);
 
   const resolved: DerivedTarget =
     fromIntent(ctx.intent) ??
+    fromShapeGoal(ctx.shapeGoal, ctx.bodyMeasurements.body_shape) ??
     fromStyleSilhouette(ctx.styleProfile.computedAttributes?.silhouette) ??
     (ctx.bodyMeasurements.body_shape ? fromBodyShape(ctx.bodyMeasurements.body_shape) : undefined) ??
     neutralFallback();
@@ -324,6 +347,64 @@ export function outfitSilhouetteTag(items: FitItem[]): OutfitSilhouette {
 // descriptive tag. Purely presentational — no scoring impact.
 export type OutfitSilhouetteShape = 'hourglass' | 'rectangle' | 'oval' | 'inverted-triangle' | 'triangle';
 
+// ─── Outfit-created waist definition (010-wardrobe-critic follow-up, 2026-08-10) ──
+// Fixes a half-broken tag: the OLD `resultingBodySilhouette` only ever produced
+// 'hourglass' via `base.waist`, and `waist: true` exists ONLY on the hourglass
+// entry of BODY_BASELINE below — so no outfit could ever read as 'hourglass'
+// unless the wearer's body_shape already WAS hourglass. Triangle/rectangle
+// users could never see their "most flattering" outfit tagged hourglass, no
+// matter how waist-defining the actual garments were. This function reads the
+// OUTFIT's own items for a real waist-creating signal, independent of
+// body_shape, so `resultingBodySilhouette` below can let a waist the CLOTHES
+// created win over a waist (or lack of one) the BODY started with.
+//
+// CALIBRATION-PENDING: which real `typeName` values count as "waist-defining"
+// is a judgment call — see WAIST_DEFINING_TYPES's own comment for the
+// reasoning and what was deliberately left out.
+
+// Vocabulary verified against enrichment.ts's CATEGORY_MAP/TYPE_DEFAULT_FIT
+// (the engine's real typeName values) — not invented. Restricted to garment
+// types that are STRUCTURALLY waist-defining by their own construction,
+// regardless of styling: CORSET (boned waist-cincher, TYPE_DEFAULT_FIT=slim),
+// BLAZER (tailored/darted torso shaping, the classic "structured shoulder +
+// nipped waist" silhouette), VEST (a waistcoat — tailored to the torso by
+// definition; STYLE_AFFINITIES ties it to oldmoney/smartcasual/preppy, the
+// same tailored-wardrobe register as BLAZER). Deliberately EXCLUDES: DRESS
+// (typeName can't distinguish a waist-defining wrap/fit-and-flare cut from a
+// shapeless shift — no silhouette-cut attribute exists on the item today, see
+// backlog.md); COAT/OVERCOAT/JACKET (TYPE_DEFAULT_FIT is 'relaxed' for
+// coats — a belted trench reads via the explicit belt signal (a) below, not
+// via the coat type itself, which is boxy/relaxed by default).
+const WAIST_DEFINING_TYPES = new Set(['CORSET', 'BLAZER', 'VEST']);
+
+/**
+ * Does THIS OUTFIT (not the wearer's body) create a defined waist? Signals in
+ * priority order — any one firing is enough:
+ *  (a) an explicit belt accessory in the outfit;
+ *  (b) a structurally waist-defining garment type (WAIST_DEFINING_TYPES)
+ *      whose own fit isn't oversized/wide (an oversized blazer washes the
+ *      waist shaping back out);
+ *  (c) a fitted top (slim/regular) + fitted bottom (slim/regular) where at
+ *      least one item carries a `structured` drape — a tailored, body-following
+ *      silhouette reads as waist-defined even with no single "waist garment".
+ * Pure/deterministic; magnitude of what counts is CALIBRATION-PENDING.
+ */
+export function outfitWaistDefinition(items: FitItem[]): boolean {
+  if (items.some(i => i.category === 'accessory' && i.typeName === 'BELT')) return true;
+
+  const structuralPiece = items.find(i =>
+    WAIST_DEFINING_TYPES.has(i.typeName) && i.fit !== 'oversized' && i.fit !== 'wide');
+  if (structuralPiece) return true;
+
+  const topItem = items.find(i => i.category === 'top' || i.category === 'onepiece');
+  const bottomItem = items.find(i => i.category === 'bottom' || i.category === 'onepiece');
+  const topFitted = topItem ? (topItem.fit === 'slim' || topItem.fit === 'regular') : false;
+  const bottomFitted = bottomItem ? (bottomItem.fit === 'slim' || bottomItem.fit === 'regular') : false;
+  if (topFitted && bottomFitted && items.some(i => i.drape === 'structured')) return true;
+
+  return false;
+}
+
 // Body-shape baseline as a coarse (top width, bottom width) pair on the same
 // 1..5 volume scale as garments, plus whether the shape carries a defined waist
 // and whether it reads rounded. Used to model the silhouette the user's body
@@ -345,6 +426,20 @@ const NEUTRAL_BASELINE = { top: 3, bottom: 3, waist: false, rounded: false };
  * widens the bottom read. Outerwear counts toward the TOP read (max with the top
  * garment) since an open/worn coat defines the outer top volume. onepiece fills
  * both roles. Fully deterministic; no scoring impact.
+ *
+ * Mid layer (2026-08-10): deliberately NOT folded into this volume math. `items`
+ * (from index.ts's itemsOf) orders mid AFTER outwear, and `.find` here takes the
+ * first match, so `outerItem` always resolves to the TRUE outer (e.g. blazer),
+ * never the mid piece underneath it (e.g. hoodie) — the mid item is simply
+ * invisible to this function. That's a deliberate call, not an oversight: (a)
+ * the physical rule already bans a HEAVY mid under a true outer (see
+ * generation.ts midFitsUnderOuter), so the case where a mid layer would add
+ * meaningful extra bulk on top of the outer is structurally excluded already;
+ * (b) folding a third garment into `topGarmentVol` would mean re-deriving the
+ * diff/avg thresholds below AND SHAPE_VOLUME_TARGETS/BODY_BASELINE against a
+ * 3-garment top read, which this feature is explicitly not allowed to touch
+ * (they're validated by this file's own golden-case tests). Revisit only as a
+ * deliberate, separately-calibrated change — see backlog.md.
  *
  * Volume scale (VOLUME): slim=1 … regular=2 … oversized=5; neutral garment = 2.
  */
@@ -372,7 +467,14 @@ export function resultingBodySilhouette(items: FitItem[], bodyShape?: BodyShape)
   if (diff <= -2) return 'triangle';          // bottom read clearly wider
   // Balanced top/bottom read:
   if (avg >= 5) return 'oval';                 // voluminous all over → cocoon/round
-  if (base.rounded) return 'oval';             // apple midsection reads rounded
+  // 2026-08-10 fix: a waist the OUTFIT creates (belt / structured tailored
+  // piece / fitted-and-structured silhouette — see outfitWaistDefinition
+  // above) now wins over the body's own `rounded` read. Previously only
+  // base.waist (true for hourglass ONLY) could ever produce 'hourglass', so
+  // no triangle/rectangle/apple wearer could ever see it, no matter how
+  // waist-defining their actual outfit was.
+  if (outfitWaistDefinition(items)) return 'hourglass';
+  if (base.rounded) return 'oval';             // apple midsection reads rounded, absent an outfit-made waist
   if (base.waist) return 'hourglass';          // defined waist survives a balanced look
   return 'rectangle';                          // straight column
 }

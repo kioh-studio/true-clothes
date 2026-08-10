@@ -3,9 +3,16 @@
 // Auth: Bearer token (Supabase JWT). Requires GOOGLE_API_KEY secret.
 //
 // Cheap GATE before the expensive image generation: confirm the uploaded photo
-// shows ONE clear human subject we can dress. Runs gemini-2.5-flash (vision →
-// text) and returns a small JSON verdict the client uses to either proceed or
-// ask the user to pick another photo.
+// shows ONE clear human subject, visible head-to-toe, that we can dress. Runs
+// gemini-2.5-flash (vision → text) and returns a small JSON verdict the client
+// uses to either proceed or ask the user to pick another photo.
+//
+// Full-body requirement (2026-08-08): the try-on result must show the user's
+// real body at its real proportions, and edit-in-place can only do that by
+// preserving whatever framing is already in the source photo — it cannot
+// safely invent unseen legs/feet. So a half-body photo is rejected here,
+// before the expensive generation call, rather than producing a cropped or
+// fabricated result downstream.
 //
 // Input:  { photo_uri: string (base64 data URI of the user's photo) }
 // Output: { valid: boolean, reason: string }
@@ -28,14 +35,15 @@ const TIMEOUT_MS = 12000;
 const SYSTEM = `You are a strict image gate for a virtual clothing try-on feature. You are shown ONE photo. Decide whether it is suitable for rendering an outfit onto the person.
 
 Return ONLY a JSON object (no prose, no markdown fences):
-{"is_person": boolean, "single_subject": boolean, "body_visible": boolean, "quality_ok": boolean, "reason": string}
+{"is_person": boolean, "single_subject": boolean, "body_visible": boolean, "full_body_visible": boolean, "quality_ok": boolean, "reason": string}
 
 Rules:
 - is_person: true only if there is a real, photographed human (not illustration, mannequin, doll, statue, or AI avatar).
 - single_subject: true only if exactly ONE person is the clear primary subject. Multiple prominent people → false.
 - body_visible: true if at least the upper body / torso is visible and unobstructed enough to place clothing on. A tiny/distant figure or a face-only crop → false.
+- full_body_visible: true only if the person is visible head-to-toe — the whole figure is in frame, including legs and feet/shoes. Cropped at the waist, thighs, or knees → false, even if body_visible is true.
 - quality_ok: true if the photo is in focus and well-lit enough to use. Heavy blur, extreme darkness, or strong occlusion → false.
-- reason: ONE short sentence (max ~90 chars) in Vietnamese explaining the main problem if any field is false; empty string if everything is fine.
+- reason: ONE short sentence (max ~90 chars) in Vietnamese explaining the main problem if any field is false — if the person isn't visible head-to-toe, say so; empty string if everything is fine.
 
 Be conservative: if unsure whether a clear single person is present, set is_person or single_subject to false.`;
 
@@ -52,7 +60,7 @@ function parseImage(photoUri: string): GeminiPart {
 
 interface Verdict {
   is_person?: boolean; single_subject?: boolean;
-  body_visible?: boolean; quality_ok?: boolean; reason?: string;
+  body_visible?: boolean; full_body_visible?: boolean; quality_ok?: boolean; reason?: string;
 }
 
 function parseVerdict(raw: string): Verdict {
@@ -138,7 +146,7 @@ Deno.serve(async (req) => {
     const v = parseVerdict(text);
 
     const valid = v.is_person === true && v.single_subject === true
-      && v.body_visible === true && v.quality_ok === true;
+      && v.body_visible === true && v.full_body_visible === true && v.quality_ok === true;
 
     // Default user-facing reason when the model returned none.
     let reason = (typeof v.reason === 'string' && v.reason.trim()) ? v.reason.trim() : '';
@@ -149,7 +157,9 @@ Deno.serve(async (req) => {
           ? 'Ảnh có nhiều người. Hãy chọn ảnh chỉ có một mình bạn.'
           : v.body_visible !== true
             ? 'Cần thấy rõ phần thân trên. Hãy chọn ảnh chụp xa hơn một chút.'
-            : 'Ảnh chưa đủ rõ nét. Hãy chọn ảnh sáng và rõ hơn.';
+            : v.full_body_visible !== true
+              ? 'Cần thấy toàn thân từ đầu đến chân, kể cả bàn chân. Hãy chọn ảnh chụp toàn thân.'
+              : 'Ảnh chưa đủ rõ nét. Hãy chọn ảnh sáng và rõ hơn.';
     }
 
     return json({ valid, reason }, 200);

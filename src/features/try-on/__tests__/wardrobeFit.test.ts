@@ -104,16 +104,24 @@ describe('computeWardrobeFit', () => {
     expect(result.band).toBe('weak');
   });
 
-  it('"ok" explanation uses singular "outfit" when highCount is 1', () => {
+  it('"ok" explanationParams carries no pluralization suffix when highCount is 1', () => {
     const result = computeWardrobeFit([makeOutfit(0.70), makeOutfit(0.55)]);
     expect(result.band).toBe('ok');
-    expect(result.explanation).toContain('outfit');
-    expect(result.explanation).not.toContain('outfits');
+    expect(result.explanationKey).toBe('wardrobeFitRow_ok_explanation');
+    expect(result.explanationParams).toEqual({ count: 1, suffix: '' });
   });
 
-  it('"ok" explanation uses plural "outfits" when highCount is 2', () => {
+  it('"ok" explanationParams carries the pluralization suffix when highCount is 2', () => {
     const result = computeWardrobeFit([makeOutfit(0.75), makeOutfit(0.72), makeOutfit(0.55)]);
     expect(result.band).toBe('ok');
-    expect(result.explanation).toContain('outfits');
+    expect(result.explanationParams).toEqual({ count: 2, suffix: 's' });
+  });
+
+  it('exposes i18n keys (not raw English text) for label/explanation per band', () => {
+    expect(computeWardrobeFit([]).labelKey).toBe('wardrobeFitRow_none_label');
+    expect(computeWardrobeFit([]).explanationKey).toBe('wardrobeFitRow_none_explanation');
+    expect(computeWardrobeFit([makeOutfit(0.90), makeOutfit(0.80), makeOutfit(0.70)]).labelKey)
+      .toBe('wardrobeFitRow_great_label');
+    expect(computeWardrobeFit([makeOutfit(0.50)]).labelKey).toBe('wardrobeFitRow_weak_label');
   });
 });

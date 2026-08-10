@@ -1,15 +1,16 @@
 // Behaviour-learned taste vector (lever L2).
 //
 // `ranking.ts` historically read ZERO user history. This module learns a small
-// per-user preference vector from the outfits the user has SAVED or WORN (the
-// only positive signals stored — there is no dismiss/skip event), then turns it
-// into a gentle additive ranking bonus so the feed leans toward the user's own
-// "gu" over time.
+// per-user preference vector from the outfits the user has VIEWED, SAVED, or
+// WORN, then turns it into a gentle additive ranking bonus so the feed leans
+// toward the user's own "gu" over time.
 //
-// Design principles:
-//   • Positive-only. Absence of a save is NOT a negative — we never penalise.
+// Design principles (positive side — see the "Dismiss" section below for the
+// negative counterpart added 2026-08-07):
+//   • Positive-only. Absence of a save is NOT a negative — we never penalise
+//     for silence, only for an EXPLICIT swipe-left dismiss (see below).
 //   • Confidence-scaled. Zero samples → no-op; a tiny sample barely nudges; the
-//     bonus saturates only after CONF_FULL liked outfits.
+//     bonus saturates only after CONF_FULL (weighted) liked outfits.
 //   • Capped well below the core dimensions (style/colour are 0.25 each) so taste
 //     refines the ranking, never overrides good styling.
 //   • Item-derived only — needs no extra stored metadata, just the items the
@@ -18,8 +19,23 @@
 import { FitItem, TasteAggregate, TasteVector } from './types.ts';
 
 const MAX_TASTE_BONUS = 0.06; // ceiling on the additive nudge (subordinate to core dims)
-const CONF_FULL = 8;          // # liked outfits at which confidence saturates to 1
+const CONF_FULL = 8;          // # liked outfits (weighted) at which confidence saturates to 1
 const AFFINITY_FLOOR = 0.4;   // affinity at/below this earns no bonus (so off-taste ≈ 0)
+
+// Positive-signal weights (feed-signals, 2026-08-07 — CALIBRATION-PENDING, not
+// yet tuned against real outcome data). `worn` is the strongest signal (the
+// user actually wore it), `saved` is a deliberate bookmark, `viewed` (tapped
+// into the outfit detail from the feed) is the weakest — most taps are
+// curiosity, not a real preference. Applied by the caller (index.ts) when it
+// maps outfit_interactions rows to PositiveOutfit entries.
+export const VIEWED_WEIGHT = 0.5;
+export const SAVED_WEIGHT = 1;
+export const WORN_WEIGHT = 2;
+
+// Ceiling on the dismiss penalty (feed-signals, 2026-08-07 — CALIBRATION-
+// PENDING). Kept well below MAX_TASTE_BONUS: a dismiss should discourage a
+// look, never dominate the positive taste signal.
+const TASTE_MAX_PENALTY = 0.04;
 
 // Lift mode (2026-07-02): with enough impression history, the bonus rewards a
 // candidate's similarity to the user's saves RELATIVE to the average feed shown
@@ -48,13 +64,20 @@ function outfitFeatures(items: FitItem[]): {
 }
 
 export interface PositiveOutfit {
-  itemIds: string[]; // ids parsed from the saved/worn outfit-id slot key
-  weight: number;    // worn = stronger positive than merely saved
+  itemIds: string[]; // ids parsed from the viewed/saved/worn outfit-id slot key
+  weight: number;    // VIEWED_WEIGHT < SAVED_WEIGHT < WORN_WEIGHT — stronger signal, bigger weight
 }
 
 // Weighted aggregation of outfit character over a set of outfits. Items are
 // resolved against the wardrobe map; outfits whose items no longer exist
 // contribute nothing. Returns undefined when nothing usable remains.
+//
+// `sampleCount` on the result is the WEIGHTED total (Σ weight over
+// contributing outfits), not a plain outfit count — so confidence reflects
+// the strength of the evidence, not just how many rows exist. Callers that
+// only ever pass weight=1 (exposures, dismissed) get the same value either
+// way; callers mixing weights (viewed/saved/worn positives) get a true
+// weighted confidence (see VIEWED_WEIGHT/SAVED_WEIGHT/WORN_WEIGHT above).
 function aggregateOutfits(
   outfits: PositiveOutfit[], itemMap: Map<string, FitItem>,
 ): TasteAggregate | undefined {
@@ -80,7 +103,7 @@ function aggregateOutfits(
   for (const [k, v] of Object.entries(colorAccum)) colorWeight[k] = v / colorTot;
 
   return {
-    sampleCount: used,
+    sampleCount: totW,
     meanFormality: fSum / totW,
     meanStatement: sSum / totW,
     meanLightnessSpread: lSum / totW,
@@ -148,4 +171,41 @@ export function tasteAffinityDelta(items: FitItem[], tv: TasteVector): number {
 
   const confidence = Math.min(1, tv.sampleCount / CONF_FULL);
   return norm * MAX_TASTE_BONUS * confidence;
+}
+
+// ─── Dismiss (negative signal, feed-signals 2026-08-07) ─────────────────────
+//
+// Swipe-left on a feed card is an EXPLICIT negative — unlike the rest of this
+// module (positive-only by design, see file header), a dismissed outfit is a
+// deliberate "not this" the user chose to send. It gets its own aggregate
+// (built the same way as the positive one, over the same 4 features) rather
+// than being folded into/subtracted from the positive vector: a dismissed
+// outfit isn't necessarily "the opposite of liked", it's its own signal with
+// its own confidence curve. This is intentionally a SEPARATE code path from
+// tasteAffinityDelta above and does not touch MAX_TASTE_BONUS, CONF_FULL,
+// AFFINITY_FLOOR, or the exposure/lift mechanism — only TASTE_MAX_PENALTY is
+// new.
+
+// Builds the "what the user dismisses" aggregate from swipe-left outfits.
+// Every dismissed outfit counts equally (weight 1) — there is no dismissed
+// sub-tier the way viewed/saved/worn tier the positive signal.
+export function buildDismissVector(
+  dismissed: Array<{ itemIds: string[] }>,
+  itemMap: Map<string, FitItem>,
+): TasteAggregate | undefined {
+  return aggregateOutfits(dismissed.map(d => ({ itemIds: d.itemIds, weight: 1 })), itemMap);
+}
+
+// How close a candidate outfit is to the user's dismissed profile, returned
+// as a penalty magnitude in [0, TASTE_MAX_PENALTY] — the CALLER subtracts it
+// from the total score (never returned as a negative number itself, mirroring
+// tasteAffinityDelta's convention of returning a magnitude the caller adds).
+// No affinity floor (unlike the positive bonus): even a mild resemblance to
+// the dismissed profile should cost a little, not just outfits that match it
+// closely — dismissal is a stronger, more deliberate signal than a save.
+export function tasteDismissPenalty(items: FitItem[], dismiss: TasteAggregate): number {
+  const f = outfitFeatures(items);
+  const affinity = affinityTo(f, dismiss);
+  const confidence = Math.min(1, dismiss.sampleCount / CONF_FULL);
+  return affinity * confidence * TASTE_MAX_PENALTY;
 }

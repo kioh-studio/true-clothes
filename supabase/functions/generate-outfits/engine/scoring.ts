@@ -7,7 +7,7 @@ import {
   FitItem, ColorProfile, PrimaryColor, BodyMeasurements, BodyShape,
   StyleAttributes, StyleDef, Mood, ColorPalette, Silhouette,
   FabricWeight, ItemFit, Season, FitPoint, FitCategory, ItemFitResult,
-  TargetSilhouette,
+  TargetSilhouette, PreferredFit,
 } from './types.ts';
 import { colorProfileOf } from './enrichment.ts';
 import { STYLE_CONFIGS } from './filtering.ts';
@@ -134,7 +134,7 @@ function colorCountScore(profiles: ColorProfile[]): number {
   return 0.4;
 }
 
-function paletteAlignment(profiles: ColorProfile[], userPrimaries: Set<PrimaryColor>): number {
+export function paletteAlignment(profiles: ColorProfile[], userPrimaries: Set<PrimaryColor>): number {
   if (userPrimaries.size === 0) return 0.5;
   const matches = profiles.filter(p => userPrimaries.has(p.primaryColor)).length;
   return matches / profiles.length;
@@ -150,7 +150,7 @@ function normSeason(s: string): string {
   return s === 'fall' ? 'autumn' : s;
 }
 
-function seasonCompatibilityBonus(profiles: ColorProfile[], colorSeason: string): number {
+export function seasonCompatibilityBonus(profiles: ColorProfile[], colorSeason: string): number {
   const rule = SEASON_FLATTERING[normSeason(colorSeason)];
   if (!rule) return 0;
   const total = profiles.length;
@@ -184,7 +184,7 @@ const WEATHER_COLOR_PREF: Record<Season, { lum: number; sat: number }> = {
   allSeason: { lum: 0,    sat: 0 },
 };
 
-function weatherSeasonColorBonus(profiles: ColorProfile[], weatherSeason: Season): number {
+export function weatherSeasonColorBonus(profiles: ColorProfile[], weatherSeason: Season): number {
   const pref = WEATHER_COLOR_PREF[weatherSeason];
   if (!pref || (pref.lum === 0 && pref.sat === 0)) return 0;
   // Only chromatic (non-neutral) items carry a seasonal colour temperature.
@@ -258,7 +258,7 @@ const TONE12_AVOID_MAX = 0.06;
 // double-penalising a colour the 4-season bonus already dings. Parent season
 // is derived from the tone12 suffix after the first '_' (e.g. 'deep_autumn'
 // → 'autumn'), independent of whether a colorSeason argument was passed.
-function tone12AvoidPenalty(profiles: ColorProfile[], tone12: string): number {
+export function tone12AvoidPenalty(profiles: ColorProfile[], tone12: string): number {
   const avoidList = TONE12_AVOID[tone12];
   if (!avoidList || avoidList.length === 0 || profiles.length === 0) return 0;
 
@@ -448,6 +448,94 @@ const FIT_THRESHOLDS: Record<string, Thresholds> = {
 /** Girth keys where "too tight" is unwearable (near-0 score below ideal). */
 const GIRTH_KEYS = new Set(['chest', 'shoulder_width', 'waist_top', 'waist', 'waist_outer', 'hip', 'upper_arm', 'thigh']);
 
+/** Target ease as a fraction of the BODY girth, per declared garment fit.
+ *  `regular` is the anchor (0 net shift) so the existing FIT_THRESHOLDS
+ *  calibration for regular garments is preserved exactly. */
+const FIT_EASE_PCT: Record<ItemFit, number> = {
+  slim: 0.02, regular: 0.06, relaxed: 0.11, wide: 0.16, oversized: 0.22,
+};
+
+/** How much of the fit shift each measurement point absorbs — i.e. how a
+ *  garment is actually CUT to deliver its declared fit, not how tolerant we
+ *  are of misfit. Torso girths (chest/waist/hip) take the shift fully — they
+ *  ARE the fit. A loose sleeve widens nearly in proportion with the body of
+ *  the garment (upper_arm), and real oversized/drop-shoulder construction
+ *  widens the shoulder by nearly as much (shoulder_width is exactly a widened
+ *  shoulder in that cut) and genuinely lengthens the sleeve (sleeves) —
+ *  recalibrated 2026-08-03 after Section E of body-shape-sim.ts showed the
+ *  previous near-zero weights flooring a correctly-cut oversized garment's
+ *  shoulder/arm/sleeve points at 0.20 regardless of how well it actually fit.
+ *  inseam still does not move with fit — leg length is independent of cut. */
+const KEY_EASE_WEIGHT: Record<string, number> = {
+  chest: 1, waist_top: 1, waist: 1, waist_outer: 1, hip: 1,
+  thigh: 0.9, upper_arm: 0.9, shoulder_width: 0.9,
+  sleeves: 0.3, body_length: 0.4, inseam: 0,
+};
+
+function clampCm(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v));
+}
+
+/** Slide a threshold window by how much ease the garment's declared `fit` is
+ *  SUPPOSED to have, scaled proportionally to the body measurement (not a flat
+ *  cm offset) so a limb point never overshoots past the garment's real ease.
+ *  The base FIT_THRESHOLDS numbers and easeScore's curve are untouched — only
+ *  the window's position (and, for a guessed fit, the `ok` band's width) move.
+ *
+ *  `fitIsReal` is false when the fit label is a guess (provenance.fit !== true,
+ *  see deriveFitWithProvenance in enrichment.ts). A guessed label still gets
+ *  the FULL shift — it is our best estimate of the garment's cut, and halving
+ *  it (the previous approach) parked the window HALFWAY between the regular
+ *  and the labelled-fit window, matching NEITHER — a correctly-cut guessed
+ *  garment was scored as if it were mis-cut. What a guess actually buys is
+ *  UNCERTAINTY about whether the label is right, not "half as loose", so
+ *  instead the `ok` band is WIDENED by GUESS_WIDENING on both sides — a wrong
+ *  guess then degrades gracefully instead of scoring near 0. `ideal` is left
+ *  unwidened: a guessed label should not earn a perfect score over a wider
+ *  range than a known one, only a wider "acceptable" one. */
+const GUESS_WIDENING = 0.4; // fraction of the ok-band half-width added each side, guessed fit only
+
+function shiftThresholds(t: Thresholds, thresholdKey: string, bodyVal: number, fit: ItemFit, fitIsReal: boolean): Thresholds {
+  const weight = KEY_EASE_WEIGHT[thresholdKey] ?? 0;
+  const shiftCm = clampCm((FIT_EASE_PCT[fit] - FIT_EASE_PCT.regular) * bodyVal * weight, -20, 20);
+  // No shift (regular fit, the zero-shift anchor) → nothing to be UNCERTAIN
+  // about, so return the base window untouched — matches the original
+  // early-return and keeps 'regular' guessed items on the unperturbed base
+  // FIT_THRESHOLDS curve, exactly as before this fix.
+  if (shiftCm === 0) return t;
+  const ideal: [number, number] = [t.ideal[0] + shiftCm, t.ideal[1] + shiftCm];
+  let ok: [number, number] = [t.ok[0] + shiftCm, t.ok[1] + shiftCm];
+  if (!fitIsReal) {
+    const okHalfWidth = (ok[1] - ok[0]) / 2;
+    ok = [ok[0] - GUESS_WIDENING * okHalfWidth, ok[1] + GUESS_WIDENING * okHalfWidth];
+  }
+  // SAFETY FLOOR (2026-08-03): a girth window may legitimately RAISE its floor
+  // (a loose garment should require more ease before it counts "ok" — see the
+  // E4 mislabelled-oversized guard) but must never LOWER it below the
+  // ORIGINAL, un-shifted table value. The physical truth an ease% shift can't
+  // override: a body does not shrink to fit a smaller garment. `slim`
+  // (FIT_EASE_PCT.slim=0.02) is BELOW the `regular` anchor (0.06), so it is
+  // the one fit that produces a NEGATIVE shiftCm — without this clamp that
+  // drags ok[0] below its original floor (and guess-widening pushes it lower
+  // still), letting the engine accept a garment that measures LESS than the
+  // wearer's body as "acceptable". Applied after guess-widening so a guessed
+  // slim garment can't use the wider band to sneak under the floor either.
+  // Only GIRTH_KEYS get this treatment — length keys (sleeves/body_length/
+  // inseam) have no "unwearable too-tight" floor in the same sense, and their
+  // 'ok[0]' is deliberately negative (a slightly short hem/sleeve still
+  // wears). shoulder_width's original ok[0] is -1 ON PURPOSE (a seam 1cm
+  // narrower than the body still wears) — clamping to the ORIGINAL value,
+  // not to 0, preserves that.
+  if (GIRTH_KEYS.has(thresholdKey)) {
+    ok[0] = Math.max(ok[0], t.ok[0]);
+    // Guard against an inverted/empty window: if the raised floor now sits
+    // above ideal[0] (possible for a large negative shift), raise ideal[0]
+    // to match rather than leave ok[0] > ideal[0].
+    if (ok[0] > ideal[0]) ideal[0] = ok[0];
+  }
+  return { ideal, ok };
+}
+
 function easeScore(ease: number, t: Thresholds, isGirth = false): number {
   // Below acceptable range → always unwearable for both girth and length.
   if (ease < t.ok[0]) return 0.0;
@@ -503,15 +591,24 @@ const OUTER_MAPPINGS: MappingEntry[] = [
   { bodyKey: 'body_sleeve_length',   garmentKey: 'sleeves',        thresholdKey: 'sleeves',        label: 'Sleeve length' },
 ];
 
-function scoreMappings(body: BodyMeasurements, garment: Record<string, number | undefined>, mappings: MappingEntry[]): FitPoint[] {
+function scoreMappings(
+  body: BodyMeasurements,
+  garment: Record<string, number | undefined>,
+  mappings: MappingEntry[],
+  fit: ItemFit,
+  fitIsReal: boolean,
+): FitPoint[] {
   const points: FitPoint[] = [];
   for (const m of mappings) {
     const bodyVal = body[m.bodyKey] as number | undefined;
     const garmentVal = garment[m.garmentKey];
     if (bodyVal == null || garmentVal == null) continue;
     const ease = garmentVal - bodyVal;
-    const t = FIT_THRESHOLDS[m.thresholdKey];
+    const baseT = FIT_THRESHOLDS[m.thresholdKey];
+    const t = shiftThresholds(baseT, m.thresholdKey, bodyVal, fit, fitIsReal);
     const isGirth = GIRTH_KEYS.has(m.thresholdKey);
+    // fitCategory stays absolute — it labels how the garment physically sits
+    // (roomy/oversized), independent of whether that was the design intent.
     points.push({ key: m.label, ease, category: fitCategory(ease), score: easeScore(ease, t, isGirth) });
   }
   return points;
@@ -521,11 +618,13 @@ export function scoreItemFit(item: FitItem, body: BodyMeasurements): ItemFitResu
   if (!item.garmentMeasurements) return { itemId: item.id, points: [], score: 0.5, warnings: [], measured: false };
 
   const g = item.garmentMeasurements as Record<string, number | undefined>;
+  const fit = item.fit;
+  const fitIsReal = item.provenance.fit === true;
   let points: FitPoint[] = [];
-  if (item.category === 'top')      points = scoreMappings(body, g, TOP_MAPPINGS);
-  if (item.category === 'onepiece') points = scoreMappings(body, g, TOP_MAPPINGS);
-  if (item.category === 'bottom')   points = scoreMappings(body, g, PANTS_MAPPINGS);
-  if (item.category === 'outwear')  points = scoreMappings(body, g, OUTER_MAPPINGS);
+  if (item.category === 'top')      points = scoreMappings(body, g, TOP_MAPPINGS, fit, fitIsReal);
+  if (item.category === 'onepiece') points = scoreMappings(body, g, TOP_MAPPINGS, fit, fitIsReal);
+  if (item.category === 'bottom')   points = scoreMappings(body, g, PANTS_MAPPINGS, fit, fitIsReal);
+  if (item.category === 'outwear')  points = scoreMappings(body, g, OUTER_MAPPINGS, fit, fitIsReal);
 
   // No overlap between body measurements and garment keys → still unmeasured.
   if (points.length === 0) return { itemId: item.id, points: [], score: 0.5, warnings: [], measured: false };
@@ -534,62 +633,86 @@ export function scoreItemFit(item: FitItem, body: BodyMeasurements): ItemFitResu
   return { itemId: item.id, points, score, warnings, measured: true };
 }
 
-// Body shape signal: certain silhouettes suit certain shapes better.
-// Returns a DELTA in [-0.10, +0.10] to be added to the base fit score.
-// Positive = good shape match, negative = poor shape match.
-// This avoids the clamping problem where base * multiplier collapses to 1.0
-// for any well-fitting outfit (base ≳ 0.87), erasing ranking separation.
+// Per-body-shape flattering (top volume, bottom volume) targets, expressed on
+// the same VOLUME scale (slim=1 … oversized=5) as garments. SINGLE SOURCE OF
+// TRUTH (2026-08-03) — consumed by bodyShapeMultiplier below AND fromBodyShape
+// (silhouette.ts), so the scoring delta can never contradict the silhouette
+// target again (the old two-criteria setup — string-matched fit rules here vs.
+// hard-coded volume literals there — disagreed for 'rectangle'; see
+// scripts/sim/body-shape-sim.ts Section D "Direction contradictions"). Tuples/
+// weights/labels are copied verbatim from the previous fromBodyShape literals
+// — not retuned.
+export interface ShapeVolumeTarget { topVol: number; bottomVol: number; weight: number; label: string }
+
+export const SHAPE_VOLUME_TARGETS: Record<BodyShape, ShapeVolumeTarget[]> = {
+  triangle: [
+    { topVol: 4, bottomVol: 4, weight: 0.6, label: 'triangle_broad_top_wide_bottom' },
+    { topVol: 3, bottomVol: 5, weight: 0.4, label: 'triangle_wide_bottom' },
+  ],
+  inverted_triangle: [
+    { topVol: 2, bottomVol: 4, weight: 0.6, label: 'inverted_triangle_fitted_top_wide_bottom' },
+    { topVol: 1, bottomVol: 3, weight: 0.4, label: 'inverted_triangle_slim_top' },
+  ],
+  hourglass: [
+    { topVol: 2, bottomVol: 2, weight: 0.7, label: 'hourglass_tailored' },
+    { topVol: 1, bottomVol: 2, weight: 0.3, label: 'hourglass_fitted' },
+  ],
+  apple: [
+    { topVol: 4, bottomVol: 2, weight: 0.6, label: 'apple_loose_top' },
+    { topVol: 3, bottomVol: 2, weight: 0.4, label: 'apple_relaxed_top' },
+  ],
+  rectangle: [
+    { topVol: 3, bottomVol: 2, weight: 0.5, label: 'rectangle_top_led' },
+    { topVol: 2, bottomVol: 3, weight: 0.5, label: 'rectangle_bottom_led' },
+  ],
+};
+
+// Highest VOLUME among top/onepiece/outwear items — undefined when none present.
+function resolveTopVolume(items: FitItem[]): number | undefined {
+  const candidates = items.filter(i => i.category === 'top' || i.category === 'onepiece' || i.category === 'outwear');
+  if (candidates.length === 0) return undefined;
+  return Math.max(...candidates.map(i => VOLUME[i.fit]));
+}
+
+// VOLUME of the bottom (or onepiece) item — undefined when none present.
+function resolveBottomVolume(items: FitItem[]): number | undefined {
+  const bottomItem = items.find(i => i.category === 'bottom' || i.category === 'onepiece');
+  return bottomItem ? VOLUME[bottomItem.fit] : undefined;
+}
+
+// Manhattan distance from a target, over ONLY the axes that are actually
+// present — a missing axis (e.g. the single-item evaluate-item path, which
+// has no bottom) contributes 0 distance, never a fake penalty.
+function targetVolumeDistance(target: ShapeVolumeTarget, topVol: number | undefined, bottomVol: number | undefined): number {
+  let dist = 0;
+  if (topVol !== undefined) dist += Math.abs(topVol - target.topVol);
+  if (bottomVol !== undefined) dist += Math.abs(bottomVol - target.bottomVol);
+  return dist;
+}
+
+// Body shape signal: how closely this outfit's realized top/bottom volume
+// matches this body shape's flattering SHAPE_VOLUME_TARGETS (the same table
+// silhouette.ts's fromBodyShape targets, so the two can never contradict each
+// other again). Returns a DELTA in [-0.10, +0.10] to be added to the base fit
+// score. Positive = good shape match, negative = poor shape match. Additive
+// (not multiplicative) so the delta never collapses to 0 via clamping — a
+// well-fitting outfit's base score staying near 1.0 doesn't erase ranking
+// separation the way base * multiplier would.
 export function bodyShapeMultiplier(items: FitItem[], shape: BodyShape): number {
-  const tops = items.filter(i => i.category === 'top' || i.category === 'outwear');
-  const bottoms = items.filter(i => i.category === 'bottom');
-  let delta = 0.0;
-  switch (shape) {
-    case 'triangle': {
-      // Pear — reward A-line / wide-leg bottoms, penalise fitted slim bottoms
-      const wideBottom = bottoms.some(i => i.fit === 'relaxed' || i.fit === 'wide' || i.fit === 'oversized');
-      const slimBottom = bottoms.some(i => i.fit === 'slim');
-      const broadTop = tops.some(i => i.fit === 'oversized' || i.fit === 'wide');
-      if (wideBottom) delta += 0.07;
-      if (broadTop) delta += 0.03;
-      if (slimBottom) delta -= 0.07;
-      break;
-    }
-    case 'inverted_triangle': {
-      // Wide shoulders — penalise wide/oversized tops, reward A-line bottoms
-      const wideTops = tops.filter(i => i.fit === 'oversized' || i.fit === 'wide').length;
-      if (wideTops > 0) delta -= 0.08;
-      const wideBtm = bottoms.some(i => i.fit === 'relaxed' || i.fit === 'wide');
-      const slimBtm = bottoms.some(i => i.fit === 'slim');
-      if (wideBtm) delta += 0.06;
-      if (slimBtm) delta -= 0.05;
-      break;
-    }
-    case 'hourglass': {
-      // Defined waist — reward tailored/structured silhouettes, penalise shapeless oversized
-      const tailored = items.some(i => i.fit === 'slim' || i.fit === 'regular');
-      const shapeless = items.filter(i => i.fit === 'oversized').length >= 2;
-      if (tailored) delta += 0.07;
-      if (shapeless) delta -= 0.07;
-      break;
-    }
-    case 'apple': {
-      // Score up loose/flowy tops, penalise tight/slim tops
-      const looseTops = tops.some(i => i.fit === 'relaxed' || i.fit === 'oversized');
-      const tightTops = tops.some(i => i.fit === 'slim');
-      if (looseTops) delta += 0.07;
-      if (tightTops) delta -= 0.07;
-      break;
-    }
-    case 'rectangle': {
-      // Score up structured/layered looks, slight penalty for plain single-layer
-      const layered = items.length >= 3;
-      const plain = items.length <= 2 && items.every(i => i.fit === 'regular');
-      if (layered) delta += 0.05;
-      if (plain) delta -= 0.03;
-      break;
-    }
+  const core = items.filter(i => i.category !== 'accessory' && i.category !== 'shoes');
+  const topVol = resolveTopVolume(core);
+  const bottomVol = resolveBottomVolume(core);
+  if (topVol === undefined && bottomVol === undefined) return 0;
+
+  const targets = SHAPE_VOLUME_TARGETS[shape];
+  let bestDist = Infinity;
+  for (const t of targets) {
+    const dist = targetVolumeDistance(t, topVol, bottomVol);
+    if (dist < bestDist) bestDist = dist;
   }
-  // Clamp delta to [-0.10, +0.10]
+
+  // Exact match (dist 0) -> +0.10; distance 3 -> neutral 0; distance >= 6 -> floor -0.10.
+  const delta = 0.10 * (1 - bestDist / 3);
   return Math.max(-0.10, Math.min(0.10, delta));
 }
 
@@ -626,6 +749,40 @@ export function bodyShapeAdjustment(items: FitItem[], shape: BodyShape): number 
   return Math.max(-SHAPE_ADJ_MAX, Math.min(SHAPE_ADJ_MAX, adj));
 }
 
+// ── Preferred-fit anchor (moved here from evaluate-item/scoring.ts, 2026-08-03) ──
+// Once FIT_THRESHOLDS is fit-relative (above), a correctly-cut oversized piece
+// scores ~1.0 just like a correctly-cut slim piece — the measurement term alone
+// no longer expresses whether the user LIKES loose clothes. FIT_COMPAT + the
+// preference-comparison table are the SAME data evaluate-item always used;
+// they now live in the engine so generate-outfits can anchor the feed to it
+// too. Import direction preserved: evaluate-item imports FROM the engine, not
+// the reverse — evaluate-item/scoring.ts re-exports/imports these two names
+// and its own behaviour (its separate `fit` criterion) is unchanged.
+
+// Adjacent-fit table: how well each item fit satisfies a preferred fit.
+// 1.0 = exact match or functionally identical, lower = less suitable.
+export const FIT_COMPAT: Record<PreferredFit, Partial<Record<ItemFit, number>>> = {
+  SLIM:     { slim: 1.0, regular: 0.6, relaxed: 0.3, wide: 0.1, oversized: 0.1 },
+  REGULAR:  { slim: 0.6, regular: 1.0, relaxed: 0.7, wide: 0.4, oversized: 0.3 },
+  RELAXED:  { slim: 0.2, regular: 0.7, relaxed: 1.0, wide: 0.8, oversized: 0.6 },
+  OVERSIZED:{ slim: 0.1, regular: 0.4, relaxed: 0.7, wide: 0.8, oversized: 1.0 },
+};
+
+export function scoreFitPreference(itemFit: ItemFit, preferredFit: PreferredFit): number {
+  return FIT_COMPAT[preferredFit][itemFit] ?? 0.5;
+}
+
+/** Soft nudge toward the fit silhouette the user says they prefer. Returns a
+ *  DELTA in [-0.12, +0.12] — deliberately smaller than the body-shape delta so
+ *  shape and style stay dominant. 0 when the user has no preferredFit. */
+export function preferredFitDelta(items: FitItem[], preferredFit?: PreferredFit): number {
+  if (!preferredFit) return 0;
+  const core = items.filter(i => i.category !== 'accessory' && i.category !== 'shoes');
+  if (core.length === 0) return 0;
+  const mean = core.reduce((s, i) => s + scoreFitPreference(i.fit, preferredFit), 0) / core.length;
+  return Math.max(-0.12, Math.min(0.12, (mean - 0.5) * 2 * 0.12));
+}
+
 export function scoreOutfitFit(items: FitItem[], body: BodyMeasurements): number {
   if (items.length === 0) return 0.5;
   const results = items.map(item => scoreItemFit(item, body));
@@ -636,9 +793,14 @@ export function scoreOutfitFit(items: FitItem[], body: BodyMeasurements): number
   const base = measured.length > 0
     ? measured.reduce((sum, r) => sum + r.score, 0) / measured.length
     : 0.5;
-  if (!body.body_shape) return base;
-  const shapeDelta = bodyShapeAdjustment(items, body.body_shape);
-  return Math.max(0, Math.min(1, base + shapeDelta));
+  // Shape delta only when body_shape is known (body_neutral mode nulls it out
+  // upstream, before ctx.bodyMeasurements reaches this function).
+  const shapeDelta = body.body_shape ? bodyShapeAdjustment(items, body.body_shape) : 0;
+  // preferredFit is a STATED PREFERENCE, not body data — unlike body_shape it
+  // must NOT be suppressed by body-neutral mode, so it is applied unconditionally
+  // here (not gated behind the `body.body_shape` check above).
+  const prefDelta = preferredFitDelta(items, body.preferredFit);
+  return Math.max(0, Math.min(1, base + shapeDelta + prefDelta));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -775,7 +937,7 @@ export function scoreFormalityConsistency(items: FitItem[], formula?: string): n
 // 6. SEASON MATCH
 // ═══════════════════════════════════════════════════════════════════════════
 
-const SEASON_COMPAT: Record<Season, Record<Season, number>> = {
+export const SEASON_COMPAT: Record<Season, Record<Season, number>> = {
   summer:    { summer: 1.0, spring: 0.8, fall: 0.3, winter: 0.0, allSeason: 0.9 },
   spring:    { summer: 0.8, spring: 1.0, fall: 0.7, winter: 0.3, allSeason: 0.9 },
   fall:      { summer: 0.3, spring: 0.7, fall: 1.0, winter: 0.8, allSeason: 0.9 },

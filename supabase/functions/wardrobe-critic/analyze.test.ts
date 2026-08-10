@@ -135,6 +135,31 @@ Deno.test('redundancy: a cluster of 5 near-identical items is called out', () =>
   assert(report.redundancy!.count >= 5);
 });
 
+// ─── 4 suggestion toggles (2026-08-10) ─────────────────────────────────────
+// AnalyzeInput.suggestByStyle/suggestByMeasurements thread straight into the
+// EngineContext rankCandidates() consumes internally (qualifiedOutfits) — the
+// dims valid-flag mechanism itself is unit-tested against rankCandidates
+// directly in generate-outfits/engine/suggestion-toggles.test.ts. This just
+// confirms the wiring here doesn't break the pipeline and stays deterministic.
+
+Deno.test('suggestByStyle=false / suggestByMeasurements=false: pipeline still runs and stays deterministic', () => {
+  const wardrobe = gappyWardrobe();
+  const off = { ...INPUT, wardrobeRows: wardrobe, suggestByStyle: false, suggestByMeasurements: false };
+  const a = analyzeWardrobe(off);
+  const b = analyzeWardrobe(off);
+  assertEquals(a.mode, b.mode);
+  assertEquals(a.baselineQualified, b.baselineQualified);
+  assert(a.baselineQualified > 0, 'toggling both off should not zero out the qualified-outfit baseline');
+});
+
+Deno.test('suggestByStyle/suggestByMeasurements unset behaves exactly like both true — existing users unaffected', () => {
+  const wardrobe = gappyWardrobe();
+  const unset = analyzeWardrobe({ ...INPUT, wardrobeRows: wardrobe });
+  const explicitOn = analyzeWardrobe({ ...INPUT, wardrobeRows: wardrobe, suggestByStyle: true, suggestByMeasurements: true });
+  assertEquals(unset.baselineQualified, explicitOn.baselineQualified);
+  assertEquals(unset.recommendations.map(r => r.archetypeId), explicitOn.recommendations.map(r => r.archetypeId));
+});
+
 Deno.test('archetype catalog is structurally valid', () => {
   const seen = new Set<string>();
   const STYLE_IDS = new Set(['oldmoney', 'minimalist', 'streetwear', 'smartcasual', 'preppy', 'athleisure', 'y2k', 'bohemian']);

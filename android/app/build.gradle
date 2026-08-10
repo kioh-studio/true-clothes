@@ -165,6 +165,22 @@ android {
     }
 }
 
+/**
+ * Drop ML Kit barcode scanning (~6.4 MB: libbarhopper_v3.so + assets/mlkit_barcode_models).
+ *
+ * expo-camera declares `com.google.mlkit:barcode-scanning` transitively, but MIEN never
+ * scans barcodes — no call site for onBarcodeScanned / barcodeScannerSettings /
+ * scanFromURLAsync anywhere in app/ or src/. expo-camera is built to tolerate the class
+ * being absent: CameraUtils.isMLKitBarcodeScannerAvailable() probes via Class.forName and
+ * returns false, so ExpoCameraView simply skips attaching the analyzer.
+ *
+ * If a barcode feature is ever added, delete this block — otherwise it fails at runtime,
+ * not at build time.
+ */
+configurations.configureEach {
+    exclude group: 'com.google.mlkit', module: 'barcode-scanning'
+}
+
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")

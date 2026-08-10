@@ -10,11 +10,14 @@ import { useRouter } from 'expo-router';
 import { T, type } from '../../../design/tokens';
 import { PrimaryButton } from '../../../components/ui/PrimaryButton';
 import { IconPlus, IconSparkle, IconDashedSquare, IconX } from '../../../components/icons';
+import { CreditQuotaNote } from '../../monetization/components/CreditQuotaNote';
+import type { CreditStatus } from '../../../services/usageCreditService';
 import type { PhotoEntry, ExtractMethod } from '../types';
 import { useTranslation } from '../../../i18n';
 
 interface Props {
   photos: PhotoEntry[];
+  quota: CreditStatus | null;
   upgrade: boolean;
   error: string | null;
   onSetNote: (id: string, note: string) => void;
@@ -80,7 +83,7 @@ function PhotoRow({
 }
 
 export function UploadStep({
-  photos, upgrade, error, onSetNote, onRemovePhoto, onAddPhoto, onAnalyse,
+  photos, quota, upgrade, error, onSetNote, onRemovePhoto, onAddPhoto, onAnalyse,
 }: Props) {
   const { t } = useTranslation();
   const n = photos.length;
@@ -163,6 +166,9 @@ export function UploadStep({
 
       {/* sticky CTA */}
       <View style={styles.cta}>
+        {/* Monthly AI allowance, right where it gets spent — the paywall no
+            longer states any numbers (src/design/paywall/design.md). */}
+        <CreditQuotaNote status={quota} creditType="ai_extraction" style={styles.quotaNote} />
         <PrimaryButton onPress={onAnalyse} disabled={n === 0 || upgrade}>
           <View style={styles.ctaInner}>
             <IconSparkle size={15} strokeWidth={1.5} color={T.color.canvas} />
@@ -371,6 +377,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 0.5,
     borderTopColor: T.color.hairline,
     backgroundColor: T.color.canvas,
+  },
+  quotaNote: {
+    textAlign: 'center',
+    marginBottom: 10,
   },
   ctaInner: {
     flexDirection: 'row',

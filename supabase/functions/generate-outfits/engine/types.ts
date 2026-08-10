@@ -40,6 +40,19 @@ export interface GraphicsProfile {
   artworkType: ArtworkType;
 }
 
+// Structured logo/statement signal captured at ingest (feature 006,
+// backfill-item-metadata / generate-item-image) and stored as the
+// `clothing_items.graphics` jsonb column. Mirrors generate-item-image/
+// prompt.ts's LogoSignal shape as an independent local type — Supabase edge
+// functions deploy each function directory in isolation, so this module
+// intentionally does not import across function boundaries.
+export interface LogoSignal {
+  present: boolean;
+  size: 'small' | 'medium' | 'large' | null;
+  kind: 'brand_logo' | 'slogan_text' | 'graphic' | null;
+  text: string | null;
+}
+
 // ─── Fabric & Seasonality ────────────────────────────────────────────────────
 
 export type Pattern = 'solid' | 'striped' | 'plaid' | 'checkered' | 'floral' | 'graphic' | 'abstract';
@@ -198,6 +211,19 @@ export interface OutfitSlots {
   shoes: string;
   outwear?: string;
   accessory?: string;
+  // Mid layer (2026-08-10) — a garment with fabric.layerRole 'mid' (hoodie,
+  // sweater, cardigan, knit, vest, kimono) worn UNDER a TRUE outer (blazer,
+  // jacket, coat…) in `outwear`. Resolved via LAYER_ROLE, not the coarse
+  // CATEGORY_MAP that put both HOODIE and BLAZER in the same 'outwear'
+  // ItemCategory bucket (see enrichment.ts CATEGORY_MAP / LAYER_ROLE_BY_TYPE) —
+  // that collision is exactly why "blazer over hoodie" couldn't be generated
+  // before this slot existed (they fought for the single `outwear` slot).
+  // Only ever set ALONGSIDE `outwear` (generation.ts never emits a bare
+  // `mid` with no true outer) — a mid-role item with no outer present still
+  // occupies `outwear` alone, unchanged from before this feature (dual-role,
+  // see generation.ts). Optional and absent by default: every pre-existing
+  // outfit (no mid) is byte-for-byte unaffected (zero regression).
+  mid?: string;
 }
 
 export interface OutfitCandidate {
@@ -293,17 +319,53 @@ export interface EngineContext {
   // until the user has positive history; the bonus is confidence-scaled so a tiny
   // sample barely nudges and zero samples is a no-op.
   tasteVector?: TasteVector;
+  // Negative counterpart to tasteVector (feed-signals, 2026-08-07): learned
+  // from swipe-left `dismissed` outfits, same 4 features (formality/
+  // statement/contrast/colour). Undefined until the user has dismiss
+  // history. Consumed by engine/taste.ts's tasteDismissPenalty as a small
+  // SUBTRACTIVE nudge in ranking.ts — capped well below tasteVector's bonus
+  // (TASTE_MAX_PENALTY < MAX_TASTE_BONUS) so a bad first impression can never
+  // outweigh a real positive history.
+  dismissVector?: TasteAggregate;
   // Silhouette-first bias (engine/silhouette.ts), resolved once in index.ts
   // after the style filter and threaded into generation + ranking. Degradable:
   // strong pull when items carry real fit data, weak nudge when guessed, never
   // eliminates an item.
   targetSilhouette?: TargetSilhouette;
+  // 4 suggestion toggles (2026-08-10): per-user opt-outs for individual
+  // scoring dimensions, sourced from style_profiles.suggest_by_*. undefined
+  // (and true) mean ON — the default, so existing users are byte-for-byte
+  // unchanged. Only style and measurements are ranking.ts's concern (they
+  // gate the `dims` valid flags in rankCandidates); personal-color and
+  // formula toggles are applied upstream in index.ts (nulling colorSeason/
+  // colorTone12/personal_palette, or skipping formula_preferences) BEFORE
+  // this context is built, so ranking.ts never needs to special-case them.
+  suggestByStyle?: boolean;
+  suggestByMeasurements?: boolean;
+  // Shape-goal cascade tier (010-wardrobe-critic follow-up, 2026-08-10): the
+  // user's durable "desired resulting body silhouette" choice, sourced from
+  // style_profiles.shape_goal. undefined or 'auto' = OFF — this cascade tier
+  // (engine/silhouette.ts resolveTargetSilhouette) does not fire, falling
+  // through to style silhouette / body_shape / neutral exactly as before this
+  // feature (zero regression). 'natural' = keep neutral garment volume (don't
+  // try to reshape). A specific value targets that resulting shape via
+  // engine/silhouette.ts's targetsForDesiredShape, and biases ranking.ts's
+  // shapeGoalDelta. Inline union (not imported from silhouette.ts) to avoid a
+  // types.ts <-> silhouette.ts import cycle — mirrors ScoredOutfit.
+  // silhouetteShape's own convention above.
+  shapeGoal?: 'auto' | 'natural' | 'hourglass' | 'rectangle' | 'oval' | 'inverted-triangle' | 'triangle';
 }
 
 // Aggregate outfit character over a set of outfits — used both for the user's
 // POSITIVE history (saved/worn) and for their EXPOSURE history (impressions).
 export interface TasteAggregate {
-  sampleCount: number;          // # outfits that contributed (drives confidence)
+  // Weighted contribution total (drives confidence) — Σ weight over
+  // contributing outfits, NOT a plain outfit count. For exposure/dismissed
+  // aggregates every outfit weighs 1, so this equals a plain count there; for
+  // the positive aggregate the weight is viewed=0.5/saved=1/worn=2 (see
+  // taste.ts VIEWED_WEIGHT/SAVED_WEIGHT/WORN_WEIGHT), so a few worn outfits
+  // can saturate confidence faster than many merely-viewed ones.
+  sampleCount: number;
   meanFormality: number;        // 1–5
   meanStatement: number;        // 0–5 — loud vs quiet lean
   meanLightnessSpread: number;  // 0–100 — tonal (low) vs high-contrast (high) lean
@@ -400,4 +462,8 @@ export interface ClothingItemRow {
   // primaryColor NAME still comes from `color` (avoid-lists match by name).
   primary_hex?: string | null;
   secondary_hex?: string | null;
+  // Structured logo/statement signal (feature 006) — see LogoSignal above.
+  // toFitItem prefers this over the item NAME keyword inference
+  // (inferGraphics) when present; null/absent falls back to the keyword scan.
+  graphics?: LogoSignal | null;
 }

@@ -2,7 +2,9 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Pressable, useWindowDimensions, Share,
+  Animated, PanResponder,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../../src/design/tokens';
@@ -15,11 +17,24 @@ import { useAuthStore } from '../../src/stores/authStore';
 import { useFitEngineStore } from '../../src/stores/fitEngineStore';
 import { useWardrobeCriticStore } from '../../src/stores/wardrobeCriticStore';
 import { useFitFeed } from '../../src/features/feed/useFitFeed';
+import { logViewed, logDismissed } from '../../src/services/outfitInteractionService';
 import {
   IconHeart, IconCalendar, IconSparkle, IconShare, IconThermometer, IconMenu, IconBook,
 } from '../../src/components/icons';
 import { useTranslation } from '../../src/i18n';
 import { MEDIA_MAX } from '../../src/design/layout';
+
+// Feed-signals (2026-08-07): one-time swipe-hint caption, shown until the
+// user has seen it once (see HomeScreen's mount effect below).
+const SWIPE_HINT_SEEN_KEY = 'feed-swipe-hint-seen';
+
+// Generated outfit ids are `gen_${slot key}` (useFitFeed.scoredToOutfit);
+// the server's exclude_ids / outfit_interactions.outfit_id use the raw slot
+// key. Demo/static outfits (src/data) keep their own plain ids and are never
+// server-tracked (isDemo gates viewed/dismissed recording in HomeScreen below).
+function rawOutfitId(outfit: Outfit): string {
+  return outfit.id.startsWith('gen_') ? outfit.id.slice(4) : outfit.id;
+}
 
 // T022: 2 curated demo outfits for empty wardrobe state
 const DEMO_OUTFITS = OUTFITS.slice(0, 2);
@@ -57,11 +72,18 @@ const SHAPE_I18N_KEYS: Record<string, string> = {
   'triangle': 'outfitShape_triangle',
 };
 
+// The shape chip previously rendered bare ("HOURGLASS"), lost among the other
+// unlabelled meta-line segments (style/weather/silhouette/colour) — a user
+// had no way to tell it meant "how your body reads in this outfit" rather
+// than, say, an item colour or a style name. Prefixing with a translated
+// label ("SHAPE: HOURGLASS" / "DÁNG: ĐỒNG HỒ CÁT") makes the segment
+// self-explanatory without adding any new chrome (still plain text, luxury-
+// minimalist, no colour/shadow) — see design/feed/design.md.
 function silhouetteShapeMetaLabel(t: (key: string) => string, shape?: string): string | undefined {
   if (!shape) return undefined;
   const key = SHAPE_I18N_KEYS[shape];
   if (!key) return undefined;
-  return t(key).toUpperCase();
+  return `${t('outfitShape_prefix').toUpperCase()}: ${t(key).toUpperCase()}`;
 }
 
 // Colour NAMEs (PrimaryColor, ~37 values) don't have a translated vocabulary
@@ -81,8 +103,24 @@ export default function HomeScreen() {
 
   const { savedSet, toggleSave, toggleSchedule, items, wardrobeItems, weatherContext } = useAppStore();
   const { logout } = useAuthStore();
-  const { feedError, fetchOutfits, fetchMoreOutfits, isFetchingMore, styleFallback } = useFitEngineStore();
+  const {
+    feedError, fetchOutfits, fetchMoreOutfits, isFetchingMore, styleFallback,
+    addDismissedOutfit, lastCurated,
+  } = useFitEngineStore();
   const { outfits: generatedOutfits, isGenerated } = useFitFeed();
+
+  // Feed-signals (2026-08-07): one-time swipe-left hint, shown the first time
+  // this screen mounts after the update ships, never again after that.
+  const [showSwipeHint, setShowSwipeHint] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(SWIPE_HINT_SEEN_KEY).then(seen => {
+      if (cancelled || seen) return;
+      setShowSwipeHint(true);
+      AsyncStorage.setItem(SWIPE_HINT_SEEN_KEY, '1').catch(() => {});
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   // 010-wardrobe-critic: background refresh (cache-hit is a no-op — cheap) so
   // the end-of-feed stylist card reflects the latest report without the user
@@ -112,12 +150,33 @@ export default function HomeScreen() {
   // Guard against double-tap pushing the outfit detail route twice while the
   // first navigation is still in flight.
   const openOutfitInFlightRef = useRef(false);
-  const openOutfit = useCallback((outfit: Outfit) => {
+  const openOutfit = useCallback((outfit: Outfit, index: number) => {
     if (openOutfitInFlightRef.current) return;
     openOutfitInFlightRef.current = true;
+    // Feed-signals (2026-08-07): `viewed` — a weak positive, fired only for
+    // the real feed→detail navigation (never demo/static outfits, which are
+    // never server-tracked). Fire-and-forget; a failure must never block
+    // navigation.
+    if (!isDemo) {
+      logViewed({ outfitId: rawOutfitId(outfit), curated: lastCurated, formula: outfit.formula, position: index }).catch(() => {});
+    }
     router.push({ pathname: '/outfit/[id]', params: { id: outfit.id, data: JSON.stringify(outfit) } });
     setTimeout(() => { openOutfitInFlightRef.current = false; }, 400);
-  }, [router]);
+  }, [router, isDemo, lastCurated]);
+
+  // Feed-signals (2026-08-07): swipe-left `dismissed` — records the negative
+  // signal, adds the outfit to the persisted dismiss-exclude list, then
+  // (after the card's own fade animation gets a moment to read) auto-advances
+  // the pager to the next card. No undo in v1.
+  const onDismissOutfit = useCallback((outfit: Outfit, index: number) => {
+    if (isDemo) return;
+    const outfitId = rawOutfitId(outfit);
+    addDismissedOutfit(outfitId);
+    logDismissed({ outfitId, curated: lastCurated, formula: outfit.formula, position: index }).catch(() => {});
+    setTimeout(() => {
+      listRef.current?.scrollToIndex({ index: Math.min(index + 1, feed.length - 1), animated: true });
+    }, 400);
+  }, [isDemo, addDismissedOutfit, lastCurated, feed.length]);
 
   const onAddItems = useCallback(() => {
     router.replace('/(tabs)/wardrobe');
@@ -133,18 +192,20 @@ export default function HomeScreen() {
   const renderCard = useCallback(({ item: outfit, index }: { item: Outfit; index: number }) => (
     <FeedCard
       outfit={outfit}
+      index={index}
       active={index === activeIdx}
       cardH={CARD_H}
       saved={savedSet.has(outfit.id)}
       isDemo={isDemo}
       topInset={insets.top}
       onOpen={openOutfit}
+      onDismiss={onDismissOutfit}
       onToggleSave={toggleSave}
       onToggleSchedule={toggleSchedule}
       onAddItems={onAddItems}
     />
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [activeIdx, CARD_H, savedSet, isDemo, insets.top, openOutfit, toggleSave, toggleSchedule, onAddItems]);
+  ), [activeIdx, CARD_H, savedSet, isDemo, insets.top, openOutfit, onDismissOutfit, toggleSave, toggleSchedule, onAddItems]);
 
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
@@ -182,6 +243,15 @@ export default function HomeScreen() {
               {t('tabs_home_styleFallbackHint')} — {styleFallback.map(s => s.name).join(' · ')}
             </Text>
           </Pressable>
+        )}
+
+        {/* Feed-signals (2026-08-07): one-time swipe hint — text-only, no
+            popup/pill, same quiet treatment as the style-fallback hint above.
+            Not shown over demo outfits (nothing to swipe away yet). */}
+        {showSwipeHint && !isDemo && (
+          <Text style={styles.swipeHintText} numberOfLines={1}>
+            {t('tabs_home_swipeHint')}
+          </Text>
         )}
       </View>
 
@@ -263,12 +333,25 @@ export default function HomeScreen() {
   );
 }
 
-function FeedCardInner({ outfit, active, cardH, saved, isDemo, topInset, onOpen, onToggleSave, onToggleSchedule, onAddItems }: {
-  outfit: Outfit; active: boolean; cardH: number; saved: boolean; isDemo: boolean; topInset: number;
-  onOpen: (o: Outfit) => void; onToggleSave: (id: string) => void;
+// Feed-signals (2026-08-07): swipe-left threshold — the card must travel this
+// fraction of the screen width, leftward, before release commits the dismiss.
+const DISMISS_THRESHOLD_FRACTION = 0.35;
+// Horizontal-vs-vertical directional lock so the gesture doesn't fight the
+// FlatList's own vertical paging — mirrors gesture-handler's
+// activeOffsetX/failOffsetY pattern, done here with core RN PanResponder
+// (react-native-gesture-handler is not actually installed in this repo — see
+// app/(tabs)/index.tsx history/report for why).
+const SWIPE_MIN_DX = 10;
+const SWIPE_DIRECTION_RATIO = 1.5; // |dx| must exceed |dy| by this much to claim the gesture
+
+function FeedCardInner({ outfit, index, active, cardH, saved, isDemo, topInset, onOpen, onDismiss, onToggleSave, onToggleSchedule, onAddItems }: {
+  outfit: Outfit; index: number; active: boolean; cardH: number; saved: boolean; isDemo: boolean; topInset: number;
+  onOpen: (o: Outfit, index: number) => void; onDismiss: (o: Outfit, index: number) => void;
+  onToggleSave: (id: string) => void;
   onToggleSchedule: (id: string) => void; onAddItems: () => void;
 }) {
   const { t } = useTranslation();
+  const { width: winW } = useWindowDimensions();
   // The meta block sizes to its content (a stylist note adds up to two lines),
   // so the collage height must be measured, not assumed as a fixed share of
   // the card — a fixed split lets meta overflow onto the next card.
@@ -283,10 +366,63 @@ function FeedCardInner({ outfit, active, cardH, saved, isDemo, topInset, onOpen,
   // no i18n lookup; uppercased to match the other tags on this meta line.
   const styleTag = outfit.styleTag ? outfit.styleTag.toUpperCase() : undefined;
 
+  // Feed-signals (2026-08-07): swipe-left `dismissed` gesture. translateX
+  // tracks the live drag (only leftward — rightward drags are ignored, there
+  // is no swipe-right gesture on this card, save is the heart button below);
+  // dismissProgress (0→1) drives BOTH the "card mờ đi" fade (1 → 0.35 opacity)
+  // and the NOT MY STYLE label fade-in, in one slow (luxury-minimal, no
+  // bounce) timing animation once the threshold is crossed on release.
+  const translateX = useRef(new Animated.Value(0)).current;
+  const dismissProgress = useRef(new Animated.Value(0)).current;
+  const dismissedRef = useRef(false);
+  const [dismissed, setDismissed] = useState(false);
+
+  const triggerDismiss = useCallback(() => {
+    if (dismissedRef.current) return;
+    dismissedRef.current = true;
+    setDismissed(true);
+    Animated.parallel([
+      Animated.timing(translateX, { toValue: 0, duration: 450, useNativeDriver: true }),
+      Animated.timing(dismissProgress, { toValue: 1, duration: 450, useNativeDriver: true }),
+    ]).start();
+    onDismiss(outfit, index);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outfit, index, onDismiss]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponderCapture: (_evt, g) => {
+        if (isDemo || !active || dismissedRef.current) return false;
+        return Math.abs(g.dx) > SWIPE_MIN_DX && Math.abs(g.dx) > Math.abs(g.dy) * SWIPE_DIRECTION_RATIO && g.dx < 0;
+      },
+      onPanResponderMove: (_evt, g) => {
+        if (g.dx <= 0) translateX.setValue(g.dx);
+      },
+      onPanResponderRelease: (_evt, g) => {
+        if (g.dx < -winW * DISMISS_THRESHOLD_FRACTION) {
+          triggerDismiss();
+        } else {
+          Animated.timing(translateX, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        Animated.timing(translateX, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+      },
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ).current;
+
+  const cardOpacity = dismissProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.35] });
+
   return (
-    <View style={[styles.card, { height: cardH }]}>
+    <Animated.View
+      style={[styles.card, { height: cardH, opacity: cardOpacity, transform: [{ translateX }] }]}
+      {...panResponder.panHandlers}
+    >
       <Pressable
-        onPress={() => onOpen(outfit)}
+        onPress={() => onOpen(outfit, index)}
         onLayout={e => setCollageH(e.nativeEvent.layout.height)}
         style={[styles.collageArea, { opacity: active ? 1 : 0.7 }]}
       >
@@ -303,7 +439,7 @@ function FeedCardInner({ outfit, active, cardH, saved, isDemo, topInset, onOpen,
           <ActionBtn onPress={() => onToggleSchedule(outfit.id)}>
             <IconCalendar size={22} color={T.color.primary} strokeWidth={1.4} />
           </ActionBtn>
-          <ActionBtn onPress={() => onOpen(outfit)}>
+          <ActionBtn onPress={() => onOpen(outfit, index)}>
             <IconSparkle size={22} color={T.color.primary} strokeWidth={1.4} />
           </ActionBtn>
           <ActionBtn onPress={() => {
@@ -313,6 +449,15 @@ function FeedCardInner({ outfit, active, cardH, saved, isDemo, topInset, onOpen,
           </ActionBtn>
         </View>
       </Pressable>
+
+      {/* Feed-signals (2026-08-07): NOT MY STYLE overlay, fades in with the
+          card-opacity dismiss animation above. pointerEvents="none" — it's
+          feedback, never a tap target (no undo in v1). */}
+      {dismissed && (
+        <Animated.View style={[styles.dismissOverlay, { opacity: dismissProgress }]} pointerEvents="none">
+          <Text style={styles.dismissOverlayText}>{t('tabs_home_dismissLabel')}</Text>
+        </Animated.View>
+      )}
 
       {/* Bottom meta — auto-height; collage area above shrinks to make room */}
       <View style={styles.meta}>
@@ -329,13 +474,13 @@ function FeedCardInner({ outfit, active, cardH, saved, isDemo, topInset, onOpen,
               {colorToneTag ? ` · ${colorToneTag}` : ''}
               {' · '}{outfit.itemIds.length} {t('tabs_home_metaItems')}
             </Text>
-            <Pressable onPress={() => onOpen(outfit)}>
+            <Pressable onPress={() => onOpen(outfit, index)}>
               <Text style={styles.metaDetails}>{t('tabs_home_metaDetails')}</Text>
             </Pressable>
           </View>
           <View style={styles.thumbnails}>
             {outfit.itemIds.map(id => (
-              <Pressable key={id} onPress={() => onOpen(outfit)} style={styles.thumb}>
+              <Pressable key={id} onPress={() => onOpen(outfit, index)} style={styles.thumb}>
                 <OutfitItemThumb
                   id={id}
                   style={styles.thumbInner}
@@ -355,7 +500,7 @@ function FeedCardInner({ outfit, active, cardH, saved, isDemo, topInset, onOpen,
           <Text style={styles.demoBannerCta}>{t('tabs_home_demoBannerCta')}</Text>
         </Pressable>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -436,11 +581,23 @@ const styles = StyleSheet.create({
   // 2026-08-02: style-fallback feed hint — quiet, text-only, no banner/pill/icon
   styleFallbackHint: { marginTop: 8 },
   styleFallbackHintText: { ...type.micro, fontSize: 10, color: T.color.tertiary },
+  // Feed-signals (2026-08-07): one-time swipe hint, same quiet text-only treatment
+  swipeHintText: { ...type.micro, fontSize: 10, color: T.color.tertiary, marginTop: 8 },
   card: { width: '100%', backgroundColor: T.color.canvas, overflow: 'hidden' },
   collageArea: { flex: 1, position: 'relative' },
   actions: {
     position: 'absolute', right: 8, bottom: 24,
     flexDirection: 'column', gap: 6, zIndex: 50,
+  },
+  // Feed-signals (2026-08-07): swipe-left NOT MY STYLE overlay — hairline
+  // label, centered, no background/pill (matches the app's no-chrome
+  // aesthetic; the card's own opacity fade IS the feedback).
+  dismissOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center', justifyContent: 'center', zIndex: 40,
+  },
+  dismissOverlayText: {
+    ...type.ui, fontSize: 12, color: T.color.primary, letterSpacing: 2,
   },
   actionBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   meta: {
