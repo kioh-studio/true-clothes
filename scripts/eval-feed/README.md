@@ -12,12 +12,44 @@ filter → candidate generation → ranking → quality gate → top 10).
 ## Files
 
 - `fixture.ts` — exports `PROFILES`, a map of named fixture wardrobes + user
-  profiles: `smartcasual` (30 items, smart-casual/minimalist, neutral palette
-  — the default) and `streetwear` (25 items, black/white/gray + red/green/blue
-  accents, includes HOODIEs and pattern-mixing pieces so the harness can
-  exercise those code paths). Do not edit casually — these are the baselines
-  every snapshot is compared against. `WARDROBE` / `PROFILE` remain exported
-  as aliases for `PROFILES.smartcasual` for backward compatibility.
+  profiles. Five today, each FOR a different reachable code path:
+  - `smartcasual` (30 items, smart-casual/minimalist, neutral palette — the
+    default) — the general-purpose baseline; also the only one of the
+    original three with any garment `measurements`, so it's the minimum bar
+    for exercising `scoreOutfitFit`'s real (non-0.5-default) path.
+  - `streetwear` (25 items, black/white/gray + red/green/blue accents) — for
+    pattern-mixing (up to 2 "bold" patterns) and the HOODIE outerwear-slot
+    path, neither reachable from `smartcasual`.
+  - `resort` (20 items, white/cream/beige/blue/tan/khaki/coral/terracotta,
+    linen/cotton/canvas only) — for the `PATTERN_FRIENDLY_STYLES` print-led
+    styles (floral/tropical) and their 2-bold-pattern combos.
+  - `measured` (24 items, smartcasual style, `BODY_MEASUREMENTS`
+    body_shape='rectangle') — for `scoreOutfitFit`'s full [0,1] range (a
+    deliberate spread of near-ideal/mediocre/mislabelled-cut items, unlike
+    `smartcasual`'s uniformly-good ones) AND the guessed-fit path: 8 of the
+    24 items carry no `fit` field, so `deriveFitWithProvenance` guesses and
+    `provenance.fit` comes back `false`, exercising `shiftThresholds`'s
+    `GUESS_WIDENING` (previously unreachable — every item everywhere else
+    declares an explicit `fit`). Also seeds shoe `shoe_size`/`shoe_width` and
+    an accessory `waist` measurement for the known (still-open) shoes/
+    accessories measurement-scoring gap — inert today, ready when a mapping
+    lands.
+  - `measured-goal` — same wardrobe as `measured`, only the profile differs:
+    sets `shapeGoal: 'hourglass'` (confirmed reachable for a 'rectangle'
+    body_shape via `isShapeGoalReachable`, silhouette.ts), so
+    `ranking.ts`'s `shapeGoalDelta` — previously unreachable, no fixture set
+    a `shapeGoal` — actually swings instead of being a permanent no-op.
+    `run.ts` threads `PROFILE.shapeGoal` into `ctx.shapeGoal` for this to
+    work; the other four profiles don't set the field, so `ctx.shapeGoal`
+    stays `undefined` for them (`shapeGoalDelta`'s own no-op condition) —
+    zero behavior change.
+
+  Do not edit `smartcasual` / `streetwear` / `resort` casually — these are
+  the baselines every snapshot is compared against; `measured` /
+  `measured-goal` are additive and were added specifically so those three
+  never need to be touched to cover new ground. `WARDROBE` / `PROFILE`
+  remain exported as aliases for `PROFILES.smartcasual` for backward
+  compatibility.
 - `run.ts` — runs the pipeline against a given engine directory, writes a
   snapshot JSON, and prints a human-readable table.
 - `judge.ts` — blind A/B judge for two snapshots (Gemini, or a manual prompt
@@ -47,8 +79,8 @@ directory always produces byte-identical JSON — this is what makes the
 snapshot diff meaningful across engine changes.
 
 `--profile <name>` selects which fixture wardrobe + user profile to run
-(`smartcasual` or `streetwear`, see `fixture.ts`). Defaults to `smartcasual`
-if omitted:
+(`smartcasual` | `streetwear` | `resort` | `measured` | `measured-goal`, see
+`fixture.ts`). Defaults to `smartcasual` if omitted:
 
 ```sh
 deno run --allow-read --allow-write scripts/eval-feed/run.ts \

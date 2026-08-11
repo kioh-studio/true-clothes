@@ -7031,3 +7031,123 @@ passed / 0 failed (unchanged). `npx jest`: 41 suites / 569 tests passed at the t
 ran it (a concurrent session's `measurementService.poseEstimated.test.ts` landed 42/574
 separately — see the entry directly above this one; unrelated to these two fixes, no client code
 touched here). No commit, no Supabase deploy — per instruction.
+
+## Eval harness: two new fixtures to close the fit-scoring/guessed-fit/shapeGoal blind spot (010-wardrobe-critic follow-up, 2026-08-11)
+
+The entry directly above this one measured two real engine fixes (the unreachable-shapeGoal
+guard and the `wProportion` floor) against the harness and got "0 rank changes" for `shapeGoal`
+in all three profiles — not because the fix does nothing, but because **no fixture could see
+it**. Auditing the harness (`scripts/eval-feed/fixture.ts`) confirmed three separate blind spots,
+stated up front rather than assumed:
+
+1. Only `smartcasual` sets any garment `measurements` — `streetwear`/`resort` have **zero**, so
+   `scoreOutfitFit`'s `base` term is a flat `0.5` neutral for every item in those two profiles,
+   and fit scoring is never really exercised there.
+2. **All 73 items across all three existing fixtures declare an explicit `fit:` string** — every
+   item resolves `provenance.fit = true` via `deriveFitWithProvenance` (enrichment.ts). The
+   entire guessed-fit path — `shiftThresholds`'s `GUESS_WIDENING` and the loose-side ceiling
+   fixed the same day (commit `240a5b1`'s follow-up) — was structurally unreachable by this
+   harness.
+3. No fixture sets `EngineContext.shapeGoal`, so `shapeGoalDelta` (ranking.ts) always evaluates
+   its own `if (!goal ...) return 0` short-circuit — the unreachable-goal guard fixed above could
+   never be measured either.
+
+### What was added
+
+Two new named profiles in `PROFILES` (`scripts/eval-feed/fixture.ts`), **additive only** — the
+three existing fixtures (`smartcasual`/`streetwear`/`resort`) were not touched; confirmed
+byte-identical (see Verify below), which matters because prior session's rank-change tables
+above are recorded against them as they stood.
+
+- **`measured`** (24 items: tops 8 / bottoms 6 / outerwear 4 / shoes 4 / accessories 2) — reuses
+  the smartcasual style and the existing `BODY_MEASUREMENTS` constant (`body_shape: 'rectangle'`)
+  so it slots into the same style/body pairing already exercised elsewhere, but every top/bottom/
+  outerwear item carries `measurements` deliberately dimensioned into three bands: GOOD
+  (near-ideal ease, per-item `scoreItemFit` ~1.0), MEDIOCRE (past ideal, inside the `ok` band,
+  ~0.7–0.85), and BAD (past the `ok` band — including the "mislabelled cut" case, e.g. a garment
+  labelled `'relaxed'` whose actual measurements are barely looser than a regular cut, which
+  floors to 0 under the fit-relative thresholds). 8 of the 24 items (a third) carry **no `fit`
+  field at all** and — the documented trap — their names/ids avoid every `FIT_FROM_STRING`
+  keyword `deriveFitWithProvenance` also scans the item name for (slim/fitted/skinny/regular/
+  standard/classic/relaxed/comfort/loose/wide/oversized/boxy/…), verified empirically rather than
+  assumed (see Evidence). Several of the guessed items are also on a type whose
+  `TYPE_DEFAULT_FIT` is non-`'regular'` (KNIT/SWEATER/BLOUSE/COAT → `'relaxed'`), which is
+  required for `GUESS_WIDENING` to have any effect at all — `shiftThresholds` only widens when
+  the fit-derived `shiftCm` is nonzero, and `'regular'` is the zero-shift anchor, so a guessed
+  TEE/SHIRT/JEANS (defaults to `'regular'`) proves `provenance.fit = false` but never touches
+  `GUESS_WIDENING`. Shoes carry a `shoe_size`/`shoe_width` labelled measurement and the BELT
+  accessory carries a `waist` one — `LABEL_TO_KEY` (enrichment.ts) has no entry for either label
+  and `scoreItemFit` never scores the `'shoes'`/`'accessory'` categories at all, so this data is
+  inert today; included anyway per the known gap, so the fixture is ready without new data the
+  day a mapping/scoring fix lands.
+- **`measured-goal`** — the identical `MEASURED_WARDROBE`, only the profile differs: sets
+  `shapeGoal: 'hourglass'`. Confirmed reachable (not guessed) via `isShapeGoalReachable('rectangle',
+  'hourglass')` — `true`. The wardrobe's BELT accessory (`ms-acc-belt-leather-brown`) makes it
+  directly *earnable*, not just theoretically reachable: `outfitWaistDefinition` (silhouette.ts)
+  treats any belt as an instant waist-defined signal, so an outfit combining the belt with
+  balanced top/bottom volume resolves `resultingBodySilhouette === 'hourglass'`, matching the
+  goal.
+
+`run.ts` needed one small change to make `measured-goal` actually exercise anything:
+`EngineContext` was built from a fixed field list that never included `shapeGoal` — none of the
+three original profiles had the field, so it was never wired through. Added
+`shapeGoal: (PROFILE as { shapeGoal?: string }).shapeGoal` — a narrow cast rather than widening
+every profile's type, so the three protected profile consts needed zero edits. `undefined` for
+any profile that doesn't set it (all four others), which is `shapeGoalDelta`'s own OFF condition
+— zero behavior change for existing profiles, confirmed by the byte-identical check below.
+
+### Evidence the fixtures actually reach what they claim (not asserted — demonstrated)
+
+**1. `fitScore` above 0.9 (the soft-knee region, `SOFT_KNEE_K = 0.9`)** — directly from the
+`measured` snapshot (`deno run ... --profile measured`), no bypass needed: **all 10 top-10
+outfits** land `dims.fitScore` between 0.979 and 0.995 (rank 1: `0.9816`; rank 7 (highest):
+`0.9950`). Confirms `scoreOutfitFit`'s raw sum (base + shapeDelta + prefDelta, which routinely
+exceeds 1.0 for a well-matched rectangle-body outfit) reaches the region `softKnee` was written
+to compress, not just the untouched `[0.1, 0.9]` middle.
+
+**2. `provenance.fit = false` reached, and `GUESS_WIDENING` reachable** — a throwaway script
+(`toFitItem` + `scoreItemFit` called directly against `MEASURED_WARDROBE`, not through the
+snapshot) confirms exactly 8/24 items resolve `provenance.fit === false`
+(`ms-top-shirt-poplin-gray`, `ms-top-knit-crewneck-charcoal`, `ms-top-blouse-silk-cream`,
+`ms-top-sweater-cashmere-olive`, `ms-bottom-shorts-linen-natural`, `ms-shoes-boots-leather-black`,
+`ms-outer-coat-wool-charcoal`, `ms-acc-cap-cotton-navy`). For `ms-top-knit-crewneck-charcoal`
+(guessed, measured, `KNIT`→`'relaxed'` type-default), scoring the SAME measurements with
+`provenance.fit` forced `true` (counterfactual) vs. left `false` (as-guessed) isolates
+`GUESS_WIDENING`'s effect: the chest point scores `0.000` (real label — floored, "unwearable")
+vs. `0.132` (guessed — degrades gracefully instead of hard-flooring), exactly the documented
+intent of the 2026-08-11 `GUESS_WIDENING` design (shiftThresholds's doc comment). Item overall:
+`0.750` (as-if-real) vs. `0.783` (as-guessed).
+
+**3. Nonzero `shapeGoalDelta` contribution in `measured-goal`** — same throwaway script calls
+`rankCandidates` twice on the identical rank-1 candidate from the actual `measured-goal` run
+(top: Silk Blouse Cream, bottom: Cotton Trousers Charcoal, shoes: Penny Loafers Brown, outwear:
+Wool Overcoat Charcoal, accessory: Leather Belt Brown — `resultingBodySilhouette` confirmed
+`'hourglass'`), once with `ctx.shapeGoal` unset and once `'hourglass'`: `totalScore` moves
+`0.9480 → 1.0000` (+0.0520; the full `SHAPE_GOAL_MATCH_BONUS = 0.08` is clamped by the outfit
+already sitting near the `[0,1]` ceiling in the unset case). A second candidate (slim top + slim
+bottom, no belt → `resultingBodySilhouette = 'rectangle'`, a miss against the `'hourglass'` goal)
+confirms the penalty side too: `0.7385 → 0.6885` (**exactly** `-0.0500`, the unclamped
+`SHAPE_GOAL_MISS_PENALTY`). Both directions land, not just the match case.
+
+### Verify
+
+`npx tsc --noEmit`: clean. `deno test --allow-all supabase/functions/generate-outfits/engine/`:
+302 passed / 0 failed (unchanged — the new fixtures are pure data, no engine code touched).
+`npx jest`: 42 suites / 574 tests passed (unchanged). Byte-identical check: re-ran all three
+protected profiles (`smartcasual`/`streetwear`/`resort`) after the `fixture.ts`/`run.ts` changes
+and diffed against snapshots captured immediately before any edit — all three **byte-identical**,
+confirming the `run.ts` `shapeGoal` passthrough and the additive `PROFILES` entries touch nothing
+shared. No commit, no Supabase deploy — per instruction.
+
+### What is still NOT reachable (left open, see backlog.md)
+
+- `proportionBalance`'s silhouette-first blend (`ctx.targetSilhouette`, `silhouetteConf`) stays
+  unreachable by this harness — `run.ts` never calls `resolveTargetSilhouette` (silhouette.ts) at
+  all, only the real `index.ts` edge function does. Out of scope here: `shapeGoalDelta` only
+  needed `ctx.shapeGoal` + `ctx.bodyMeasurements.body_shape`, both already threaded/present, so
+  fixing this specific target didn't require it — but `proportionBalance`'s target-silhouette
+  term remains a separate, still-open gap.
+- The shoe/accessory measurement data (`shoe_size`/`shoe_width`/`waist` on `measured`'s shoes and
+  belt) is real but structurally inert — `scoreItemFit` never branches on `'shoes'`/`'accessory'`
+  categories, and `LABEL_TO_KEY` has no entry for the shoe labels. The fixture is ready; the
+  scoring fix is not written.

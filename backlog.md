@@ -2153,3 +2153,33 @@ những gì đợt này phát hiện thêm mà CHƯA làm.
   Verify code sau khi deploy function: `tsc`/`jest`/`deno test` đã chạy sạch trong session này
   (38 suites/556 tests jest; 284+37+11 deno, 0 fail) — xem `plan.md` phần "Verify" cuối mục
   "Backlog-clearing session".
+- [x] **Eval harness bị mù với fit scoring / guessed-fit / shapeGoal — ĐÃ THÊM 2 fixture mới**
+  (2026-08-11) — trước đó `scripts/eval-feed/fixture.ts` chỉ có 3 fixture
+  (`smartcasual`/`streetwear`/`resort`), và cả 3 không đo được: (1) `scoreOutfitFit`'s real
+  path (`streetwear`/`resort` không có `measurements` nào cả); (2) guessed-fit path
+  (`GUESS_WIDENING`, `provenance.fit=false`) — vì cả 73 item ở cả 3 fixture đều khai `fit:`
+  tường minh; (3) `shapeGoalDelta` — không fixture nào set `shapeGoal`. Hệ quả: 2 fix thật
+  landed cùng ngày (unreachable-shapeGoal guard, loose-side ceiling cho guessed fit) đo được
+  "0 rank changes" — không phải vì fix vô dụng mà vì harness không thấy được. Đã thêm
+  `measured` (24 item, dải điểm GOOD/MEDIOCRE/BAD có chủ đích, 8/24 item không có `fit`) và
+  `measured-goal` (cùng wardrobe, profile set `shapeGoal:'hourglass'`, reachable cho
+  `body_shape='rectangle'` qua `isShapeGoalReachable`). `run.ts` phải sửa thêm để thread
+  `PROFILE.shapeGoal` vào `ctx.shapeGoal` (trước đó bị bỏ sót hoàn toàn khỏi field list).
+  3 fixture cũ giữ NGUYÊN byte-for-byte (đã diff xác nhận). Chi tiết + evidence đầy đủ (3
+  target đều chứng minh được bằng snapshot thật + script throwaway): xem `plan.md` mục "Eval
+  harness: two new fixtures..." 2026-08-11.
+- [ ] **`proportionBalance`'s target-silhouette blend vẫn KHÔNG đo được bằng eval harness**
+  (2026-08-11, phát hiện khi làm mục trên) — `run.ts` không bao giờ gọi
+  `resolveTargetSilhouette` (silhouette.ts) để build `ctx.targetSilhouette`/`silhouetteConf`,
+  chỉ `index.ts` (edge function thật) mới làm việc đó. Nghĩa là dù `measured`/`measured-goal`
+  đã đo được `shapeGoalDelta`, phần "silhouette-first" của `proportionBalance` (blend giữa
+  `scoreProportionBalance` chung và `scoreTargetSilhouette`) vẫn mù với harness. Chưa làm vì
+  ngoài phạm vi yêu cầu hôm nay (`shapeGoalDelta` không cần `ctx.targetSilhouette`). Cần một
+  phiên riêng: có thể thêm bước gọi `resolveTargetSilhouette` vào `run.ts`'s ctx-building step
+  (giống cách `shapeGoal` vừa được thread qua) rồi verify bằng snapshot.
+- [ ] **Shoe/accessory measurement data trong fixture `measured` vẫn INERT** (2026-08-11, đã
+  biết từ trước, xác nhận lại) — `shoe_size`/`shoe_width` trên 4 đôi giày và `waist` trên belt
+  đã có trong fixture, nhưng `scoreItemFit` (scoring.ts) không branch cho category
+  `'shoes'`/`'accessory'` bao giờ, và `LABEL_TO_KEY` (enrichment.ts) không có entry cho
+  `shoe_size`/`shoe_width`. Fixture đã sẵn sàng — chỉ còn thiếu code fix (mapping table +
+  scoring branch mới) để dữ liệu này thực sự có tác dụng.

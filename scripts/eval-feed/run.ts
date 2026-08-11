@@ -6,7 +6,7 @@
 // Usage:
 //   deno run --allow-read --allow-write scripts/eval-feed/run.ts \
 //     --engine supabase/functions/generate-outfits/engine --out snapshot.json \
-//     [--profile smartcasual|streetwear]
+//     [--profile smartcasual|streetwear|resort|measured|measured-goal]
 //
 // Note: the engine directory is loaded via a dynamic `file://` import so two
 // engine versions (e.g. a baseline copy vs. the live tree) can be compared
@@ -41,7 +41,7 @@ const outPath = args.out;
 const profileName = (args.profile || 'smartcasual') as ProfileName;
 
 if (!engineDirArg || !outPath) {
-  console.error('Usage: deno run --allow-read --allow-write run.ts --engine <dir> --out <snapshot.json> [--profile smartcasual|streetwear]');
+  console.error('Usage: deno run --allow-read --allow-write run.ts --engine <dir> --out <snapshot.json> [--profile smartcasual|streetwear|resort|measured|measured-goal]');
   Deno.exit(1);
 }
 
@@ -126,6 +126,16 @@ const scoringWeights = styleConfigs[0]?.weights;
 console.log(`[eval] engine=${engineDirArg} profile=${profileName}`);
 console.log(`[eval] fitItems=${fitItems.length} → style-filtered=${filteredItems.length} (styles=${PROFILE.selectedStyles.join(',')})`);
 
+// shapeGoal (010-wardrobe-critic follow-up, 2026-08-11): only the
+// 'measured-goal' profile sets this; the other four don't declare the field
+// at all. Cast narrowly here rather than widening every PROFILE object's
+// type to include an optional shapeGoal — keeps the three protected
+// fixtures' profile consts (smartcasual/streetwear/resort) completely
+// untouched. undefined for any profile that doesn't set it, which is
+// shapeGoalDelta's own OFF condition (ranking.ts) — zero behavior change
+// for existing profiles.
+const shapeGoal = (PROFILE as { shapeGoal?: string }).shapeGoal;
+
 // c. Engine context
 const ctx = {
   bodyMeasurements: PROFILE.bodyMeasurements,
@@ -134,6 +144,7 @@ const ctx = {
   colorSeason: PROFILE.colorSeason,
   weatherSeason: PROFILE.weatherSeason,
   scoringWeights,
+  shapeGoal,
 };
 
 // d. Generate candidates: hero candidates PREPENDED to formula candidates,
