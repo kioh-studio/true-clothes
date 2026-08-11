@@ -86,11 +86,34 @@ function silhouetteShapeMetaLabel(t: (key: string) => string, shape?: string): s
   return `${t('outfitShape_prefix').toUpperCase()}: ${t(key).toUpperCase()}`;
 }
 
-// Colour NAMEs (PrimaryColor, ~37 values) don't have a translated vocabulary
-// yet (see backlog.md) — render capitalized in both locales for now.
-function colorToneMetaLabel(colorTone?: string): string | undefined {
+// Colour NAMEs (PrimaryColor, 37 values as of 2026-08-11 — see
+// src/types/fitEngine.ts) now have a translated vocabulary (colorTone_*, see
+// src/i18n/locales/{en,vi}.json + design/feed/design.md). Same resolve+
+// uppercase pattern as SILHOUETTE_I18N_KEYS/SHAPE_I18N_KEYS above. Fail-soft:
+// any value not yet in the map (future PrimaryColor additions) falls back to
+// the raw upper-cased enum value — the old behaviour — rather than ever
+// rendering a raw i18n key.
+const COLOR_TONE_I18N_KEYS: Record<string, string> = {
+  black: 'colorTone_black', white: 'colorTone_white', navy: 'colorTone_navy',
+  beige: 'colorTone_beige', gray: 'colorTone_gray', brown: 'colorTone_brown',
+  olive: 'colorTone_olive', blue: 'colorTone_blue', red: 'colorTone_red',
+  purple: 'colorTone_purple', green: 'colorTone_green', yellow: 'colorTone_yellow',
+  pink: 'colorTone_pink', orange: 'colorTone_orange', cream: 'colorTone_cream',
+  ivory: 'colorTone_ivory', camel: 'colorTone_camel', tan: 'colorTone_tan',
+  taupe: 'colorTone_taupe', khaki: 'colorTone_khaki', charcoal: 'colorTone_charcoal',
+  burgundy: 'colorTone_burgundy', teal: 'colorTone_teal', metallic: 'colorTone_metallic',
+  multicolor: 'colorTone_multicolor', natural: 'colorTone_natural',
+  mustard: 'colorTone_mustard', rust: 'colorTone_rust', coral: 'colorTone_coral',
+  mint: 'colorTone_mint', lavender: 'colorTone_lavender', sage: 'colorTone_sage',
+  terracotta: 'colorTone_terracotta', mauve: 'colorTone_mauve', wine: 'colorTone_wine',
+  fuchsia: 'colorTone_fuchsia', denim: 'colorTone_denim',
+};
+
+function colorToneMetaLabel(t: (key: string) => string, colorTone?: string): string | undefined {
   if (!colorTone) return undefined;
-  return colorTone.toUpperCase();
+  const key = COLOR_TONE_I18N_KEYS[colorTone];
+  if (!key) return colorTone.toUpperCase();
+  return t(key).toUpperCase();
 }
 
 export default function HomeScreen() {
@@ -368,7 +391,7 @@ function FeedCardInner({ outfit, index, active, cardH, saved, isDemo, topInset, 
   // outfits, so each segment is only appended when present.
   const silhouetteTag = silhouetteMetaLabel(t, outfit.silhouette);
   const silhouetteShapeTag = silhouetteShapeMetaLabel(t, outfit.silhouetteShape);
-  const colorToneTag = colorToneMetaLabel(outfit.colorTone);
+  const colorToneTag = colorToneMetaLabel(t, outfit.colorTone);
   // Wardrobe-affinity style fallback (2026-08-02) — proper-noun style name,
   // no i18n lookup; uppercased to match the other tags on this meta line.
   const styleTag = outfit.styleTag ? outfit.styleTag.toUpperCase() : undefined;

@@ -984,9 +984,22 @@ edge functions / chưa chạy eas build — chờ anh Khôi duyệt riêng.
   existing `wFit` 0.18 floor in `engine/ranking.ts` (2026-07-12) — spec called this out as
   optional ("only if it doesn't destabilize existing tests"); skipped to keep risk low for
   this pass.
-- [ ] **Dịch ~37 tên màu primaryColor sang vi cho colorTone tag trên feed card** (2026-07-12)
+- [x] **Dịch ~37 tên màu primaryColor sang vi cho colorTone tag trên feed card** (2026-07-12)
   — tạm hiển thị tên EN viết hoa (không có namespace màu i18n sẵn có để tái dùng, xem
   `app/(tabs)/index.tsx` `colorToneMetaLabel` + `src/design/feed/design.md`).
+  RESOLVED 2026-08-11: `PrimaryColor` hiện có 37 giá trị (enum đã +11 ở một phiên trước —
+  đếm lại từ chính type, không tin số "~37" cũ). Thêm namespace i18n `colorTone_<value>`
+  (37 key, cùng shape với `outfitSilhouette_*`/`outfitShape_*` đã có) vào cả `en.json` và
+  `vi.json`. `colorToneMetaLabel` trong `app/(tabs)/index.tsx` giờ nhận thêm `t` và tra
+  qua map `COLOR_TONE_I18N_KEYS` rồi `.toUpperCase()` — y hệt cách render cũ cho mọi giá
+  trị hiện có, ở cả hai locale. Fail-soft: giá trị chưa có key (PrimaryColor mới thêm sau
+  này) rơi về raw `.toUpperCase()` như hành vi cũ, không bao giờ hiện raw i18n key. Grep
+  toàn app không thấy call site nào khác render raw `PrimaryColor` viết hoa; chỗ gần giống
+  (`app/item/[id].tsx` `colorText`) render `WardrobeItem.colors` (mảng string tự do người
+  dùng nhập, không phải enum `PrimaryColor`, không viết hoa) — để nguyên, không phải chỗ
+  đổi máy móc được. Chi tiết + bảng EN→VI đầy đủ: `src/design/feed/design.md` mục
+  "Colour tone i18n (2026-08-11)". Verify: `npx tsc --noEmit` sạch, `npx jest` 39
+  suites/561 tests pass, script kiểm tồn tại đủ 37 key ở cả 2 file JSON — pass.
 
 ## I. Body-measurement precision overhaul — pending (2026-07-12)
 

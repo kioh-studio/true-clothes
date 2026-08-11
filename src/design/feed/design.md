@@ -55,8 +55,8 @@ and before the item count, each only rendered when present:
 - **Colour tone** (`ScoredOutfit.colorTone`) — the outfit's dominant (anchor)
   colour, mirroring the "loudest piece leads" anchor rule in `generation.ts`
   (highest `statementStrength`, id tie-break; shoes/accessories excluded).
-  `PrimaryColor` names (~37 values) have no translated vocabulary yet — shown
-  capitalized/uppercased in both locales for now (see `backlog.md`).
+  `PrimaryColor` names have a translated vocabulary as of 2026-08-11 — see
+  "Colour tone i18n" below.
 
 Both fields are optional (absent on older cached responses / static demo
 outfits), so each meta-line segment is only appended when present. Piped
@@ -339,3 +339,54 @@ existed:
 iPhone/Android are unaffected — the `anchor` option is iPad-only in
 `Share.share`'s platform contract (iPhone's share sheet is a bottom sheet
 with no anchor concept).
+
+## Colour tone i18n (2026-08-11)
+
+RESOLVED (`backlog.md` 2026-07-12 item): the feed card's colour-tone tag
+(`colorToneTag`, see "Silhouette + colour tags" above) previously rendered
+the raw `PrimaryColor` enum value upper-cased in both locales (e.g. `OLIVE`,
+`BURGUNDY`) — a Vietnamese-locale user saw English colour names. `PrimaryColor`
+(`src/types/fitEngine.ts`, mirrored in
+`supabase/functions/generate-outfits/engine/types.ts`) currently has **37**
+values (it grew by +11 in an earlier session — see that type's inline
+comment); the "~37" figure in the old backlog text was already approximate,
+not a hard count to trust.
+
+New i18n namespace, one key per `PrimaryColor` value, same
+`colorTone_<value>` shape as the existing `outfitSilhouette_*`/`outfitShape_*`
+sets: `colorTone_black`, `colorTone_white`, `colorTone_navy`, `colorTone_beige`,
+`colorTone_gray`, `colorTone_brown`, `colorTone_olive`, `colorTone_blue`,
+`colorTone_red`, `colorTone_purple`, `colorTone_green`, `colorTone_yellow`,
+`colorTone_pink`, `colorTone_orange`, `colorTone_cream`, `colorTone_ivory`,
+`colorTone_camel`, `colorTone_tan`, `colorTone_taupe`, `colorTone_khaki`,
+`colorTone_charcoal`, `colorTone_burgundy`, `colorTone_teal`,
+`colorTone_metallic`, `colorTone_multicolor`, `colorTone_natural`,
+`colorTone_mustard`, `colorTone_rust`, `colorTone_coral`, `colorTone_mint`,
+`colorTone_lavender`, `colorTone_sage`, `colorTone_terracotta`,
+`colorTone_mauve`, `colorTone_wine`, `colorTone_fuchsia`, `colorTone_denim`.
+EN values are the plain sentence-case colour name (`"Black"`, `"Burgundy"`,
+`"Terracotta"`...) — capitalization is NOT baked in, since the render path
+still upper-cases at display time (see below), same convention as
+`outfitShape_*`. VI values are natural, commonly-written Vietnamese colour
+names (`"đỏ booc-đô"`, `"xanh ô liu"`, `"xanh cổ vịt"` for teal, `"đất nung"`
+for terracotta...); a handful of loanwords Vietnamese fashion retail
+normally keeps as-is are kept (`"Kaki"` for khaki, `"Denim"` for denim,
+`"Xanh navy"` for navy) rather than forced into an awkward literal
+translation.
+
+`app/(tabs)/index.tsx`'s `colorToneMetaLabel` now takes `t` and resolves the
+enum value through a `COLOR_TONE_I18N_KEYS` lookup map (same pattern as
+`SILHOUETTE_I18N_KEYS`/`SHAPE_I18N_KEYS` above), then upper-cases the
+translated string — visually identical output to before for every value that
+existed at ship time, in both locales. **Fail-soft**: a `colorTone` value
+with no entry in the map (a future `PrimaryColor` addition that lands before
+its i18n key does) falls back to the raw upper-cased value — today's old
+behaviour — rather than ever rendering a raw i18n key string to the user.
+
+No other call site in the app renders a `PrimaryColor`/colour-tone value
+raw-uppercased — grepped for `primaryColor`/`colorTone` usage; the only other
+user-facing colour text is `app/item/[id].tsx`'s `colorText` (wardrobe item
+detail attribute row), which renders `WardrobeItem.colors` — a free-form,
+user-entered string array, not the `PrimaryColor` enum — already in natural
+case, not upper-cased. Left alone; it's a different data shape and a
+different design question, not a mechanical swap onto these new keys.
