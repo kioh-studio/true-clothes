@@ -506,6 +506,14 @@ export function pairSilhouetteMatch(top: FitItem, bottom: FitItem, target: Targe
  * anchor/hero selection toward pieces that already realize half of the target
  * (e.g. a slim top scores well when the target wants a fitted top over a wide
  * bottom, regardless of what bottom eventually pairs with it).
+ *
+ * Dead-code audit (2026-08-11): intentionally uncalled. Shipped alongside
+ * `pairSilhouetteMatch` in the "Silhouette-first resolution" work
+ * (plan.md, 2026-07-12) and documented there as "reserved for future
+ * anchor-biasing use beyond what generation.ts already covers via
+ * measurementPriorityBoost" — i.e. it was never meant to be wired up yet.
+ * `pairSilhouetteMatch()` below is the live sibling actually called from
+ * `generation.ts:410`. Keep this function; do not delete as dead code.
  */
 export function silhouetteAffinity(item: FitItem, target: TargetSilhouette): number {
   if (target.targets.length === 0) return 0.5;

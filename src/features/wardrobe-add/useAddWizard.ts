@@ -69,8 +69,11 @@ function toExtractedItem(r: ExtractedItemWithImage, photo: PhotoEntry): Extracte
     fit: m.fit,
     pattern: m.pattern,
     warmthSeason: m.warmthSeason,
-    // Not extracted by AI/on-device metadata — starts at AUTO; user can override in Review.
-    canLayer: null,
+    // AI extraction estimates this (server prompt.ts `can_layer`); on-device
+    // extract-by-item has no source for it → stays null (AUTO). Either way
+    // the user can still override in Review. (2026-08-11: previously forced
+    // to null even for the AI path, silently discarding the model's estimate.)
+    canLayer: m.canLayer ?? null,
     measurements: m.measurements ?? {},
     brand: m.brand ?? '',
     link: '',
@@ -81,6 +84,9 @@ function toExtractedItem(r: ExtractedItemWithImage, photo: PhotoEntry): Extracte
     primaryHex: m.primaryHex ?? null,
     secondaryHex: m.secondaryHex ?? null,
     distressed: m.distressed ?? null,
+    printScale: m.printScale ?? null,
+    drape: m.drape ?? null,
+    visualInterest: m.visualInterest ?? null,
   };
 }
 
@@ -247,6 +253,9 @@ export function useAddWizard() {
           primaryHex: it.primaryHex,
           secondaryHex: it.secondaryHex,
           distressed: it.distressed,
+          printScale: it.printScale,
+          drape: it.drape,
+          visualInterest: it.visualInterest,
         };
         await addWardrobeItem(input);
         // Read the result of THIS call right away — the next iteration's

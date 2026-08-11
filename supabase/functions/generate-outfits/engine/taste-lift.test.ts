@@ -35,7 +35,6 @@ function fi(
     fabric: { pattern: 'solid', fabricWeight: 'medium', breathability: 'medium', season: 'allSeason', layerRole: 'base' },
     styleTags: [],
     fit: 'regular',
-    warmth: 2,
     formality: opts.formality ?? 3,
     statementStrength: opts.statement ?? 0.5,
     provenance: { fit: false, material: false, pattern: false, warmthSeason: false },

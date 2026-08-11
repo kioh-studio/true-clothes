@@ -50,7 +50,6 @@ function fi(id: string, category: ItemCategory, typeName: string): FitItem {
     },
     styleTags: [],
     fit: 'regular',
-    warmth: 2,
     formality: 2.5,
     statementStrength: 1.0,
     provenance: { fit: false, material: false, pattern: false, warmthSeason: false },

@@ -2,7 +2,7 @@
 // wardrobe-photos storage bucket. Screens and stores MUST NOT import `sb` directly.
 
 import { sb } from './supabase';
-import { WardrobeItem, PhotoStorageKind, MKey, LogoSignal } from '../types/fitEngine';
+import { WardrobeItem, PhotoStorageKind, MKey, LogoSignal, PrintScale, Drape } from '../types/fitEngine';
 import { genId } from '../utils/genId';
 
 // Garment measurement columns the engine reads (cm). Kept in one place so the
@@ -64,6 +64,13 @@ export interface AddItemInput {
   // WardrobeItem.distressed for the definition. Absent/null → the column
   // stays NULL and the backfill-item-metadata admin run fills it later.
   distressed?: boolean | null;
+  // Visual enrichment đợt 2 (2026-07-03 schema, 2026-08-11 client threading) —
+  // see types/fitEngine.ts WardrobeItem.printScale/drape/visualInterest for
+  // definitions. Absent/null → the columns stay NULL and the
+  // backfill-item-metadata admin run fills them later.
+  printScale?: PrintScale | null;
+  drape?: Drape | null;
+  visualInterest?: number | null;
 }
 
 export interface UpdateItemInput {
@@ -121,6 +128,9 @@ interface ClothingItemRow {
   primary_hex: string | null;
   secondary_hex: string | null;
   distressed: boolean | null;
+  print_scale: string | null;
+  drape: string | null;
+  visual_interest: number | null;
   photo_url: string | null;
   photo_storage: PhotoStorageKind | null;
   times_worn: number;
@@ -141,6 +151,20 @@ interface ClothingItemRow {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const PRINT_SCALES: readonly PrintScale[] = ['micro', 'medium', 'large'];
+const DRAPES: readonly Drape[] = ['structured', 'regular', 'fluid'];
+
+// Narrow a DB text column back to its controlled union, defensively — the
+// column is always written from snapPrintScale/snapDrape server-side, but a
+// row read shouldn't trust that blindly (matches the no-`any` strict-mode
+// house style: a validating narrow instead of an unchecked `as` cast).
+function toPrintScale(v: string | null): PrintScale | null {
+  return (PRINT_SCALES as string[]).includes(v ?? '') ? (v as PrintScale) : null;
+}
+function toDrape(v: string | null): Drape | null {
+  return (DRAPES as string[]).includes(v ?? '') ? (v as Drape) : null;
+}
 
 function inferCategory(type: string | null): WardrobeItem['category'] {
   const t = (type ?? '').toUpperCase();
@@ -198,6 +222,9 @@ function rowToItem(row: ClothingItemRow, userId: string): WardrobeItem {
     primaryHex: row.primary_hex ?? null,
     secondaryHex: row.secondary_hex ?? null,
     distressed: row.distressed ?? null,
+    printScale: toPrintScale(row.print_scale),
+    drape: toDrape(row.drape),
+    visualInterest: row.visual_interest ?? null,
   };
 }
 
@@ -368,6 +395,9 @@ export async function addItem(input: AddItemInput, tier: StorageTier = 'free'): 
       primary_hex:  input.primaryHex ?? null,
       secondary_hex: input.secondaryHex ?? null,
       distressed:   input.distressed ?? null,
+      print_scale:  input.printScale ?? null,
+      drape:        input.drape ?? null,
+      visual_interest: input.visualInterest ?? null,
       ...(input.source ? { source: input.source } : {}),
       ...measurementColumns(input.measurements),
       photo_url:    photoPath,

@@ -50,7 +50,6 @@ function fi(
     },
     styleTags: [],
     fit: opts.fit ?? 'regular',
-    warmth: 2,
     formality: 3,
     statementStrength: 0.5,
     fabricName: opts.fabricName as FitItem['fabricName'],

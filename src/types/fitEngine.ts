@@ -15,6 +15,11 @@ export type MKey =
   | 'm_waist' | 'm_hip' | 'm_inseam' | 'm_thigh' | 'm_rise'
   | 'm_skirt_length' | 'm_shoe_size'
 
+// Visual enrichment đợt 2 (feature 010 follow-up, 2026-07-03 schema / 2026-08-11
+// client threading) — see WardrobeItem.printScale/drape/visualInterest below.
+export type PrintScale = 'micro' | 'medium' | 'large'
+export type Drape = 'structured' | 'regular' | 'fluid'
+
 // Logo / statement-strength signals captured at ingest (feature 006).
 // Stored in clothing_items.graphics (jsonb); NOT read by the engine yet.
 export interface LogoSignal {
@@ -64,6 +69,16 @@ export interface WardrobeItem {
   // assessed — the engine's featuresPasses treats null as "unknown", never
   // as a rejection (fail-open).
   distressed: boolean | null
+  // Visual enrichment đợt 2 (2026-07-03 schema, 2026-08-11 client threading) —
+  // pattern/graphic scale AS WORN, how the fabric drapes, and how visually
+  // striking the piece reads. Consumed server-side by the engine
+  // (statementStrength/heroScore/housePOV in generate-outfits). Read-only
+  // here: set at ingest (AI extraction only — on-device extract-by-item has
+  // no visual-judgment source for these) or by the backfill-item-metadata
+  // admin tool; null until assessed.
+  printScale: PrintScale | null
+  drape: Drape | null
+  visualInterest: number | null
 }
 
 

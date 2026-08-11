@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { sb } from './supabase';
-import { LogoSignal, MKey } from '../types/fitEngine';
+import { LogoSignal, MKey, PrintScale, Drape } from '../types/fitEngine';
 import i18n from '../i18n';
 
 // ─── Contract types (camelCase mirror of the generate-item-image output) ──────
@@ -32,6 +32,25 @@ export interface GarmentMetadata {
   // construction sites (try-on scan, test fixtures) stay valid; absent/null
   // → the column stays NULL and the backfill run fills it later.
   distressed?: boolean | null;
+  // Dual-role layering (2026-07-03 schema) — the AI's own can-be-worn-open/
+  // over estimate, server field `can_layer`. Previously extracted server-side
+  // but never carried past this client boundary (2026-08-11 fix): every
+  // caller either forced ExtractedItem.canLayer to null or omitted it from
+  // the insert entirely, so a fresh item always started at AUTO even when the
+  // model had an opinion. Optional for the same construction-site reasons as
+  // distressed above; on-device extract-by-item has no source → stays null.
+  canLayer?: boolean | null;
+  // Visual enrichment đợt 2 (2026-07-03 schema, 2026-08-11 client threading) —
+  // print/graphic scale as worn, fabric drape, and how visually striking the
+  // piece reads. The server extraction schema (generate-item-image/prompt.ts)
+  // already returns these; this client mirror + toDomain below is what was
+  // missing — without it useAddWizard/AddItemInput had nothing to read, so a
+  // fresh insert left the columns NULL until backfill-item-metadata re-derived
+  // them (a second paid Gemini pass for data already extracted). Optional:
+  // on-device extract-by-item has no visual-judgment source → stays null.
+  printScale?: PrintScale | null;
+  drape?: Drape | null;
+  visualInterest?: number | null;
 }
 
 /** One extracted item: isolated product image (local file) + controlled-vocab metadata. */
@@ -51,6 +70,10 @@ interface RawMetadata {
   brand: string | null; graphics: LogoSignal | null; tags?: string[]; confidence?: number;
   primary_hex?: string | null; secondary_hex?: string | null;
   distressed?: boolean | null;
+  can_layer?: boolean | null;
+  print_scale?: PrintScale | null;
+  drape?: Drape | null;
+  visual_interest?: number | null;
 }
 
 function toDomain(m: RawMetadata): GarmentMetadata {
@@ -71,6 +94,10 @@ function toDomain(m: RawMetadata): GarmentMetadata {
     primaryHex: m.primary_hex ?? null,
     secondaryHex: m.secondary_hex ?? null,
     distressed: m.distressed ?? null,
+    canLayer: m.can_layer ?? null,
+    printScale: m.print_scale ?? null,
+    drape: m.drape ?? null,
+    visualInterest: typeof m.visual_interest === 'number' ? m.visual_interest : null,
   };
 }
 

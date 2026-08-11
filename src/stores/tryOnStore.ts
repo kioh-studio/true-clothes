@@ -394,6 +394,20 @@ export const useTryOnStore = create<TryOnState>((set, get) => {
       // (server-computed for keyed images; recomputed/nulled in scan() otherwise).
       primaryHex: meta.primaryHex ?? null,
       secondaryHex: meta.secondaryHex ?? null,
+      // Distressed finish + dual-role layering + visual enrichment đợt 2
+      // (2026-08-11 threading fix): this path was the odd one out — the AI
+      // add-wizard already carried these into its AddItemInput, but Try-On's
+      // addToWardrobe built its own object from scratch and simply never
+      // copied them over, so an item saved via Try-On silently lost data the
+      // same scan already extracted. Try-On always uses the AI method
+      // (scan()'s comment above), so `meta` here is the same GarmentMetadata
+      // shape the add-wizard gets — no on-device "no source" case to worry
+      // about on this path.
+      distressed: meta.distressed ?? null,
+      canLayer: meta.canLayer ?? null,
+      printScale: meta.printScale ?? null,
+      drape: meta.drape ?? null,
+      visualInterest: meta.visualInterest ?? null,
     };
 
     set({ error: null });

@@ -24,7 +24,6 @@ function fi(id: string, category: ItemCategory, primaryColor: PrimaryColor, stat
     fabric: { pattern: 'solid', fabricWeight: 'medium', breathability: 'medium', season: 'allSeason', layerRole: 'base' },
     styleTags: [],
     fit: 'regular',
-    warmth: 2,
     formality: 2.5,
     statementStrength,
     provenance: { fit: false, material: false, pattern: false, warmthSeason: false },

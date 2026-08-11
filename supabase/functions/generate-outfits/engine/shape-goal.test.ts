@@ -42,7 +42,6 @@ function fi(
     garmentMeasurements: opts.garmentMeasurements,
     styleTags: [],
     fit: opts.fit ?? 'regular',
-    warmth: 2,
     formality: 2.5,
     statementStrength: 0.5,
     provenance: { fit: opts.provenanceFit ?? false, material: false, pattern: false, warmthSeason: false },

@@ -52,7 +52,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // enrichment.ts) — the streetwear silhouette itself is what's wrong, not
     // any scoreable attribute, hence a type-level exclusion.
     typesBanned: ['HOODIE'],
-    overrides: ['favorite_color', 'preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, texture: 0.10, formality: 0.15, color: 0.20, proportion: 0.05, fit: 0.05 },
     attributes: { formality: 4.5, colorPalette: ['neutral', 'earth', 'monochrome'], silhouette: ['tailored', 'structured'], patternLevel: 1.5, textureRichness: 3.0, mood: ['serious', 'clean'] },
     neighbors: [
@@ -82,7 +81,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // for a clearer rejection reason on the style most defined by NOT having
     // it.
     bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'floral_print'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.30, style: 0.20, proportion: 0.15, texture: 0.05, formality: 0.05, fit: 0.05 },
     attributes: { formality: 3.5, colorPalette: ['neutral', 'monochrome', 'dark'], silhouette: ['tailored', 'relaxed'], patternLevel: 1.0, textureRichness: 1.5, mood: ['clean', 'serious'] },
     neighbors: [
@@ -107,7 +105,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['regular', 'relaxed', 'wide', 'oversized'],
     formalityRange: [1.0, 3.0],
     bannedFeatures: [],
-    overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, proportion: 0.15, style: 0.20, color: 0.20, texture: 0.10, formality: 0.05, fit: 0.05 },
     attributes: { formality: 2.0, colorPalette: ['bold', 'dark'], silhouette: ['oversized', 'relaxed'], patternLevel: 2.5, textureRichness: 1.5, mood: ['playful', 'edgy'] },
     neighbors: [
@@ -132,7 +129,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['slim', 'regular', 'relaxed'],
     formalityRange: [2.0, 4.0],
     bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed'],
-    overrides: [],
     weights: DEFAULT_WEIGHTS,
     attributes: { formality: 3.0, colorPalette: ['neutral', 'earth'], silhouette: ['structured', 'relaxed'], patternLevel: 1.5, textureRichness: 2.0, mood: ['clean', 'serious'] },
     neighbors: [
@@ -156,7 +152,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['slim', 'regular'],
     formalityRange: [2.5, 4.5],
     bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, formality: 0.15, color: 0.20, proportion: 0.10, texture: 0.05, fit: 0.10 },
     attributes: { formality: 3.5, colorPalette: ['neutral', 'pastel'], silhouette: ['structured', 'tailored'], patternLevel: 2.5, textureRichness: 2.0, mood: ['clean', 'playful'] },
     neighbors: [
@@ -179,7 +174,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['regular', 'relaxed', 'oversized'],
     formalityRange: [1.0, 2.5],
     bannedFeatures: [],
-    overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, proportion: 0.15, style: 0.20, fit: 0.15, color: 0.15, formality: 0.05, season: 0.10, texture: 0.05 },
     attributes: { formality: 1.5, colorPalette: ['bold', 'neutral'], silhouette: ['relaxed', 'oversized'], patternLevel: 1.5, textureRichness: 1.0, mood: ['playful'] },
     neighbors: [
@@ -203,7 +197,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['slim', 'regular', 'wide', 'oversized'],
     formalityRange: [1.0, 3.0],
     bannedFeatures: [],
-    overrides: [],
     weights: { ...DEFAULT_WEIGHTS, style: 0.30, color: 0.20, proportion: 0.10, texture: 0.10, formality: 0.05, fit: 0.05, season: 0.05 },
     attributes: { formality: 1.5, colorPalette: ['bold', 'pastel'], silhouette: ['bodycon', 'oversized'], patternLevel: 4.0, textureRichness: 2.0, mood: ['playful', 'edgy'] },
     neighbors: [
@@ -226,7 +219,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['regular', 'relaxed', 'wide', 'oversized'],
     formalityRange: [1.0, 3.0],
     bannedFeatures: ['loud_logo'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, texture: 0.15, color: 0.20, style: 0.20, proportion: 0.10, formality: 0.05, fit: 0.05, season: 0.10 },
     attributes: { formality: 2.0, colorPalette: ['earth', 'bold'], silhouette: ['relaxed', 'oversized'], patternLevel: 3.5, textureRichness: 4.0, mood: ['romantic', 'artistic'] },
     neighbors: [
@@ -258,7 +250,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['slim', 'regular', 'relaxed'],
     formalityRange: [2.0, 4.0],
     bannedFeatures: ['loud_logo', 'neon_color', 'distressed'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.32, texture: 0.15, style: 0.20, proportion: 0.08, formality: 0.05, fit: 0.05, season: 0.05 },
     attributes: { formality: 3.0, colorPalette: ['pastel', 'neutral'], silhouette: ['relaxed', 'bodycon'], patternLevel: 3.0, textureRichness: 3.5, mood: ['romantic', 'playful'] },
     neighbors: [
@@ -284,7 +275,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // ~2.5, right at this style's tolerance floor, and pass fabric/fit
     // otherwise — the type itself doesn't belong in "Office Chic".
     typesBanned: ['HOODIE'],
-    overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, formality: 0.18, fit: 0.15, proportion: 0.12, style: 0.20, color: 0.15, texture: 0.05, season: 0.05 },
     attributes: { formality: 4.0, colorPalette: ['neutral', 'monochrome'], silhouette: ['tailored', 'structured'], patternLevel: 1.5, textureRichness: 2.0, mood: ['serious', 'clean'] },
     neighbors: [
@@ -313,7 +303,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // otherwise — a hoodie breaks the tailored trench/breton-stripe
     // silhouette this style is built on regardless of its fabric.
     typesBanned: ['HOODIE'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, proportion: 0.15, color: 0.20, style: 0.25, texture: 0.05, formality: 0.10, fit: 0.10, season: 0.05 },
     attributes: { formality: 3.5, colorPalette: ['neutral', 'monochrome'], silhouette: ['tailored', 'relaxed'], patternLevel: 2.0, textureRichness: 2.0, mood: ['clean', 'serious'] },
     neighbors: [
@@ -336,7 +325,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['slim', 'regular'],
     formalityRange: [1.5, 3.5],
     bannedFeatures: ['loud_logo', 'neon_color', 'distressed', 'macro_print'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.32, texture: 0.18, style: 0.20, proportion: 0.05, formality: 0.05, fit: 0.05, season: 0.05 },
     attributes: { formality: 2.0, colorPalette: ['pastel'], silhouette: ['bodycon', 'relaxed'], patternLevel: 3.5, textureRichness: 4.0, mood: ['romantic', 'playful'] },
     neighbors: [
@@ -362,7 +350,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // kept explicit for a clearer rejection reason on the "quiet basics"
     // aesthetic this style is built on.
     bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed', 'floral_print'],
-    overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.28, style: 0.20, proportion: 0.15, fit: 0.12, texture: 0.05, formality: 0.05, season: 0.05 },
     attributes: { formality: 2.5, colorPalette: ['neutral', 'monochrome'], silhouette: ['tailored', 'relaxed'], patternLevel: 1.0, textureRichness: 1.5, mood: ['clean'] },
     neighbors: [
@@ -390,7 +377,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // floor, and pass fabric/fit otherwise — a hoodie breaks the
     // tweed-blazer literary silhouette regardless of its fabric/color.
     typesBanned: ['HOODIE'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, texture: 0.18, color: 0.20, style: 0.22, formality: 0.12, proportion: 0.08, fit: 0.05, season: 0.05 },
     attributes: { formality: 3.5, colorPalette: ['earth', 'dark'], silhouette: ['structured', 'relaxed'], patternLevel: 2.0, textureRichness: 4.0, mood: ['serious', 'artistic'] },
     neighbors: [
@@ -414,7 +400,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['regular', 'relaxed', 'wide'],
     formalityRange: [1.0, 3.0],
     bannedFeatures: ['loud_logo', 'neon_color'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, texture: 0.15, color: 0.22, style: 0.20, season: 0.12, proportion: 0.10, formality: 0.05, fit: 0.06 },
     attributes: { formality: 1.5, colorPalette: ['earth', 'pastel'], silhouette: ['relaxed', 'oversized'], patternLevel: 3.5, textureRichness: 3.5, mood: ['romantic', 'artistic'] },
     neighbors: [
@@ -437,7 +422,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['slim', 'regular', 'oversized', 'wide'],
     formalityRange: [1.0, 2.5],
     bannedFeatures: ['neon_color'],
-    overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, texture: 0.15, style: 0.28, proportion: 0.12, color: 0.18, formality: 0.05, fit: 0.07, season: 0.05 },
     attributes: { formality: 1.5, colorPalette: ['dark', 'bold'], silhouette: ['oversized', 'relaxed'], patternLevel: 3.0, textureRichness: 3.0, mood: ['edgy'] },
     neighbors: [
@@ -460,7 +444,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['relaxed', 'regular', 'oversized'],
     formalityRange: [1.0, 2.5],
     bannedFeatures: ['loud_logo'],
-    overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, fit: 0.18, proportion: 0.15, style: 0.20, color: 0.18, formality: 0.05, season: 0.10, texture: 0.04 },
     attributes: { formality: 1.5, colorPalette: ['neutral', 'pastel'], silhouette: ['relaxed', 'oversized'], patternLevel: 1.0, textureRichness: 1.5, mood: ['clean', 'playful'] },
     neighbors: [
@@ -486,7 +469,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // otherwise — the type itself doesn't belong in an evening-serious
     // wardrobe.
     typesBanned: ['HOODIE'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, formality: 0.20, color: 0.20, style: 0.22, texture: 0.12, proportion: 0.08, fit: 0.05, season: 0.03 },
     attributes: { formality: 4.5, colorPalette: ['dark', 'monochrome'], silhouette: ['tailored', 'bodycon'], patternLevel: 1.0, textureRichness: 3.0, mood: ['serious', 'romantic'] },
     neighbors: [
@@ -512,7 +494,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['regular', 'relaxed', 'oversized', 'wide'],
     formalityRange: [1.5, 3.5],
     bannedFeatures: ['loud_logo', 'neon_color'],
-    overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, proportion: 0.18, style: 0.25, color: 0.18, fit: 0.10, formality: 0.05, texture: 0.05, season: 0.09 },
     attributes: { formality: 2.5, colorPalette: ['neutral', 'pastel'], silhouette: ['oversized', 'relaxed'], patternLevel: 1.5, textureRichness: 2.0, mood: ['clean', 'playful'] },
     neighbors: [
@@ -533,7 +514,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['regular', 'relaxed', 'wide'],
     formalityRange: [1.5, 3.5],
     bannedFeatures: ['neon_color'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, texture: 0.18, color: 0.22, style: 0.22, formality: 0.08, proportion: 0.10, fit: 0.05, season: 0.05 },
     attributes: { formality: 2.5, colorPalette: ['earth', 'bold'], silhouette: ['relaxed', 'structured'], patternLevel: 3.0, textureRichness: 3.0, mood: ['artistic', 'romantic'] },
     neighbors: [
@@ -556,7 +536,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['relaxed', 'regular', 'wide'],
     formalityRange: [1.0, 2.5],
     bannedFeatures: ['distressed'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, season: 0.18, color: 0.25, style: 0.20, texture: 0.10, proportion: 0.10, formality: 0.05, fit: 0.02 },
     attributes: { formality: 1.5, colorPalette: ['pastel', 'earth'], silhouette: ['relaxed', 'oversized'], patternLevel: 3.0, textureRichness: 2.5, mood: ['playful'] },
     neighbors: [
@@ -583,7 +562,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // resolveFallbackStyles' existing fixtures in style-fallback.test.ts.
     formalityRange: [1.0, 3.5],
     bannedFeatures: [],
-    overrides: [],
     weights: { ...DEFAULT_WEIGHTS, style: 0.32, proportion: 0.18, texture: 0.15, color: 0.15, formality: 0.03, fit: 0.05, season: 0.02 },
     attributes: { formality: 2.5, colorPalette: ['bold', 'monochrome'], silhouette: ['oversized', 'structured'], patternLevel: 4.0, textureRichness: 4.0, mood: ['artistic', 'edgy'] },
     neighbors: [
@@ -619,7 +597,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // slogan_text/graphic_illustration: artworkType is independent of
     // fabric.pattern, so a solid-pattern piece carrying one wasn't caught.
     bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print', 'plaid_check', 'slogan_text', 'graphic_illustration'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, formality: 0.22, color: 0.22, texture: 0.16, style: 0.18, proportion: 0.08, fit: 0.08, season: 0.02 },
     attributes: { formality: 5.0, colorPalette: ['dark', 'bold'], silhouette: ['bodycon', 'tailored'], patternLevel: 1.5, textureRichness: 4.5, mood: ['romantic', 'edgy'] },
     neighbors: [
@@ -648,7 +625,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // slogan/graphic wasn't caught by macro_print — never appropriate in a
     // suit-only wardrobe.
     bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print', 'slogan_text', 'graphic_illustration'],
-    overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, formality: 0.24, fit: 0.16, color: 0.16, style: 0.18, proportion: 0.10, texture: 0.04, season: 0.04 },
     attributes: { formality: 5.0, colorPalette: ['neutral', 'monochrome'], silhouette: ['tailored', 'structured'], patternLevel: 1.0, textureRichness: 1.5, mood: ['serious'] },
     neighbors: [
@@ -675,7 +651,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // genuinely new restriction (not redundant) — floral directly
     // contradicts the dark velvet/silk palette this style is built on.
     bannedFeatures: ['loud_logo', 'neon_color', 'full_print', 'floral_print'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.24, texture: 0.20, style: 0.22, formality: 0.08, proportion: 0.08, fit: 0.10, season: 0.03 },
     attributes: { formality: 2.5, colorPalette: ['dark', 'monochrome'], silhouette: ['bodycon', 'structured'], patternLevel: 2.0, textureRichness: 4.0, mood: ['edgy', 'romantic'] },
     neighbors: [
@@ -698,7 +673,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['relaxed', 'wide', 'oversized'],
     formalityRange: [1.0, 2.5],
     bannedFeatures: [],
-    overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, style: 0.25, proportion: 0.16, fit: 0.14, color: 0.18, formality: 0.05, texture: 0.10, season: 0.10 },
     attributes: { formality: 2.0, colorPalette: ['earth', 'neutral'], silhouette: ['oversized', 'relaxed'], patternLevel: 1.5, textureRichness: 2.0, mood: ['clean', 'edgy'] },
     neighbors: [
@@ -722,7 +696,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['slim', 'regular', 'relaxed'],
     formalityRange: [1.0, 3.0],
     bannedFeatures: ['distressed'],
-    overrides: ['preferred_fit'],
     weights: { ...DEFAULT_WEIGHTS, proportion: 0.14, style: 0.22, fit: 0.14, color: 0.16, formality: 0.08, season: 0.10, texture: 0.08 },
     attributes: { formality: 2.0, colorPalette: ['bold', 'neutral'], silhouette: ['structured', 'relaxed'], patternLevel: 2.0, textureRichness: 2.0, mood: ['playful', 'clean'] },
     neighbors: [
@@ -750,7 +723,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // kept explicit for a clearer rejection reason on the "deliberately
     // unremarkable" mall-basic aesthetic this style is built on.
     bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed', 'floral_print'],
-    overrides: [],
     weights: { ...DEFAULT_WEIGHTS, style: 0.14, color: 0.14, fit: 0.14, proportion: 0.14, formality: 0.10, season: 0.20, texture: 0.10 },
     attributes: { formality: 1.5, colorPalette: ['neutral'], silhouette: ['relaxed', 'oversized'], patternLevel: 1.0, textureRichness: 1.0, mood: ['clean'] },
     neighbors: [
@@ -774,7 +746,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['relaxed', 'wide', 'oversized'],
     formalityRange: [1.0, 3.0],
     bannedFeatures: ['neon_color'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, texture: 0.14, color: 0.22, style: 0.24, formality: 0.06, proportion: 0.12, fit: 0.06, season: 0.06 },
     attributes: { formality: 2.0, colorPalette: ['earth', 'bold'], silhouette: ['relaxed', 'oversized'], patternLevel: 4.0, textureRichness: 2.5, mood: ['playful', 'artistic'] },
     neighbors: [
@@ -798,7 +769,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['slim', 'regular'],
     formalityRange: [2.0, 4.0],
     bannedFeatures: ['neon_color', 'distressed'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.24, texture: 0.14, style: 0.22, proportion: 0.10, formality: 0.10, fit: 0.12, season: 0.05 },
     attributes: { formality: 3.0, colorPalette: ['bold', 'neutral'], silhouette: ['bodycon', 'structured'], patternLevel: 3.5, textureRichness: 2.5, mood: ['playful', 'romantic'] },
     neighbors: [
@@ -823,7 +793,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     allowedFits: ['regular', 'relaxed', 'wide'],
     formalityRange: [1.5, 3.5],
     bannedFeatures: ['loud_logo', 'neon_color'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, texture: 0.18, color: 0.22, style: 0.22, formality: 0.06, proportion: 0.10, fit: 0.06, season: 0.08 },
     attributes: { formality: 2.5, colorPalette: ['dark', 'bold'], silhouette: ['relaxed', 'bodycon'], patternLevel: 3.0, textureRichness: 4.0, mood: ['romantic', 'edgy'] },
     neighbors: [
@@ -867,7 +836,6 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // color + 0.5 fur material = 2.5, within [2.0,4.0]), but the type itself
     // breaks the fur-coat-over-bodycon silhouette regardless of fabric.
     typesBanned: ['HOODIE'],
-    overrides: ['favorite_color'],
     weights: { ...DEFAULT_WEIGHTS, texture: 0.24, color: 0.22, style: 0.20, formality: 0.10, proportion: 0.08, fit: 0.10, season: 0.03 },
     // textureRichness 5.0 — highest in the catalog (glam's 4.5 was the prior
     // max), per the fur/leather/gold-heavy identity this style is built on.

@@ -117,6 +117,46 @@ describe('tryOnStore.addToWardrobe()', () => {
     });
   });
 
+  it('threads distressed/canLayer/printScale/drape/visualInterest into AddItemInput (2026-08-11)', async () => {
+    _isAvailable = false;
+    mockExtractItemsWithImages.mockResolvedValueOnce([{
+      ...EXTRACTED,
+      metadata: {
+        ...META,
+        distressed: true,
+        canLayer: false,
+        printScale: 'medium',
+        drape: 'fluid',
+        visualInterest: 0.7,
+      },
+    }]);
+    await getState().scan('file://photo.jpg', 'ai');
+    await getState().addToWardrobe();
+
+    const input = mockAddWardrobeItem.mock.calls[0][0];
+    expect(input).toMatchObject({
+      distressed: true,
+      canLayer: false,
+      printScale: 'medium',
+      drape: 'fluid',
+      visualInterest: 0.7,
+    });
+  });
+
+  it('leaves distressed/canLayer/printScale/drape/visualInterest null when the scan never produced them', async () => {
+    await seedScan(); // META has none of these fields set
+    await getState().addToWardrobe();
+
+    const input = mockAddWardrobeItem.mock.calls[0][0];
+    expect(input).toMatchObject({
+      distressed: null,
+      canLayer: null,
+      printScale: null,
+      drape: null,
+      visualInterest: null,
+    });
+  });
+
   it('cleans up the temp cut-out and advances to "added" on success', async () => {
     await seedScan();
     await getState().addToWardrobe();

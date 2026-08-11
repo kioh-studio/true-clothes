@@ -1,5 +1,95 @@
 # Onboarding Logic Plan
 
+## Ingest-threading: print_scale/drape/visual_interest/can_layer + Try-On distressed parity (2026-08-11)
+
+Follow-up to `backlog.md`'s "Đồng bộ ingest-threading cho `print_scale`/`drape`/`visual_interest`"
+(2026-07-06) and the `can_layer`/`color_hex` addendum (2026-08-06): the server extraction
+schema (`generate-item-image/prompt.ts`'s `snapGarment`) has returned `can_layer`, `print_scale`,
+`drape`, and `visual_interest` since 2026-07-03, and the engine has consumed them server-side
+(`statementStrength`/`heroScore`/`housePOV` in `generate-outfits`) since the same date — but the
+CLIENT never carried them past `imageGenerationService.ts`'s response-mapping boundary, so a
+freshly-added item's columns stayed NULL until `backfill-item-metadata` re-derived them (paying
+Gemini a second time for data already extracted in the same call). Pure plumbing, following the
+`primary_hex`/`secondary_hex` precedent exactly — no scoring/engine-weight change.
+
+**1. Response boundary (`src/services/imageGenerationService.ts`).** `RawMetadata` gained
+`can_layer`/`print_scale`/`drape`/`visual_interest` (snake_case, matching the server), and
+`GarmentMetadata` gained the camelCase mirrors `canLayer`/`printScale`/`drape`/`visualInterest`
+(all optional, same as `primaryHex`/`distressed`, since the on-device extract-by-item path has
+no visual-judgment source for any of them). `toDomain()` now maps all four
+(`printScale: m.print_scale ?? null`, etc.) instead of silently dropping them.
+
+**2. Wizard domain + hook (`src/features/wardrobe-add/types.ts`,
+`src/features/wardrobe-add/useAddWizard.ts`).** `ExtractedItem` gained `printScale`/`drape`/
+`visualInterest`. `toExtractedItem()` now carries all four from `GarmentMetadata`. Also fixed a
+**real regression** found while tracing this: `toExtractedItem` unconditionally set
+`canLayer: null` with the comment "Not extracted by AI/on-device metadata — starts at AUTO" —
+true when written (before 2026-07-03), stale after `can_layer` joined the extraction schema, so
+every AI-extracted layerable top's `can_layer` estimate was being thrown away at this exact line
+regardless of the fixes above. Now `canLayer: m.canLayer ?? null`. `confirm()`'s `AddItemInput`
+build gained `printScale`/`drape`/`visualInterest` (`canLayer` was already wired here — only the
+upstream value feeding it was wrong).
+
+**3. Domain type + DB row (`src/types/fitEngine.ts`, `src/services/wardrobeService.ts`).**
+`WardrobeItem` gained `printScale: PrintScale | null`, `drape: Drape | null`,
+`visualInterest: number | null` (new shared `PrintScale`/`Drape` unions exported alongside
+`MKey`/`LogoSignal`). `AddItemInput` gained the same three (optional). `ClothingItemRow` gained
+`print_scale`/`drape` (`string | null`) and `visual_interest` (`number | null`). `addItem()`'s
+insert now writes `print_scale: input.printScale ?? null`, `drape: input.drape ?? null`,
+`visual_interest: input.visualInterest ?? null` (`can_layer` was already written). `rowToItem()`
+reads them back through new `toPrintScale`/`toDrape` narrowing helpers — a validating check
+against the controlled vocabulary rather than an unchecked cast, so a row with an unexpected
+string (legacy data, manual DB edit) degrades to `null` instead of leaking through the type
+system.
+
+**4. Third ingest path (`src/stores/tryOnStore.ts`).** Try-On's `addToWardrobe()` builds its own
+`AddItemInput` from `scannedItem.metadata` independently of the wizard's `confirm()`, and had
+drifted: it never copied `distressed` (already threaded end-to-end elsewhere since 2026-08-11
+same-day work) NOR any of the four fields above. Since Try-On's `scan()` always uses the AI
+method (never on-device), `meta` here is always AI-sourced — no "no source" case to reason
+about. Added `distressed`, `canLayer`, `printScale`, `drape`, `visualInterest` reads, all
+`?? null`.
+
+**5. `app/item-edit.tsx`'s `toEditable()`** (WardrobeItem → ExtractedItem for the edit screen,
+which reuses the wizard's `ItemCard`) gained the same three fields as a read-only carry, mirroring
+its existing `primaryHex`/`secondaryHex`/`distressed` handling — no edit UI, `toPatch()`
+deliberately still omits them (edit never rewrites AI-derived visual judgments).
+
+**Deliberately NOT threaded — `color_hex`:** `backlog.md`'s 2026-08-06 note also names
+`color_hex` as dropped. Traced and NOT fixed: `clothing_items` has no `color_hex` column (only
+migration `20260706000002_add_color_hex.sql`, which adds `primary_hex`/`secondary_hex` — a
+*different*, pixel-measured layer, already fully threaded). The server's `color_hex` is the
+model's own text-guessed hex, used only server-side (`ensureColors` in
+`generate-item-image/index.ts`) to seed the `colors` lookup table's `hex` attribute for a new
+colour name — it was never meant to land on the item row, and adding a column for it would be a
+schema/design decision outside this session's scope (no migrations were made). Not a blocked
+regression, just a backlog note describing a field whose real destination (`primary_hex`/
+`secondary_hex`) already exists and already works.
+
+**`m_skirt_length`/`m_shoe_size` (`backlog.md`'s 2026-08-06 "extract xong bị drop ở request
+boundary" note): investigated, found ALREADY THREADED, note is stale — no code change.** Both
+keys have been in `MKey` (`src/types/fitEngine.ts`) and `wardrobeService.ts`'s `M_KEYS` for a
+while; `addItem()`'s `measurementColumns()` spreads every `M_KEY` present in the caller's
+`measurements` object, so neither key is ever filtered out of an insert. At the client→engine
+request boundary — `tryOnService.ts`'s `evaluateItem()` (`measurements: m.measurements ?? {}`)
+and `fitEngineStore.ts`'s `fetchMixMatchOutfits()` `pin_item` builder (`measurements:
+meta.measurements`) — both forward the WHOLE measurements object, not an enumerated key allowlist,
+so there is no per-key drop possible there either. Separately (found, NOT fixed — a different
+feature, would need a design call on plausibility bands/synonyms): the unrelated "paste shop
+sizes" mapper (`supabase/functions/map-measurements/prompt.ts`, feature 009) has its own
+`TARGET_KEYS`/`relevantKeys('bottom')` list that genuinely omits `m_skirt_length` — logged as a
+new backlog item rather than fixed here, since it's a different subsystem (shop-text→measurement
+mapping, not the AI garment extraction this task scoped) and needs a real design decision
+(sane-range band, VN/EN synonym lines) the task's "no design decisions, STOP and report" rule
+covers.
+
+**Verify:** `npx tsc --noEmit` clean; `npx jest` 41 suites / 569 tests (was 39/561 — 2 new
+suites: `imageGenerationService.test.ts` for the `toDomain` mapping,
+`wardrobeService.visualEnrichment.test.ts` for the insert + read-back round-trip including the
+narrowing-helper defensive case; `tryOnStore.decide.test.ts` gained 2 tests for the third-path
+fix; `toBuilderItem.test.ts`'s fixture and `app/item-edit.tsx` updated for the new required
+`WardrobeItem`/`ExtractedItem` fields).
+
 ## Body-shape classifier rewrite + hysteresis + read-repair + unified volume targets (2026-08-03)
 
 Follow-up to the sim-driven findings in `backlog.md` ("Body-shape engine — findings tu sim
@@ -6341,3 +6431,125 @@ renamed the fallback bucket itself to `ACCESSORIES`, not just its label — veri
 +5 tests: `src/services/__tests__/tryOnWearService.classify.test.ts`, covering
 `classifyTryOnFailure`'s network/service/unknown branches). No commit, no Supabase deploy —
 per instruction.
+
+## Dead-vocabulary cleanup — StyleConfig.overrides, FitItem.warmth (2026-08-11)
+
+A read-only audit of `backlog.md`'s "sửa rẻ, ăn ngay" item (~1511, dated 2026-08-06,
+"`StyleConfig.neighbors` + `overrides` khai báo đủ 8 style nhưng không code nào đọc;
+`FitItem.warmth` derive xong không scorer nào dùng; `silhouetteAffinity()` export không ai
+gọi") found the claim **partly wrong**: `neighbors` is not actually dead. Acted on the
+corrected verdicts:
+
+- **Deleted `StyleConfig.overrides`** (`engine/types.ts`) — the `Array<'favorite_color' |
+  'preferred_fit'>` field plus all **32** per-style declarations in `engine/filtering.ts`
+  (one per `STYLE_CONFIGS` entry) and the one synthetic declaration in
+  `filtering-extensions.test.ts`'s `permissiveConfig()` test helper. Grepped the whole repo
+  first: the only non-declaration hits for the bare word `overrides` were unrelated —
+  Deno test helpers with an unrelated plain-function parameter also named `overrides`
+  (e.g. `engine-fixes-phase1.test.ts:99`, `filtering-extensions.test.ts:31`,
+  `shape-goal.test.ts`, `suggestion-toggles.test.ts`, `silhouette.test.ts`,
+  `evaluate-item/scoring.test.ts`) — none of those are `StyleConfig.overrides`, all left
+  untouched.
+- **Deleted `FitItem.warmth`** (`engine/types.ts`) — the `number` field, `deriveWarmth()`,
+  the `MATERIAL_WARMTH`/`CATEGORY_WARMTH` lookup tables it was the sole reader of, and its
+  assignment call in `enrichment.ts`'s `toFitItem()`. `primaryMaterial()` (used by
+  `deriveWarmth` and four other derivations) was left in place since it's still read
+  elsewhere. Removed the now-pointless `warmth: 2,` fixture line from 17 engine test files
+  (15 as a standalone line, 2 inline in `engine-fixes-phase1.test.ts` and
+  `taste-data.test.ts`). Confirmed no client mirror exists: `src/types/fitEngine.ts` has no
+  `FitItem` type at all (a comment there points engine types, including `FitItem`, at the
+  edge function) and its only `warmth`-named field is `warmthSeason` — the unrelated real
+  pipeline (`clothing_items.warmth_season` → `WARMTH_SEASON_MAP` →
+  `fabric.fabricWeight`/`fabric.season`, consumed by `scoreSeasonMatch`/`weatherBand`),
+  which was not touched.
+- **Kept `silhouetteAffinity()`** (`engine/silhouette.ts`) exactly as-is, functionally —
+  added a comment at its definition stating it is intentionally uncalled, reserved for
+  future anchor/hero biasing per this file's own 2026-07-12 "Silhouette-first resolution"
+  entry above, and that `pairSilhouetteMatch()` (called from `generation.ts:410`) is its
+  live sibling. The goal is that next year's dead-code audit doesn't have to re-derive
+  this from scratch.
+- **`StyleConfig.neighbors` was spared, not deleted.** The engine's own `STYLE_CONFIGS[].
+  neighbors` array is genuinely unread by any scoring/filtering code — but it is the
+  hand-authored source that three migrations copy verbatim into `public.styles.neighbors`,
+  which `stylesCatalogService.ts:38,50` selects and `app/(onboarding)/styles.tsx:112-125`
+  renders as the "You might also like" suggestion chips during style selection. Deleting it
+  would have silently broken a live, user-visible onboarding feature while every
+  engine-side test still passed — exactly the kind of false-positive a naive "grep for
+  reads in this file" pass would miss. Added a comment at the `neighbors` field declaration
+  in `engine/types.ts` (mirroring how `gender_lean` is marked display-only in
+  `stylesCatalogService.ts:7-11`) recording: the engine never reads it, its real consumer is
+  the onboarding screen via the DB copy, and adding/editing a style's neighbors here does
+  nothing until a migration hand-syncs `public.styles.neighbors` to match — which has
+  already drifted once (a one-directional `bohemian → y2k` edge, `backlog.md` ~1771).
+  `backlog.md` gets a new open item tracking that this hand-sync is itself a standing risk
+  worth eventually generating instead of hand-copying.
+
+No changes to `warmth_season`, `fabric.fabricWeight`, `fabric.season`,
+`ItemProvenance.warmthSeason`, or `src/features/personal-color/` (unrelated undertone
+vocabulary) — all out of scope per the audit's own boundary.
+
+### Verify
+
+`npx tsc --noEmit`: clean. `deno test --allow-all supabase/functions/generate-outfits/engine/`:
+284 passed, 0 failed (unchanged — a pure deletion must not move this number).
+`deno test --allow-all supabase/functions/evaluate-item/`: 37 passed, 0 failed.
+`deno test --allow-all supabase/functions/wardrobe-critic/`: 11 passed, 0 failed.
+`npx jest`: 41 suites / 569 tests passed (higher than this session's starting baseline of
+39/561 — a different, concurrently-running agent was editing client wardrobe-ingest files
+in the same working tree; none of the added suites/tests touch anything this cleanup
+changed). No commit, no Supabase deploy — per instruction.
+
+## Demo wardrobe images: re-encode for size, not content (2026-08-11)
+
+`assets/items/` (43 files: 42 PNG + 1 JPEG, the demo wardrobe `require()`d by
+`src/data/index.ts`) was the third-largest chunk of the release AAB (`drawable-mdpi`,
+9.43 MB — see `backlog.md` ~1766). Re-encoded all 43 files in place with `sharp`
+(installed via `npm i sharp --no-save`, a throwaway build-time tool, not a runtime
+dependency): PNG palette quantization (imagequant, 256 colors, dithered) + max deflate
+effort, downscaling only when the longest edge exceeded 1600px (source assets were
+~1500-1800px long edge; a full-bleed feed card at 3x only needs ~1200px wide, so the
+resize target is 1200×1600). The lone JPEG got a mozjpeg re-encode at the same quality
+tier. The script never wrote a file back if the re-encode came out larger than the
+original — none did, so nothing was skipped.
+
+Two constraints ruled out the more obvious levers: **no JPEG for the PNGs** — they're
+cut-outs with a real alpha channel (`Format32bppArgb`) that gets layered in the outfit
+collage (`app/build.tsx`), and JPEG has no alpha; **no WebP** — the app uses React
+Native's built-in `Image`, not `expo-image` (absent from `package.json`), and RN's `Image`
+on iOS doesn't decode WebP without extra native setup. That left better PNG encoding
+(quantization + downscale) as the only safe lever, still shipping plain PNG.
+
+Result: **18.40 MB → 8.25 MB on disk (-55.2%)**, all 43 files re-encoded, 0 skipped.
+Verified rather than assumed: every output kept its alpha channel and aspect ratio
+(scripted check across all 43 files, zero mismatches). Visually inspected the 3 files
+with the highest compression ratio (`dress-floral-midi.png` 26.2%, `cardigan-cream.png`
+29.9%, `heels-nude.png` 33.7%) by flattening both the git-original and the re-encoded
+version onto the same solid background with `sharp` and comparing side by side — no
+colour banding on smooth fabric/leather gradients, no hard or jagged edge where the
+soft cut-out alpha used to be. (An initial visual pass viewing the raw transparent PNGs
+directly showed an apparent dark halo on `cardigan-cream.png`, but that turned out to be
+the image viewer compositing onto an inconsistent backdrop between renders, not a real
+artefact — the flattened, same-background comparison was needed to tell the difference.)
+No lossless fallback was needed for any of the three.
+
+Confirmed nothing else depends on these files by byte size or hash: `src/data/index.ts`
+and `src/features/wardrobe-photos/assetMap.ts` only `require()` them by path; the
+`"size"` fields present in `src/data/index.ts` and `docs/fetched-items.json` are garment
+clothing sizes (`'M'`, `'EU 42'`), unrelated to file bytes.
+
+Also corrected the backlog item's premise (see `backlog.md` ~1766 for the full note):
+the demo wardrobe is not dead weight awaiting deletion — `app/(tabs)/index.tsx:160` sets
+`isDemo = wardrobeItems.length === 0`, so every real new user with an empty wardrobe sees
+this exact feed (the new-user empty state), and `OUTFITS` also backstops generation
+before it has produced anything. Only `OUTFITS.slice(0, 2)` actually feeds that
+empty-state path, so a future surgical cut (ship only the items those two outfits
+reference) is the real remaining lever — not blanket deletion, which is a product call
+for the owner.
+
+### Verify
+
+`npx tsc --noEmit`: clean. `npx jest`: 41 suites / 569 tests passed (unaffected, as
+expected — re-encoding doesn't change any `require()` path or exported type). No commit,
+no Supabase deploy, no AAB rebuild — per instruction (the AAB-level saving is an
+estimate proportional to the on-disk saving; an actual rebuild to confirm the new
+`drawable-mdpi` size is still open in `backlog.md`).

@@ -41,7 +41,6 @@ function fi(
     },
     styleTags: [],
     fit: opts.fit ?? 'regular',
-    warmth: 2,
     formality: 2.5,
     statementStrength: opts.statement ?? 0.5,
     provenance: { fit: false, material: false, pattern: false, warmthSeason: false },

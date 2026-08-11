@@ -27,7 +27,6 @@ function fi(
     },
     styleTags: [],
     fit: 'regular',
-    warmth: 2,
     formality: opts.formality ?? 2.5,
     statementStrength: opts.statement ?? 0.5,
     fabricName: opts.fabricName,

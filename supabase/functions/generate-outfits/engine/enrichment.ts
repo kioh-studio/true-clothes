@@ -511,24 +511,6 @@ function deriveFitWithProvenance(item: ClothingItemRow): { fit: ItemFit; real: b
   return { fit: TYPE_DEFAULT_FIT[item.type.toUpperCase()] ?? 'regular', real: false };
 }
 
-// ─── Warmth (1–5) ────────────────────────────────────────────────────────────
-
-const MATERIAL_WARMTH: Record<string, number> = {
-  Cotton: 2, Linen: 1, Silk: 1, Nylon: 2, Denim: 3,
-  Wool: 4, Leather: 4, Canvas: 3, Fleece: 5, Cashmere: 5,
-  // Fur (2026-08-11) — as warm as fleece/cashmere, the catalog max.
-  Fur: 5,
-};
-const CATEGORY_WARMTH: Record<string, number> = {
-  top: 2, bottom: 3, outwear: 4, shoes: 2, accessory: 1, onepiece: 3,
-};
-
-function deriveWarmth(material: string | undefined, category: ItemCategory): number {
-  const mat = primaryMaterial(material);
-  if (mat && MATERIAL_WARMTH[mat] !== undefined) return MATERIAL_WARMTH[mat];
-  return CATEGORY_WARMTH[category] ?? 2;
-}
-
 // ─── Formality (1–5) ─────────────────────────────────────────────────────────
 
 const TYPE_FORMALITY: Record<string, number> = {
@@ -750,7 +732,6 @@ export function toFitItem(item: ClothingItemRow): FitItem {
     garmentMeasurements: parseMeasurements(item.measurements, category),
     styleTags: styleTagsOf(item.type, item.color, item.material),
     fit,
-    warmth: deriveWarmth(item.material, category),
     formality: deriveFormality(item.type, colorProfile.primaryColor, item.material),
     statementStrength,
     fabricName,

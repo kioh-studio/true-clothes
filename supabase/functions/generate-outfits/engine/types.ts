@@ -203,9 +203,19 @@ export interface StyleConfig {
   // streetwear/athleisure, killing the kfashion blazer-over-hoodie look the
   // `mid` slot unlocked).
   typesBanned?: string[];
-  overrides: Array<'favorite_color' | 'preferred_fit'>;
   weights: ScoringWeights;
   attributes: StyleAttributes;
+  // Display-only authoring data (dead-code audit, 2026-08-11) — the engine
+  // itself never reads this field; it exists here purely as the source of
+  // truth that gets HAND-COPIED into `public.styles.neighbors` by migrations,
+  // which is what actually powers the "You might also like" chips on
+  // app/(onboarding)/styles.tsx (via stylesCatalogService.ts). Mirrors how
+  // gender_lean is marked in stylesCatalogService.ts: a client/DB-facing
+  // field the engine doesn't consume. Adding or reweighting a style's
+  // neighbors here does NOT change product behaviour until a migration
+  // hand-syncs `public.styles.neighbors` to match — it has already drifted
+  // once (bohemian → y2k was one-directional; see backlog.md). Consider
+  // generating the migration from this array instead of hand-copying.
   neighbors: Array<{ styleId: string; weight: number }>;
   popularity: number;
 }
@@ -233,7 +243,6 @@ export interface FitItem {
   garmentMeasurements?: GarmentMeasurements;
   styleTags: string[];
   fit: ItemFit;
-  warmth: number;
   formality: number;
   statementStrength: number;
   fabricName?: FabricName;

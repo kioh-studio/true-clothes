@@ -73,7 +73,7 @@ function fi(id: string, category: ItemCategory, typeName: string): FitItem {
     colorProfile: { primaryColor: 'navy', colorLightness: 'dark', colorSaturation: 'muted', sat: 20, lum: 40, undertone: 'cool' },
     graphics: { graphicWeight: 'none', artworkType: 'none' },
     fabric: { pattern: 'solid', fabricWeight: 'medium', breathability: 'medium', season: 'allSeason', layerRole: 'base' },
-    styleTags: [], fit: 'regular', warmth: 2, formality: 3, statementStrength: 0.5,
+    styleTags: [], fit: 'regular', formality: 3, statementStrength: 0.5,
     provenance: { fit: false, material: false, pattern: false, warmthSeason: false },
   };
 }

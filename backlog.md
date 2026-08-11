@@ -369,12 +369,14 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   Try-On addToWardrobe tương tự. Kèm hex-hygiene: ảnh AI `keyed:false` (nền chroma còn
   nguyên trong pixel) thì hex server KHÔNG tin được → tính lại từ cut-out on-device nếu
   refine được, không thì để null (backfill điền sau). Xem plan.md changelog cùng ngày.
-- [ ] **Đồng bộ ingest-threading cho `print_scale`/`drape`/`visual_interest`** (2026-07-06):
-  3 field này server vẫn trả về trong extraction nhưng `useAddWizard`/`AddItemInput` KHÔNG
-  map vào insert (chỉ tự có sau khi `backfill-item-metadata` chạy) — precedent cũ còn
-  nguyên. Hex ĐÃ được thread (mục trên); nếu muốn 3 field kia cũng có ngay lúc lưu thì làm
-  tương tự (client `GarmentMetadata`/`ExtractedItem`/`AddItemInput`/insert). Chờ anh Khôi
-  duyệt phạm vi.
+- [x] **Đồng bộ ingest-threading cho `print_scale`/`drape`/`visual_interest`** (2026-07-06) —
+  RESOLVED 2026-08-11: cả 3 field + `can_layer` giờ thread hết qua cả 3 đường ingest
+  (`imageGenerationService.ts` → `useAddWizard` → `AddItemInput` → insert; on-device
+  extract-by-item để null vì không có nguồn phán đoán thị giác; Try-On `addToWardrobe` —
+  đường này còn thiếu cả `distressed` vốn tưởng đã xong, fix luôn). Bonus fix: `canLayer`
+  bị hardcode `null` ở `toExtractedItem` (comment cũ nói "not extracted" — sai từ khi
+  server thêm `can_layer` 2026-07-03) khiến ước lượng của AI luôn bị vứt bỏ dù đã sửa các
+  chỗ khác. Xem `plan.md` changelog cùng ngày.
 - [ ] **Wardrobe critic — Try-On candidate re-scoring (T032, optional).** Server +
   client core DONE 2026-07-03 (xem `plan.md` changelog "Wardrobe Critic — client").
   Còn thiếu: gọi lại `wardrobe-critic` với `candidate_item` từ Try-On result để hiện
@@ -1508,9 +1510,24 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   (generate-outfits/index.ts:137, wardrobe-critic, evaluate-item) đều bỏ qua; lớp
   measured-color refinement trong `enrichment.ts:674-683` chết; graphics đoán từ TÊN item
   bằng keyword thay vì đọc cột jsonb có sẵn. (2026-08-06)
-- [ ] **`StyleConfig.neighbors` + `overrides` khai báo đủ 8 style nhưng không code nào đọc**;
-  `FitItem.warmth` derive xong không scorer nào dùng; `silhouetteAffinity()` export không
-  ai gọi. (2026-08-06)
+- [x] ĐÃ AUDIT + XỬ LÝ 2026-08-11 (xem plan.md "Dead-vocabulary cleanup" cùng ngày) —
+  **`StyleConfig.overrides` + `FitItem.warmth`** — audit read-only xác nhận cả hai thật sự
+  chết (0 reader ngoài declaration/fixture, grep lại toàn repo) → đã xoá field +
+  `deriveWarmth()`/`MATERIAL_WARMTH`/`CATEGORY_WARMTH` + 32 khai báo `overrides` trong
+  `filtering.ts` + 17 fixture `warmth: 2,`. **`silhouetteAffinity()`** — giữ nguyên, xác
+  nhận là dead-BY-DESIGN (plan.md 2026-07-12 "reserved for future anchor-biasing use"),
+  đã thêm comment tại chỗ định nghĩa để audit sau không phải điều tra lại. **Claim cũ về
+  `StyleConfig.neighbors` SAI** — engine không đọc nhưng data được 3 migration copy tay
+  vào `public.styles.neighbors`, nuôi sống chip "You might also like" ở
+  `app/(onboarding)/styles.tsx:112-125` qua `stylesCatalogService.ts` — KHÔNG xoá, đã thêm
+  comment display-only tại field declaration. (2026-08-06, audit 2026-08-11)
+- [ ] **`neighbors` hand-sync giữa `filtering.ts` và migration `public.styles` là rủi ro
+  còn treo** — `STYLE_CONFIGS[].neighbors` trong engine là nguồn tác giả thật, nhưng
+  `public.styles.neighbors` (thứ client thật sự đọc) là bản copy tay qua migration, đã
+  từng lệch một lần (`bohemian → y2k` chỉ một chiều, xem mục ~1771). Thêm style mới hoặc
+  sửa trọng số neighbor ở `filtering.ts` mà quên đồng bộ migration sẽ không có lỗi biên
+  dịch/test nào báo — nên cân nhắc generate migration từ mảng này thay vì copy tay.
+  (2026-08-11, phát hiện trong lúc audit dead code ở trên)
 - [x] ĐÃ FIX 2026-08-06 (missingItem check thêm !provenance.fit → criterion unavailable thay vì chấm đoán) — **evaluate-item bỏ qua provenance** — fit đoán từ `TYPE_DEFAULT_FIT` vẫn được chấm
   tự tin (hoodie không nhãn → "oversized" → 10/100 cho user thích slim, kèm copy khẳng
   định); feed thì có gate provenance (`ranking.ts:268-288`) — cần đồng bộ. (2026-08-06)
@@ -1526,11 +1543,36 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   formality/anchor/taste; item 88 "Great pick" vẫn có thể "A bit of a stretch" với tủ đồ,
   2 con số hiện cạnh nhau không hoà giải. (2026-08-06)
 - [ ] **`confidence` từ extraction bị bỏ** — không scale trọng số; đoán 0.3 nặng ngang
-  0.95. Client còn drop `print_scale`/`drape`/`visual_interest`/`can_layer`/`color_hex`
-  khi map (`imageGenerationService.ts:42-68`) → backfill phải re-derive thứ đã trả tiền
-  extract. (2026-08-06)
-- [ ] **Giày/phụ kiện không bao giờ được chấm measurement** (0.25 weight rơi);
-  `m_skirt_length`/`m_shoe_size` extract xong bị drop ở request boundary. (2026-08-06)
+  0.95. (2026-08-06; scoring, chưa đụng tới — ngoài phạm vi phiên ingest-threading
+  2026-08-11 bên dưới, ĐỪNG lẫn với mục đó.)
+  - [x] Phần "Client còn drop `print_scale`/`drape`/`visual_interest`/`can_layer`/
+    `color_hex` khi map (`imageGenerationService.ts:42-68`) → backfill phải re-derive"
+    RESOLVED 2026-08-11 cho 4/5 field (`print_scale`/`drape`/`visual_interest`/
+    `can_layer` — xem entry phía trên + `plan.md` changelog cùng ngày). `color_hex`
+    KHÔNG có cột trên `clothing_items` (chỉ có migration
+    `20260706000002_add_color_hex.sql` thêm `primary_hex`/`secondary_hex` — khác
+    field, ĐÃ thread xong từ trước) — `color_hex` model-guess chỉ dùng server-side để
+    seed bảng `colors`, không có đích để lưu per-item; thêm cột là quyết định
+    schema/design, không tự làm trong phiên plumbing-only này.
+- [ ] **Giày/phụ kiện không bao giờ được chấm measurement** (0.25 weight rơi) — (2026-08-06;
+  scoring, ngoài phạm vi, chưa đụng tới).
+  - [x] Phần "`m_skirt_length`/`m_shoe_size` extract xong bị drop ở request boundary"
+    ĐÃ TRA LẠI 2026-08-11 — note SAI/CŨ, không đổi code: cả 2 key đã có trong `MKey`
+    (`src/types/fitEngine.ts`) và `wardrobeService.ts`'s `M_KEYS` từ trước, insert
+    (`measurementColumns`) spread nguyên `M_KEYS` nên không key nào bị lọc. Ở request
+    boundary tới engine (`tryOnService.evaluateItem`, `fitEngineStore.
+    fetchMixMatchOutfits`'s `pin_item`) client gửi NGUYÊN object `measurements`, không
+    enumerate từng key, nên không có chỗ nào drop 2 field này. Xem `plan.md`
+    changelog cùng ngày.
+  - [ ] **Phát hiện mới (KHÔNG sửa, khác feature):** `map-measurements` (feature 009,
+    "paste shop sizes") có `TARGET_KEYS`/`relevantKeys('bottom')` riêng
+    (`supabase/functions/map-measurements/prompt.ts:11-15,44-55`) THIẾU
+    `m_skirt_length` hẳn — Gemini map từ text shop nhưng `sanitizeMapResult` lọc theo
+    `keys` nên skirt length luôn bị vứt dù model có đoán ra. `m_shoe_size` ở feature
+    này thì ĐÃ đủ. Cần thêm `m_skirt_length` vào `TARGET_KEYS` + `relevantKeys('bottom')`
+    + 1 dòng keyDef/synonym/SANE_BAND trong `prompt.ts` — là quyết định thiết kế nhỏ
+    (chọn band cm hợp lý, câu synonym VN/EN) nên để anh Khôi duyệt trước khi làm.
+    (2026-08-11)
 
 ### Vòng lặp dữ liệu (ROI cao nhất, quyết định thay cho câu hỏi "cần LLM?")
 - [x] ĐÃ LÀM 2026-08-07 (viewed + swipe-left dismissed, taste 2 chiều bounded) — **Không có negative feedback** — `outfit_interactions` chỉ có saved/worn/scheduled/
@@ -1727,6 +1769,22 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   bị `.easignore` loại (chỉ `seedLocalPhotos.dev.ts` bị loại). Cần xác định: dữ liệu demo
   này có thật sự cần ship cho user thật không, hay chỉ phục vụ dev/onboarding — nếu không
   cần thì cắt gần 10 MB. (2026-08-09)
+  **Update 2026-08-11:** đã tái nén 43 file trong `assets/items/` (palette PNG quantization
+  + max deflate, giữ nguyên alpha, downscale cạnh dài >1600px xuống ~1200×1600) —
+  18.40 MB → 8.25 MB trên đĩa (**-55.2%**), không đổi cách hiển thị (verify: alpha/aspect
+  ratio giữ nguyên trên cả 43 file, kiểm tra mắt 3 file nén nhiều nhất không banding/viền
+  cứng). Ước tính phần `drawable-mdpi` trong AAB co theo tỷ lệ tương tự, còn khoảng ~4-5 MB
+  thay vì 9.43 MB — **chưa đo lại AAB thật** (cần build release để xác nhận số chính xác).
+  Chi tiết: `plan.md` changelog 2026-08-11.
+  **Đồng thời: đảo ngược một phần tiền đề của mục này.** Data demo này KHÔNG phải rác chờ
+  xoá — nó có tải trọng sản phẩm thật: `app/(tabs)/index.tsx:160` set
+  `isDemo = wardrobeItems.length === 0`, nghĩa là MỌI user thật mới (tủ đồ rỗng) đang xem
+  chính feed demo này (đây là bản chất của T022 "demo feed cho user mới"), và `OUTFITS`
+  cũng là fallback khi generation chưa ra kết quả. Xoá thẳng bộ demo = xoá luôn empty-state
+  cho user mới — đây là quyết định sản phẩm cần anh Khôi chốt, không phải việc dọn dẹp kỹ
+  thuật đơn thuần. Đòn bẩy còn lại an toàn hơn: **chỉ `OUTFITS.slice(0, 2)`** thực sự được
+  dùng cho demo feed rỗng — một lần cắt tỉa sau này (chỉ ship item mà 2 outfit đó tham
+  chiếu, không phải toàn bộ 43 file) mới là hướng giảm tiếp mà không đụng sản phẩm.
 - [ ] **`com.amazon.device:amazon-appstore-sdk:3.0.5` bị kéo vào build** — phát hiện qua
   R8 warning khi build release. Nhiều khả năng do RevenueCat kéo transitive (hỗ trợ Amazon
   Appstore). MIEN chỉ phát hành Play + App Store → nhiều khả năng loại được để giảm dex.

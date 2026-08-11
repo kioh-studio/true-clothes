@@ -65,7 +65,7 @@ function fitItem(id: string, category: ItemCategory, fit: FitItem['fit']): FitIt
     colorProfile: { primaryColor: 'gray', colorLightness: 'medium', colorSaturation: 'muted', sat: 20, lum: 50, undertone: 'neutral' },
     graphics: { graphicWeight: 'none', artworkType: 'none' },
     fabric: { pattern: 'solid', fabricWeight: 'medium', breathability: 'medium', season: 'allSeason', layerRole: 'base' },
-    styleTags: [], fit, warmth: 2, formality: 2.5, statementStrength: 0.5,
+    styleTags: [], fit, formality: 2.5, statementStrength: 0.5,
     provenance: { fit: false, material: false, pattern: false, warmthSeason: false },
   };
 }

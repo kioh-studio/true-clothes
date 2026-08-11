@@ -33,6 +33,9 @@ function makeItem(overrides: Partial<WardrobeItem> = {}): WardrobeItem {
     primaryHex: null,
     secondaryHex: null,
     distressed: null,
+    printScale: null,
+    drape: null,
+    visualInterest: null,
     ...overrides,
   };
 }

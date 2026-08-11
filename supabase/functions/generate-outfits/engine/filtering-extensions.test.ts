@@ -53,7 +53,6 @@ function permissiveConfig(bannedFeatures: BannedFeature[], typesBanned: string[]
     formalityRange: [1, 5],
     bannedFeatures,
     typesBanned,
-    overrides: [],
     weights: NEUTRAL_WEIGHTS,
     attributes: { formality: 2.5, colorPalette: [], silhouette: [], patternLevel: 1, textureRichness: 1, mood: [] },
     neighbors: [],

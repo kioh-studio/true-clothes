@@ -53,7 +53,6 @@ function fi(
     },
     styleTags: [],
     fit: opts.fit ?? 'regular',
-    warmth: 2,
     formality: opts.formality ?? 2,
     statementStrength,
     provenance: { fit: false, material: false, pattern: false, warmthSeason: false },
