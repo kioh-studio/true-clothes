@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable,
-  useWindowDimensions, Image, ActivityIndicator,
+  useWindowDimensions, Image, ActivityIndicator, Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -351,6 +351,13 @@ function FaceScanStep({ onCapture }: { onCapture: (uri: string, ambientUri?: str
       const ambient = await cameraRef.current.takePictureAsync({ quality: 0.7, base64: false });
       setFlashPhase('idle');
       if (flash?.uri) onCapture(flash.uri, ambient?.uri);
+    } catch {
+      // Camera busy/backgrounded mid-capture — takePictureAsync rejected.
+      // Restore the step state (drop the flash/dim overlay) so the user sees
+      // the live preview again and can retry, instead of the screen hanging
+      // silently under a stuck black/white overlay.
+      setFlashPhase('idle');
+      Alert.alert(t('personalColor_captureFailedTitle'), t('personalColor_captureFailedMessage'));
     } finally {
       await restoreBrightness();
       busyRef.current = false;
@@ -403,6 +410,12 @@ function WristScanStep({ onCapture, analyzing }: { onCapture: (uri: string, ambi
       await new Promise(r => setTimeout(r, 350));
       const ambient = await cameraRef.current.takePictureAsync({ quality: 0.7, base64: false });
       if (flash?.uri) onCapture(flash.uri, ambient?.uri);
+    } catch {
+      // Camera busy/backgrounded mid-capture — takePictureAsync rejected.
+      // Restore the step state (torch back on) so the user can retry instead
+      // of the screen hanging silently.
+      setTorch(true);
+      Alert.alert(t('personalColor_captureFailedTitle'), t('personalColor_captureFailedMessage'));
     } finally {
       busyRef.current = false;
     }

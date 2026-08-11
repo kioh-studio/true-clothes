@@ -176,6 +176,9 @@ Deno.serve(async (req) => {
       fit:          typeof rawItem.fit          === 'string' ? rawItem.fit          : undefined,
       pattern:      typeof rawItem.pattern      === 'string' ? rawItem.pattern      : undefined,
       warmthSeason: typeof rawItem.warmth_season === 'string' ? rawItem.warmth_season : undefined,
+      // distressed (2026-08-11): mirrors pattern/material/fit above — a scanned
+      // item's own extraction pass can supply this before it's ever saved.
+      distressed: typeof rawItem.distressed === 'boolean' ? rawItem.distressed : undefined,
       measurements: measurements && measurements.length > 0 ? measurements : undefined,
     };
 
@@ -224,8 +227,16 @@ Deno.serve(async (req) => {
       if (allowed) {
         const context = buildNoteContext(
           verdict, fitItem, bodyMeasurements,
-          { type: itemRow.type, color: itemRow.color, material: itemRow.material, fit: itemRow.fit, pattern: itemRow.pattern },
-          { gender: profileData?.gender, colorSeason, styles: selectedStyles },
+          { type: itemRow.type, color: itemRow.color, material: itemRow.material, fit: itemRow.fit, pattern: itemRow.pattern ?? undefined },
+          // Defense-in-depth (2026-08-11 batch, confirmed defect #4): the
+          // `style` criterion is already gated off via verdict.criteria when
+          // suggestByStyle is false (computeVerdict above receives the same
+          // flag), so this isn't user-visible today — but blank the raw
+          // styles list here too so a future prompt change can't accidentally
+          // start reading a signal the toggle was meant to turn off. Reuses
+          // the SAME `suggestByStyle` accessor already read at :121 — no
+          // second source of truth.
+          { gender: profileData?.gender, colorSeason, styles: suggestByStyle ? selectedStyles : [] },
           locale,
         );
         const note = await generateFitNote(apiKey, context, locale);

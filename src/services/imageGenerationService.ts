@@ -27,6 +27,11 @@ export interface GarmentMetadata {
   // backfill-item-metadata admin run.
   primaryHex?: string | null;
   secondaryHex?: string | null;
+  // Distressed/worn-in finish (2026-08-11) — see types/fitEngine.ts
+  // WardrobeItem.distressed for the exact definition. Optional so older
+  // construction sites (try-on scan, test fixtures) stay valid; absent/null
+  // → the column stays NULL and the backfill run fills it later.
+  distressed?: boolean | null;
 }
 
 /** One extracted item: isolated product image (local file) + controlled-vocab metadata. */
@@ -45,6 +50,7 @@ interface RawMetadata {
   warmth_season: string | null; measurements?: Partial<Record<MKey, number>>;
   brand: string | null; graphics: LogoSignal | null; tags?: string[]; confidence?: number;
   primary_hex?: string | null; secondary_hex?: string | null;
+  distressed?: boolean | null;
 }
 
 function toDomain(m: RawMetadata): GarmentMetadata {
@@ -64,6 +70,7 @@ function toDomain(m: RawMetadata): GarmentMetadata {
     confidence: typeof m.confidence === 'number' ? m.confidence : 0.5,
     primaryHex: m.primary_hex ?? null,
     secondaryHex: m.secondary_hex ?? null,
+    distressed: m.distressed ?? null,
   };
 }
 

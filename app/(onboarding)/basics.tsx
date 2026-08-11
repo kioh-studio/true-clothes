@@ -73,15 +73,22 @@ export default function BasicsScreen() {
     }
 
     setSaving(true);
-    const result = await setProfile({ dob, gender: gender ?? '' });
-    setSaving(false);
-    if (!result.ok) {
-      const msg = result.message || t('addItem_errorMessage');
+    try {
+      const result = await setProfile({ dob, gender: gender ?? '' });
+      if (!result.ok) {
+        const msg = result.message || t('addItem_errorMessage');
+        setError(msg);
+        Alert.alert(t('onboardingCommon_couldNotSaveAlertTitle'), msg);
+        return;
+      }
+      router.push('/(onboarding)/location');
+    } catch {
+      const msg = t('addItem_errorMessage');
       setError(msg);
       Alert.alert(t('onboardingCommon_couldNotSaveAlertTitle'), msg);
-      return;
+    } finally {
+      setSaving(false);
     }
-    router.push('/(onboarding)/location');
   };
 
   return (

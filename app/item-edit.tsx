@@ -42,6 +42,9 @@ function toEditable(w: WardrobeItem): ExtractedItem {
     // deliberately omits it (edit never rewrites the measured hex).
     primaryHex: w.primaryHex ?? null,
     secondaryHex: w.secondaryHex ?? null,
+    // Distressed (2026-08-11): same read-only carry as the hex fields above —
+    // no edit UI, and toPatch below deliberately omits it.
+    distressed: w.distressed ?? null,
   };
 }
 

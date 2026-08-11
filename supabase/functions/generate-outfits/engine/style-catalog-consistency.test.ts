@@ -50,10 +50,11 @@ const VALID_FABRICS: FabricName[] = [
 ];
 const VALID_FITS: ItemFit[] = ['slim', 'regular', 'relaxed', 'wide', 'oversized'];
 const VALID_BANNED_FEATURES: BannedFeature[] = [
-  // 'distressed' removed (2026-08-11) — featuresPasses never implemented a
-  // check for it; see types.ts BannedFeature doc comment.
   'loud_logo', 'macro_print', 'full_print', 'neon_color',
   'floral_print', 'plaid_check', 'abstract_print', 'slogan_text', 'graphic_illustration',
+  // 'distressed' re-added (2026-08-11) — now backed by clothing_items.distressed
+  // and checked in filtering.ts featuresPasses; see types.ts BannedFeature doc comment.
+  'distressed',
 ];
 const VALID_COLOR_PALETTES: ColorPalette[] = ['neutral', 'earth', 'bold', 'pastel', 'dark', 'monochrome'];
 const VALID_SILHOUETTES: Silhouette[] = ['relaxed', 'structured', 'bodycon', 'oversized', 'tailored'];

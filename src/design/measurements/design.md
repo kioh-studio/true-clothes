@@ -29,3 +29,26 @@ forms, UI-only (no scoring/logic change), reflecting three states:
 - **Auto-derived, no override** (all 3 girths present, shape derived, AUTO) →
   `measurements_shapeNudgeConfirm` invites the user to tap a shape Tag if it's wrong.
 - **Manually overridden** → no nudge; the user already made an explicit choice.
+
+## `app/measurements-edit.tsx` save state (2026-08-11)
+
+Brought this screen's sticky save bar in line with the pattern already
+established on `colors-edit.tsx`/`styles-edit.tsx`/`formulas-edit.tsx`
+(2026-07-07): a `saving` flag disables the Save button and swaps its label to
+`t('addItem_savingText')` mid-write, and a `saveError` line renders above the
+save bar (`position: absolute`, same placement/style as the other edit
+screens) if the write fails — previously a failed save had no visible
+feedback at all beyond the button silently re-enabling.
+
+Two correctness fixes that ride along with the same edit (no new UI, just
+what the existing controls now do correctly):
+
+- **Hydrate race.** Opening this screen before `useFitEngineStore`'s
+  `bodyMeasurements` finished hydrating from Supabase used to show an empty
+  form that Save would then upsert over real data — same bug class already
+  fixed elsewhere, now fixed here with the same "re-adopt a late store value
+  only while the form is still untouched" resync.
+- **Discard button.** Previously reset the numeric fields but left a manual
+  body-shape override (a tapped shape `Tag`, not the auto-derived one) in
+  place — tapping Discard now visibly reverts the shape `Tag` selection too,
+  not just the number fields.

@@ -6,8 +6,9 @@
 // Usage:
 //   deno run --allow-read --allow-net --allow-env scripts/eval-feed/judge.ts A.json B.json [--out prompt.txt]
 //
-// With GOOGLE_API_KEY set: runs 3 trials against Gemini (gemini-2.5-flash),
-// alternating which side is labeled "Feed X" vs "Feed Y" (A→X/B→Y, then
+// With GOOGLE_API_KEY set: runs 3 trials against Gemini (JUDGE_MODEL, default
+// gemini-3.6-flash — override via GEMINI_FLASH_MODEL; gemini-2.5-flash retires
+// 2026-10-16), alternating which side is labeled "Feed X" vs "Feed Y" (A→X/B→Y, then
 // flipped, then A→X again) to cancel out any positional bias, and prints a
 // per-trial verdict + majority.
 //
@@ -141,6 +142,11 @@ if (!apiKey) {
 
 // ─── Gemini-backed path ─────────────────────────────────────────────────────
 
+// This is a Deno script (see Deno.args/Deno.env/Deno.exit above, and the
+// `deno run` usage line at the top of this file) — using Deno.env.get here,
+// not process.env, to match the rest of the file.
+const JUDGE_MODEL = Deno.env.get('GEMINI_FLASH_MODEL') || 'gemini-3.6-flash';
+
 interface GeminiVerdict {
   winner: 'X' | 'Y' | 'tie';
   reasoning: string;
@@ -150,7 +156,7 @@ interface GeminiVerdict {
 
 async function callGemini(prompt: string): Promise<GeminiVerdict> {
   const resp = await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+    `https://generativelanguage.googleapis.com/v1beta/models/${JUDGE_MODEL}:generateContent`,
     {
       method: 'POST',
       headers: {

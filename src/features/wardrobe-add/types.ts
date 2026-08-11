@@ -41,4 +41,7 @@ export interface ExtractedItem {
   // No edit UI — carried through to the insert so items have hex at ingest.
   primaryHex: string | null;
   secondaryHex: string | null;
+  // Distressed/worn-in finish (2026-08-11) — no edit UI in MVP, carried
+  // through to the insert like primaryHex/secondaryHex above.
+  distressed: boolean | null;
 }

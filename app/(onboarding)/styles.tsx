@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Image, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Image, FlatList, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PrimaryButton, Photo, TextLink } from '../../src/components/ui';
@@ -71,6 +71,7 @@ export default function StylesScreen() {
   const gender = useAuthStore(s => s.gender);
   const [selected, setSelected] = useState<string[]>([]);
   const [expanded, setExpanded] = useState(false);
+  const [saving, setSaving] = useState(false);
   const cols = useGridColumns();
 
   // Use catalog if loaded, fall back to static STYLES. Gender-matched styles
@@ -96,9 +97,16 @@ export default function StylesScreen() {
   });
 
   const handleContinue = async () => {
-    if (selected.length === 0) return;
-    await setStyleProfile({ selectedStyles: selected });
-    router.push('/(onboarding)/colors');
+    if (selected.length === 0 || saving) return;
+    setSaving(true);
+    try {
+      await setStyleProfile({ selectedStyles: selected });
+      router.push('/(onboarding)/colors');
+    } catch {
+      Alert.alert(t('onboardingCommon_couldNotSaveAlertTitle'), t('onboardingCommon_pleaseTryAgain'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Build related from catalog neighbors (top by weight) if available, else RELATED_MAP
@@ -196,8 +204,12 @@ export default function StylesScreen() {
         )}
 
         <View style={{ height: 24 }} />
-        <PrimaryButton onPress={handleContinue} disabled={selected.length === 0}>
-          {selected.length > 0 ? t('onboardingStyles_continueWithCount', { count: selected.length, max: MAX_STYLES }) : t('onboarding_styles_selectAtLeastOne')}
+        <PrimaryButton onPress={handleContinue} disabled={selected.length === 0 || saving}>
+          {saving
+            ? t('addItem_savingText')
+            : selected.length > 0
+              ? t('onboardingStyles_continueWithCount', { count: selected.length, max: MAX_STYLES })
+              : t('onboarding_styles_selectAtLeastOne')}
         </PrimaryButton>
       </ScrollView>
     </View>

@@ -112,7 +112,12 @@ export function useMeasurements() {
     try {
       await saveMeasurements({
         ...toSave,
-        bodyShape: bodyShape ?? undefined,
+        // `bodyShape` is `BodyShape | null` here — pass it through as-is.
+        // `null` (bust/waist/hip no longer sufficient to derive a shape, and
+        // no manual override) must reach the DB as an explicit clear; collapsing
+        // it to `undefined` would make the upsert skip the column entirely and
+        // leave a stale, now-inconsistent shape behind (see bodyToRow()).
+        bodyShape,
         measurementsConsent: consentGiven,
       });
       return { ok: true };

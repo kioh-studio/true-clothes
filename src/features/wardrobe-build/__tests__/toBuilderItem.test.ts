@@ -32,6 +32,7 @@ function makeItem(overrides: Partial<WardrobeItem> = {}): WardrobeItem {
     canLayer: null,
     primaryHex: null,
     secondaryHex: null,
+    distressed: null,
     ...overrides,
   };
 }

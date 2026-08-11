@@ -2,7 +2,7 @@
 // Capture/pick UI: camera or library. Dispatches scan() → navigate to result on success.
 // Thin screen — all logic delegated to useTryOn (Constitution II).
 
-import React, { useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useCallback, useRef, useState } from 'react';
 import {
   View, Text, Pressable, StyleSheet, ActivityIndicator, Alert, ScrollView,
 } from 'react-native';
@@ -44,6 +44,14 @@ export function ScanScreen() {
       : '/colors-edit';
 
   const isScanning = status === 'scanning';
+  // tryOnStore's status only flips to 'scanning' once scan() is called, i.e.
+  // AFTER the permission request + native picker UI has already resolved with
+  // a photo. Neither of those steps is guarded by anything, so a fast double
+  // tap on "Take photo"/"Choose from library" could launch the native picker
+  // twice concurrently. `pickerBusy` closes that gap by disabling the buttons
+  // for the whole handler, not just the post-picker scan() call.
+  const [pickerBusy, setPickerBusy] = useState(false);
+  const buttonsDisabled = isScanning || pickerBusy;
 
   // Locale-aware "measurements, styles and preferred colours" joiner for the
   // profile-completeness prompt below — no Oxford comma before the final item,
@@ -79,36 +87,48 @@ export function ScanScreen() {
   }, [status, router]);
 
   const handlePickCamera = useCallback(async () => {
-    const { status: permStatus } = await ImagePicker.requestCameraPermissionsAsync();
-    if (permStatus !== 'granted') {
-      Alert.alert(t('scanScreen_cameraPermTitle'), t('scanScreen_cameraPermMessage'));
-      return;
+    if (buttonsDisabled) return;
+    setPickerBusy(true);
+    try {
+      const { status: permStatus } = await ImagePicker.requestCameraPermissionsAsync();
+      if (permStatus !== 'granted') {
+        Alert.alert(t('scanScreen_cameraPermTitle'), t('scanScreen_cameraPermMessage'));
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.85,
+        allowsEditing: false,
+      });
+      if (!result.canceled && result.assets[0]) {
+        await scan(result.assets[0].uri, 'ai');
+      }
+    } finally {
+      setPickerBusy(false);
     }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.85,
-      allowsEditing: false,
-    });
-    if (!result.canceled && result.assets[0]) {
-      await scan(result.assets[0].uri, 'ai');
-    }
-  }, [scan]);
+  }, [scan, buttonsDisabled]);
 
   const handlePickLibrary = useCallback(async () => {
-    const { status: permStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (permStatus !== 'granted') {
-      Alert.alert(t('scanScreen_libraryPermTitle'), t('scanScreen_libraryPermMessage'));
-      return;
+    if (buttonsDisabled) return;
+    setPickerBusy(true);
+    try {
+      const { status: permStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permStatus !== 'granted') {
+        Alert.alert(t('scanScreen_libraryPermTitle'), t('scanScreen_libraryPermMessage'));
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.85,
+        allowsMultipleSelection: false,
+      });
+      if (!result.canceled && result.assets[0]) {
+        await scan(result.assets[0].uri, 'ai');
+      }
+    } finally {
+      setPickerBusy(false);
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.85,
-      allowsMultipleSelection: false,
-    });
-    if (!result.canceled && result.assets[0]) {
-      await scan(result.assets[0].uri, 'ai');
-    }
-  }, [scan]);
+  }, [scan, buttonsDisabled]);
 
   return (
     <ScrollView
@@ -198,7 +218,7 @@ export function ScanScreen() {
 
           {/* Primary: Take photo */}
           <View style={styles.actions}>
-            <PrimaryButton onPress={handlePickCamera} disabled={isScanning}>
+            <PrimaryButton onPress={handlePickCamera} disabled={buttonsDisabled}>
               <View style={styles.buttonInner}>
                 <IconCamera size={18} strokeWidth={1.4} color={T.color.canvas} />
                 <Text style={styles.buttonLabel}>{t('scanScreen_takePhoto')}</Text>
@@ -208,7 +228,7 @@ export function ScanScreen() {
             <View style={styles.actionGap} />
 
             {/* Secondary: Library */}
-            <SecondaryButton onPress={handlePickLibrary} disabled={isScanning}>
+            <SecondaryButton onPress={handlePickLibrary} disabled={buttonsDisabled}>
               <View style={styles.buttonInner}>
                 <IconImage size={18} strokeWidth={1.4} color={T.color.primary} />
                 <Text style={styles.buttonLabelSecondary}>{t('scanScreen_chooseFromLibrary')}</Text>

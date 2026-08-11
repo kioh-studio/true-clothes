@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,25 +14,46 @@ export default function CompleteScreen() {
   const { t } = useTranslation();
   const { completeOnboarding } = useAuthStore();
   const opacity = useRef(new Animated.Value(0)).current;
+  // In-flight guard — both CTAs below call completeOnboarding(); without this
+  // a double-tap (or tapping both) could fire two concurrent onboarding-
+  // complete requests, and an uncaught rejection would leave the tap with no
+  // feedback at all (no local loading state existed here before).
+  const [busy, setBusy] = useState(false);
 
   // completeOnboarding() can fail (network/DB) — if we navigate anyway, the
   // server row is never marked complete, so the next cold start bounces the
   // user back to Welcome/OTP even though they finished onboarding once already.
   const finish = async (dest: string) => {
-    const res = await completeOnboarding();
-    if (!res.ok) {
-      Alert.alert(t('onboardingCommon_couldNotFinishSetupAlertTitle'), res.message ?? t('onboardingCommon_pleaseTryAgain'));
-      return;
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await completeOnboarding();
+      if (!res.ok) {
+        Alert.alert(t('onboardingCommon_couldNotFinishSetupAlertTitle'), res.message ?? t('onboardingCommon_pleaseTryAgain'));
+        return;
+      }
+      router.replace(dest as never);
+    } catch {
+      Alert.alert(t('onboardingCommon_couldNotFinishSetupAlertTitle'), t('onboardingCommon_pleaseTryAgain'));
+    } finally {
+      setBusy(false);
     }
-    router.replace(dest as never);
   };
   const finishThenPush = async (dest: string) => {
-    const res = await completeOnboarding();
-    if (!res.ok) {
-      Alert.alert(t('onboardingCommon_couldNotFinishSetupAlertTitle'), res.message ?? t('onboardingCommon_pleaseTryAgain'));
-      return;
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await completeOnboarding();
+      if (!res.ok) {
+        Alert.alert(t('onboardingCommon_couldNotFinishSetupAlertTitle'), res.message ?? t('onboardingCommon_pleaseTryAgain'));
+        return;
+      }
+      router.push(dest as never);
+    } catch {
+      Alert.alert(t('onboardingCommon_couldNotFinishSetupAlertTitle'), t('onboardingCommon_pleaseTryAgain'));
+    } finally {
+      setBusy(false);
     }
-    router.push(dest as never);
   };
 
   useEffect(() => {
@@ -51,7 +72,7 @@ export default function CompleteScreen() {
           <Text style={styles.body}>{t('onboarding_complete_body')}</Text>
         </View>
         <View style={styles.actions}>
-          <PrimaryButton onPress={() => finish('/(tabs)')}>{t('onboarding_complete_enter')}</PrimaryButton>
+          <PrimaryButton onPress={() => finish('/(tabs)')} disabled={busy}>{t('onboarding_complete_enter')}</PrimaryButton>
           <View style={{ height: 24 }} />
           <View style={{ alignItems: 'center' }}>
             <TextLink onPress={() => finishThenPush('/(onboarding)/wardrobe-intro')} color={T.color.primary} arrow>

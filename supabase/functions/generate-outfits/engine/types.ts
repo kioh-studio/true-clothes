@@ -67,6 +67,17 @@ export interface FabricProfile {
   breathability: Breathability;
   season: Season;
   layerRole: LayerRole;
+  // Distressed/worn-in finish (2026-08-11, re-added — see BannedFeature
+  // 'distressed' below for the removal/re-add history). Surface property of
+  // the material, same family as `pattern`: visible INTENTIONAL wear or
+  // damage — rips, tears, frayed/raw hems, heavy fading/whiskering,
+  // acid/stone wash, deliberately abraded surfaces. NOT natural slubby
+  // texture (linen), normal garment wash, soft/worn-in feel, or vintage
+  // styling without actual damage. Optional/undefined = unknown (ingest
+  // hasn't assessed it yet, e.g. the ~70 items that predate this field) —
+  // filtering.ts featuresPasses is fail-open on this field: it only rejects
+  // when distressed === true AND the style bans it.
+  distressed?: boolean;
 }
 
 // ─── Garment Measurements ────────────────────────────────────────────────────
@@ -161,17 +172,15 @@ export type BannedFeature =
   // FitItem already carries (fabric.pattern / graphics.artworkType). See
   // filtering.ts featuresPasses for the exact FitItem field each checks.
   | 'floral_print' | 'plaid_check' | 'abstract_print'
-  | 'slogan_text' | 'graphic_illustration';
-  // 'distressed' removed (2026-08-11): 14 style configs listed it as banned,
-  // but featuresPasses (filtering.ts) never implemented a check for it —
-  // FitItem carries no signal a distressed/ripped/worn-in finish could be
-  // derived from (fabric.pattern is cut/weave-pattern only — solid/striped/
-  // plaid/checkered/floral/graphic/abstract — none mean "distressed"; drape
-  // and visualInterest are too generic to imply it either). A banned label
-  // the engine can never actually enforce is worse than no label — it reads
-  // as "this style blocks distressed items" when nothing was ever blocked.
-  // Re-add once an ingest-time signal for this exists (e.g. a `pattern`
-  // value or a dedicated ClothingItemRow flag) and featuresPasses checks it.
+  | 'slogan_text' | 'graphic_illustration'
+  // 'distressed' (re-added 2026-08-11): removed on 2026-08-11 (commit
+  // 240a5b1) because 14 style configs banned it while featuresPasses had no
+  // signal to check it against. Now backed by a real signal — the new
+  // `clothing_items.distressed` boolean column, threaded onto
+  // FabricProfile.distressed above and checked in filtering.ts featuresPasses.
+  // Fail-open by design: only `fabric.distressed === true` trips this ban;
+  // undefined/null (unassessed item) never does.
+  | 'distressed';
 export type ColorGrade = 'perfect' | 'allowed' | 'accent' | 'banned';
 
 export interface StyleConfig {
@@ -501,4 +510,8 @@ export interface ClothingItemRow {
   // toFitItem prefers this over the item NAME keyword inference
   // (inferGraphics) when present; null/absent falls back to the keyword scan.
   graphics?: LogoSignal | null;
+  // Distressed/worn-in finish (2026-08-11) — see FabricProfile.distressed
+  // above for the definition. null/undefined = unassessed; toFitItem maps
+  // both to fabric.distressed === undefined (fail-open in featuresPasses).
+  distressed?: boolean | null;
 }

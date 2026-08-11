@@ -10,6 +10,7 @@ import { toFitItem, colorProfileOf } from '../generate-outfits/engine/enrichment
 import { filterByStyle, styleConfigById } from '../generate-outfits/engine/filtering.ts';
 import { generateCandidates, generateHeroCandidates, getColorFamily, GENERATION_CAP } from '../generate-outfits/engine/generation.ts';
 import { rankCandidates } from '../generate-outfits/engine/ranking.ts';
+import { computeUserAttributes } from '../generate-outfits/engine/scoring.ts';
 import { ARCHETYPES, GapArchetype } from './archetypes.ts';
 
 // Same quality bar as generate-outfits/index.ts — an outfit "counts" here iff
@@ -162,7 +163,21 @@ export function analyzeWardrobe(input: AnalyzeInput): GapReport {
 
   const ctx: EngineContext = {
     bodyMeasurements: input.bodyMeasurements,
-    styleProfile: { selectedStyles: input.selectedStyles },
+    // Fix (2026-08-11 batch, confirmed defect #6): mirror generate-outfits/
+    // index.ts's Fix 2 (2026-08-06, step "3b" there) — styleProfile always
+    // needs computedAttributes set for silhouette.ts's fromStyleSilhouette to
+    // have a style level to read. Currently a no-op HERE because analyzeWardrobe
+    // never calls resolveTargetSilhouette (ctx.targetSilhouette is left
+    // undefined throughout this file), so this is defensive parity, not a
+    // behavior change — see verification below confirming no score moved.
+    // Unlike generate-outfits, analyze.ts has no style fallback/intent step
+    // that can change selectedStyles after the fact, so it's computed once
+    // here from input.selectedStyles directly (same value ctx.styleProfile.
+    // selectedStyles already holds for this whole function).
+    styleProfile: {
+      selectedStyles: input.selectedStyles,
+      computedAttributes: computeUserAttributes(input.selectedStyles),
+    },
     colorPreferences: input.colorPreferences,
     colorSeason: input.colorSeason,
     colorTone12: input.colorTone12,

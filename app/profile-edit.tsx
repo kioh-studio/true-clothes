@@ -8,6 +8,7 @@ import { T, type } from '../src/design/tokens';
 import { IconChevronLeft } from '../src/components/icons';
 import { useAuthStore } from '../src/stores/authStore';
 import { useProfileEdit } from '../src/features/profile/useProfileEdit';
+import { useAvatarUri } from '../src/features/profile/useAvatarUri';
 import { useTranslation } from '../src/i18n';
 
 const GENDER_OPTIONS = ['WOMAN', 'MAN', 'NON-BINARY', 'PREFER NOT TO SAY'];
@@ -22,7 +23,8 @@ export default function ProfileEditScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
-  const { avatarUrl } = useAuthStore();
+  const { avatarPath } = useAuthStore();
+  const avatarUri = useAvatarUri(avatarPath);
   const { displayName, setDisplayName, gender, setGender, isDirty, saving, error, save, pickAvatar } = useProfileEdit();
 
   const handleSave = async () => {
@@ -62,8 +64,8 @@ export default function ProfileEditScreen() {
         {/* Avatar */}
         <View style={styles.avatarSection}>
           <Pressable onPress={pickAvatar} style={styles.avatarWrap}>
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
             ) : (
               <View style={styles.avatarPlaceholder}>
                 <Text style={styles.avatarInitial}>

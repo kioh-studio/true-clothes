@@ -7,7 +7,11 @@
 // and the caller falls back to the rule-engine order. The feed never breaks
 // because of this layer.
 //
-// Model is config, not architecture: override with the CURATOR_MODEL secret.
+// Model is config, not architecture: override with the CURATOR_MODEL secret
+// (call-site specific) which takes priority over GEMINI_FLASH_MODEL (the
+// shared vision/text-tier secret also used by generate-item-image,
+// backfill-item-metadata, map-measurements, tryon-validate). gemini-2.5-flash
+// retires 2026-10-16 — default moved to gemini-3.6-flash.
 //
 // Runs on Gemini (same GOOGLE_API_KEY the item-extraction functions use) via the
 // REST generateContent endpoint with structured JSON output — no SDK dependency.
@@ -15,7 +19,7 @@
 import { ScoredOutfit } from './types.ts';
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-const DEFAULT_MODEL = 'gemini-2.5-flash';
+const DEFAULT_MODEL = Deno.env.get('GEMINI_FLASH_MODEL') || 'gemini-3.6-flash';
 const TIMEOUT_MS = 8000;            // text-only curation of 24 candidates ≈ 4s
 const TIMEOUT_MULTIMODAL_MS = 20000; // image parts push the round-trip well past 8s
 const PICK_COUNT = 10;
@@ -151,9 +155,16 @@ export async function curateOutfits(input: CuratorInput): Promise<CuratorResult 
           responseSchema: CURATION_SCHEMA,
           temperature: 0.4,
           maxOutputTokens: 2048,
-          // gemini-2.5-flash enables "thinking" by default, which pushes this call
+          // gemini-2.5-flash enabled "thinking" by default, which pushed this call
           // to ~10s (≈1.4k thought tokens) — well past TIMEOUT_MS, so EVERY curation
-          // aborted and fell back to rule order. Disabling thinking drops it to ~1.2s.
+          // aborted and fell back to rule order. thinkingBudget:0 disabled it, dropping
+          // to ~1.2s. Gemini 3 models (default gemini-3.6-flash) replaced thinkingBudget
+          // with a thinkingLevel enum ('minimal'|'low'|'medium'|'high', default 'high'
+          // for Flash-tier); thinkingBudget:0 is documented as still honored for
+          // backward compatibility, so this is left as-is, but it has not been
+          // live-verified against the new default (no usable API key in this
+          // environment) — confirm curation latency stays under TIMEOUT_MS after
+          // deploy, and switch to thinkingConfig: { thinkingLevel: 'minimal' } if not.
           thinkingConfig: { thinkingBudget: 0 },
         },
       }),

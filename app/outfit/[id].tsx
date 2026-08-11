@@ -1,6 +1,6 @@
 // Outfit Detail screen
-import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Image, Share, useWindowDimensions } from 'react-native';
+import React, { useState, useMemo, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, Image, Share, useWindowDimensions, findNodeHandle } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OUTFITS, itemById } from '../../src/data';
@@ -38,6 +38,9 @@ export default function OutfitDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { savedSet, wornSet, toggleSave, toggleWorn, toggleSchedule, collections, addItemToCollection, collectionsError } = useAppStore();
+  // Node handle source for the iPad share popover — without an anchor it pops
+  // from a default corner instead of the share button (T029 follow-up).
+  const shareBtnRef = useRef<View>(null);
   const [collectionPickerOpen, setCollectionPickerOpen] = useState(false);
   const [addedToCollectionSuccess, setAddedToCollectionSuccess] = useState(false);
   // In-flight guard — disables the collection rows while an add is pending so a
@@ -123,7 +126,8 @@ export default function OutfitDetailScreen() {
     if (!outfit) return;
     const itemNames = items.slice(0, 3).map(i => i.name).join(', ');
     const message = `${outfit.style} look — ${itemNames} | MIEN`;
-    Share.share({ message });
+    const anchor = findNodeHandle(shareBtnRef.current);
+    Share.share({ message }, anchor != null ? { anchor } : undefined);
   };
 
   // Not-found guard — render after all hooks are safely called.
@@ -155,7 +159,7 @@ export default function OutfitDetailScreen() {
             <Pressable onPress={() => toggleSave(outfit.id)} style={styles.iconBtn}>
               <IconHeart filled={saved} size={20} color={T.color.primary} strokeWidth={1.4} />
             </Pressable>
-            <Pressable style={styles.iconBtn} onPress={shareOutfit}>
+            <Pressable ref={shareBtnRef} style={styles.iconBtn} onPress={shareOutfit}>
               <IconShare size={20} color={T.color.primary} strokeWidth={1.4} />
             </Pressable>
           </View>

@@ -80,6 +80,7 @@ function toExtractedItem(r: ExtractedItemWithImage, photo: PhotoEntry): Extracte
     usedFallback: r.usedFallback,
     primaryHex: m.primaryHex ?? null,
     secondaryHex: m.secondaryHex ?? null,
+    distressed: m.distressed ?? null,
   };
 }
 
@@ -245,6 +246,7 @@ export function useAddWizard() {
           source: it.method === 'ai' ? 'ai' : 'item',
           primaryHex: it.primaryHex,
           secondaryHex: it.secondaryHex,
+          distressed: it.distressed,
         };
         await addWardrobeItem(input);
         // Read the result of THIS call right away — the next iteration's

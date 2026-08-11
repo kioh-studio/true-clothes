@@ -312,3 +312,30 @@ The separate header-strip hint (`tabs_home_demoHint`, `topOverlay`) from the
 earlier pass is removed — no second indicator, no orphaned i18n key. No
 changes to `isDemo`'s definition, the demo outfit count, or any
 engine/scoring logic.
+
+## Share sheet anchored on iPad (2026-08-11)
+
+Both share entry points (`app/(tabs)/index.tsx`'s feed card `ActionBtn` and
+`app/outfit/[id].tsx`'s detail-screen share icon) called `Share.share(...)`
+with no `anchor` — a `backlog.md` item from 2026-07-22. On iPad the share
+popover has no button to point at, so it appeared from an arbitrary default
+corner of the screen instead of the tapped icon.
+
+No new visual chrome; this is purely wiring an anchor onto UI that already
+existed:
+
+- **Feed card.** `ActionBtn` (the small pill wrapping each of the feed
+  card's action icons — heart, sparkle, share) converted from a plain
+  function component to `React.forwardRef<View, ...>` so it can expose a
+  ref on its underlying `Pressable`. The share button's `ActionBtn` takes a
+  new `shareBtnRef`; `findNodeHandle(shareBtnRef.current)` is resolved at
+  tap time and passed as `Share.share({ message }, { anchor })` — falls
+  back to no `anchor` option at all if the handle doesn't resolve (never
+  passes a bad value).
+- **Outfit detail.** Same pattern: a new `shareBtnRef` on the detail
+  screen's existing share `Pressable` (`styles.iconBtn`), same
+  `findNodeHandle` + conditional `anchor` at tap time.
+
+iPhone/Android are unaffected — the `anchor` option is iPad-only in
+`Share.share`'s platform contract (iPhone's share sheet is a bottom sheet
+with no anchor concept).

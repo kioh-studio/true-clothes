@@ -56,6 +56,14 @@ export interface WardrobeItem {
   // backfill-item-metadata admin tool; null until that has run for this item.
   primaryHex: string | null
   secondaryHex: string | null
+  // Distressed/worn-in finish (2026-08-11) — visible INTENTIONAL wear or
+  // damage (rips, tears, frayed/raw hems, heavy fading/whiskering, acid/
+  // stone wash, deliberately abraded surfaces), NOT natural texture/normal
+  // wash/vintage styling without damage. Read-only here: set at ingest (AI
+  // extraction) or by the backfill-item-metadata admin tool; null until
+  // assessed — the engine's featuresPasses treats null as "unknown", never
+  // as a rejection (fail-open).
+  distressed: boolean | null
 }
 
 
@@ -87,8 +95,17 @@ export interface BodyMeasurements {
   body_foot_width?: number;
   // Derived from bust/waist/hip via computeBodyShape() at save time; persisted
   // so the try-on prompt and future features can read it without re-deriving.
-  bodyShape?: import('./measurements').BodyShape;
+  // `null` explicitly clears the stored value (derivation measurements are no
+  // longer on file); `undefined` leaves whatever is already saved untouched —
+  // see measurementService.bodyToRow().
+  bodyShape?: import('./measurements').BodyShape | null;
   preferredFit?: PreferredFit;
+  // Onboarding consent + provenance flags. Historically dropped by
+  // measurementService.bodyToRow() (never reached `public.body_measurements`,
+  // both columns NOT NULL DEFAULT false) — kept here so that boundary can map
+  // them through instead of silently discarding what the user chose.
+  poseEstimated?: boolean;
+  measurementsConsent?: boolean;
 }
 
 // ─── Style Profile ───────────────────────────────────────────────────────────

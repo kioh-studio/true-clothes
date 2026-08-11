@@ -26,6 +26,11 @@ interface MeasurementRow {
   body_foot_width: number | null;
   preferred_fit: string | null;
   body_shape: string | null;
+  // NOT NULL DEFAULT false in the live schema (verified against
+  // trtjcsxcowqecsebvyme via the Management API 2026-08-11) — never absent on
+  // a real row, unlike the measurement columns above.
+  pose_estimated: boolean;
+  measurements_consent: boolean;
 }
 
 // ── DB row → app shape ──────────────────────────────────────────────────────
@@ -55,6 +60,8 @@ function rowToBody(row: MeasurementRow): BodyMeasurements {
     body_foot_width:        row.body_foot_width ?? undefined,
     preferredFit:           row.preferred_fit as BodyMeasurements['preferredFit'] ?? undefined,
     bodyShape:              row.body_shape as BodyMeasurements['bodyShape'] ?? undefined,
+    poseEstimated:          row.pose_estimated,
+    measurementsConsent:    row.measurements_consent,
   };
 
   if (mapped.bodyShape) {
@@ -75,8 +82,8 @@ function rowToBody(row: MeasurementRow): BodyMeasurements {
 }
 
 // ── App shape → DB row (partial) ────────────────────────────────────────────
-function bodyToRow(m: Partial<BodyMeasurements>): Record<string, number | string | null> {
-  const row: Record<string, number | string | null> = {};
+function bodyToRow(m: Partial<BodyMeasurements>): Record<string, number | string | boolean | null> {
+  const row: Record<string, number | string | boolean | null> = {};
   if (m.body_height !== undefined)            row.body_height = m.body_height ?? null;
   if (m.body_weight !== undefined)            row.body_weight = m.body_weight ?? null;
   if (m.body_bust !== undefined)              row.body_bust = m.body_bust ?? null;
@@ -93,7 +100,14 @@ function bodyToRow(m: Partial<BodyMeasurements>): Record<string, number | string
   if (m.body_foot_length !== undefined)       row.body_foot_length = m.body_foot_length ?? null;
   if (m.body_foot_width !== undefined)        row.body_foot_width = m.body_foot_width ?? null;
   if (m.preferredFit !== undefined)           row.preferred_fit = m.preferredFit ?? null;
+  // `bodyShape === null` is a deliberate "clear it" write (measurements needed
+  // to derive it are gone); `undefined` means "don't touch" — see the
+  // BodyMeasurements['bodyShape'] doc comment in src/types/fitEngine.ts.
   if (m.bodyShape !== undefined)              row.body_shape = m.bodyShape ?? null;
+  // Both columns are NOT NULL DEFAULT false — never write null for these, only
+  // include them (as true/false) when the caller actually set a value.
+  if (m.poseEstimated !== undefined)          row.pose_estimated = m.poseEstimated;
+  if (m.measurementsConsent !== undefined)    row.measurements_consent = m.measurementsConsent;
   return row;
 }
 

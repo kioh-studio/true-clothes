@@ -90,10 +90,19 @@ export default function WearOnYouScreen() {
   const gender = useAuthStore(s => s.gender);
   const dob = useAuthStore(s => s.dob);
 
-  const outfit = useMemo(
-    () => (data ? JSON.parse(data) : null) ?? OUTFITS.find(o => o.id === id) ?? OUTFITS[0],
-    [data, id],
-  );
+  // Guard against malformed/truncated nav params — JSON.parse throws on invalid
+  // JSON, which would otherwise crash this screen; falling through to the
+  // OUTFITS lookup instead. Same guard shape as app/outfit/[id].tsx.
+  const outfit = useMemo(() => {
+    if (data) {
+      try {
+        return JSON.parse(data);
+      } catch {
+        /* fall through */
+      }
+    }
+    return OUTFITS.find(o => o.id === id) ?? OUTFITS[0];
+  }, [data, id]);
 
   // The user's frame, from real measurements (cm/kg) — shown on the intro card.
   const frame: WearFrame = useMemo(() => ({
@@ -138,7 +147,9 @@ export default function WearOnYouScreen() {
       age: ageFromDob(dob, new Date()),
       heightCm: measurements?.body_height,
       weightKg: measurements?.body_weight,
-      bodyShape: measurements?.bodyShape,
+      // measurements.bodyShape can be an explicit `null` (cleared — see
+      // measurementService.bodyToRow()); WearProfile only has an "absent" state.
+      bodyShape: measurements?.bodyShape ?? undefined,
       preferredFit: measurements?.preferredFit,
       measurementsCm: Object.keys(measurementsCm).length ? measurementsCm : undefined,
     };

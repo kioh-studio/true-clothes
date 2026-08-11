@@ -9,6 +9,7 @@ import { IconChevronLeft, IconSettings, IconChevronRight } from '../../src/compo
 import { useAppStore } from '../../src/stores/appStore';
 import { useAuthStore } from '../../src/stores/authStore';
 import { useProfileStats, formatStatValue } from '../../src/features/profile/useProfileStats';
+import { useAvatarUri } from '../../src/features/profile/useAvatarUri';
 import { useTranslation } from '../../src/i18n';
 
 const SECTIONS: Array<{ id: string; labelKey: string; route?: string }> = [
@@ -35,7 +36,8 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
-  const { phone, email, location, displayName: storedName, avatarUrl, colorSeason, logout } = useAuthStore();
+  const { phone, email, location, displayName: storedName, avatarPath, colorSeason, logout } = useAuthStore();
+  const avatarUri = useAvatarUri(avatarPath);
   const { itemCount, savedOutfitCount, collectionCount } = useProfileStats();
 
   const stats = [
@@ -68,8 +70,8 @@ export default function ProfileScreen() {
         {/* Avatar */}
         <View style={styles.profileBlock}>
           <Pressable onPress={() => router.push('/profile-edit' as any)} style={styles.avatar}>
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={StyleSheet.absoluteFill as any} borderRadius={999} />
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={StyleSheet.absoluteFill as any} borderRadius={999} />
             ) : (
               <Text style={styles.avatarText}>{avatarInitial}</Text>
             )}

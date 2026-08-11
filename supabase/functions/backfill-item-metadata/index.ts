@@ -40,8 +40,12 @@ const corsHeaders = {
 };
 
 // Mirror generate-item-image exactly: same vision model + endpoint shape.
+// gemini-2.5-flash retires 2026-10-16 (Google shutdown); GEMINI_FLASH_MODEL is
+// the shared vision/text-tier secret — same var moves generate-item-image,
+// map-measurements, tryon-validate, and curator.ts together. Default is
+// gemini-3.6-flash (see generate-item-image/index.ts for the pricing note).
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-const VISION_MODEL = 'gemini-2.5-flash';
+const VISION_MODEL = Deno.env.get('GEMINI_FLASH_MODEL') || 'gemini-3.6-flash';
 
 // The private bucket that holds wardrobe item photos (see itemPhotoService.ts /
 // 20260614000001_clothing_items_photo_storage.sql). For photo_storage='cloud',
@@ -80,10 +84,11 @@ interface ItemRow {
   photo_storage: string | null;
   primary_hex: string | null;
   secondary_hex: string | null;
+  distressed: boolean | null;
 }
 
 const SELECT_COLS =
-  'id, type, color, primary_color, material, fit, pattern, warmth_season, can_layer, print_scale, drape, visual_interest, graphics, photo_url, photo_storage, primary_hex, secondary_hex';
+  'id, type, color, primary_color, material, fit, pattern, warmth_season, can_layer, print_scale, drape, visual_interest, graphics, photo_url, photo_storage, primary_hex, secondary_hex, distressed';
 
 // ─── Gemini vision (mirrors generate-item-image geminiDetect) ─────────────────
 
@@ -268,7 +273,7 @@ async function processItem(
       row.material == null || row.fit == null || row.pattern == null ||
       row.warmth_season == null || row.can_layer == null || row.print_scale == null ||
       row.drape == null || row.visual_interest == null || row.primary_color == null ||
-      row.graphics == null;
+      row.graphics == null || row.distressed == null;
 
     if (needsGemini) {
       const garments = parseGarments(await geminiDetect(apiKey, image));
@@ -289,6 +294,11 @@ async function processItem(
         // null stays null so the engine's rule derivation keeps deciding.
         if (row.can_layer == null && typeof best.can_layer === 'boolean') {
           patch.can_layer = best.can_layer; filled.push('can_layer');
+        }
+        // distressed (2026-08-11): only fill a confident boolean; null stays
+        // null (fail-open — featuresPasses never rejects on an unassessed item).
+        if (row.distressed == null && typeof best.distressed === 'boolean') {
+          patch.distressed = best.distressed; filled.push('distressed');
         }
         // Visual enrichment đợt 2 (2026-07-03): only fill confident non-null values.
         if (row.print_scale == null && best.print_scale) { patch.print_scale = best.print_scale; filled.push('print_scale'); }
@@ -401,7 +411,7 @@ Deno.serve(async (req) => {
       .from('clothing_items')
       .select(SELECT_COLS)
       .not('photo_url', 'is', null)
-      .or('fit.is.null,material.is.null,pattern.is.null,warmth_season.is.null,can_layer.is.null,drape.is.null,visual_interest.is.null,primary_hex.is.null,secondary_hex.is.null')
+      .or('fit.is.null,material.is.null,pattern.is.null,warmth_season.is.null,can_layer.is.null,drape.is.null,visual_interest.is.null,primary_hex.is.null,secondary_hex.is.null,distressed.is.null')
       .order('id', { ascending: true })
       .range(offset, offset + limit - 1);
     if (wardrobeId) query = query.eq('wardrobe_id', wardrobeId);

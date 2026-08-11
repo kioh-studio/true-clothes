@@ -47,15 +47,22 @@ export default function LocationScreen() {
     const code = detected.current && trimmed === detected.current.label
       ? detected.current.code
       : null;
-    const result = await setProfile({ location: trimmed, locationCountryCode: code });
-    setSaving(false);
-    if (!result.ok) {
-      const msg = result.message || t('onboardingLocation_saveError');
+    try {
+      const result = await setProfile({ location: trimmed, locationCountryCode: code });
+      if (!result.ok) {
+        const msg = result.message || t('onboardingLocation_saveError');
+        setError(msg);
+        Alert.alert(t('onboardingCommon_couldNotSaveAlertTitle'), msg);
+        return;
+      }
+      router.push('/(onboarding)/measurements');
+    } catch {
+      const msg = t('onboardingLocation_saveError');
       setError(msg);
       Alert.alert(t('onboardingCommon_couldNotSaveAlertTitle'), msg);
-      return;
+    } finally {
+      setSaving(false);
     }
-    router.push('/(onboarding)/measurements');
   };
 
   const cardText = detecting

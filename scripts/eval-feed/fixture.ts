@@ -397,11 +397,117 @@ const STREETWEAR_PROFILE = {
   bodyMeasurements: BODY_MEASUREMENTS,
 };
 
+// ─── Resort wardrobe (20 items) ────────────────────────────────────────────────
+// Tops(6) / Bottoms(5) / Shoes(3) / Outerwear(2) / Accessories(2)
+// Added (010-wardrobe-critic follow-up, 2026-08-11) to measure the
+// PATTERN_FRIENDLY_STYLES expansion in ranking.ts — 'resort' is one of the 9
+// newly-added print-led styles (floral/tropical prints define the style).
+// 4 items carry a bold (non-solid/checkered) pattern — floral or striped —
+// spread across tops/bottoms so 2-bold-pattern combos are reachable. Colors
+// and fabrics drawn from the resort STYLE_CONFIGS entry (filtering.ts):
+// palette perfect/allowed tiers only (white/cream/beige/natural/blue/tan/
+// khaki/coral/terracotta), fabricsAllowed linen/cotton/canvas only (resort
+// bans wool/leather/suede/cashmere/velvet/fleece — shoes/bag use canvas, not
+// leather, to actually pass the style filter).
+
+const RESORT_WARDROBE: ClothingItemRow[] = [
+  // ── Tops ──
+  {
+    id: 'rs-top-shirt-floral-white', type: 'SHIRT', name: 'Floral Linen Shirt White', color: 'White',
+    material: 'Linen', fit: 'relaxed', pattern: 'floral', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'rs-top-blouse-floral-coral', type: 'BLOUSE', name: 'Floral Blouse Coral', color: 'Coral',
+    material: 'Cotton', fit: 'relaxed', pattern: 'floral', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'rs-top-shirt-striped-blue', type: 'SHIRT', name: 'Striped Linen Shirt Blue', color: 'Blue',
+    material: 'Linen', fit: 'regular', pattern: 'striped', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'rs-top-tee-white', type: 'TEE', name: 'Essential Tee White', color: 'White',
+    material: 'Cotton', fit: 'regular', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'rs-top-tee-tan', type: 'TEE', name: 'Essential Tee Tan', color: 'Tan',
+    material: 'Cotton', fit: 'relaxed', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'rs-top-blouse-cream', type: 'BLOUSE', name: 'Linen Blouse Cream', color: 'Cream',
+    material: 'Linen', fit: 'relaxed', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+
+  // ── Bottoms ──
+  {
+    id: 'rs-bottom-skirt-floral-cream', type: 'SKIRT', name: 'Floral Midi Skirt Cream', color: 'Cream',
+    material: 'Cotton', fit: 'relaxed', pattern: 'floral', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'rs-bottom-shorts-khaki', type: 'SHORTS', name: 'Linen Shorts Khaki', color: 'Khaki',
+    material: 'Linen', fit: 'relaxed', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'rs-bottom-shorts-terracotta', type: 'SHORTS', name: 'Cotton Shorts Terracotta', color: 'Terracotta',
+    material: 'Cotton', fit: 'relaxed', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'rs-bottom-trousers-white', type: 'TROUSERS', name: 'Wide Linen Trousers White', color: 'White',
+    material: 'Linen', fit: 'wide', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'rs-bottom-skirt-striped-natural', type: 'SKIRT', name: 'Striped Skirt Natural', color: 'Natural',
+    material: 'Cotton', fit: 'relaxed', pattern: 'striped', warmthSeason: 'lightweight_summer',
+  },
+
+  // ── Shoes ── (canvas, not leather — resort's fabricsAllowed excludes leather)
+  {
+    id: 'rs-shoes-sandals-tan', type: 'SANDALS', name: 'Canvas Sandals Tan', color: 'Tan',
+    material: 'Canvas', fit: 'regular', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'rs-shoes-sneakers-white', type: 'SNEAKERS', name: 'Canvas Sneakers White', color: 'White',
+    material: 'Canvas', fit: 'regular', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'rs-shoes-sandals-natural', type: 'SANDALS', name: 'Woven Sandals Natural', color: 'Natural',
+    material: 'Canvas', fit: 'regular', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+
+  // ── Outerwear ──
+  {
+    id: 'rs-outer-overshirt-beige', type: 'JACKET', name: 'Linen Overshirt Beige', color: 'Beige',
+    material: 'Linen', fit: 'relaxed', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'rs-outer-overshirt-floral-olive', type: 'JACKET', name: 'Floral Linen Overshirt Olive', color: 'Olive',
+    material: 'Linen', fit: 'relaxed', pattern: 'floral', warmthSeason: 'lightweight_summer',
+  },
+
+  // ── Accessories ──
+  {
+    id: 'rs-acc-bag-natural', type: 'BAG', name: 'Woven Straw Bag Natural', color: 'Natural',
+    material: 'Canvas', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'rs-acc-cap-tan', type: 'CAP', name: 'Canvas Sun Hat Tan', color: 'Tan',
+    material: 'Canvas', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+];
+
+const RESORT_PROFILE = {
+  selectedStyles: ['resort'],
+  colorPreferences: ['white', 'cream', 'beige', 'blue'],
+  colorSeason: 'spring',
+  weatherSeason: 'summer',
+  bodyMeasurements: BODY_MEASUREMENTS,
+};
+
 // ─── Named profiles ────────────────────────────────────────────────────────────
 
 export const PROFILES = {
   smartcasual: { wardrobe: SMARTCASUAL_WARDROBE, profile: SMARTCASUAL_PROFILE },
   streetwear: { wardrobe: STREETWEAR_WARDROBE, profile: STREETWEAR_PROFILE },
+  resort: { wardrobe: RESORT_WARDROBE, profile: RESORT_PROFILE },
 } as const;
 
 export type ProfileName = keyof typeof PROFILES;

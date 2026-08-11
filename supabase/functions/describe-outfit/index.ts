@@ -22,8 +22,25 @@ const corsHeaders = {
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 // flash-lite: for a single short description it reads more editorial (less list-y)
-// than 2.5-flash, at the same latency and ~3–4× cheaper. Override via DESCRIBE_MODEL.
-const DEFAULT_MODEL = 'gemini-2.5-flash-lite';
+// than full flash, at the same latency and cheaper. Override precedence:
+// DESCRIBE_MODEL (call-site) > GEMINI_FLASH_LITE_MODEL (shared cheap-lite-tier
+// secret, also used by evaluate-item/note.ts) > this default.
+//
+// STAYING on gemini-2.5-flash-lite (owner decision, 2026-08-11, cost-first):
+// Google's official deprecations table currently shows NO shutdown date for
+// this model — exact row: "gemini-2.5-flash-lite | July 22, 2025 | No
+// shutdown date announced |". That's unlike gemini-2.5-flash/-pro, which do
+// have an announced (Oct 16, 2026) retirement — this -lite tier was never
+// actually forced to move. Moving early would have meant paying 2.5x input /
+// 3.75x output ($0.10/$0.40 today vs the cheapest upgrade path's $0.25/$1.50)
+// to solve a deadline that doesn't apply here. Known upgrade paths, priced
+// and dated for when Google does announce a shutdown: gemini-3.1-flash-lite
+// ($0.25/M in, $1.50/M out, shuts down itself 2027-05-07) or the longer-lived
+// gemini-3.5-flash-lite ($0.30/M in, $2.50/M out, no shutdown announced). The
+// real deliverable here is GEMINI_FLASH_LITE_MODEL: the day a shutdown is
+// announced for gemini-2.5-flash-lite, migrating is a Supabase secret change
+// with no redeploy — no code change needed, just set the env var below.
+const DEFAULT_MODEL = Deno.env.get('GEMINI_FLASH_LITE_MODEL') || 'gemini-2.5-flash-lite';
 const TIMEOUT_MS = 8000;   // one description + tips ≈ 1–2s; generous headroom, detail screen shows a loader
 
 interface OutfitItem {
@@ -151,8 +168,15 @@ Deno.serve(async (req) => {
             responseSchema: DESCRIBE_SCHEMA,
             temperature: 0.6,
             maxOutputTokens: 768,
-            // gemini-2.5-flash thinks by default (~10s); a single description does not
-            // need it and thinking would blow the timeout. Disable it.
+            // gemini-2.5-flash-lite (current default) thought by default in some
+            // configs; disabling kept a single description well under the timeout.
+            // If GEMINI_FLASH_LITE_MODEL is ever pointed at a Gemini 3 model
+            // (gemini-3.1-flash-lite / gemini-3.5-flash-lite), note that family
+            // replaced thinkingBudget with a thinkingLevel enum — thinkingBudget:0
+            // is documented as still honored for backward compatibility, so no
+            // code change is required for that swap either, but confirm latency
+            // after switching (not live-verified here; no usable API key in this
+            // environment).
             thinkingConfig: { thinkingBudget: 0 },
           },
         }),

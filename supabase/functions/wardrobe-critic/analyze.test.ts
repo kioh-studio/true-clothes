@@ -12,6 +12,7 @@ import { assert, assertEquals } from 'https://deno.land/std@0.208.0/assert/mod.t
 import { analyzeWardrobe, UNLOCK_THRESHOLD, MAX_RECOMMENDATIONS } from './analyze.ts';
 import { ARCHETYPES } from './archetypes.ts';
 import { ClothingItemRow } from '../generate-outfits/engine/types.ts';
+import { STYLE_CONFIGS } from '../generate-outfits/engine/filtering.ts';
 
 const row = (id: string, type: string, color: string, material?: string, fit?: string): ClothingItemRow =>
   ({ id, type, name: `${color} ${type}`, color, material, fit, pattern: 'solid' });
@@ -162,7 +163,13 @@ Deno.test('suggestByStyle/suggestByMeasurements unset behaves exactly like both 
 
 Deno.test('archetype catalog is structurally valid', () => {
   const seen = new Set<string>();
-  const STYLE_IDS = new Set(['oldmoney', 'minimalist', 'streetwear', 'smartcasual', 'preppy', 'athleisure', 'y2k', 'bohemian']);
+  // Style catalog consistency fix (010-wardrobe-critic follow-up, 2026-08-11):
+  // was hardcoded to the original 8 style ids, which silently passed even
+  // after archetypes.ts's own ALL_STYLES grew stale — the exact bug this
+  // fix addresses. Derived from STYLE_CONFIGS (the single source of truth,
+  // same one archetypes.ts's ALL_STYLES now derives from) so this assertion
+  // can never again validate against a table that's drifted out of date.
+  const STYLE_IDS = new Set(STYLE_CONFIGS.map(c => c.id));
   for (const a of ARCHETYPES) {
     assert(!seen.has(a.id), `duplicate archetype id ${a.id}`);
     seen.add(a.id);

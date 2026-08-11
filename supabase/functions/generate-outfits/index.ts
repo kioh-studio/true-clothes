@@ -139,7 +139,7 @@ Deno.serve(async (req) => {
     const wardrobeRes = wardrobeId
       ? await supabase
           .from('clothing_items')
-          .select('id, type, name, color, material, fit, pattern, warmth_season, can_layer, print_scale, drape, visual_interest, photo_url, photo_storage, primary_hex, secondary_hex, graphics, m_chest, m_shoulder_width, m_sleeves, m_body_length, m_upper_arm, m_waist, m_hip, m_inseam, m_thigh, m_rise')
+          .select('id, type, name, color, material, fit, pattern, warmth_season, can_layer, print_scale, drape, visual_interest, photo_url, photo_storage, primary_hex, secondary_hex, graphics, distressed, m_chest, m_shoulder_width, m_sleeves, m_body_length, m_upper_arm, m_waist, m_hip, m_inseam, m_thigh, m_rise')
           .eq('wardrobe_id', wardrobeId)
       : { data: [] as Record<string, unknown>[], error: null };
 
@@ -289,6 +289,7 @@ Deno.serve(async (req) => {
         primary_hex: row.primary_hex as string | null | undefined,
         secondary_hex: row.secondary_hex as string | null | undefined,
         graphics: row.graphics as ClothingItemRow['graphics'],
+        distressed: row.distressed as boolean | null | undefined,
         measurements: measurements.length > 0 ? measurements : undefined,
       };
     });
@@ -303,12 +304,17 @@ Deno.serve(async (req) => {
     const primaryStyle = styleProfile.selectedStyles[0] ?? 'none';
     console.log(`[generate-outfits] CALL userId=${userId} style=${primaryStyle} wardrobe=${wardrobeRows.length} items intent=${intent ? JSON.stringify(intent) : 'none'} formula=${formulaId ?? 'none'} exclude=${excludeIds.length}`);
 
-    // If formula_id provided, resolve its slug and use it as primary formula
-    let resolvedFormulaSlug: FormulaId | undefined;
-    if (formulaId) {
-      const { data: formulaRow } = await supabase.from('formulas').select('slug').eq('id', formulaId).single();
-      if (formulaRow) resolvedFormulaSlug = (formulaRow as { slug: string }).slug as FormulaId;
-    }
+    // Fix (2026-08-11 batch, confirmed defect #1): the live `formulas` table has
+    // NO `slug` column — its `id` column IS the slug-style value (e.g.
+    // 'contrast_pairing', 'tonal_gradient'; see src/services/formulasCatalogService.ts's
+    // schema-drift comment for the same finding, confirmed independently here).
+    // The old `.select('slug')` query therefore always failed/returned null, so
+    // `resolvedFormulaSlug` was silently NEVER set — an explicit formula_id from
+    // the client (fitEngineStore → useFormulaSelector, itself sourced from
+    // formulasCatalogService's `id: r.id`) was dead-lettered every time and
+    // fell through to formulaPreferences/undefined instead. Since formulaId
+    // already IS that same id/slug value, no DB round-trip is needed at all.
+    const resolvedFormulaSlug: FormulaId | undefined = formulaId as FormulaId | undefined;
 
     // Opt-in gender-aware styling (backlog #3): only a binary profile gender feeds
     // a SOFT scoring nudge, and only when the user enabled the setting. NON-BINARY /
@@ -821,6 +827,17 @@ function pinItemToRow(pin: Record<string, unknown>): ClothingItemRow {
     printScale:   typeof pin.print_scale   === 'string' ? pin.print_scale   : undefined,
     drape:        typeof pin.drape         === 'string' ? pin.drape         : undefined,
     visualInterest: typeof pin.visual_interest === 'number' ? pin.visual_interest : undefined,
+    // Fix (2026-08-11 batch, confirmed defect #5): mirror the main wardrobe
+    // mapper's Fix 3 (2026-08-06, above) — a pinned/scanned item (Mix & Match)
+    // was missing the measured-hex + structured-graphics columns entirely, so
+    // it never got the hex-refinement layer enrichment.ts applies to every
+    // other item. Same field names/shapes as ClothingItemRow expects.
+    primary_hex:   typeof pin.primary_hex   === 'string' ? pin.primary_hex   : undefined,
+    secondary_hex: typeof pin.secondary_hex === 'string' ? pin.secondary_hex : undefined,
+    graphics: pin.graphics != null ? (pin.graphics as ClothingItemRow['graphics']) : undefined,
+    // distressed (2026-08-11): mirrors the hex fields just above — a scanned
+    // Mix & Match item can carry this from its own extraction pass.
+    distressed: typeof pin.distressed === 'boolean' ? pin.distressed : undefined,
     measurements: measurements && measurements.length > 0 ? measurements : undefined,
   };
 }

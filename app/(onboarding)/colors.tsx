@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PrimaryButton, TextLink } from '../../src/components/ui';
@@ -23,11 +23,20 @@ export default function ColorsScreen() {
   const { t } = useTranslation();
   const { setColorPreferences } = useFitEngineStore();
   const [selected, setSelected] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
   const toggle = (name: string) => setSelected(s => s.includes(name) ? s.filter(x => x !== name) : [...s, name]);
 
   const handleContinue = async () => {
-    await setColorPreferences(selected);
-    router.push('/(onboarding)/complete');
+    if (saving) return;
+    setSaving(true);
+    try {
+      await setColorPreferences(selected);
+      router.push('/(onboarding)/complete');
+    } catch {
+      Alert.alert(t('onboardingCommon_couldNotSaveAlertTitle'), t('onboardingCommon_pleaseTryAgain'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -37,7 +46,7 @@ export default function ColorsScreen() {
           <IconChevronLeft size={20} color={T.color.primary} strokeWidth={1.2} />
         </Pressable>
         <Pressable
-          onPress={selected.length > 0 ? undefined : handleContinue}
+          onPress={selected.length > 0 || saving ? undefined : handleContinue}
           style={styles.skipBtn}
         >
           <Text style={[styles.skipText, selected.length > 0 && { color: T.color.primary }]}>
@@ -92,7 +101,9 @@ export default function ColorsScreen() {
         </Pressable>
 
         <View style={{ height: 24 }} />
-        <PrimaryButton onPress={handleContinue}>{t('onboarding_colors_continue')}</PrimaryButton>
+        <PrimaryButton onPress={handleContinue} disabled={saving}>
+          {saving ? t('addItem_savingText') : t('onboarding_colors_continue')}
+        </PrimaryButton>
       </ScrollView>
     </View>
   );

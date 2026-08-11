@@ -61,7 +61,6 @@ interface AuthState {
   location: string;  // "City, Country"
   locationCountryCode: string | null;  // ISO 3166-1 alpha-2 (GPS reverse-geocode) — hemisphere lens for display copy
   displayName: string;
-  avatarUrl: string | null;
   avatarPath: string | null;
   colorSeason: ColorSeason | null;
   personalPalette: string[];
@@ -101,7 +100,7 @@ async function hydrateProfile(set: (s: Partial<AuthState>) => void, userId: stri
   const [profileRes, mRow] = await Promise.all([
     sb
       .from('profiles')
-      .select('id, full_name, display_name, avatar_url, avatar_path, email, phone, gender, date_of_birth, location_city, location_country, location_country_code, onboarding_complete, color_season, personal_palette, color_tone12')
+      .select('id, full_name, display_name, avatar_path, email, phone, gender, date_of_birth, location_city, location_country, location_country_code, onboarding_complete, color_season, personal_palette, color_tone12')
       .eq('id', userId)
       .maybeSingle(),
     fetchMyMeasurements(userId),
@@ -126,7 +125,6 @@ async function hydrateProfile(set: (s: Partial<AuthState>) => void, userId: stri
     location:       joinLocation(row.location_city, row.location_country),
     locationCountryCode: row.location_country_code ?? null,
     displayName:    row.display_name || '',
-    avatarUrl:      row.avatar_url ?? null,
     avatarPath:     row.avatar_path ?? null,
     colorSeason:    (row.color_season as ColorSeason | null) ?? null,
     personalPalette: row.personal_palette ?? [],
@@ -145,7 +143,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   location: '',
   locationCountryCode: null,
   displayName: '',
-  avatarUrl: null,
   avatarPath: null,
   colorSeason: null,
   personalPalette: [],
@@ -268,8 +265,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const userId = await getCurrentUserId();
     if (!userId) throw new Error(i18n.t('authStore_notSignedIn'));
     const { avatarPath: currentPath } = get();
-    const { avatarUrl, avatarPath } = await svcUploadAvatar(userId, localUri, currentPath);
-    set({ avatarUrl, avatarPath });
+    const { avatarPath } = await svcUploadAvatar(userId, localUri, currentPath);
+    set({ avatarPath });
   },
 
   savePersonalColor: async (result) => {
@@ -290,13 +287,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   saveMeasurements: async (m) => {
     const userId = await getCurrentUserId();
     if (!userId) return;
-    await upsertMyMeasurements(userId, m as import('../types/fitEngine').BodyMeasurements);
+    const result = await upsertMyMeasurements(userId, m as import('../types/fitEngine').BodyMeasurements);
     set({ measurements: m });
     // Mirror to fitEngineStore so the fit engine has fresh data immediately
     // without waiting for the next hydrate(). fitEngineStore is already
     // imported above (used by logout/deleteAccount), so no lazy require needed.
     // We update in-memory state only — no second DB write.
     useFitEngineStore.setState({ bodyMeasurements: m as import('../types/fitEngine').BodyMeasurements });
+    // Optimistic — local state above stays even on failure (no rollback, same
+    // rationale as fitEngineStore.setBodyMeasurements: rollback would flicker
+    // the UI back to stale values). What was missing is that upsertMyMeasurements'
+    // `{ ok: false }` result used to be read and discarded right here, so a
+    // failed Supabase write left the client and server silently diverged and
+    // useMeasurements.save()'s catch path (app/(onboarding)/measurements.tsx's
+    // Alert + inline error text) never fired. Reuses fitEngineStore's key —
+    // same failure mode, same message, no need for a near-duplicate string.
+    if (!result.ok) throw new Error(result.message ?? i18n.t('fitEngineStore_syncFailed'));
   },
 
   completeOnboarding: async () => {
@@ -315,7 +321,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({
       isLoggedIn: false, onboardingComplete: false,
       phone: '', email: '', gender: '', dob: '', location: '', locationCountryCode: null,
-      displayName: '', avatarUrl: null, avatarPath: null, colorSeason: null, personalPalette: [], colorTone12: null, measurements: null,
+      displayName: '', avatarPath: null, colorSeason: null, personalPalette: [], colorTone12: null, measurements: null,
       pendingPhone: '', pendingEmail: '', pendingAuthMethod: '',
     });
   },
@@ -335,7 +341,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({
       isLoggedIn: false, onboardingComplete: false,
       phone: '', email: '', gender: '', dob: '', location: '', locationCountryCode: null,
-      displayName: '', avatarUrl: null, avatarPath: null, colorSeason: null, personalPalette: [], colorTone12: null, measurements: null,
+      displayName: '', avatarPath: null, colorSeason: null, personalPalette: [], colorTone12: null, measurements: null,
       pendingPhone: '', pendingEmail: '', pendingAuthMethod: '',
     });
   },
@@ -390,7 +396,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             set({
               isLoggedIn: false, onboardingComplete: false,
               phone: '', email: '', gender: '', dob: '', location: '', locationCountryCode: null,
-              displayName: '', avatarUrl: null, avatarPath: null, colorSeason: null, personalPalette: [], colorTone12: null, measurements: null,
+              displayName: '', avatarPath: null, colorSeason: null, personalPalette: [], colorTone12: null, measurements: null,
             });
           }
         });

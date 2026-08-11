@@ -6,6 +6,7 @@
 // Pure data — validated structurally in analyze.test.ts.
 
 import { ClothingItemRow } from '../generate-outfits/engine/types.ts';
+import { STYLE_CONFIGS } from '../generate-outfits/engine/filtering.ts';
 
 export interface GapArchetype {
   id: string;
@@ -22,7 +23,17 @@ const row = (id: string, type: string, color: string, material?: string, fit?: s
   material, fit, pattern: 'solid',
 });
 
-const ALL_STYLES = ['oldmoney', 'minimalist', 'streetwear', 'smartcasual', 'preppy', 'athleisure', 'y2k', 'bohemian'];
+// Style catalog consistency fix (010-wardrobe-critic follow-up, 2026-08-11):
+// this used to hardcode just the original 8 style ids, so an archetype with
+// styleAffinity: ALL_STYLES (white tee, dark jeans, white sneakers) had zero
+// affinity for any of the 23 styles added since — a user who picked only
+// coquette + cleangirl got scored against a table that had never heard of
+// either. Derived from STYLE_CONFIGS (filtering.ts), the same single source
+// of truth scoring.ts's STYLE_CATALOG already derives from — this file
+// already imports across the wardrobe-critic/generate-outfits boundary
+// elsewhere (analyze.ts, index.ts), so a third hardcoded copy would only be
+// one more place for the list to drift out of sync again.
+const ALL_STYLES = STYLE_CONFIGS.map(c => c.id);
 
 export const ARCHETYPES: GapArchetype[] = [
   {

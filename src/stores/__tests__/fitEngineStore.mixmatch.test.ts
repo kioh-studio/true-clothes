@@ -109,6 +109,20 @@ describe('fetchMixMatchOutfits', () => {
     expect(pin).toEqual({ id: 'scanned', type: 'SHIRT', color: 'Olive' });
   });
 
+  it('includes measured-hex + graphics in pin_item when the scan captured them', async () => {
+    mockInvoke.mockResolvedValueOnce({ data: { outfits: [] }, error: null });
+    const graphics = { present: true, size: 'small' as const, kind: 'brand_logo' as const, text: null };
+    const withHex: ScannedItem = {
+      ...SCANNED,
+      metadata: { ...META, primaryHex: '#556B2F', secondaryHex: '#F5F5DC', graphics },
+    };
+    await useFitEngineStore.getState().fetchMixMatchOutfits(withHex);
+    const pin = lastBody().pin_item;
+    expect(pin.primary_hex).toBe('#556B2F');
+    expect(pin.secondary_hex).toBe('#F5F5DC');
+    expect(pin.graphics).toEqual(graphics);
+  });
+
   it('returns the outfits from the response', async () => {
     const outfits = [{ slots: { top: 'scanned', bottom: 'b1', shoes: 's1' }, totalScore: 0.8 }];
     mockInvoke.mockResolvedValueOnce({ data: { outfits }, error: null });

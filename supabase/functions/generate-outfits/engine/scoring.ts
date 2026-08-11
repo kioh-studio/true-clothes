@@ -1097,7 +1097,20 @@ export function scoreAnchorClarity(items: FitItem[]): number {
 // the opposite way (streetwear/y2k live on loudness; the house yields).
 
 const NATURAL_FABRICS = new Set(['wool', 'cashmere', 'cotton', 'linen', 'silk', 'leather', 'suede']);
-const HOUSE_OPPOSED_STYLES = new Set(['streetwear', 'y2k']);
+// Expanded (010-wardrobe-critic follow-up, 2026-08-11 — APPROVED) beyond the
+// original {streetwear, y2k} to cover styles whose defining identity fights
+// the house's restraint/natural-fabric/precision bias the same way: artsy
+// (patternLevel 4.0, deliberate pattern-mixing is the whole point) and
+// retro70s (patternLevel 4.0, and explicitly bans several NATURAL_FABRICS —
+// wool/cashmere/silk — so it can't earn the fabric-integrity bonus either);
+// resort (tropical/novelty prints are core identity, likely to trip
+// full_print/large_graphic in real photos); mobwife (loud LUXURY — its
+// defining fabrics, fur/leather, would otherwise collect the natural-fabric
+// bonus while its maximalist identity — highest textureRichness in the
+// catalog — is philosophically the opposite of restraint; leaving it out
+// would let it collect the fabric bonus AND the loudness penalty from a
+// house POV that has no real opinion to apply to this style).
+const HOUSE_OPPOSED_STYLES = new Set(['streetwear', 'y2k', 'artsy', 'retro70s', 'resort', 'mobwife']);
 
 export function housePOVDelta(items: FitItem[], selectedStyles: string[] = []): number {
   const visible = items.filter(i => i.category !== 'accessory');

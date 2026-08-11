@@ -2,7 +2,7 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Pressable, useWindowDimensions, Share,
-  Animated, PanResponder,
+  Animated, PanResponder, findNodeHandle,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, router } from 'expo-router';
@@ -360,6 +360,9 @@ function FeedCardInner({ outfit, index, active, cardH, saved, isDemo, topInset, 
   // so the collage height must be measured, not assumed as a fixed share of
   // the card — a fixed split lets meta overflow onto the next card.
   const [collageH, setCollageH] = useState(cardH * 0.84);
+  // Node handle source for the iPad share popover — without an anchor it pops
+  // from a default corner instead of the share button.
+  const shareBtnRef = useRef<View>(null);
 
   // Display-only tags (silhouette + dominant colour) — absent on older/static
   // outfits, so each segment is only appended when present.
@@ -446,9 +449,16 @@ function FeedCardInner({ outfit, index, active, cardH, saved, isDemo, topInset, 
           <ActionBtn onPress={() => onOpen(outfit, index)}>
             <IconSparkle size={22} color={T.color.primary} strokeWidth={1.4} />
           </ActionBtn>
-          <ActionBtn onPress={() => {
-            Share.share({ message: t('tabs_home_shareMessage', { style: outfit.style, title: outfit.title }) });
-          }}>
+          <ActionBtn
+            ref={shareBtnRef}
+            onPress={() => {
+              const anchor = findNodeHandle(shareBtnRef.current);
+              Share.share(
+                { message: t('tabs_home_shareMessage', { style: outfit.style, title: outfit.title }) },
+                anchor != null ? { anchor } : undefined,
+              );
+            }}
+          >
             <IconShare size={20} color={T.color.primary} strokeWidth={1.4} />
           </ActionBtn>
         </View>
@@ -515,13 +525,14 @@ function FeedCardInner({ outfit, index, active, cardH, saved, isDemo, topInset, 
 
 const FeedCard = React.memo(FeedCardInner);
 
-function ActionBtn({ onPress, children }: { onPress: () => void; children: React.ReactNode }) {
-  return (
-    <Pressable onPress={onPress} style={styles.actionBtn}>
+const ActionBtn = React.forwardRef<View, { onPress: () => void; children: React.ReactNode }>(
+  ({ onPress, children }, ref) => (
+    <Pressable ref={ref} onPress={onPress} style={styles.actionBtn}>
       {children}
     </Pressable>
-  );
-}
+  ),
+);
+ActionBtn.displayName = 'ActionBtn';
 
 function MenuSheet({ open, onClose, onOpenProfile, onOpenCollections, onSignOut }: any) {
   const { t } = useTranslation();

@@ -48,7 +48,11 @@ export interface BodyMeasurements {
   body_foot_length?: number;
   body_foot_width?: number;
   // Computed/extra
-  bodyShape?: BodyShape;
+  // `null` is a deliberate, explicit "clear the stored shape" signal (the
+  // measurements needed to derive it are no longer on file) — distinct from
+  // `undefined`, which means "leave whatever is already saved untouched".
+  // See measurementService.bodyToRow(): only `undefined` is skipped on write.
+  bodyShape?: BodyShape | null;
   poseEstimated?: boolean;
   measurementsConsent?: boolean;
   preferredFit?: 'SLIM' | 'REGULAR' | 'RELAXED' | 'OVERSIZED';

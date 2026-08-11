@@ -225,7 +225,13 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
   setFormulaPreferences: async (ids) => {
     set({ formulaPreferences: ids });
     const userId = await getCurrentUserId();
-    if (userId) await upsertMyStyleProfile(userId, { formulaPreferences: ids });
+    if (userId) {
+      const result = await upsertMyStyleProfile(userId, { formulaPreferences: ids });
+      // Optimistic local update stays (no rollback — see setBodyMeasurements'
+      // doc comment below); the write failure itself must reach the caller
+      // instead of being silently swallowed, so the edit screen can show it.
+      if (!result.ok) throw new Error(result.message ?? i18n.t('fitEngineStore_syncFailed'));
+    }
   },
 
   suggestByStyle: true,
@@ -235,14 +241,20 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
   setSuggestionToggles: async (patch) => {
     set(patch);
     const userId = await getCurrentUserId();
-    if (userId) await upsertMyStyleProfile(userId, patch);
+    if (userId) {
+      const result = await upsertMyStyleProfile(userId, patch);
+      if (!result.ok) throw new Error(result.message ?? i18n.t('fitEngineStore_syncFailed'));
+    }
   },
 
   shapeGoal: 'auto',
   setShapeGoal: async (goal) => {
     set({ shapeGoal: goal });
     const userId = await getCurrentUserId();
-    if (userId) await upsertMyStyleProfile(userId, { shapeGoal: goal });
+    if (userId) {
+      const result = await upsertMyStyleProfile(userId, { shapeGoal: goal });
+      if (!result.ok) throw new Error(result.message ?? i18n.t('fitEngineStore_syncFailed'));
+    }
   },
 
   premium: false,
@@ -275,7 +287,21 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
     const nextBody = { ...get().bodyMeasurements, ...m };
     set({ bodyMeasurements: nextBody });
     const userId = await getCurrentUserId();
-    if (userId) await upsertMyMeasurements(userId, nextBody);
+    // Optimistic — local state is already updated above and stays that way
+    // even on failure (no rollback: rollback would flicker the UI back to
+    // stale values, and is explicitly out of scope). What was missing is that
+    // upsertMyMeasurements' `{ ok: false }` result used to be read and
+    // discarded right here, so a failed Supabase write left the client and
+    // server silently diverged. Capture it and rethrow AFTER the authStore
+    // mirror below (so that best-effort cross-store sync still happens even
+    // on a failed server write) so the calling screen (which already has
+    // try/catch + error UI, see app/measurements-edit.tsx) finds out and can
+    // tell the user the save didn't actually land.
+    let syncError: Error | null = null;
+    if (userId) {
+      const result = await upsertMyMeasurements(userId, nextBody);
+      if (!result.ok) syncError = new Error(result.message ?? i18n.t('fitEngineStore_syncFailed'));
+    }
     // Mirror to authStore so try-on (wear.tsx) and any other authStore.measurements
     // reader sees fresh data immediately — without a second DB write.
     // Lazy require avoids a circular module reference at evaluation time
@@ -290,6 +316,7 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
         ...nextBody,
       } as import('../types/measurements').BodyMeasurements,
     }));
+    if (syncError) throw syncError;
   },
 
   setStyleProfile: async (p) => {
@@ -297,16 +324,20 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
     set({ styleProfile: nextProfile });
     const userId = await getCurrentUserId();
     if (userId) {
-      await upsertMyStyleProfile(userId, {
+      const result = await upsertMyStyleProfile(userId, {
         selectedStyles: nextProfile.selectedStyles,
       });
+      if (!result.ok) throw new Error(result.message ?? i18n.t('fitEngineStore_syncFailed'));
     }
   },
 
   setColorPreferences: async (colors) => {
     set({ colorPreferences: colors });
     const userId = await getCurrentUserId();
-    if (userId) await upsertMyStyleProfile(userId, { colorPreferences: colors });
+    if (userId) {
+      const result = await upsertMyStyleProfile(userId, { colorPreferences: colors });
+      if (!result.ok) throw new Error(result.message ?? i18n.t('fitEngineStore_syncFailed'));
+    }
   },
 
   addSelectedStyle: async (styleId) => {
@@ -315,7 +346,10 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
     const nextProfile = { ...get().styleProfile, selectedStyles: nextStyles };
     set({ styleProfile: nextProfile });
     const userId = await getCurrentUserId();
-    if (userId) await upsertMyStyleProfile(userId, { selectedStyles: nextStyles });
+    if (userId) {
+      const result = await upsertMyStyleProfile(userId, { selectedStyles: nextStyles });
+      if (!result.ok) throw new Error(result.message ?? i18n.t('fitEngineStore_syncFailed'));
+    }
   },
 
   removeSelectedStyle: async (styleId) => {
@@ -323,7 +357,10 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
     const nextProfile = { ...get().styleProfile, selectedStyles: nextStyles };
     set({ styleProfile: nextProfile });
     const userId = await getCurrentUserId();
-    if (userId) await upsertMyStyleProfile(userId, { selectedStyles: nextStyles });
+    if (userId) {
+      const result = await upsertMyStyleProfile(userId, { selectedStyles: nextStyles });
+      if (!result.ok) throw new Error(result.message ?? i18n.t('fitEngineStore_syncFailed'));
+    }
   },
 
   fetchOutfits: async (opts = {}) => {
@@ -391,6 +428,16 @@ export const useFitEngineStore = create<FitEngineState>((set, get) => ({
       ...(meta.fit ? { fit: meta.fit } : {}),
       ...(meta.pattern ? { pattern: meta.pattern } : {}),
       ...(meta.warmthSeason ? { warmth_season: meta.warmthSeason } : {}),
+      // Measured-hex + structured-graphics (2026-08-11): mirrors the main
+      // wardrobe mapper's fields so the server's pinItemToRow (generate-outfits/
+      // index.ts) can apply the same hex-refinement + graphics-preference layer
+      // to a pinned/scanned item that every other item already gets. Omitted
+      // (not fabricated) when the scan legitimately never produced them — the
+      // server already treats an absent/null value the same as an existing
+      // wardrobe row with no measured hex.
+      ...(meta.primaryHex ? { primary_hex: meta.primaryHex } : {}),
+      ...(meta.secondaryHex ? { secondary_hex: meta.secondaryHex } : {}),
+      ...(meta.graphics ? { graphics: meta.graphics } : {}),
       ...(meta.measurements && Object.keys(meta.measurements).length
         ? { measurements: meta.measurements }
         : {}),

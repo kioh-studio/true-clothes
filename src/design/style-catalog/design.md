@@ -122,3 +122,24 @@ Option (1) above, chốt and implemented as specced — no new taxonomy, no acco
 - **Unaffected**: `sortStylesByGenderLean`, `MAX_STYLES` (5), the "you might also like"
   related horizontal strip, and Step 02 niche refinement (`styles-edit.tsx`) — all still
   operate on the full/selected sets exactly as before, only the head *grid* is sliced.
+
+## Save/Continue busy + error states (2026-08-11)
+
+Both screens' primary CTA now guards against double-tap and surfaces a write
+failure instead of leaving the button in a stuck or silently-reset state:
+
+- **`styles.tsx` (onboarding)**: `handleContinue` gained a `saving` flag —
+  the button disables and its label swaps to `t('addItem_savingText')`
+  mid-write; on failure, `Alert.alert(...)` fires instead of the screen
+  doing nothing. Previously an unguarded async call meant a fast double-tap
+  or a failed write left the button either double-firing or stuck.
+- **`styles-edit.tsx`**: same sticky-save-bar `saving`/`saveError` treatment
+  already established on `colors-edit.tsx`/`formulas-edit.tsx`
+  (2026-07-07) — error text renders above the save bar, Discard also clears
+  it. See `src/design/measurements/design.md`'s "`app/measurements-edit.tsx`
+  save state" entry for the same pattern applied to that screen the same
+  day.
+
+No new components or tokens — reuses `PrimaryButton`'s existing `disabled`
+prop and the sticky-save-bar error-text style already in use on the other
+edit screens.

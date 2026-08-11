@@ -21,11 +21,17 @@ export default function AccountScreen() {
   const { sendOtp } = useAuthStore();
 
   const handleContinue = async () => {
+    if (sending) return;
     setSending(true); setError('');
-    const res = await sendOtp('', email);
-    setSending(false);
-    if (!res.ok) { setError(res.message || t('onboarding_account_defaultError')); return; }
-    router.push('/(onboarding)/otp');
+    try {
+      const res = await sendOtp('', email);
+      if (!res.ok) { setError(res.message || t('onboarding_account_defaultError')); return; }
+      router.push('/(onboarding)/otp');
+    } catch {
+      setError(t('onboarding_account_defaultError'));
+    } finally {
+      setSending(false);
+    }
   };
 
   return (

@@ -57,6 +57,8 @@ export default function StylesEditScreen() {
   const [selected, setSelected] = useState<string[]>(() => allStored.filter(id => !id.includes(':')));
   const [niches, setNiches] = useState<string[]>(() => allStored.filter(id => id.includes(':')));
   const [expanded, setExpanded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   // Collapse the grid to the first N tiles behind a "Show all" link, same
   // treatment as app/(onboarding)/styles.tsx — the catalog is long (31+
@@ -121,9 +123,17 @@ export default function StylesEditScreen() {
   const refinable = selected.filter((id) => (STYLE_NICHES[id] || []).length > 0);
 
   const handleSave = async () => {
-    if (!hydrated) return;
-    await setStyleProfile({ selectedStyles: [...selected, ...niches] });
-    router.back();
+    if (!hydrated || saving) return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      await setStyleProfile({ selectedStyles: [...selected, ...niches] });
+      router.back();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : t('fitEngineStore_syncFailed'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const isNoneActive = selected.length === 0 && niches.length === 0;
@@ -250,17 +260,24 @@ export default function StylesEditScreen() {
 
       {/* Sticky save bar */}
       <View style={[styles.saveBar, { paddingBottom: insets.bottom + 12 }]}>
+        {saveError ? (
+          <Text style={[styles.saveError, { position: 'absolute', top: -28, left: 24, right: 24 }]}>{saveError}</Text>
+        ) : null}
         {dirty && (
           <Pressable
-            onPress={() => { setSelected([...initialSelectedRef.current]); setNiches([...initialNichesRef.current]); }}
+            onPress={() => {
+              setSelected([...initialSelectedRef.current]);
+              setNiches([...initialNichesRef.current]);
+              setSaveError('');
+            }}
             style={styles.discardBtn}
           >
             <Text style={styles.discardText}>{t('common_discard')}</Text>
           </Pressable>
         )}
         <View style={{ flex: 1 }}>
-          <PrimaryButton onPress={hydrated && dirty ? handleSave : undefined} disabled={!hydrated || !dirty}>
-            {!hydrated ? t('common_loadingPreferences') : dirty ? t('profileEdit_saveButton') : t('common_noChanges')}
+          <PrimaryButton onPress={hydrated && dirty && !saving ? handleSave : undefined} disabled={!hydrated || !dirty || saving}>
+            {!hydrated ? t('common_loadingPreferences') : saving ? t('addItem_savingText') : dirty ? t('profileEdit_saveButton') : t('common_noChanges')}
           </PrimaryButton>
         </View>
       </View>
@@ -407,4 +424,5 @@ const styles = StyleSheet.create({
   },
   discardBtn: { height: 56, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
   discardText: { ...type.ui, fontSize: 10, color: T.color.tertiary },
+  saveError: { ...type.caption, fontSize: 12, color: '#A33', textAlign: 'center' },
 });

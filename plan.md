@@ -5898,3 +5898,378 @@ i18n/design) were working in.
 **Verify**: `npx tsc --noEmit` clean; `npx jest` → 37 suites / 544 tests passed (same counts
 as the run above — this was a pure data addition, no new tests). Image confirmed clean by eye
 via `Read`. No `expo`/`eas` build, no deploy, no commit/push — per instruction.
+
+## Backlog-clearing session (010-wardrobe-critic follow-up, 2026-08-11)
+
+Large parallel-agent session working several independent tracks against the backlog. Grouped
+by area below; UI/visual consequences are documented separately in the relevant
+`src/design/**/design.md` files per the Documentation Policy, and unresolved follow-ups are in
+`backlog.md`.
+
+### Reliability: unhandled write failures across onboarding + settings-edit screens
+
+Two related bugs, same root cause (`await` a fallible write, never check/propagate the
+result): (1) seven onboarding screens (`account`, `basics`, `location`, `styles`, `colors`,
+`complete`, `wardrobe-intro`) called their save action with no `try/catch` — a network failure
+mid-tap left the loading state stuck forever with no error shown, since nothing ever caught
+the rejection or reset the local `saving`/`busy` flag; (2) `fitEngineStore`'s eight write
+actions (`setFormulaPreferences`, `setSuggestionToggles`, `setShapeGoal`, `setBodyMeasurements`,
+`setStyleProfile`, `setColorPreferences`, `addSelectedStyle`, `removeSelectedStyle`) called
+`upsertMy*()`, read back `{ ok: boolean }`, and discarded it — a failed Supabase upsert left
+the optimistic local `set()` update as the only trace, with the server silently diverged and no
+caller ever finding out. Fixed both: every onboarding screen now wraps its save in
+`try/catch/finally`, guards against double-tap with a local busy flag, and shows
+`Alert.alert(...)` plus (where the screen already had inline error text — basics, location) a
+`setError()` on failure. Every fitEngineStore write action now throws
+(`new Error(result.message ?? i18n.t('fitEngineStore_syncFailed'))`) when `result.ok` is false,
+**after** doing its cross-store mirror (e.g. `setBodyMeasurements` still mirrors into
+`authStore` before rethrowing) so best-effort sync still happens even on a failed write — the
+optimistic local update is deliberately NOT rolled back (would flicker the UI back to stale
+values). New shared i18n key `fitEngineStore_syncFailed` (en/vi) backs the default message.
+
+Same fix applied to `authStore.saveMeasurements`, which had the identical discard-the-result
+bug — and fixing it made a **dead catch path live**: `useMeasurements.save()` already had a
+`try/catch` around `saveMeasurements()`, but since the store never threw, that catch could
+never fire; it does now.
+
+Four call sites (`colors-edit.tsx`, `formulas-edit.tsx`, `styles-edit.tsx`,
+`measurements-edit.tsx` — all of which call into the now-throwing store actions) gained a
+`saving` busy flag, a `saveError` state rendered above the sticky save bar, and a
+try/catch/finally around `handleSave`.
+
+`app/try-on/wear.tsx`: `JSON.parse(data)` on the outfit nav param was unguarded — a
+malformed/truncated param crashed the screen. Now wrapped in try/catch with the same
+fallback-to-`OUTFITS.find()` shape `app/outfit/[id].tsx` already used.
+
+`app/(onboarding)/personal-color.tsx` and `app/personal-color-edit.tsx`: `takePictureAsync()`
+in both `FaceScanStep` and `WristScanStep` (4 call sites total across the two files) had no
+try/catch — a camera-busy/backgrounded-mid-capture rejection left the screen stuck under a
+black/white flash overlay with no way to retry. Now caught: the overlay/torch state is
+restored and `Alert.alert(t('personalColor_captureFailedTitle'), t('personalColor_captureFailedMessage'))`
+fires (2 new i18n keys, en/vi).
+
+`src/features/try-on/components/ScanScreen.tsx`: closed a double-submit gap in the
+permission-request + native-picker window specifically — `tryOnStore`'s `status` only flips to
+`'scanning'` once `scan()` is called, which is *after* `requestCameraPermissionsAsync()` /
+`launchCameraAsync()` (or the library equivalents) have already resolved, so a fast double-tap
+on "Take photo"/"Choose from library" could launch the native picker twice concurrently before
+either finished. A new `pickerBusy` state disables both buttons for the whole handler, not just
+the post-picker `scan()` call. (The Add-to-Wardrobe extraction-wizard buttons were already
+guarded separately and were not touched here.)
+
+### `measurements-edit.tsx`: hydrate-race + a Discard bug found while fixing it
+
+Same async-hydrate race already fixed in `colors-edit`/`styles-edit`/`formulas-edit`
+(2026-07-07): `bodyMeasurements` hydrates from Supabase asynchronously, and this screen's
+`useState(() => ({ height: cmStr(bm.body_height), ... }))` only ever snapshotted it once at
+mount — opening the screen before hydrate landed showed an empty form, and Save would upsert
+blanks over real data. Fixed with the same pattern: a `buildValues(bm)` helper shared by the
+initial `useState` and a resync effect that re-adopts a late store value only while the form is
+still untouched (`lastBmRef`/`initialRef` tracking), plus a `hydrated` guard on Save.
+
+Found and fixed a second, unrelated bug while doing this: the Discard button reset the numeric
+form fields (`setV({ ...initialRef.current })`) but never reset `shapeOverride` — discarding a
+manual body-shape override left it in place. Now resets both.
+
+Also: `bodyShape` is written as `bodyShape ?? undefined` no longer — `bodyShape` is
+`BodyShape | null | undefined`, and `null` (girths cleared, no override) must reach
+`measurementService.bodyToRow()` as an explicit clear or the upsert skips the column and a
+stale shape is left behind. `measurements-edit.tsx`'s save call, `useMeasurements.save()`, and
+`wear.tsx`'s `bodyShape: measurements?.bodyShape ?? undefined` read (WearProfile has no
+explicit-null state) were all updated for this three-state (`set | clear | leave-alone`)
+semantics. `src/types/fitEngine.ts` / `src/types/measurements.ts` doc comments updated to
+match.
+
+### Onboarding resume: skip re-auth for a user with a valid session
+
+New `src/features/onboarding/resumeRoute.ts` (`resolveOnboardingResumeRoute`) +
+`app/(onboarding)/index.tsx` change. Previously, any logged-in-but-incomplete user who
+reopened the app (killed mid-onboarding) always landed on the Welcome splash and had to redo
+Account → OTP before reaching the step they'd stopped at — no data was lost, but every reopen
+meant re-authenticating. `SplashScreen` now checks `authStore.isLoggedIn` (once both
+`authStore` and `fitEngineStore` have hydrated) and, if true, routes straight to the first
+onboarding step whose data isn't on file yet, skipping Welcome/Account/OTP entirely. A
+signed-out user is untouched.
+
+**Deliberate best-effort limitation, not a bug**: there is no dedicated `onboarding_step`
+checkpoint column. The resume signal is reused from data each step already persists on
+Continue (`profiles.gender`/`date_of_birth`, `location_city`/`country`, `body_measurements`,
+the style/color rows). Every one of basics/location/measurements/styles is individually
+skippable, and tapping "Skip" does not always write a distinguishing sentinel — so a step that
+was genuinely skipped is indistinguishable from one never reached, and resume lands the user
+back on it. Accepted trade-off: still a strict improvement over "always restart at auth," and
+worst case the user re-taps Skip once. A real fix needs a persisted step checkpoint — logged in
+`backlog.md`, out of scope here. New `src/features/onboarding/__tests__/resumeRoute.test.ts`.
+
+### Avatar rendering: `avatars` bucket is private, not public
+
+`profileService.uploadAvatar()` called `.getPublicUrl()` and persisted that as
+`profiles.avatar_url` — but the `avatars` storage bucket is (and always was) private, so every
+public URL 400'd and no avatar ever actually rendered. (An earlier backlog entry claimed the
+bucket was public and recommended switching to private+signed — that premise was wrong; the
+bucket was already private, the bug was the client code not the bucket config.) Fixed to match
+`wardrobe-photos`' established private-bucket pattern: `uploadAvatar()`/`deleteAvatar()` now
+only ever read/write `profiles.avatar_path` (the storage object path) — never a URL. New
+`avatarSignedUrl(path)` in `profileService.ts` mirrors `itemPhotoService.signedUrl()` (1-hour
+TTL) and a new `useAvatarUri(avatarPath)` hook (`src/features/profile/useAvatarUri.ts`,
+mirrors `useItemPhoto`) resolves it at render time, re-signing on every mount/path-change (no
+disk cache — avatars are small/infrequent, unlike wardrobe photos). `profiles.avatar_url` is
+retired: dropped from `ProfileRow`, `AuthState`, `UserProfile`, and the `profiles` select list
+in both `profileService.fetchMyProfile()` and `authStore.hydrateProfile()`. Consumers
+(`app/(tabs)/profile.tsx`, `app/profile-edit.tsx`) switched from `avatarUrl` to
+`useAvatarUri(avatarPath)`.
+
+### `generate-outfits`: an explicit formula pick was silently dropped on every call
+
+`generate-outfits/index.ts` resolved a client-supplied `formula_id` by querying
+`supabase.from('formulas').select('slug').eq('id', formulaId).single()` — but the live
+`formulas` table has no `slug` column; its `id` column already **is** the slug-style value
+(`'contrast_pairing'`, `'tonal_gradient'`, etc. — same finding
+`formulasCatalogService.ts`'s existing schema-drift comment already documented). The query
+therefore always errored/returned null, so `resolvedFormulaSlug` was silently never set and the
+client's explicit formula pick (from `useFormulaSelector` → `fitEngineStore` →
+`formulasCatalogService`, itself sourced as `id: r.id`) fell through to
+`formulaPreferences`/undefined instead — user-visible on every call, previously logged as
+"latent, low priority." Fixed by dropping the DB round-trip entirely:
+`formulaId` already **is** the slug, so `resolvedFormulaSlug = formulaId as FormulaId | undefined`.
+
+Four smaller defects found and fixed in the same pass (numbered in code comments as
+"2026-08-11 batch, confirmed defect #N"):
+- **#2** `evaluate-item/index.ts`: `buildNoteContext`'s `pattern` argument was typed
+  `string | null | undefined` against a `string | undefined` parameter — pre-existing TS error,
+  fixed with `pattern: itemRow.pattern ?? undefined`.
+- **#3** `tryon-generate/index.ts` and `generate-item-image/index.ts`'s `MinimalClient`
+  interface typed `.from().select().single()` and `.rpc()` as returning `Promise<...>`, but
+  supabase-js's `PostgrestBuilder` is thenable-not-Promise (implements `.then()` but not
+  `catch`/`finally`/`[Symbol.toStringTag]`), so the real client was never structurally
+  assignable — widened both to `PromiseLike<...>` (pure type fix, `await` accepts any
+  thenable, no runtime change).
+- **#4** `evaluate-item/index.ts`'s AI fit-note context (`note.ts`'s `buildNoteContext`) still
+  passed the user's full `selectedStyles` when `suggest_by_style` was off — not currently a bug
+  (the `style` criterion is already gated via `verdict.criteria`, and the prompt is instructed
+  to only use that JSON) but a future prompt change could start reading it. Now blanked to `[]`
+  when the toggle is off, reusing the same `suggestByStyle` accessor already read earlier in the
+  handler.
+- **#5** `pinItemToRow` (`generate-outfits/index.ts`) — the Mix & Match pinned/scanned item
+  mapper was missing `primary_hex`/`secondary_hex`/`graphics` entirely, so a scanned item never
+  got the measured-hex refinement `enrichment.ts` applies to every other item. The **server**
+  fix alone was inert without a matching client fix — `fitEngineStore.fetchMixMatchOutfits`'s
+  request builder was separately updated to actually send those three fields (new test in
+  `fitEngineStore.mixmatch.test.ts`).
+- **#6** `wardrobe-critic/analyze.ts`'s `styleProfile` never set `computedAttributes`, mirroring
+  a bug already fixed in `generate-outfits/index.ts` on 2026-08-06. Currently a no-op here
+  (`analyzeWardrobe` never calls `resolveTargetSilhouette`, so nothing reads it today) —
+  defensive parity that prevents a landmine if wardrobe-critic ever goes silhouette-first.
+
+### Style catalog consistency: `ALL_STYLES` / `PATTERN_FRIENDLY_STYLES` / `HOUSE_OPPOSED_STYLES`
+
+Three backlog items about hardcoded style-id lists silently drifting behind `STYLE_CONFIGS`
+(the single source of truth), all closed in one pass:
+
+- `wardrobe-critic/archetypes.ts`'s `ALL_STYLES` was hardcoded to the original 8 style ids —
+  an archetype declaring `styleAffinity: ALL_STYLES` had zero affinity for any of the 23 styles
+  added since, so a user who only picked newer styles (e.g. `coquette` + `cleangirl`) got fewer
+  "gap" suggestions from Wardrobe Critic. Now `ALL_STYLES = STYLE_CONFIGS.map(c => c.id)` — can
+  no longer drift. `analyze.test.ts`'s own hardcoded `STYLE_IDS` set (used to validate the
+  archetype catalog) had the identical staleness bug and was fixed the same way.
+- `ranking.ts`'s `PATTERN_FRIENDLY_STYLES` (relaxes the 2-bold-pattern hard ban to a soft
+  penalty) grew from `{streetwear, y2k, bohemian}` to also include `grunge`, `artsy`,
+  `cottagecore`, `vintage`, `coquette`, `darkacademia`, `preppy`, `resort`, `pinup` — styles
+  whose visual identity is print-led, verified one-by-one against their `STYLE_CONFIGS` entry.
+- `scoring.ts`'s `HOUSE_OPPOSED_STYLES` (styles the "house POV" restraint bonus should not
+  apply to) grew from `{streetwear, y2k}` to also include `artsy` (patternLevel 4.0, mixing is
+  the point), `retro70s` (patternLevel 4.0, and separately bans wool/cashmere/silk so it
+  couldn't earn the fabric-integrity bonus either), `resort` (tropical prints are core
+  identity), and `mobwife` (maximalist highest-textureRichness-in-catalog identity, fur/leather
+  fabrics that would otherwise collect the natural-fabric bonus with no offsetting loudness
+  penalty).
+
+**Measured, not assumed**: a new `resort` fixture (20-item print-heavy wardrobe,
+`scripts/eval-feed/fixture.ts`) was added to the eval harness specifically to test the
+`PATTERN_FRIENDLY_STYLES` expansion. Before the fix, the resort profile produced **zero** valid
+outfits (every 2-bold-pattern combination hit the old hard ban); after, it produces some — the
+concrete user-facing win this change was for.
+
+### Feed ranking: outfits are now actually re-sorted by their post-penalty score
+
+`rankCandidates` (`ranking.ts`) applies an overlap penalty during greedy diversification but,
+per its old comment, deliberately never re-sorted afterward — the stated reasoning was that
+re-sorting would "reorder outfits intentionally passed over during greedy selection." That
+turned out not to describe what the code does: `isDuplicate` only skips literal top/bottom/shoes
+clones, and every other candidate walked is pushed into `selected` regardless of penalty size —
+so the penalty changed the score **displayed** next to an outfit but never its **position**. An
+outfit penalized down to 0.789 could sit above one that scored 0.823 and took no penalty at all,
+purely because it happened to be walked earlier. Either the penalty is real or it isn't; owner
+chose real. `selected` is now re-sorted by `(tier, totalScore desc)` with a deterministic
+tie-break (sorted-item-id signature, then `formula` as a last resort) after the penalty is
+applied — tier stays the primary key unchanged. New `ranking-order.test.ts` (3 tests) covers
+ordering behavior that had zero prior test coverage.
+
+**Measured blast radius** (before/after engine copies diffed against the eval harness's
+`streetwear` and `resort` fixtures): the **set** of selected outfits never changes (re-sorting
+doesn't affect which candidates are chosen, only their order) — but for `streetwear`, 23 of 24
+common outfits changed rank position, and the top-10 shown to the user turns over by 40%
+(4 outfits enter/leave the visible top-10). Worth watching after deploy; logged in `backlog.md`.
+
+### `distressed`: re-added as a real, enforced signal
+
+`BannedFeature` declared `'distressed'` and 14 style configs listed it in `bannedFeatures`, but
+`featuresPasses` (`filtering.ts`) never implemented a check for it — dead vocabulary. This
+morning's commit (240a5b1) had resolved that inconsistency by **removing** `'distressed'`
+rather than implementing it (no ingest-time signal existed to check against). Today's session
+reversed that decision: added a real signal instead.
+
+New nullable `clothing_items.distressed boolean` column
+(`supabase/migrations/20260811000002_clothing_items_distressed.sql`) — visible INTENTIONAL wear
+or damage (rips, tears, frayed/raw hems, heavy fading/whiskering, acid/stone wash, deliberately
+abraded surfaces), explicitly NOT natural texture, a normal wash, or vintage styling without
+actual damage. `FabricProfile.distressed?: boolean` on the engine's `FitItem`
+(`generate-outfits/engine/types.ts`), populated in `toFitItem` (`enrichment.ts`) from
+`ClothingItemRow.distressed`. `featuresPasses` (`filtering.ts`) is **fail-open**: it only
+rejects when `fabric.distressed === true` AND the style bans it — `null`/`undefined`
+(unassessed item; ~70 existing wardrobe items predate this column) never rejects, so the
+backfill gap can't mass-fail real wardrobes overnight. `'distressed'` restored to the same 14
+`bannedFeatures` lists it was stripped from (oldmoney, smartcasual, preppy, feminine,
+officechic, coquette, cleangirl, elegant, businessformal, resort, glam, normcore, sporty,
+pinup). New tests in `filtering-extensions.test.ts` pin the fail-open guarantee (confirmed-true
+rejects; undefined/null/no-ban-declared all pass) plus a real-config case (oldmoney rejects
+distressed wool trousers, passes the same trousers undistressed).
+
+Threaded through ingest end-to-end: `generate-item-image/prompt.ts`'s extraction schema +
+prompt text (new `snapDistressed()` validator, `"distressed": true|false|null` field with the
+same intentional-damage-vs-natural-texture wording as the column comment);
+`backfill-item-metadata/index.ts` (added to `SELECT_COLS`, the `needsGemini` staleness check,
+the `.or()` null-check filter, and the patch-fill logic — only fills a confident boolean, never
+overwrites); `evaluate-item/index.ts` (reads it off a freshly-scanned item before it's ever
+saved); the three engine functions' selects/mappers (`generate-outfits/index.ts`,
+`wardrobe-critic/index.ts`, and `pinItemToRow`); and the client ingest chain
+(`imageGenerationService.ts`'s `GarmentMetadata`/`RawMetadata`, `wardrobeService.ts`'s
+`AddItemInput`/`ClothingItemRow`/`rowToItem`/`addItem`, `wardrobe-add/types.ts`'s
+`ExtractedItem`, `useAddWizard.ts`). No edit UI (same MVP scope as `primaryHex`/`secondaryHex`).
+**The ~70 pre-existing items still need a backfill run** to get a real value instead of
+`NULL` — logged in `backlog.md` (needs `BACKFILL_ADMIN_SECRET`, owner-only).
+
+### Gemini model migration: env overrides + two retirement fixes
+
+All Gemini model names across the 9 edge functions that call one are now behind an env-var
+override, layered UNDER any pre-existing call-site-specific var so nothing already set in
+production breaks: `GEMINI_FLASH_MODEL` (vision/text tier — `generate-item-image`,
+`backfill-item-metadata`, `map-measurements`, `tryon-validate`, `curator.ts`, and
+`tryon-generate`'s `TRYON_VERIFY_MODEL` fallback), `GEMINI_FLASH_LITE_MODEL` (cheap-lite tier —
+`describe-outfit`'s `DESCRIBE_MODEL` fallback, `evaluate-item/note.ts`'s `VERDICT_NOTE_MODEL`
+fallback), `GEMINI_IMAGE_MODEL` (image-gen tier — `generate-item-image`, `tryon-generate`).
+Previously only 3/9 call sites read an env var at all; the other 6 were hardcoded and needed a
+code deploy to change models.
+
+**Flash tier**: moved default from `gemini-2.5-flash` to `gemini-3.6-flash` — the 2.5 tier has
+a real, announced shutdown (2026-10-16, confirmed against Google's official deprecations
+table).
+
+**Image tier — an already-live production bug, not just a future deadline**: moved default
+from `gemini-3-pro-image-preview` to `gemini-3-pro-image` (GA). The preview model's own
+shutdown date was **2026-06-25 — already past** (confirmed via the official deprecations
+table, Google's 2026-05-28 changelog deprecation entry, and third-party reports of live 404s
+calling it), and no Supabase secret was overriding the hardcoded default, so **production has
+been calling a retired model** since that date for both `generate-item-image` and
+`tryon-generate`. Per-image price is unchanged (~$0.134/image at 1K/2K, confirmed against the
+official pricing table), so the credit-cost math in `usageCreditService.ts` still holds — this
+was a pure availability fix, not a cost change.
+
+**Lite tier — deliberately NOT migrated (owner decision, cost-first)**: `gemini-2.5-flash-lite`
+has no announced shutdown date in Google's deprecations table (unlike 2.5-flash/-pro), so there
+is no forcing deadline. Moving now would mean paying 2.5–3.75x more ($0.10/$0.40 today vs. the
+cheapest upgrade path's $0.25/$1.50) to solve a deadline that doesn't apply. Priced/dated
+upgrade paths recorded in code comments for whoever revisits it:
+`gemini-3.1-flash-lite` ($0.25/M in, $1.50/M out, itself shuts down 2027-05-07) or the
+longer-lived `gemini-3.5-flash-lite` ($0.30/M in, $2.50/M out, no shutdown announced). Because
+the `GEMINI_FLASH_LITE_MODEL` env override now exists, migrating the day Google *does*
+announce a lite-tier shutdown is a Supabase secret change with no redeploy required.
+
+`scripts/eval-feed/judge.ts` (dev tooling, not deployed) updated the same way — default
+`gemini-2.5-flash` → `gemini-3.6-flash`, override via the same `GEMINI_FLASH_MODEL`.
+
+### Security audit: demo account, credit metering, RLS
+
+A security audit (prompted by the fact that the demo account's password ships inside the public
+JS bundle via `EXPO_PUBLIC_DEMO_PASSWORD` — anyone can sign in as demo) found:
+
+- **RLS is correctly scoped on all 21 tables** — the demo account cannot read/write another
+  user's data and cannot escalate its own `account_type` (an existing DB trigger,
+  `protect_account_type`, already enforces that).
+- **The demo account had an unconditional, unmetered bypass on paid image generation** —
+  `gateCredit()` in both `generate-item-image/index.ts` and `tryon-generate/index.ts` returned
+  early for `accountType === 'demo'`, skipping `consume_usage_credit` entirely. Since the demo
+  password is effectively public, this was an unbounded-cost hole. Fixed: demo now consumes
+  against its own finite monthly quota, `DEMO_LIMITS = { ai_extraction: 50, try_on: 50 }`
+  (`usageCreditService.ts`, duplicated by hand in both edge functions per the existing
+  FREE_LIMITS/PREMIUM_LIMITS pattern — no shared cross-function module exists yet), through the
+  SAME `consume_usage_credit` RPC every other tier uses. Per-credit-type (not a combined pool),
+  worst case ≈ $13.4/month combined at current image pricing — the figure the owner approved.
+  (An earlier pass in this same session used 100/type ≈ $26.8/month combined; corrected to
+  50/type same day before anything shipped.) This also makes an earlier backlog note
+  ("demo stays unlimited, App Store reviewers must not hit a wall") stale — 50/month per credit
+  type is still well above what a thorough review needs (well under 20 in practice).
+- **`consume_usage_credit` always failed, so EVERY tier was unmetered in production** — the
+  deployed `usage_credits` table has a `period_end date NOT NULL` column with no default,
+  introduced by some out-of-band change with no matching migration file in this repo (schema
+  drift, consistent with the project's known drift history). The RPC's `INSERT` (from
+  `20260625000002_usage_credit_consume_rate_limit.sql`) never set `period_end`, so every call
+  threw `23502 null value in column "period_end"` — and `gateCredit()`'s catch block fails OPEN
+  by design for transient RPC errors, so this permanent failure meant free/premium/demo were
+  ALL unmetered, not just the demo bypass above. Fixed with a new migration
+  (`20260811000003_fix_consume_usage_credit_period_end.sql`) that derives `period_end` as the
+  last day of `p_period`'s calendar month via `date_trunc`. Live-verified end-to-end against
+  temporary rows (deleted after verification, not committed).
+- **`usage_credits.credits_used`/`credits_limit` were directly writable by their own owner** —
+  the RLS policy on that table is `cmd=ALL` with no `WITH CHECK`, and (unlike
+  `profiles.account_type`) no protective trigger existed, so any authenticated user could PATCH
+  their own row back to `credits_used: 0` via PostgREST, bypassing the monthly cap before the
+  edge function's gate ever ran. Fixed with a new trigger, `protect_credits()`
+  (`20260811000004_protect_usage_credits_trigger.sql`), that blocks any change to those two
+  columns unless a transaction-local GUC flag (`app.credit_write_allowed`) is set — a flag only
+  `consume_usage_credit()`/`refund_usage_credit()` ever set, right before their own UPDATE. A
+  naive port of `protect_account_type()`'s `current_user <> 'service_role'` check was tried
+  first and live-tested to **break the legitimate RPC path**: both credit RPCs are
+  `SECURITY DEFINER` owned by `postgres`, so `current_user` inside them is `'postgres'`, never
+  `'service_role'` — a role-name check would have either permanently broken the RPC or required
+  trusting the entire `postgres` role (a much wider, decaying trust surface). The GUC-flag
+  approach grants the capability to exactly those two named functions.
+
+### Demo wardrobe: 3 permanently-broken local-photo items deleted
+
+3 demo-account wardrobe items whose photos were local-only and permanently lost (no matching
+file, `photo_storage='local'`) were deleted from `clothing_items` after confirming nothing else
+referenced them (no FK hits) — backed up to a scratchpad JSON first. The demo account now has
+32 items and zero rows with `photo_storage='local'`.
+
+### Measurements: `pose_estimated` / `measurements_consent` now reach the DB
+
+`measurementService.ts`'s `MeasurementRow`/`bodyToRow()`/`rowToBody()` never mapped
+`pose_estimated`/`measurements_consent` — the columns exist on the live DB and the onboarding
+flow already sent both values, but they were silently dropped before the upsert, so consent was
+never actually persisted (privacy-relevant) despite the client believing it had been. Root
+cause: two different `BodyMeasurements` interfaces exist in this codebase
+(`src/types/fitEngine.ts` and `src/types/measurements.ts`), and `measurementService.ts` was
+importing the one that lacked these two fields. Now mapped both directions (both columns are
+`NOT NULL DEFAULT false` on the live schema — verified via the Management API — so they're only
+written when the caller explicitly sets a value, never as `null`). Note: mapping the columns
+through does not mean anything currently *sets* `poseEstimated` from a real pose-capture flow —
+that's a separate, still-open gap, logged in `backlog.md`.
+
+Also: clearing bust/waist/hip previously left the *previous* `body_shape` behind in the DB
+(both `useMeasurements.save()` and `measurements-edit.tsx`'s save wrote
+`bodyShape ?? undefined`, and `undefined` means "don't touch this column" — see
+`bodyToRow()`). Now both write the derived `null`/`BodyShape` value through as-is, so an
+explicit `null` reaches the DB as a real clear when the girths needed to derive a shape are no
+longer on file.
+
+### Verify
+
+`npx tsc --noEmit`: clean. `npx jest`: 38 suites / 556 tests passed. `deno test --allow-all
+supabase/functions/generate-outfits/engine/`: 284 passed, 0 failed (was 276 before this
+session — +8 net: 6 new `distressed` tests in `filtering-extensions.test.ts`, 3 new
+`ranking-order.test.ts` tests, minus 1 net from other suite changes). `deno test --allow-all
+supabase/functions/evaluate-item/`: 37 passed, 0 failed. `deno test --allow-all
+supabase/functions/wardrobe-critic/`: 11 passed, 0 failed. Not run: `expo`/`eas` build, no
+Supabase Edge Function deploy (owner deploys separately — see `backlog.md` for the full list of
+functions this session touched), no commit/push — all per instruction.

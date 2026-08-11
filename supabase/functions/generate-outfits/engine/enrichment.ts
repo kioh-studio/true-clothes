@@ -742,7 +742,9 @@ export function toFitItem(item: ClothingItemRow): FitItem {
     typeName: item.type.toUpperCase(),
     colorProfile,
     graphics,
-    fabric: { ...fabric, pattern, layerRole },
+    // distressed (2026-08-11): null/undefined both collapse to undefined —
+    // fail-open, featuresPasses only rejects on a literal `true`.
+    fabric: { ...fabric, pattern, layerRole, distressed: item.distressed ?? undefined },
     // Stored can_layer (AI-extracted or user-set) wins over the rule derivation.
     canLayer: item.canLayer ?? deriveCanLayer(item.type, fabricName, fabric.fabricWeight, fit),
     garmentMeasurements: parseMeasurements(item.measurements, category),

@@ -4,8 +4,10 @@
 //
 // Cheap GATE before the expensive image generation: confirm the uploaded photo
 // shows ONE clear human subject, visible head-to-toe, that we can dress. Runs
-// gemini-2.5-flash (vision → text) and returns a small JSON verdict the client
-// uses to either proceed or ask the user to pick another photo.
+// VISION_MODEL (vision → text; default gemini-3.6-flash, override via
+// GEMINI_FLASH_MODEL — gemini-2.5-flash retires 2026-10-16) and returns a
+// small JSON verdict the client uses to either proceed or ask the user to
+// pick another photo.
 //
 // Full-body requirement (2026-08-08): the try-on result must show the user's
 // real body at its real proportions, and edit-in-place can only do that by
@@ -29,7 +31,9 @@ const corsHeaders = {
 };
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-const VISION_MODEL = 'gemini-2.5-flash';
+// Shared vision/text-tier secret — same var moves generate-item-image,
+// backfill-item-metadata, map-measurements, curator.ts together.
+const VISION_MODEL = Deno.env.get('GEMINI_FLASH_MODEL') || 'gemini-3.6-flash';
 const TIMEOUT_MS = 12000;
 
 const SYSTEM = `You are a strict image gate for a virtual clothing try-on feature. You are shown ONE photo. Decide whether it is suitable for rendering an outfit onto the person.

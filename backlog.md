@@ -62,11 +62,13 @@
   `docs/personal-color-device-test-protocol.md`. Doc đã ghi rõ chỗ chèn `console.log`
   tạm trong `analyzeFace` (instrumentation vứt đi, không ship).
 
-- [ ] **`takePictureAsync` không try/catch — CHƯA loại trừ được** (2026-08-10) — smoke-test
-  trên emulator-5554 không ép được reject nên giả thuyết "treo vĩnh viễn ở màn camera"
-  vẫn mở. Rủi ro thật trên máy thật: app khác chiếm camera, thoát app giữa lúc chụp, thu
-  hồi quyền. Đã ghi triệu chứng cần báo ("đứng im ở màn camera, không crash") vào
-  protocol test.
+- [x] **`takePictureAsync` không try/catch** (2026-08-10) — FIXED 2026-08-11: cả 4 chỗ gọi
+  (`FaceScanStep`/`WristScanStep` trong `app/(onboarding)/personal-color.tsx` VÀ
+  `app/personal-color-edit.tsx`) giờ có try/catch — reject thì phục hồi state (drop
+  flash/dim overlay, bật lại torch) rồi `Alert.alert(t('personalColor_captureFailedTitle'),
+  t('personalColor_captureFailedMessage'))` (2 key i18n mới, en/vi) thay vì màn hình treo
+  im lặng. Xem thêm mục trùng lặp ở section E "Crash/hang (Medium)" bên dưới (cùng bug,
+  cùng fix).
   ✅ Tin tốt từ cùng lần smoke-test: nhánh FALLBACK chạy đúng — face-scan → wrist-scan →
   câu hỏi fallback → result `TRUE SPRING` → save thành công, không crash, sạch trong ~25k
   dòng logcat. Ghi chú: deep link `mien://onboarding/personal-color` KHÔNG hoạt động
@@ -99,13 +101,12 @@
   `wardrobe-critic`). Not requested by the chốt design, but worth considering later: a
   small "not scoring by X today" note somewhere in the feed/verdict/critic UI, so a user
   who toggled something off months ago and forgot isn't confused by shifted suggestions.
-- [ ] **`evaluate-item`'s AI fit-note context (`note.ts` `buildNoteContext`) still passes
-  the user's full `selectedStyles` list even when `suggest_by_style=false`** — the LLM is
-  correctly told the `style` criterion is `available: false` (via `verdict.criteria`,
-  which the toggle already gates) and its system prompt is instructed to only use that
-  JSON, so this is not currently a bug. But it's an extra raw signal in the payload that
-  a future prompt-engineering change could accidentally start reading. Consider blanking
-  `profile.styles` too when the toggle is off, for defense-in-depth.
+- [x] **`evaluate-item`'s AI fit-note context (`note.ts` `buildNoteContext`) still passes
+  the user's full `selectedStyles` list even when `suggest_by_style=false`** — FIXED
+  2026-08-11 (2026-08-11 batch, confirmed defect #4): `evaluate-item/index.ts` now passes
+  `styles: suggestByStyle ? selectedStyles : []`, reusing the same `suggestByStyle`
+  accessor already read earlier in the handler — no second source of truth. Was defense-
+  in-depth as described (not user-visible before the fix either), now closed.
 - [ ] **`wardrobe-critic`/`evaluate-item` response schemas don't surface which toggles
   were off for that call** — `generate-outfits` doesn't either (this was intentionally
   out of scope per the chốt design — DB-only toggles, no request/response wiring). If a
@@ -176,11 +177,12 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   camera) works on any device with a screen, iPad included — so the PRIMARY
   face read is unaffected by this gap. Fixing the wrist step itself is still
   open, just lower priority now that it's not the primary signal.
-- [ ] **Share sheet not anchored on iPad** — `app/(tabs)/index.tsx:290` and
-  `app/outfit/[id].tsx` call `Share.share({ message })` with no `anchor`;
-  on iPad the popover appears from a default corner instead of the share
-  button. Cosmetic (no crash on New Arch). Pass an `anchor` node handle to
-  polish. (2026-07-22)
+- [x] **Share sheet not anchored on iPad** — FIXED 2026-08-11: both call sites now pass a
+  `findNodeHandle()` anchor. `app/(tabs)/index.tsx`'s `ActionBtn` converted to
+  `React.forwardRef` so the feed card's share button exposes a ref (`shareBtnRef`); the
+  share `onPress` passes `{ anchor }` (only when the handle resolves — falls back to no
+  anchor otherwise). `app/outfit/[id].tsx` gets its own `shareBtnRef` on the detail
+  screen's share icon the same way. See `src/design/feed/design.md`. (2026-07-22)
 
 ## A. Chờ anh Khôi duyệt — trade-off lớn (chi phí / UX / phạm vi)
 
@@ -388,17 +390,17 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
 - [ ] **Gemini judge cho eval harness.** `scripts/eval-feed/judge.ts` sẵn sàng nhưng máy dev
   không có GOOGLE_API_KEY (secret chỉ nằm trên Supabase). Cần anh Khôi set key local hoặc
   đưa vào CI để có blind A/B judge thật; hiện các vòng đo đều chấm tay theo rubric.
-- [ ] **`measurements-edit.tsx` có cùng bug hydrate-race đã fix ở colors-edit/styles-edit/
-  formulas-edit (2026-07-07)**: `useState(() => ({ height: cmStr(bm.body_height), ... }))`
-  snapshot `bodyMeasurements` một lần lúc mount, không re-sync khi `useFitEngineStore`
-  hydrate xong (async, có thể trễ). Nếu mở trước khi hydrate xong → form hiện trống, Save
-  ghi đè DB bằng số đo rỗng — RỦI RO THẤP hơn colors/styles (số đo là required field, thường
-  đã có sẵn trong `authStore` khi vào Settings, và validate chặn most-empty submits) nhưng
-  cơ chế bug giống hệt. CHƯA fix — cần cùng pattern resync-if-untouched + `hydrated` guard
-  trên Save. `personal-color-edit.tsx` đã kiểm tra: KHÔNG dính bug này — nó chạy lại toàn bộ
-  quiz/scan từ đầu mỗi lần mở (không snapshot dữ liệu cũ vào state để chỉnh sửa), chỉ hiển
-  thị `existingSeason` qua selector reactive (`useAuthStore(s => s.colorSeason)`), không qua
-  snapshot một lần.
+- [x] **`measurements-edit.tsx` có cùng bug hydrate-race đã fix ở colors-edit/styles-edit/
+  formulas-edit (2026-07-07)** — FIXED 2026-08-11: same resync-if-untouched pattern.
+  `buildValues(bm)` helper shared by the initial `useState` and a new resync `useEffect`
+  (`lastBmRef`/`initialRef` track "did the store just change" vs "did we just re-render",
+  only re-adopts a late store value while the form is still untouched), plus a `hydrated`
+  guard on Save. **Extra bug found and fixed while doing this**: the Discard button reset
+  the numeric fields but never reset a manual `shapeOverride` — discarding left a manual
+  body-shape override in place. Now resets both. `personal-color-edit.tsx` đã kiểm tra: KHÔNG
+  dính bug này — nó chạy lại toàn bộ quiz/scan từ đầu mỗi lần mở (không snapshot dữ liệu cũ
+  vào state để chỉnh sửa), chỉ hiển thị `existingSeason` qua selector reactive
+  (`useAuthStore(s => s.colorSeason)`), không qua snapshot một lần.
 
 ## B. Cần thiết bị thật / dữ liệu thật (không verify được từ máy dev)
 
@@ -545,15 +547,21 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   để nguyên; muốn hết thì recolor png về #FAF7F2 hoặc để transparent.
 - [ ] **Weather filter trên feed (nếu muốn quay lại)**: giờ mỗi outfit đã có `weatherBand`
   thật (2026-07-03) nên filter/auto-bias theo band đã khả thi — làm khi có nhu cầu UX.
-- [ ] **`pose_estimated` + `measurements_consent` chưa được map trong measurementService**
-  (2026-07-05, phát hiện khi fix `body_shape` mapping): cột có sẵn trong DB, onboarding
-  gửi `measurementsConsent`/`poseEstimated` nhưng `bodyToRow()` drop lặng lẽ → consent
-  chưa bao giờ ghi xuống DB (privacy-relevant). Cần quyết semantics trước khi map (consent
-  false có nghĩa là phải xoá số đo?) nên chưa fix cùng đợt.
-- [ ] **Xoá bust/waist/hip không clear `body_shape` cũ trong DB** (2026-07-05): cả
-  useMeasurements lẫn measurements-edit đều save `bodyShape ?? undefined` → thiếu số đo
-  thì giữ shape cũ (stale) thay vì ghi null. Đổi thành ghi null nếu muốn shape luôn
-  consistent với số đo hiện có.
+- [x] **`pose_estimated` + `measurements_consent` chưa được map trong measurementService**
+  (2026-07-05, phát hiện khi fix `body_shape` mapping) — FIXED 2026-08-11: root cause hoá
+  ra là 2 interface `BodyMeasurements` khác nhau tồn tại song song (`src/types/fitEngine.ts`
+  và `src/types/measurements.ts`) — `measurementService.ts` import nhầm bản THIẾU 2 field
+  này. Giờ map cả hai chiều (`rowToBody`/`bodyToRow`); cả 2 cột đều `NOT NULL DEFAULT false`
+  trên live schema (verify qua Management API) nên chỉ ghi khi caller thực sự set giá trị,
+  không bao giờ ghi `null`. **CÒN TREO**: map xong không có nghĩa app đã THỰC SỰ set
+  `poseEstimated` từ một flow đo-bằng-pose thật nào — xem mục mới trong section AE bên dưới.
+- [x] **Xoá bust/waist/hip không clear `body_shape` cũ trong DB** (2026-07-05) — FIXED
+  2026-08-11: cả `useMeasurements.save()` lẫn `measurements-edit.tsx`'s `handleSave` giờ
+  ghi `bodyShape` (giá trị `BodyShape | null`) thẳng xuyên qua thay vì `bodyShape ?? undefined`
+  — `null` giờ tới được `measurementService.bodyToRow()` như một lệnh xoá tường minh thay vì
+  bị `undefined` làm upsert bỏ qua cột. `wear.tsx`'s read (`measurements?.bodyShape ??
+  undefined`) và `types/fitEngine.ts`/`types/measurements.ts`'s doc comment cũng cập nhật
+  theo ngữ nghĩa 3 trạng thái (set | clear | để nguyên) này.
 - [ ] **Dịch data-catalog content (2026-07-06, từ i18n sweep)**: `src/data/index.ts`'s
   demo style/color/occasion display names (`'OLD MONEY'`, `'CASUAL FRIDAY'`, `'STREETWEAR'`…),
   `build.tsx`'s synthetic `style`/`context` fallback (`'CUSTOM'`, `'CASUAL'`), và server-side
@@ -601,37 +609,49 @@ chọn ảnh thư viện (`tryOnStore.ts` + `useAddWizard.ts` toDataUri, giờ �
   token: `reset()`/`pinWardrobeItem()`/mỗi `scan()` mới bump token; scan() dở dang bị huỷ
   (back X trong lúc scanning giờ gọi `reset()`) sẽ tự dọn file vừa tạo và không ghi đè state
   khi resolve trễ — sửa luôn race "stale scan tự nhảy vào Result sau khi đã cancel".
-- [ ] **`useAddWizard`/`tryOnStore` chưa guard double-submit UI (double-tap nút).** Token đã
-  chặn được phần leak/race dữ liệu ở tầng store; vẫn nên thêm disable-while-pending ở nút
-  Scan/Add-to-Wardrobe cho double-tap UI nếu muốn chặt hơn.
+- [x] **`useAddWizard`/`tryOnStore` chưa guard double-submit UI (double-tap nút).** PARTIALLY
+  FIXED 2026-08-11: `src/features/try-on/components/ScanScreen.tsx` đóng khoảng hở thật —
+  `tryOnStore`'s `status` chỉ chuyển `'scanning'` SAU KHI permission request + native picker
+  UI đã resolve, nên double-tap nhanh vào "Take photo"/"Choose from library" có thể mở picker
+  gốc 2 lần đồng thời. `pickerBusy` state mới disable cả 2 nút cho toàn bộ handler (không chỉ
+  đoạn gọi `scan()` sau picker). Nút Add-to-Wardrobe (wardrobe-add wizard) đã được guard riêng
+  từ trước, KHÔNG đụng tới trong đợt này.
 
-- [ ] **`app/measurements-scan.tsx` imports `'expo-file-system'` (new API), not
-  `'expo-file-system/legacy'`** (phát hiện 2026-07-06, phiên measure-eval harness — không
-  thuộc phạm vi task đó nên không tự sửa): mọi file khác trong repo dùng
-  `documentDirectory`/`deleteAsync`/`writeAsStringAsync` đều import từ
-  `'expo-file-system/legacy'` (`itemPhotoService.ts`, `tryOnWearService.ts`,
-  `seedLocalPhotos.dev.ts`, ...) vì API top-level mới của package chỉ còn shim
-  deprecated cho các hàm này — theo `node_modules/expo-file-system/build/legacyWarnings.d.ts`,
-  các shim đó **throw at runtime**. `measurements-scan.tsx` gọi
-  `FileSystem.deleteAsync(...)` 5 chỗ (cleanup file tạm, kể cả comment "PRIVACY: ... deleted")
-  nhưng tất cả đều bọc `.catch(() => {})` nên lỗi bị nuốt im lặng — nghĩa là **frame tạm
-  của camera scan có thể KHÔNG BAO GIỜ thực sự bị xoá** trên build đang chạy package
-  version này (privacy-relevant, cần verify trên máy thật). Fix: đổi import sang
-  `'expo-file-system/legacy'` giống các file khác, rồi verify file tạm thật sự biến mất.
+- [x] **`app/measurements-scan.tsx` imports `'expo-file-system'` (new API), not
+  `'expo-file-system/legacy'`** (phát hiện 2026-07-06) — **MỤC NÀY ĐÃ LỖI THỜI, KHÔNG CẦN
+  SỬA**: kiểm tra lại 2026-08-11, `app/measurements-scan.tsx:43` đã import đúng
+  `'expo-file-system/legacy'` từ trước — không rõ đã được sửa ở phiên nào giữa 2026-07-06 và
+  hôm nay, nhưng hiện trạng đã đúng. Không có thay đổi nào được thực hiện trong đợt dọn
+  backlog 2026-08-11 vì không có gì để sửa.
 
 **Crash / hang (Medium):**
-- [ ] Loạt màn onboarding gọi async không try/catch (`account.tsx`, `basics.tsx`,
+- [x] Loạt màn onboarding gọi async không try/catch (`account.tsx`, `basics.tsx`,
   `location.tsx`, `styles.tsx`, `colors.tsx`, `complete.tsx`, `wardrobe-intro.tsx`) — mất
   mạng giữa lúc bấm Continue/Save làm nút loading kẹt mãi, không báo lỗi.
   `fitEngineStore` write actions (`setBodyMeasurements`, `setStyleProfile`,
   `setColorPreferences`, ...) cũng không tự bắt lỗi, và các trang edit
   (`measurements-edit.tsx`, `styles-edit.tsx`, `colors-edit.tsx`, `formulas-edit.tsx`) gọi
   chúng cũng không catch — Supabase upsert fail thì local state đã lỡ update lạc quan,
-  client/server lệch nhau âm thầm.
-- [ ] `personal-color.tsx` — `cameraRef.current.takePictureAsync(...)` (2 chỗ) không có
+  client/server lệch nhau âm thầm. FIXED 2026-08-11: cả 7 màn onboarding giờ có
+  try/catch/finally + busy-flag chặn double-tap + `Alert.alert`/inline error khi fail.
+  8 write action của `fitEngineStore` (`setFormulaPreferences`, `setSuggestionToggles`,
+  `setShapeGoal`, `setBodyMeasurements`, `setStyleProfile`, `setColorPreferences`,
+  `addSelectedStyle`, `removeSelectedStyle`) giờ `throw` khi `upsertMy*()` trả `{ ok: false }`
+  thay vì đọc-rồi-bỏ-qua kết quả (local optimistic update CỐ Ý không rollback — xem
+  plan.md). Cùng fix áp cho `authStore.saveMeasurements` — việc này còn làm SỐNG LẠI một
+  nhánh catch chết từ trước: `useMeasurements.save()` đã có try/catch quanh
+  `saveMeasurements()` nhưng vì store chưa từng throw nên catch đó chưa bao giờ chạy được.
+  4 màn edit (`colors-edit`/`formulas-edit`/`styles-edit`/`measurements-edit`) đều thêm
+  `saving` busy-flag + `saveError` hiển thị trên sticky save bar + try/catch/finally quanh
+  `handleSave`. i18n key mới `fitEngineStore_syncFailed` (en/vi). Chi tiết đầy đủ:
+  `plan.md` "Backlog-clearing session (010-wardrobe-critic follow-up, 2026-08-11)".
+- [x] `personal-color.tsx` — `cameraRef.current.takePictureAsync(...)` (2 chỗ) không có
   try/catch; camera bận/app bị background → unhandled rejection, bước scan kẹt im lặng.
-- [ ] `app/try-on/wear.tsx:51` — `JSON.parse(data)` từ nav param không try/catch (khác
-  `app/outfit/[id].tsx` đã guard); param hỏng/bị cắt → crash màn hình.
+  FIXED 2026-08-11 — xem mục đã đánh dấu ở section AB phía trên (cùng fix, áp cho cả
+  `personal-color.tsx` lẫn `personal-color-edit.tsx`, 4 điểm gọi tổng cộng).
+- [x] `app/try-on/wear.tsx:51` — `JSON.parse(data)` từ nav param không try/catch (khác
+  `app/outfit/[id].tsx` đã guard); param hỏng/bị cắt → crash màn hình. FIXED 2026-08-11:
+  bọc try/catch, fallback về `OUTFITS.find(...)` giống `app/outfit/[id].tsx` khi parse lỗi.
 - [x] `usageCreditService.checkCredit()` fail-open — FIXED 2026-07-03: check `error`, trả
   hết credit (fail-closed) khi query lỗi thay vì coi như `used:0`.
 - [x] Try-On `evaluate-item/scoring.ts:194` — FIXED 2026-07-03: đổi `!item.colorProfile.hue`
@@ -1055,12 +1075,15 @@ of scope"/"Do NOT run the app").
   commented out in `app/(tabs)/profile.tsx` because they had no destination screen. Build
   the screens (or wire existing flows) then re-enable. "Location & weather" overlaps with the
   deferred live-weather/GPS work in section C.
-- [ ] **Latent: `generate-outfits/index.ts:248` selects a non-existent `formulas.slug`
-  column** (spotted 2026-07-23 while fixing the client formulas schema-drift bug). The live
-  `formulas` table has no `slug` column (its `id` IS the slug). `supabase.from('formulas')
-  .select('slug').eq('id', formulaId).single()` will error / return null → `formulaRow?.slug`
-  is undefined. Verify what it feeds (likely the outfit's formula label) and either select
-  `id`/`name` instead or drop the lookup. Server-side, low priority, not user-blocking.
+- [x] **Latent: `generate-outfits/index.ts:248` selects a non-existent `formulas.slug`
+  column** (spotted 2026-07-23) — FIXED 2026-08-11 (2026-08-11 batch, confirmed defect #1):
+  turned out NOT low-priority/not-user-blocking as originally logged — the query always
+  errored/returned null, so `resolvedFormulaSlug` was silently NEVER set, which meant a
+  user's EXPLICIT formula pick (client already sends the right id) was dead-lettered on
+  EVERY call and silently fell through to `formulaPreferences`/undefined instead. Since
+  `formulaId` already IS the slug value (same finding as
+  `formulasCatalogService.ts`'s existing schema-drift comment), fixed by dropping the DB
+  round-trip entirely: `resolvedFormulaSlug = formulaId as FormulaId | undefined`.
 
 ## H. App identifier rename follow-ups (2026-07-31)
 
@@ -1219,6 +1242,13 @@ Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offlin
   `plan.md` "Premium usage quota" (2026-08-05) va `src/services/usageCreditService.ts`.
   `tryon-generate` van chua co `consume_rate_limit` rieng — quota thang moi la chan chinh,
   van con lo hong burst-trong-thang (chua xu ly, ngoai scope task nay).
+  **CẬP NHẬT 2026-08-11 (security audit — ghi chú "demo vẫn vô hạn" ở trên nay đã LỖI THỜI)**:
+  demo KHÔNG còn vô hạn — password demo public trong JS bundle nên bị coi là threat model
+  khác (ai cũng đăng nhập được), giờ metered qua `DEMO_LIMITS = { ai_extraction: 50, try_on:
+  50 }`/tháng, cùng RPC `consume_usage_credit`. Nghiêm trọng hơn: audit còn phát hiện RPC
+  `consume_usage_credit` LUÔN LỖI (thiếu `period_end`) nên fail-open khiến CẢ 3 tier (free/
+  premium/demo) đều KHÔNG bị trừ credit thật trong production cho tới hôm nay — xem mục mới
+  trong section AE bên dưới.
 - [x] **`ai_extraction` tinh 1 credit/ANH nhung fan-out N lan image-gen** (2026-08-04,
   PARTIALLY ADDRESSED 2026-08-05) — `generate-item-image/index.ts` chay `Promise.all` mot lan
   image-gen cho MOI mon do detect duoc trong anh, khong co cap. Anh 4 mon = 1 credit nhung
@@ -1227,26 +1257,29 @@ Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offlin
   hoat toi 3 lan generation tra tien (~3 x $0.13 = $0.39), tuc credit KHONG con ty le 1:1
   voi so anh sinh ra — can quyet dinh tiep: tinh credit theo so mon thuc te, hay chap nhan
   cap 3 la du re de bo qua.
-- [ ] **Thong nhat MOI ten model qua env override (chuan bi cho deadline 16/10)** (2026-08-05).
-  Hien 3/9 cho da doc env, doi model chi can `supabase secrets set`, KHONG can deploy:
-  `describe-outfit` (`DESCRIBE_MODEL`), `evaluate-item/note.ts` (`VERDICT_NOTE_MODEL`),
-  `generate-outfits/engine/curator.ts` (`CURATOR_MODEL`).
-  6 cho con lai hardcode, phai sua code + deploy: `backfill-item-metadata:44`,
-  `generate-item-image:36` (VISION_MODEL) va `:37` (IMAGE_GEN_MODEL), `tryon-generate:35`,
-  `tryon-validate:25`, `map-measurements:25`.
-  Nen doi ca 6 cho sang pattern `Deno.env.get('X_MODEL') ?? DEFAULT` — sau do dot migrate
-  2.5 -> 3.x (va bat ky lan A/B model nao) chi la doi secret, rollback tuc thi neu chat luong
-  te di, khong ton lan deploy nao. Dac biet dang lam voi 2 cho IMAGE_GEN_MODEL de co the thu
-  Flash Image roi quay ve Pro ngay trong vai giay.
+- [x] **Thong nhat MOI ten model qua env override (chuan bi cho deadline 16/10)** (2026-08-05)
+  — FIXED 2026-08-11: het ca 6 cho con lai (`backfill-item-metadata`, `generate-item-image`
+  VISION_MODEL + IMAGE_GEN_MODEL, `tryon-generate` VERIFY_MODEL, `tryon-validate`,
+  `map-measurements`, `generate-outfits/engine/curator.ts` da co CURATOR_MODEL rieng nhung
+  gio fallback tiep sang biến chung) gio doc `GEMINI_FLASH_MODEL`/`GEMINI_FLASH_LITE_MODEL`/
+  `GEMINI_IMAGE_MODEL` (biến CHUNG theo tier, lồng DƯỚI biến call-site cũ nếu có nên prod
+  đang set gì vẫn không vỡ). Đổi model từ giờ chỉ cần `supabase secrets set`, không cần
+  deploy code. Xem `plan.md` "Gemini model migration" (2026-08-11).
 
-- [ ] **Deadline cung: `gemini-2.5-*` bi Google tat 16/10/2026** (2026-08-04) — repo dang dung
-  `gemini-2.5-flash` (generate-item-image detect, tryon-validate, curator, map-measurements)
-  va `gemini-2.5-flash-lite` (evaluate-item note, describe-outfit). Phai migrate sang 3.x
-  truoc ngay do neu khong toan bo tinh nang AI chet.
-- [ ] **Don bay giam gia von lon nhat: doi model image-gen** (2026-08-04) —
-  `gemini-3-pro-image-preview` ~$0.13/anh. Gemini 3.1 Flash Image ~$0.067 (1K), Imagen 4 Fast
-  ~$0.02. Doi sang Flash Image giam ~50% gia von cua ca try-on lan extraction. Can A/B chat
-  luong anh truoc khi doi (day la tinh nang ban tien, khong duoc xau di).
+- [x] **Deadline cung: `gemini-2.5-*` bi Google tat 16/10/2026** (2026-08-04) — FIXED
+  2026-08-11: flash tier đổi default sang `gemini-3.6-flash` ở toàn bộ 9 chỗ gọi Gemini
+  (qua `GEMINI_FLASH_MODEL`, xem mục ngay trên). Lite tier (`gemini-2.5-flash-lite`) CỐ Ý
+  KHÔNG migrate — chưa có shutdown date công bố, xem mục riêng bên dưới. **Phát hiện thêm
+  ngoài phạm vi mục này**: `gemini-3-pro-image-preview` (image-gen tier) hoá ra ĐÃ bị tắt từ
+  2026-06-25 (đã qua), không phải deadline tương lai — production đã gọi model đã retired
+  suốt từ đó tới hôm nay. Đổi sang `gemini-3-pro-image` (GA), giá không đổi (~$0.134/ảnh).
+- [ ] **Don bay giam gia von lon nhat: doi model image-gen** (2026-08-04) — **VẪN CHƯA LÀM**,
+  đừng nhầm với fix 2026-08-11 ở trên (2 việc khác nhau): fix hôm đó chỉ SỬA model đã bị
+  Google retired (`gemini-3-pro-image-preview` → `gemini-3-pro-image`, GIÁ KHÔNG ĐỔI, cùng
+  ~$0.134/ảnh) — KHÔNG phải đòn bẩy giảm giá vốn này (đổi sang Flash Image/Imagen rẻ hơn
+  ~50-85%). Vẫn cần A/B chất lượng ảnh trước khi đổi. `GEMINI_IMAGE_MODEL` env override
+  (mới, 2026-08-11) giờ làm việc thử-rồi-rollback này rẻ hơn nhiều — chỉ cần đổi secret,
+  không cần deploy.
 - [x] **VERIFY LIVE DB: `usage_credits` co cot `credits_used`/`credits_limit` khong?** — DONE
   2026-08-05, KET QUA: **live DB dung ten MOI, khop voi RPC va client.** Probe qua PostgREST
   bang anon key:
@@ -1411,10 +1444,18 @@ Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offlin
   Android configure bằng key iOS. Đây là lỗi THẬT của bản Android production, không phải hạn
   chế emulator (lỗi `BILLING_UNAVAILABLE` đi kèm mới là do emulator không có Play Billing).
   → Phải sửa trước khi phát hành Play: tách key theo `Platform.OS` ở `app/_layout.tsx:81`.
-- [ ] **Bucket `avatars` dang public** (2026-08-04) — `profileService.uploadAvatar` dung
-  `getPublicUrl` (path `{userId}/{timestamp}.ext`), khac voi `wardrobe-photos` (private + signed
-  URL). Anh dai dien nguoi dung do la doan duoc URL neu biet userId. Nen doi sang private +
-  signed URL cho dong bo voi cam ket privacy trong App Privacy / Privacy Policy.
+- [x] **Bucket `avatars` dang public** (2026-08-04) — **PREMISE CỦA MỤC NÀY SAI**: audit
+  2026-08-11 xác nhận bucket `avatars` **đã LUÔN LÀ PRIVATE**, không phải public như mục này
+  ghi. Bug THẬT khác với mô tả gốc: `profileService.uploadAvatar` gọi `.getPublicUrl()` trên
+  một bucket private → URL trả về LUÔN 400 cho mọi người, nghĩa là avatar KHÔNG BAO GIỜ hiện
+  lên được (không phải rủi ro "URL đoán được" như mục gốc lo ngại — ngược lại, hoàn toàn
+  không dùng được). FIXED 2026-08-11 theo đúng hướng mục này đề xuất (private + signed URL,
+  dù lý do khác): `uploadAvatar`/`deleteAvatar` giờ chỉ đọc/ghi `profiles.avatar_path` (path
+  trong storage), không bao giờ ghi URL. `avatar_url` bị retired khỏi `ProfileRow`/
+  `AuthState`/`UserProfile` và khỏi mọi SELECT. `avatarSignedUrl(path)` mới trong
+  `profileService.ts` (mirror `itemPhotoService.signedUrl()`, TTL 1h) + hook
+  `useAvatarUri(avatarPath)` mới (`src/features/profile/useAvatarUri.ts`) resolve URL tại
+  thời điểm render. Xem `plan.md` "Avatar rendering" (2026-08-11).
 - [ ] **Chu bi cat ky tu cuoi do letterSpacing (Android)** (2026-08-04) — token `type.ui` /
   `type.micro` co `letterSpacing` 1.5/1.8; Android lam tron chieu rong text xuong nen glyph cuoi
   bi clip ("BEGIN" -> "BEGI"). Da vá `PrimaryButton`, `SecondaryButton`, `TextLink` bang
@@ -1491,17 +1532,36 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   chỉ log __DEV__, không telemetry — không biết tính năng có chạy thật không. (2026-08-06)
 
 ### K-bis. Phát sinh từ đợt fix 2026-08-06 (nhỏ, chưa làm)
-- [ ] `pinItemToRow` (Mix & Match item scan transient, generate-outfits/index.ts ~690) chưa
+- [x] `pinItemToRow` (Mix & Match item scan transient, generate-outfits/index.ts ~690) chưa
   mang `primary_hex`/`secondary_hex`/`graphics` — item pin chưa hưởng measured-color. (2026-08-06)
-- [ ] `wardrobe-critic/analyze.ts` build styleProfile không có computedAttributes giống bug cũ
+  FIXED 2026-08-11 (2026-08-11 batch, confirmed defect #5): thêm cả 3 field, VÀ thêm luôn
+  `distressed` (feature mới cùng đợt). Fix server một mình sẽ VÔ TÁC DỤNG nếu thiếu fix client
+  đi kèm — `fitEngineStore.fetchMixMatchOutfits`'s request builder cũng được sửa để thực sự
+  GỬI 3 field đó lên (test mới trong `fitEngineStore.mixmatch.test.ts`).
+- [x] `wardrobe-critic/analyze.ts` build styleProfile không có computedAttributes giống bug cũ
   của generate-outfits — hiện VÔ HẠI vì analyze không gọi resolveTargetSilhouette; chỉ cần nhớ
-  nếu wardrobe-critic sau này dùng silhouette-first. (2026-08-06)
-- [ ] `tryon-generate` deno check còn 4 lỗi TS2345 MinimalClient-vs-SupabaseClient — PRE-EXISTING
-  (verify bằng stash), dọn khi nào rảnh cho `deno check` sạch. (2026-08-06)
+  nếu wardrobe-critic sau này dùng silhouette-first. (2026-08-06) FIXED (defensive parity)
+  2026-08-11 (2026-08-11 batch, confirmed defect #6): `styleProfile.computedAttributes` giờ
+  được set, vẫn VÔ HẠI hôm nay (đúng như ghi chú gốc) nhưng chặn được landmine nếu
+  wardrobe-critic sau này gọi `resolveTargetSilhouette`.
+- [x] `tryon-generate` deno check còn 4 lỗi TS2345 MinimalClient-vs-SupabaseClient — PRE-EXISTING
+  (verify bằng stash), dọn khi nào rảnh cho `deno check` sạch. (2026-08-06) FIXED 2026-08-11
+  (2026-08-11 batch, confirmed defect #3): root cause là `MinimalClient`'s `.single()`/`.rpc()`
+  khai `Promise<...>` nhưng supabase-js's `PostgrestBuilder` chỉ thenable (có `.then()`, thiếu
+  `catch`/`finally`/`[Symbol.toStringTag]`) — không structurally assignable. Đổi cả 2 chữ ký
+  sang `PromiseLike<...>` (pure type fix, `await` chấp nhận mọi thenable, không đổi runtime).
+  CÙNG fix áp dụng cho `generate-item-image/index.ts`'s `MinimalClient` (cùng vấn đề, tự phát
+  hiện thêm khi sửa).
 - [ ] Caption "đã hoàn credit" của quality_warning hơi lệch với account demo (không trừ credit
-  nên không hoàn) — chỉ gặp ở account reviewer, ưu tiên thấp. (2026-08-06)
-- [ ] `evaluate-item/index.ts:199` lỗi type PRE-EXISTING (`pattern: string|null|undefined` vào
-  `buildNoteContext` expect `string|undefined`) — fix 1 dòng `?? undefined` khi nào tiện. (2026-08-06)
+  nên không hoàn) — chỉ gặp ở account reviewer, ưu tiên thấp. (2026-08-06) LƯU Ý 2026-08-11:
+  demo giờ CÓ trừ credit thật (xem section J, "demo vẫn vô hạn... nay đã LỖI THỜI") nên tiền
+  đề của mục này ("demo không trừ credit nên không hoàn") cũng đã thay đổi — demo giờ hoàn
+  credit như mọi tier khác, caption không còn lệch. Coi như hết hiệu lực, không cần sửa gì
+  thêm.
+- [x] `evaluate-item/index.ts:199` lỗi type PRE-EXISTING (`pattern: string|null|undefined` vào
+  `buildNoteContext` expect `string|undefined`) — fix 1 dòng `?? undefined` khi nào tiện.
+  (2026-08-06) FIXED 2026-08-11 (2026-08-11 batch, confirmed defect #2): đúng 1 dòng
+  `pattern: itemRow.pattern ?? undefined` như dự đoán.
 
 ## L. Gemini prepay credits CẠN — phát hiện 2026-08-07 khi debug try-on
 - [ ] **NGUYÊN NHÂN try-on "Không kiểm tra được ảnh": Google API key hết prepay credits**
@@ -1656,18 +1716,19 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   {en,vi}.json` không có key nào cho tên style — kể cả 8 style cũ. Giữ nguyên cơ chế này
   cho 14 style mới (không tự chế hệ dịch mới), nhưng đây là gap có thật nếu app cần hiển
   thị tên style bằng tiếng Việt.
-- [ ] **`wardrobe-critic/archetypes.ts`'s `ALL_STYLES` chưa có 14 style mới** —
-  `ALL_STYLES` (dòng ~25) hardcode đúng 8 id cũ, dùng làm `styleAffinity` cho vài
-  archetype (VD white tee, black tee). User chỉ chọn style mới (VD chỉ `feminine` +
-  `coquette`) có thể nhận ít gợi ý "gap" hơn từ Wardrobe Critic vì các archetype này
-  không khai `styleAffinity` bao gồm style mới. Nằm ngoài scope của việc mở catalog lần
-  này (chỉ động tới `STYLE_CONFIGS` + `public.styles`), cần đánh giá riêng có nên mở rộng
-  `ALL_STYLES` hay đổi archetype's styleAffinity không. (2026-08-10)
-- [ ] **`PATTERN_FRIENDLY_STYLES` (ranking.ts) / `HOUSE_OPPOSED_STYLES` (scoring.ts)
-  chưa có style mới** — 2 set hardcode riêng (khác `STYLE_CONFIGS`) chỉ liệt kê
-  `streetwear`/`y2k`/`bohemian`. Về mặt thẩm mỹ, `grunge`/`artsy`/`cottagecore`/`vintage`
-  cũng "pattern-friendly" tương tự — nhưng đây là tinh chỉnh scoring ngoài phạm vi
-  STYLE_CONFIGS, cần anh Khôi duyệt trước khi đụng scoring.ts/ranking.ts. (2026-08-10)
+- [x] **`wardrobe-critic/archetypes.ts`'s `ALL_STYLES` chưa có 14 style mới** — FIXED
+  2026-08-11: `ALL_STYLES` giờ derive từ `STYLE_CONFIGS.map(c => c.id)` thay vì hardcode —
+  tự động phủ hết mọi style hiện có VÀ mọi style thêm sau này, không thể drift lại nữa.
+  `analyze.test.ts`'s hardcoded `STYLE_IDS` (dùng validate archetype catalog) bị stale y hệt,
+  sửa cùng cách.
+- [x] **`PATTERN_FRIENDLY_STYLES` (ranking.ts) / `HOUSE_OPPOSED_STYLES` (scoring.ts)
+  chưa có style mới** — anh Khôi đã duyệt, FIXED 2026-08-11: `PATTERN_FRIENDLY_STYLES` thêm
+  `grunge`/`artsy`/`cottagecore`/`vintage`/`coquette`/`darkacademia`/`preppy`/`resort`/`pinup`
+  (verify từng style qua `STYLE_CONFIGS`); `HOUSE_OPPOSED_STYLES` thêm `artsy`/`retro70s`/
+  `resort`/`mobwife`. Đo được kết quả cụ thể qua eval harness: fixture `resort` mới (20 món,
+  `scripts/eval-feed/fixture.ts`) sinh ĐƯỢC 0 outfit hợp lệ trước fix (mọi combo 2-pattern-đậm
+  bị hard-ban), sinh được một số sau fix. Chi tiết: `plan.md` "Style catalog consistency"
+  (2026-08-11).
 - [ ] **Neighbor một chiều CÓ SẴN TỪ TRƯỚC: `bohemian → y2k` (0.3) và
   `bohemian → athleisure` (0.2) không được đáp lại** — phát hiện khi viết test
   bidirectionality cho việc mở catalog (2026-08-10), nhưng đây là bug có sẵn trong 8
@@ -1709,10 +1770,12 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   `src/services/stylesCatalogService.ts`, "Show all N" `TextLink` ở cả hai màn, style đã
   chọn luôn hiển thị kể cả ngoài 10 tile đầu. Xem plan.md "Style grid 'Show all' truncation
   + builder ACCESSORIES bucket rename" cùng ngày.
-- [ ] **`wardrobe-critic/archetypes.ts`'s `ALL_STYLES`, `ranking.ts`'s
+- [x] **`wardrobe-critic/archetypes.ts`'s `ALL_STYLES`, `ranking.ts`'s
   `PATTERN_FRIENDLY_STYLES`, `scoring.ts`'s `HOUSE_OPPOSED_STYLES` vẫn chưa có 9 style đợt
-  2** — cùng gap đã log cho đợt 1 (22 style), giờ càng rộng hơn ở 31 style. Chưa đụng, vẫn
-  ngoài scope theo instruction (chỉ STYLE_CONFIGS + public.styles). (2026-08-10)
+  2** — cùng gap đã log cho đợt 1 (22 style), giờ càng rộng hơn ở 31 style. FIXED 2026-08-11,
+  cùng đợt sửa với mục ở section AC phía trên: `ALL_STYLES` giờ derive tự động từ
+  `STYLE_CONFIGS` (phủ hết, kể cả style thêm sau); `PATTERN_FRIENDLY_STYLES`/
+  `HOUSE_OPPOSED_STYLES` được duyệt mở rộng thêm 9+4 style tương ứng. (2026-08-10)
 
 ## AC. Style filtering tightening — `BannedFeature` + `typesBanned` (2026-08-10)
 
@@ -1720,25 +1783,31 @@ Phát hiện khi siết `filterByStyle` theo 2 trục mới (xem `plan.md` "Styl
 `BannedFeature` vocabulary + `typesBanned`" cùng ngày). Giữ nguyên toàn bộ diff đã ship —
 các mục dưới đây là những gì CHƯA làm, cố ý dừng để báo cáo thay vì tự mở rộng.
 
-- [ ] 🔴 **`'distressed'` trong `BannedFeature` là dead vocabulary — khai báo nhưng chưa
-  bao giờ được enforce.** Rà lại `featuresPasses` (`filtering.ts`) khi thêm 5 feature mới
-  và phát hiện: hàm này KHÔNG có nhánh nào check `'distressed'` — chỉ check
-  `loud_logo`/`macro_print`/`full_print`/`neon_color`. Ít nhất 14/31 style (oldmoney,
-  smartcasual, preppy, feminine, officechic, coquette, cleangirl, elegant, businessformal,
-  resort, glam, normcore, sporty, pinup) khai `'distressed'` trong `bannedFeatures` và
-  KHÔNG có tác dụng gì — chính là kiểu "gây hiểu nhầm là đã chặn" mà nguyên tắc của task
-  này cảnh báo, nhưng đây là gap CÓ SẴN TỪ TRƯỚC, không phải do lần sửa này gây ra. Không
-  tự sửa vì: (a) ngoài scope được giao (chỉ "mở rộng BannedFeature" + "thêm typesBanned"),
-  (b) `FitItem` hiện KHÔNG có field distressed/wear-signal nào để enforce đúng nghĩa (không
-  giống `floral_print`/`slogan_text` — không có tín hiệu để suy) — cần quyết định trước:
-  thêm field mới vào `FitItem`/ingestion, hay bỏ hẳn `'distressed'` khỏi vocabulary. Cần
-  anh Khôi quyết.
+- [x] 🔴 **`'distressed'` trong `BannedFeature` là dead vocabulary — khai báo nhưng chưa
+  bao giờ được enforce.** anh Khôi đã quyết (2026-08-11): thêm field thật thay vì bỏ vocabulary.
+  FIXED 2026-08-11: cột mới `clothing_items.distressed boolean` nullable
+  (`supabase/migrations/20260811000002_clothing_items_distressed.sql`), `FabricProfile.
+  distressed?: boolean` trên `FitItem` (populate trong `toFitItem`/`enrichment.ts`),
+  `featuresPasses` check mới — FAIL-OPEN (chỉ reject khi `=== true`, `null`/`undefined` = chưa
+  đánh giá thì luôn pass, không mass-fail ~70 item cũ). Restore lại đúng 14 style đã bị strip
+  sáng nay (commit 240a5b1). Threaded xuyên suốt: prompt/schema extraction
+  (`generate-item-image/prompt.ts`, `snapDistressed()`), `backfill-item-metadata` (SELECT +
+  staleness check + patch-fill), `evaluate-item`, select/mapper của cả 3 engine function, và
+  toàn bộ client ingest chain (`imageGenerationService`/`wardrobeService`/`wardrobe-add`).
+  Test mới trong `filtering-extensions.test.ts` khoá chặt guarantee fail-open. **CÒN TREO**:
+  ~70 item cũ vẫn `NULL` — cần chạy `backfill-item-metadata` (owner giữ
+  `BACKFILL_ADMIN_SECRET`), xem mục mới trong section AE. Chi tiết: `plan.md` "`distressed`:
+  re-added as a real, enforced signal" (2026-08-11).
 - [ ] **`sheer`/`cutout`/`sequin`/`animal_print` — CHƯA thêm vào `BannedFeature`** — đúng
   theo nguyên tắc "chỉ thêm feature có tín hiệu suy được": rà `FitItem` (colorProfile,
   graphics, fabric.pattern) không có field nào carry được 4 tín hiệu này. Cần sửa pipeline
   extraction (ingest-time AI/manual) trước — thêm attribute mới vào `ClothingItemRow`/
   `FitItem`, có ripple sang `generate-item-image`/`backfill-item-metadata`. Việc riêng,
-  ngoài scope task này.
+  ngoài scope task này. **CẬP NHẬT 2026-08-11**: giờ đã có tiền lệ đầy đủ để copy —
+  `distressed` (mục ngay trên) đi đúng con đường này (cột DB nullable + field trên
+  `FitItem`/`FabricProfile` + enforcement fail-open trong `featuresPasses` + backfill sau) và
+  đã chứng minh chạy được end-to-end. Làm 4 feature này chỉ là lặp lại đúng pattern đó 4 lần,
+  không cần thiết kế lại từ đầu.
 - [ ] **`abstract_print` được implement (vào `BannedFeature` + `featuresPasses`) nhưng
   KHÔNG gán cho style nào** — bucket `abstract` gộp chung `print`/`abstract`/`camo`/
   `polka dot` (`enrichment.ts` `STORED_PATTERN_MAP`) quá dị biệt để có case "chắc chắn":
@@ -1809,3 +1878,79 @@ Các mục dưới đây là việc chưa làm/chưa hoàn hảo, cố ý dừng
   phải ảnh hero trên trang chi tiết sản phẩm (PDP hero luôn là model). URL pattern nhận diện:
   Scene7 `s7-img-facade/<CODE>_<COLOR>` (KHÔNG có hậu tố `_m`/`_d1`/`_d2`/`_d3` — các hậu tố đó
   là biến thể mặc trên người).
+
+## AE. Backlog-clearing session — new follow-ups (2026-08-11)
+
+Việc mới phát sinh/còn treo từ đợt dọn backlog lớn hôm nay (nhiều agent song song). Các mục
+đã RESOLVE được đánh dấu `[x]` ngay tại vị trí gốc của chúng ở các section phía trên — đây là
+những gì đợt này phát hiện thêm mà CHƯA làm.
+
+- [ ] **`poseEstimated` chưa từng được SET ở bất kỳ đâu trong app, dù plumbing đã tồn tại**
+  (2026-08-11) — `measurementService.ts` giờ map `pose_estimated`/`measurements_consent` xuyên
+  qua `bodyToRow()`/`rowToBody()` (xem section E, mục đã đánh dấu `[x]` ở trên), nhưng đó chỉ
+  là sửa đường ống — không có màn hình/flow nào trong app thực sự set `poseEstimated: true`.
+  Field này có nghĩa "số đo này có phải suy ra từ AI pose estimation không" nhưng app hiện tại
+  chỉ có nhập tay + AI-scan-từ-ảnh (khác pose estimation thật) — nên có thể field này ĐÚNG RA
+  luôn là `false`/absent với luồng hiện tại, hoặc cần một call site set nó khi flow pose-
+  estimate (`src/features/measurements/` pose pipeline, xem memory `project_pose_measure_
+  pipeline`) thực sự chạy. Cần rà lại toàn bộ call site `setBodyMeasurements`/
+  `saveMeasurements` xem có nên set `poseEstimated` ở đâu không trước khi coi plumbing này là
+  "xong".
+- [ ] **Onboarding resume chỉ best-effort — nút Skip không để lại dấu vết** (2026-08-11) —
+  `src/features/onboarding/resumeRoute.ts` (mới) tự ghi rõ trong comment: KHÔNG có cột/bảng
+  `onboarding_step` checkpoint thật, resume signal tái dùng dữ liệu mỗi bước đã lưu khi bấm
+  Continue. Một bước bị bấm "Skip" (VD measurements' skip button) không ghi sentinel phân biệt
+  "đã ghé qua và bỏ qua" với "chưa bao giờ ghé qua" — nên resume sẽ đưa user quay lại đúng bước
+  đó dù họ đã cố ý skip trước đây (tệ nhất chỉ là bấm Skip lại 1 lần, không mất dữ liệu). Muốn
+  chính xác tuyệt đối cần thêm checkpoint thật (cột/bảng mới) — chưa authorize, chỉ ghi nhận.
+- [ ] **`distressed` cần chạy lại backfill cho ~70 item cũ** (2026-08-11) — cột
+  `clothing_items.distressed` mới thêm là `NULL` cho mọi item có sẵn trước hôm nay (fail-open
+  nên KHÔNG mass-fail wardrobe thật, nhưng những item đó vẫn chưa được style nào có
+  `bannedFeatures: ['distressed']` thực sự đánh giá đúng). Cần chạy `backfill-item-metadata`
+  admin function (dry_run trước, giống các lần backfill trước) — chỉ anh Khôi có
+  `BACKFILL_ADMIN_SECRET`. Item mới thêm từ giờ sẽ tự có field qua `generate-item-image`
+  extraction, không cần backfill.
+- [ ] **`sheer`/`cutout`/`sequin`/`animal_print` giờ có tiền lệ đầy đủ để làm theo** — xem mục
+  đã cập nhật ở section AC phía trên: `distressed` hôm nay đã đi trọn vẹn con đường "cột DB
+  nullable + field trên `FitItem` + enforcement fail-open + backfill sau" — 4 feature này chỉ
+  cần lặp lại đúng pattern đó, không cần thiết kế mới. Vẫn cần anh Khôi duyệt trước khi làm
+  (đổi vocabulary + ripple sang ingestion, giống mọi lần trước).
+- [ ] **Theo dõi xáo trộn thứ hạng feed sau khi deploy `ranking.ts`'s re-sort** (2026-08-11) —
+  đo bằng eval harness (before/after engine copy diff): outfit SET không đổi, nhưng với
+  `streetwear` fixture, 23/24 outfit chung đổi vị trí và top-10 hiển thị turn-over 40% (4
+  outfit vào/ra khỏi top-10). Đây là thay đổi CHỦ Ý (owner đã duyệt hướng "penalty phải ảnh
+  hưởng thứ tự thật"), nhưng biên độ xáo trộn lớn hơn dự kiến ban đầu — nên theo dõi phản hồi
+  người dùng thật (feed có "nhảy" bất thường không) sau khi deploy `generate-outfits`.
+- [ ] **Quyết định gemini-2.5-flash-lite cần xem lại NGAY khi Google công bố shutdown date**
+  (2026-08-11) — quyết định "ở lại lite tier" (section J, mục model env override) là cost-first
+  VÀ có điều kiện: hiện KHÔNG có deadline nào cho `gemini-2.5-flash-lite` (khác hẳn 2.5-flash/
+  -pro đã có 16/10/2026). `GEMINI_FLASH_LITE_MODEL` env override đã tồn tại nên khi cần đổi chỉ
+  là đổi secret — nhưng cần AI Khôi/agent nào đó chủ động theo dõi trang deprecations của Google
+  định kỳ, vì không có cơ chế tự động cảnh báo. 2 đường nâng cấp đã định giá sẵn trong code
+  comment (`describe-outfit/index.ts`, `evaluate-item/note.ts`): `gemini-3.1-flash-lite`
+  ($0.25/M in, $1.50/M out, tự nó cũng shutdown 2027-05-07) hoặc `gemini-3.5-flash-lite`
+  ($0.30/M in, $2.50/M out, chưa công bố shutdown).
+- [x] **Danh sách edge function CẦN DEPLOY sau đợt dọn backlog hôm nay** — ĐÃ DEPLOY XONG
+  2026-08-11 (cùng session, theo yêu cầu anh Khôi). 9 function, deploy TỪNG CÁI một bằng
+  Supabase CLI (`npx supabase functions deploy <name> --project-ref trtjcsxcowqecsebvyme`),
+  KHÔNG dùng MCP — xem memory `feedback_deploy_edge_cli`. Tất cả ACTIVE, version +1:
+  `backfill-item-metadata` 8→9, `describe-outfit` 7→8, `evaluate-item` 24→25,
+  `generate-item-image` 19→20, `generate-outfits` 55→56, `map-measurements` 6→7,
+  `tryon-generate` 13→14, `tryon-validate` 4→5, `wardrobe-critic` 14→15.
+  **`verify_jwt` giữ NGUYÊN bit-for-bit** (verify qua Management API trước VÀ sau deploy):
+  8 function = `true` (deploy KHÔNG truyền flag), riêng `backfill-item-metadata` = `false`
+  từ trước (auth bằng `BACKFILL_ADMIN_SECRET` chứ không bằng JWT user) nên PHẢI truyền
+  `--no-verify-jwt` để GIỮ nguyên — đây là ngoại lệ "bảo toàn trạng thái", không phải tắt
+  JWT mới; nếu bỏ flag thì endpoint admin sẽ gãy. `config.toml` không khai `verify_jwt`
+  cho function nào nên CLI luôn áp mặc định → mọi lần deploy sau CŨNG phải kiểm tra trước.
+  `delete-user` (v5) và `revenuecat-webhook` (v5) KHÔNG đụng tới, đã verify không đổi.
+  **DB migrations: ĐÃ APPLY RỒI, không cần làm gì thêm** — verify trực tiếp qua Management API
+  ngay khi viết mục này (2026-08-11): `clothing_items.distressed` (boolean) đã tồn tại live;
+  `consume_usage_credit()` live đã có `v_period_end`/`set_config('app.credit_write_allowed',
+  'on', true)` đúng như migration `20260811000004`; trigger `usage_credits_protect_credits`
+  đã gắn trên `public.usage_credits`; `refund_usage_credit()` đã tồn tại. Cả 3 file migration
+  (`20260811000002`/`3`/`4`) coi như đã chạy trên live DB dù chưa commit vào git — chỉ còn
+  thiếu bước `git add`/commit migration files cho khớp trạng thái live (không phải deploy).
+  Verify code sau khi deploy function: `tsc`/`jest`/`deno test` đã chạy sạch trong session này
+  (38 suites/556 tests jest; 284+37+11 deno, 0 fail) — xem `plan.md` phần "Verify" cuối mục
+  "Backlog-clearing session".

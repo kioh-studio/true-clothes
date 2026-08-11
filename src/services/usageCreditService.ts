@@ -17,8 +17,9 @@ const FREE_LIMITS: Record<CreditType, number> = {
 };
 
 // Premium monthly quota (2026-08-05): premium previously had NO server-side cap
-// on these two actions (both call gemini-3-pro-image-preview at ~$0.13/image,
-// so marginal cost was unbounded). This is the client-side source of truth for
+// on these two actions (both call the image-gen model — default
+// gemini-3-pro-image, override via the GEMINI_IMAGE_MODEL secret — at
+// ~$0.13/image, so marginal cost was unbounded). This is the client-side source of truth for
 // display; the edge functions (generate-item-image/index.ts, tryon-generate/
 // index.ts) enforce the real gate server-side and MUST be kept numerically in
 // sync with this map by hand — they cannot import from src/.
@@ -27,16 +28,33 @@ export const PREMIUM_LIMITS: Record<CreditType, number> = {
   try_on: 15,
 };
 
+// Demo account cap (2026-08-11 security fix, lowered to 50 same day). The
+// demo password ships inside the public JS bundle (EXPO_PUBLIC_DEMO_PASSWORD),
+// so demo can no longer be treated as an unmetered trusted-reviewer account —
+// it now consumes against this real monthly quota via the same
+// consume_usage_credit RPC as every other tier (generate-item-image/index.ts,
+// tryon-generate/index.ts). PER credit type (matches FREE_LIMITS/
+// PREMIUM_LIMITS): worst case is 50 + 50 × $0.134 ≈ $13.4/month combined,
+// matching the ~$13/month the owner approved (an earlier pass used 100/type,
+// ~$26.8/month combined — corrected same day). Kept its own tier (not
+// FREE_LIMITS/PREMIUM_LIMITS) so it can be tuned independently. MUST be kept
+// numerically in sync with the DEMO_LIMITS copies in both edge functions.
+export const DEMO_LIMITS: Record<CreditType, number> = {
+  ai_extraction: 50,
+  try_on: 50,
+};
+
 /**
  * Resolves the applicable monthly limit for a credit type given an account
  * type. `admin` is treated as quota'd premium (matches the server-side gate)
  * even though it's a distinct value from `premium` — see hasPremiumAccountType().
- * `demo` resolves to the free limit here for display purposes only; demo's
- * real bypass is unlimited server-side and client call sites never invoke
- * checkCredit() for a demo account (they gate on hasPremiumAccountType()).
+ * `demo` now resolves to its own real, finite cap (DEMO_LIMITS) — demo is
+ * metered server-side just like every other tier as of 2026-08-11.
  */
 export function resolveCreditLimit(type: CreditType, accountType: AccountType): number {
-  return accountType === 'premium' || accountType === 'admin' ? PREMIUM_LIMITS[type] : FREE_LIMITS[type];
+  if (accountType === 'premium' || accountType === 'admin') return PREMIUM_LIMITS[type];
+  if (accountType === 'demo') return DEMO_LIMITS[type];
+  return FREE_LIMITS[type];
 }
 
 // Local YYYY-MM-DD (no cross-file import — mirrors the local-date helper used

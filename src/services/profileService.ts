@@ -15,7 +15,6 @@ export interface ProfileRow {
   id: string;
   full_name: string | null;
   display_name: string | null;
-  avatar_url: string | null;
   avatar_path: string | null;
   email: string | null;
   phone: string | null;
@@ -80,7 +79,7 @@ function joinLocation(city: string | null, country: string | null): string {
 export async function fetchMyProfile(userId: string): Promise<ProfileRow | null> {
   const { data, error } = await sb
     .from('profiles')
-    .select('id, full_name, display_name, avatar_url, avatar_path, email, phone, gender, date_of_birth, location_city, location_country, location_country_code, onboarding_complete, color_season, personal_palette, color_tone12')
+    .select('id, full_name, display_name, avatar_path, email, phone, gender, date_of_birth, location_city, location_country, location_country_code, onboarding_complete, color_season, personal_palette, color_tone12')
     .eq('id', userId)
     .maybeSingle();
   if (error) {
@@ -156,8 +155,24 @@ export async function markOnboardingComplete(userId: string): Promise<{ ok: bool
   return { ok: true };
 }
 
-/** Upload a local image URI as the user's avatar. Returns the public URL + storage path. */
-export async function uploadAvatar(userId: string, localUri: string, currentAvatarPath: string | null): Promise<{ avatarUrl: string; avatarPath: string }> {
+const AVATAR_SIGNED_URL_TTL = 3600; // seconds — mirrors itemPhotoService's SIGNED_URL_TTL
+
+/**
+ * Upload a local image URI as the user's avatar. Returns the storage PATH only.
+ *
+ * The `avatars` bucket is private (2026-08-11 security fix — it was wrongly
+ * treated as public: uploadAvatar used to call getPublicUrl() and persist that
+ * URL into profiles.avatar_url, which 400s for everyone since the bucket
+ * never allowed anonymous reads. `avatar_url` is retired; only `avatar_path`
+ * (the storage object path) is written to the DB from now on — never a URL.
+ * Render sites resolve a short-lived signed URL on demand via
+ * avatarSignedUrl()/useAvatarUri(), the same render-time-signing pattern
+ * itemPhotoService already uses for the wardrobe-photos bucket. This avoids
+ * persisting a URL that would either 400 (a public URL on a private bucket,
+ * the bug being fixed here) or go stale (a signed URL baked into the DB,
+ * which expires long before most users re-upload an avatar).
+ */
+export async function uploadAvatar(userId: string, localUri: string, currentAvatarPath: string | null): Promise<{ avatarPath: string }> {
   // Delete previous avatar from storage first
   if (currentAvatarPath) {
     await sb.storage.from('avatars').remove([currentAvatarPath]).catch(() => {});
@@ -174,19 +189,31 @@ export async function uploadAvatar(userId: string, localUri: string, currentAvat
   const { error: uploadError } = await sb.storage.from('avatars').upload(path, binary, { contentType: mime, upsert: true });
   if (uploadError) throw new AvatarUploadError(uploadError.message);
 
-  const { data: urlData } = sb.storage.from('avatars').getPublicUrl(path);
-  const avatarUrl = urlData?.publicUrl ?? '';
-
-  const { error: dbError } = await sb.from('profiles').update({ avatar_url: avatarUrl, avatar_path: path }).eq('id', userId);
+  const { error: dbError } = await sb.from('profiles').update({ avatar_path: path }).eq('id', userId);
   if (dbError) throw new ProfileUpdateError(dbError.message);
 
-  return { avatarUrl, avatarPath: path };
+  return { avatarPath: path };
 }
 
-/** Remove the user's avatar from storage and clear DB columns. */
+/** Remove the user's avatar from storage and clear the DB path. */
 export async function deleteAvatar(userId: string, avatarPath: string): Promise<void> {
   await sb.storage.from('avatars').remove([avatarPath]).catch(() => {});
-  await sb.from('profiles').update({ avatar_url: null, avatar_path: null }).eq('id', userId);
+  await sb.from('profiles').update({ avatar_path: null }).eq('id', userId);
+}
+
+/**
+ * Short-lived signed URL for a private avatar object (mirrors
+ * itemPhotoService.signedUrl() for the wardrobe-photos bucket). Returns null
+ * on failure so render call sites can fall back to a placeholder instead of
+ * throwing.
+ */
+export async function avatarSignedUrl(path: string, expiresInSec: number = AVATAR_SIGNED_URL_TTL): Promise<string | null> {
+  const { data, error } = await sb.storage.from('avatars').createSignedUrl(path, expiresInSec);
+  if (error || !data?.signedUrl) {
+    console.warn('[profileService] could not sign avatar URL:', error?.message);
+    return null;
+  }
+  return data.signedUrl;
 }
 
 // Re-export helpers for stores that need the same format mapping.

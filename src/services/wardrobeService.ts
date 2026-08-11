@@ -60,6 +60,10 @@ export interface AddItemInput {
   // NULL and the backfill-item-metadata admin run fills them later.
   primaryHex?: string | null;
   secondaryHex?: string | null;
+  // Distressed/worn-in finish (2026-08-11) — see types/fitEngine.ts
+  // WardrobeItem.distressed for the definition. Absent/null → the column
+  // stays NULL and the backfill-item-metadata admin run fills it later.
+  distressed?: boolean | null;
 }
 
 export interface UpdateItemInput {
@@ -116,6 +120,7 @@ interface ClothingItemRow {
   can_layer: boolean | null;
   primary_hex: string | null;
   secondary_hex: string | null;
+  distressed: boolean | null;
   photo_url: string | null;
   photo_storage: PhotoStorageKind | null;
   times_worn: number;
@@ -192,6 +197,7 @@ function rowToItem(row: ClothingItemRow, userId: string): WardrobeItem {
     canLayer: row.can_layer ?? null,
     primaryHex: row.primary_hex ?? null,
     secondaryHex: row.secondary_hex ?? null,
+    distressed: row.distressed ?? null,
   };
 }
 
@@ -361,6 +367,7 @@ export async function addItem(input: AddItemInput, tier: StorageTier = 'free'): 
       can_layer:    input.canLayer ?? null,
       primary_hex:  input.primaryHex ?? null,
       secondary_hex: input.secondaryHex ?? null,
+      distressed:   input.distressed ?? null,
       ...(input.source ? { source: input.source } : {}),
       ...measurementColumns(input.measurements),
       photo_url:    photoPath,

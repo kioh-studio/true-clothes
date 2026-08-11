@@ -167,7 +167,17 @@ function isDuplicate(a: OutfitSlots, b: OutfitSlots): boolean {
 // Styles whose visual language embraces pattern-on-pattern. For these users two
 // bold patterns are a deliberate move, not a mistake — the hard ban relaxes to 2
 // and scoreTasteAdjustment applies a mild multiplier instead (risky ≠ invalid).
-const PATTERN_FRIENDLY_STYLES = new Set(['streetwear', 'y2k', 'bohemian']);
+// Expanded (010-wardrobe-critic follow-up, 2026-08-11) beyond the original 3 to
+// cover the print-led styles added since (all ids verified against
+// STYLE_CONFIGS in filtering.ts): grunge/artsy (bold mixed prints), cottagecore/
+// vintage/coquette (floral/thrift-mix), darkacademia (plaid/houndstooth),
+// preppy (plaid), resort (tropical prints), pinup (polka dot/novelty print) —
+// styles whose identity is print-led, where the pattern-mix penalty would
+// otherwise fight the look instead of scoring it.
+const PATTERN_FRIENDLY_STYLES = new Set([
+  'streetwear', 'y2k', 'bohemian',
+  'grunge', 'artsy', 'cottagecore', 'vintage', 'coquette', 'darkacademia', 'preppy', 'resort', 'pinup',
+]);
 
 function passesHardConstraints(fitItems: FitItem[], ctx: EngineContext, formula?: string): boolean {
   const maxColors = ctx.intent?.maxColors ?? 4;
@@ -371,14 +381,12 @@ export function rankCandidates(
 
   // Diversification — greedy selection with an in-place overlap penalty.
   // The pre-sort above already orders outfits by (tier, totalScore), so we
-  // iterate best-first. A penalty is applied immediately when an outfit shares
-  // ≥2 items with any already-selected outfit; the penalized score is visible
-  // to no one — we're done selecting, we just keep the greedy order.
-  // IMPORTANT: do NOT re-sort after this loop. Re-sorting would reorder
-  // penalized outfits below ones that were intentionally passed over during
-  // greedy selection, making the result order-dependent on insertion sequence
-  // and defeating the purpose of the diversity penalty. The greedy pick order
-  // IS the intended "diverse but high-scoring" ranked sequence.
+  // iterate best-first to decide MEMBERSHIP: a penalty is applied when an
+  // outfit shares ≥2 items with any already-selected outfit, and every
+  // non-duplicate candidate (see isDuplicate below) is still added to
+  // `selected` up to TOP_N — nothing is left out because of the penalty,
+  // only scored down. This loop does not decide final ORDER (see re-sort
+  // below).
   const selected: ScoredOutfit[] = [];
   const selectedItemSets: Set<string>[] = [];
 
@@ -401,8 +409,41 @@ export function rankCandidates(
     if (selected.length >= TOP_N) break;
   }
 
-  // No re-sort here — the greedy pick order is deterministic and already encodes
-  // the diversity-aware ranking. Sorting afterward would be order-dependent.
+  // Re-sort by final (post-penalty) totalScore (010-wardrobe-critic follow-up,
+  // 2026-08-11 — OWNER-APPROVED). The previous "no re-sort" comment claimed
+  // re-sorting would "reorder outfits that were intentionally passed over
+  // during greedy selection" — investigation established that claim doesn't
+  // describe what this code does: `isDuplicate` above only skips literal
+  // top/bottom/shoes clones, and every other candidate walked IS pushed into
+  // `selected` regardless of penalty size. So leaving the walk (pre-penalty)
+  // order as final order meant the overlap penalty changed the NUMBER shown
+  // next to an outfit but never its POSITION — e.g. an outfit penalized to
+  // 0.789 could sit above one that scored 0.823 and was never penalized at
+  // all, simply because the 0.823 one happened to overlap fewer previously-
+  // selected items and was walked later. Either the penalty affects the feed
+  // or it doesn't; the owner chose to make it real, so the feed is now
+  // re-sorted by the score actually attached to each outfit.
+  //
+  // Tier stays the primary key (unchanged — tier 1 = matches the user's own
+  // selected styles, and must keep leading tier 2 regardless of score).
+  //
+  // Determinism: ties on (tier, totalScore) are broken by a stable key
+  // derived from the outfit's own item ids (sorted, joined) rather than by
+  // relying on Array.prototype.sort's stability over the pre-sort walk
+  // order — `isDuplicate` already guarantees no two entries in `selected`
+  // share the same (top, bottom, shoes), so this key is unique per outfit in
+  // practice; `formula` is kept as a last-resort tie-break so the comparator
+  // still returns a total order even if that ever stops holding (e.g. a
+  // future change loosens `isDuplicate`).
+  selected.sort((a, b) => {
+    if (a.tier !== b.tier) return a.tier - b.tier;
+    if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+    const keyA = [...slotsToIds(a.slots)].sort().join('|');
+    const keyB = [...slotsToIds(b.slots)].sort().join('|');
+    if (keyA !== keyB) return keyA < keyB ? -1 : 1;
+    return a.formula < b.formula ? -1 : a.formula > b.formula ? 1 : 0;
+  });
+
   return selected;
 }
 

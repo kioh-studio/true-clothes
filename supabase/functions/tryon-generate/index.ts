@@ -3,7 +3,10 @@
 // Auth: Bearer token (Supabase JWT). Requires GOOGLE_API_KEY secret.
 //
 // Renders the user wearing a given outfit: feeds the user's photo + each
-// garment's reference image to gemini-3-pro-image-preview (nano banana 2),
+// garment's reference image to IMAGE_GEN_MODEL (default gemini-3-pro-image,
+// "Nano Banana Pro", override via GEMINI_IMAGE_MODEL — the previous default,
+// gemini-3-pro-image-preview, was shut down by Google on 2026-06-25; see the
+// retirement note by the constant below),
 // EDITING the photo in place — same background, pose, framing, and lighting,
 // with only the clothing changed (2026-08-07; previously this regenerated the
 // whole image onto a studio backdrop, which was the root cause of face drift).
@@ -41,12 +44,25 @@ const corsHeaders = {
 };
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-const IMAGE_GEN_MODEL = 'gemini-3-pro-image-preview'; // nano banana 2 / Gemini 3 Pro Image
+// GEMINI_IMAGE_MODEL is the shared image-gen-tier secret (also used by
+// generate-item-image). The old default, gemini-3-pro-image-preview, was shut
+// down by Google on 2026-06-25 (confirmed via the official deprecations
+// table, Google's 2026-05-28 changelog deprecation entry, and third-party
+// reports of live 404s) — moved to the GA successor, gemini-3-pro-image, same
+// day as this comment. Per-image price is unchanged (~$0.134/image at 1K/2K
+// per the official pricing table), so the ~$0.13/image figures elsewhere in
+// this file and in usageCreditService.ts still hold.
+const IMAGE_GEN_MODEL = Deno.env.get('GEMINI_IMAGE_MODEL') || 'gemini-3-pro-image'; // Nano Banana Pro / Gemini 3 Pro Image
 const GEN_TIMEOUT_MS = 45000;
 // Post-generate quality verify pass (2026-08-06) — cheap vision model checks
-// the GENERATED image before it's accepted. Overridable so a bad default can
-// be swapped without a code deploy.
-const VERIFY_MODEL = Deno.env.get('TRYON_VERIFY_MODEL') || 'gemini-2.5-flash';
+// the GENERATED image before it's accepted. TRYON_VERIFY_MODEL (call-site
+// override) takes priority over GEMINI_FLASH_MODEL (the shared vision/text-tier
+// secret also used by generate-item-image, backfill-item-metadata,
+// map-measurements, tryon-validate, curator.ts). gemini-2.5-flash retires
+// 2026-10-16 — default moved to gemini-3.6-flash.
+const VERIFY_MODEL = Deno.env.get('TRYON_VERIFY_MODEL')
+  || Deno.env.get('GEMINI_FLASH_MODEL')
+  || 'gemini-3.6-flash';
 const VERIFY_TIMEOUT_MS = 10000;
 const TRANSIENT = new Set([429, 500, 502, 503, 504]);
 const MAX_GARMENT_IMAGES = 6;
@@ -391,16 +407,43 @@ async function verifyGeneratedImage(
 // ─── Credit gate helper ───────────────────────────────────────────────────────
 
 // Credit limits (2026-08-05). Source of truth: src/services/usageCreditService.ts
-// (FREE_LIMITS / PREMIUM_LIMITS). Edge functions can't import from src/, so these
-// are duplicated by hand — no shared cross-function module exists yet under
-// supabase/functions/ for this. Keep both copies (here and in generate-item-image/
-// index.ts) numerically in sync with usageCreditService.ts when a quota changes.
+// (FREE_LIMITS / PREMIUM_LIMITS / DEMO_LIMITS). Edge functions can't import from
+// src/, so these are duplicated by hand — no shared cross-function module exists
+// yet under supabase/functions/ for this. Keep both copies (here and in
+// generate-item-image/index.ts) numerically in sync with usageCreditService.ts
+// when a quota changes.
 const FREE_LIMITS: Record<string, number> = { ai_extraction: 2, try_on: 2 };
 const PREMIUM_LIMITS: Record<string, number> = { ai_extraction: 10, try_on: 15 };
+// Demo account cap (2026-08-11 security fix, lowered to 50 same day). The
+// demo password ships inside the JS bundle via EXPO_PUBLIC_DEMO_PASSWORD, so
+// it must be treated as public — anyone can sign in as demo. It previously
+// got an UNCONDITIONAL bypass (`accountType === 'demo' → skip the gate
+// entirely`), so a scripted loop could spend the owner's Gemini budget
+// without limit. This is PER credit type (matches how FREE_LIMITS/
+// PREMIUM_LIMITS already work — a combined pool would be a different
+// mechanism than consume_usage_credit expresses), so worst case is
+// 50 (ai_extraction) + 50 (try_on) × $0.134 ≈ $13.4/month combined — the
+// ~$13/month figure the owner actually approved. (An earlier pass used
+// 100/type, which was ~$26.8/month combined — corrected same day.) 50/month
+// per type is still well above what a thorough App Store reviewer needs
+// (well under 20 in practice). Deliberately its own tier (not FREE_LIMITS/
+// PREMIUM_LIMITS) so it can be tuned independently of real user tiers.
+const DEMO_LIMITS: Record<string, number> = { ai_extraction: 50, try_on: 50 };
 
 interface MinimalClient {
-  from: (table: string) => { select: (col: string) => { single: () => Promise<{ data: unknown }> } };
-  rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+  // `single()` PromiseLike, not Promise (2026-08-11 batch, confirmed defect #3):
+  // supabase-js's PostgrestBuilder is thenable (implements `.then()`) but is not
+  // a full ES Promise — it's missing `catch`/`finally`/`[Symbol.toStringTag]` —
+  // so the real client's `.from().select().single()` return type was never
+  // structurally assignable to this interface's old `Promise<...>` signature
+  // (TS2345 at every call site below). `await` accepts any thenable, so
+  // widening to `PromiseLike` costs nothing at the two call sites (gateCredit's
+  // `await supabase.from(...).single()`) while making the real client actually
+  // satisfy this structural type.
+  from: (table: string) => { select: (col: string) => { single: () => PromiseLike<{ data: unknown }> } };
+  // Same PromiseLike-not-Promise reason as `single()` above — `.rpc(...)`
+  // returns a PostgrestFilterBuilder, also thenable-not-Promise.
+  rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message: string } | null }>;
 }
 
 function monthPeriod(): string {
@@ -409,17 +452,22 @@ function monthPeriod(): string {
   ).toISOString().slice(0, 10);
 }
 
-// Atomically consume one credit against the caller's tier limit. `demo` stays
-// unlimited (App Store reviewers use this account and must not hit a wall
-// mid-review — deliberate, unlike premium below). `premium` and `admin` (the
-// server treats admin as quota'd premium — the client's hasPremiumAccountType()
-// separately lumps admin in with premium for FEATURE access, a pre-existing
-// inconsistency we don't fully unify here) now consume against a real monthly
-// quota instead of bypassing the check entirely: this action calls
-// gemini-3-pro-image-preview at ~$0.13/image, so marginal cost was previously
-// unbounded for a premium subscriber. Returns a 402 Response when exhausted,
-// plus whether a credit was actually consumed so the caller can refund it if
-// the generation later fails.
+// Atomically consume one credit against the caller's tier limit. `demo` used
+// to get an UNCONDITIONAL bypass (App Store reviewers use this account and
+// must not hit a wall mid-review) but that threat model no longer holds: the
+// demo password ships inside the public JS bundle, so anyone can sign in as
+// demo and loop this endpoint for free. Demo now consumes against its own
+// finite monthly quota (DEMO_LIMITS, 2026-08-11) through the SAME
+// consume_usage_credit RPC as every other tier — no parallel mechanism.
+// `premium` and `admin` (the server treats admin as quota'd premium — the
+// client's hasPremiumAccountType() separately lumps admin in with premium for
+// FEATURE access, a pre-existing inconsistency we don't fully unify here) also
+// consume against a real monthly quota instead of bypassing the check
+// entirely: this action calls IMAGE_GEN_MODEL (default gemini-3-pro-image,
+// override via GEMINI_IMAGE_MODEL) at ~$0.13/image, so marginal cost was
+// previously unbounded for a premium subscriber. Returns a 402 Response when
+// exhausted, plus whether a credit was actually consumed so the caller can
+// refund it if the generation later fails.
 async function gateCredit(
   supabase: MinimalClient,
   type: string,
@@ -429,8 +477,8 @@ async function gateCredit(
   try {
     const { data: prof } = await supabase.from('profiles').select('account_type').single();
     const accountType = (prof as { account_type?: string } | null)?.account_type;
-    if (accountType === 'demo') return { response: null, consumed: false };
-    if (accountType === 'premium' || accountType === 'admin') limit = PREMIUM_LIMITS[type] ?? limit;
+    if (accountType === 'demo') limit = DEMO_LIMITS[type] ?? limit;
+    else if (accountType === 'premium' || accountType === 'admin') limit = PREMIUM_LIMITS[type] ?? limit;
   } catch {
     // profile fetch failure → fail open at the free limit (unchanged behavior)
   }

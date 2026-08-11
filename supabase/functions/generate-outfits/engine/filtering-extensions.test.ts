@@ -187,6 +187,51 @@ Deno.test('anti-regression: a black cotton oversized hoodie still passes K-Fashi
 
 // ─── New-style-config assertions: the exact features/types this task added ──
 
+// ─── (6) 'distressed' (re-added 2026-08-11) — fail-open guarantee ──────────
+// clothing_items.distressed is a NEW nullable column; ~70 existing wardrobe
+// items have no value yet. featuresPasses must reject ONLY a CONFIRMED
+// `fabric.distressed === true`; undefined (item never assessed) must NEVER
+// reject, or a fail-closed rule would mass-fail real wardrobes overnight.
+
+Deno.test('distressed: an item with distressed=true is rejected by a style that bans it', () => {
+  const config = permissiveConfig(['distressed']);
+  const rippedJeans = item({ id: 'dj1', type: 'JEANS', distressed: true });
+  assert(!passesStyleNaturally(rippedJeans, config));
+});
+
+Deno.test('distressed: an item with distressed=undefined is NOT rejected by that same style (fail-open)', () => {
+  const config = permissiveConfig(['distressed']);
+  const unassessed = item({ id: 'dj2', type: 'JEANS' }); // no `distressed` override → undefined
+  assert(passesStyleNaturally(unassessed, config));
+});
+
+Deno.test('distressed: an item with distressed=null (explicit DB null) is NOT rejected either', () => {
+  const config = permissiveConfig(['distressed']);
+  const explicitNull = item({ id: 'dj3', type: 'JEANS', distressed: null });
+  assert(passesStyleNaturally(explicitNull, config));
+});
+
+Deno.test('distressed: an item with distressed=true passes a style that does NOT ban it', () => {
+  const configNoBan = permissiveConfig([]); // permissive, no bannedFeatures at all
+  const rippedJeans = item({ id: 'dj4', type: 'JEANS', distressed: true });
+  assert(passesStyleNaturally(rippedJeans, configNoBan));
+});
+
+Deno.test('distressed: real style config — oldmoney rejects a confirmed-distressed item, allows an unassessed one', () => {
+  const oldmoney = styleConfigById('oldmoney')!;
+  assert(oldmoney.bannedFeatures.includes('distressed'));
+  // TROUSERS/wool — a fabric oldmoney's fabricsAllowed whitelist actually
+  // permits (unlike denim), so a rejection can only come from `distressed`.
+  const rippedTrousers = item({
+    id: 'od1', type: 'TROUSERS', color: 'Navy', material: 'Wool', fit: 'regular', distressed: true,
+  });
+  const plainTrousers = item({
+    id: 'od2', type: 'TROUSERS', color: 'Navy', material: 'Wool', fit: 'regular',
+  });
+  assert(!passesStyleNaturally(rippedTrousers, oldmoney));
+  assert(passesStyleNaturally(plainTrousers, oldmoney));
+});
+
 Deno.test('oldmoney bans HOODIE by type and slogan/graphic content by feature', () => {
   const oldmoney = styleConfigById('oldmoney')!;
   assertEquals(oldmoney.typesBanned, ['HOODIE']);

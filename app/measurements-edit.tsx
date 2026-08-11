@@ -10,7 +10,7 @@ import { validateMeasurements } from '../src/features/measurements/useMeasuremen
 import { computeBodyShape, computeBodyShapeLegacy, stabilizeBodyShape, type BodyShape } from '../src/types/measurements';
 import { useTranslation } from '../src/i18n';
 
-import type { PreferredFit } from '../src/types/fitEngine';
+import type { PreferredFit, BodyMeasurements } from '../src/types/fitEngine';
 
 const FIT_OPTIONS: PreferredFit[] = ['SLIM', 'REGULAR', 'RELAXED', 'OVERSIZED'];
 const FIT_LABEL_KEYS: Record<PreferredFit, string> = {
@@ -30,14 +30,12 @@ const SHAPE_LABEL_KEYS: Record<BodyShape, string> = {
 
 function cmStr(val?: number) { return val ? String(Math.round(val)) : ''; }
 
-export default function MeasurementsEditScreen() {
-  const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const { t } = useTranslation();
-  const { bodyMeasurements, setBodyMeasurements } = useFitEngineStore();
-  const bm = bodyMeasurements;
-
-  const [v, setV] = useState({
+// Flatten a BodyMeasurements snapshot into the form's local shape. Extracted
+// so both the initial useState() below AND the late-hydrate resync effect
+// build the exact same object from the store — unit fields (heightUnit/
+// weightUnit) always reset to CM/KG since they're UI-local, never persisted.
+function buildValues(bm: BodyMeasurements) {
+  return {
     height:     cmStr(bm.body_height),
     heightUnit: 'CM',
     weight:     cmStr(bm.body_weight),
@@ -52,9 +50,42 @@ export default function MeasurementsEditScreen() {
     sleeve:     cmStr(bm.body_sleeve_length),
     torso:      cmStr(bm.body_upper_body_length),
     fit:        (bm.preferredFit ?? 'REGULAR') as PreferredFit,
-  });
+  };
+}
 
-  const initial = useRef({ ...v }).current;
+// Same "is this a genuine manual override" check useMeasurements/measurements-edit
+// already use elsewhere — extracted so both the initial useState() and the
+// late-hydrate resync effect below compute it identically.
+function deriveShapeOverride(bm: BodyMeasurements): BodyShape | null {
+  const saved = bm.bodyShape ?? null;
+  if (!saved) return null;
+  const current = computeBodyShape(bm);
+  const legacy = computeBodyShapeLegacy(bm);
+  return saved === current || saved === legacy ? null : saved;
+}
+
+export default function MeasurementsEditScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
+  const { bodyMeasurements, setBodyMeasurements, hydrated } = useFitEngineStore();
+  const bm = bodyMeasurements;
+
+  const [v, setV] = useState(() => buildValues(bm));
+
+  // Mutable "clean" baseline for the dirty check — re-anchored whenever a
+  // late store hydrate adopts fresh data below (see effect), so a genuine
+  // edit is never mistaken for a no-op just because it happened before or
+  // after hydrate landed. Same pattern as colors-edit.tsx / styles-edit.tsx /
+  // formulas-edit.tsx (2026-07-07) — this screen had the identical
+  // hydrate-race bug: bodyMeasurements hydrates asynchronously from Supabase,
+  // and useState's one-time snapshot above never re-synced when it arrived
+  // late, so an early-opened screen showed an empty form and Save would
+  // overwrite the DB with blanks.
+  const initialRef = useRef(buildValues(bm));
+  // Last store value we've reconciled against — lets the effect below tell
+  // "the store just changed" apart from "this screen just re-rendered".
+  const lastBmRef = useRef(bm);
   const set = (k: string, val: string) => setV((p) => ({ ...p, [k]: val }));
 
   // Body shape is derived live from bust/waist/hip — whether typed by hand or
@@ -69,16 +100,33 @@ export default function MeasurementsEditScreen() {
     };
     return stabilizeBodyShape(bm.bodyShape ?? null, { body_bust: num(v.chest), body_waist: num(v.waist), body_hip: num(v.hips) });
   }, [v.chest, v.waist, v.hips, bm.bodyShape]);
-  const [shapeOverride, setShapeOverride] = useState<BodyShape | null>(() => {
-    const saved = bm.bodyShape ?? null;
-    if (!saved) return null;
-    const current = computeBodyShape(bm);
-    const legacy = computeBodyShapeLegacy(bm);
-    return saved === current || saved === legacy ? null : saved;
-  });
-  const initialShapeOverride = useRef(shapeOverride).current;
+  const [shapeOverride, setShapeOverride] = useState<BodyShape | null>(() => deriveShapeOverride(bm));
+  const initialShapeOverrideRef = useRef(shapeOverride);
   const bodyShape = shapeOverride ?? derivedShape;
-  const dirty = JSON.stringify(v) !== JSON.stringify(initial) || shapeOverride !== initialShapeOverride;
+  const dirty = JSON.stringify(v) !== JSON.stringify(initialRef.current) || shapeOverride !== initialShapeOverrideRef.current;
+
+  // bodyMeasurements hydrates asynchronously (fetched from Supabase, and can
+  // re-run on the auth listener). If this screen mounted before that
+  // finished, it arrives here later than useState's one-time snapshot above.
+  // Re-sync when it changes — but only while the user hasn't started editing
+  // yet (both v and shapeOverride still equal their previous store snapshot)
+  // so an in-progress edit is never clobbered.
+  useEffect(() => {
+    const storeChanged = JSON.stringify(bm) !== JSON.stringify(lastBmRef.current);
+    if (!storeChanged) return;
+    lastBmRef.current = bm;
+    const untouched =
+      JSON.stringify(v) === JSON.stringify(initialRef.current) &&
+      shapeOverride === initialShapeOverrideRef.current;
+    if (untouched) {
+      const nextValues = buildValues(bm);
+      setV(nextValues);
+      initialRef.current = nextValues;
+      const nextShapeOverride = deriveShapeOverride(bm);
+      setShapeOverride(nextShapeOverride);
+      initialShapeOverrideRef.current = nextShapeOverride;
+    }
+  }, [bm, v, shapeOverride]);
 
   // Nudge the user toward completing/confirming the auto-derived body shape.
   // No nudge once they've manually overridden it — they already chose.
@@ -113,8 +161,10 @@ export default function MeasurementsEditScreen() {
     setPendingEstimate(null);
   }, [pendingEstimate, setPendingEstimate]);
   const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
+    if (!hydrated || saving) return;
     setSaveError('');
     const heightCm = v.height
       ? v.heightUnit === 'IN' ? parseFloat(v.height) * 2.54 : parseFloat(v.height)
@@ -152,12 +202,26 @@ export default function MeasurementsEditScreen() {
       return;
     }
 
-    await setBodyMeasurements({
-      ...parsed,
-      bodyShape: bodyShape ?? undefined,
-      preferredFit: v.fit as PreferredFit,
-    });
-    router.back();
+    setSaving(true);
+    try {
+      await setBodyMeasurements({
+        ...parsed,
+        // `bodyShape` is `BodyShape | null` — pass through as-is rather than
+        // collapsing to `undefined`. `null` (girths cleared/insufficient, no
+        // manual override) must reach the DB as an explicit clear, or the
+        // upsert skips the column and a stale shape from before the edit is
+        // left behind (see measurementService.bodyToRow()).
+        bodyShape,
+        preferredFit: v.fit as PreferredFit,
+      });
+      router.back();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : t('measurements_errSaveFailed');
+      setSaveError(msg);
+      Alert.alert(t('onboardingCommon_couldNotSaveAlertTitle'), msg);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -290,13 +354,20 @@ export default function MeasurementsEditScreen() {
           <Text style={[styles.saveError, { position: 'absolute', top: -28, left: 24, right: 24 }]}>{saveError}</Text>
         ) : null}
         {dirty && (
-          <Pressable onPress={() => { setV({ ...initial }); setSaveError(''); }} style={styles.discardBtn}>
+          <Pressable
+            onPress={() => {
+              setV({ ...initialRef.current });
+              setShapeOverride(initialShapeOverrideRef.current);
+              setSaveError('');
+            }}
+            style={styles.discardBtn}
+          >
             <Text style={styles.discardText}>{t('common_discard')}</Text>
           </Pressable>
         )}
         <View style={{ flex: 1 }}>
-          <PrimaryButton onPress={dirty ? handleSave : undefined} disabled={!dirty}>
-            {dirty ? t('profileEdit_saveButton') : t('common_noChanges')}
+          <PrimaryButton onPress={hydrated && dirty && !saving ? handleSave : undefined} disabled={!hydrated || !dirty || saving}>
+            {!hydrated ? t('common_loadingPreferences') : saving ? t('addItem_savingText') : dirty ? t('profileEdit_saveButton') : t('common_noChanges')}
           </PrimaryButton>
         </View>
       </View>

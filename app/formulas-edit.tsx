@@ -66,6 +66,8 @@ export default function FormulasEditScreen() {
   }, [formulas.length, loadCatalogs]);
 
   const [selected, setSelected] = useState<string[]>(() => [...formulaPreferences]);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   // Mutable "clean" baseline for the dirty check — re-anchored whenever a
   // late store hydrate adopts fresh data below (see effect), so a genuine
   // edit is never mistaken for a no-op just because it happened before or
@@ -101,9 +103,17 @@ export default function FormulasEditScreen() {
   };
 
   const handleSave = async () => {
-    if (!hydrated) return;
-    await setFormulaPreferences(selected);
-    router.back();
+    if (!hydrated || saving) return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      await setFormulaPreferences(selected);
+      router.back();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : t('fitEngineStore_syncFailed'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -170,17 +180,20 @@ export default function FormulasEditScreen() {
 
       {/* Sticky save bar */}
       <View style={[styles.saveBar, { paddingBottom: insets.bottom + 12 }]}>
+        {saveError ? (
+          <Text style={[styles.saveError, { position: 'absolute', top: -28, left: 24, right: 24 }]}>{saveError}</Text>
+        ) : null}
         {dirty && (
           <Pressable
-            onPress={() => setSelected([...initialSelectedRef.current])}
+            onPress={() => { setSelected([...initialSelectedRef.current]); setSaveError(''); }}
             style={styles.discardBtn}
           >
             <Text style={styles.discardText}>{t('common_discard')}</Text>
           </Pressable>
         )}
         <View style={{ flex: 1 }}>
-          <PrimaryButton onPress={hydrated && dirty ? handleSave : undefined} disabled={!hydrated || !dirty}>
-            {!hydrated ? t('common_loadingPreferences') : dirty ? t('profileEdit_saveButton') : t('common_noChanges')}
+          <PrimaryButton onPress={hydrated && dirty && !saving ? handleSave : undefined} disabled={!hydrated || !dirty || saving}>
+            {!hydrated ? t('common_loadingPreferences') : saving ? t('addItem_savingText') : dirty ? t('profileEdit_saveButton') : t('common_noChanges')}
           </PrimaryButton>
         </View>
       </View>
@@ -291,4 +304,5 @@ const styles = StyleSheet.create({
   },
   discardBtn: { height: 56, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
   discardText: { ...type.ui, fontSize: 10, color: T.color.tertiary },
+  saveError: { ...type.caption, fontSize: 12, color: '#A33', textAlign: 'center' },
 });

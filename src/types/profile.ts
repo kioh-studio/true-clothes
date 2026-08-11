@@ -5,7 +5,6 @@ export interface UserProfile {
   phone: string;
   email: string;
   displayName: string;
-  avatarUrl: string | null;
   avatarPath: string | null;
   gender: string;
   dob: string;          // "DD/MM/YYYY"

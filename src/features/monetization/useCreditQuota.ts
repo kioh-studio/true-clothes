@@ -47,8 +47,13 @@ export function useCreditQuota(type: CreditType, enabled = true): CreditQuota {
       // Hide rather than mislead:
       //  - degraded  → the query failed; its remaining:0 is a fail-closed
       //                placeholder for the gate, not a real reading.
-      //  - demo      → unmetered server-side; the free limit checkCredit()
-      //                resolves for it is a placeholder, not their cap.
+      //  - demo      → demo IS metered server-side now (2026-08-11, real cap
+      //                via DEMO_LIMITS), but this counter is still suppressed
+      //                for it: the demo login is shared/public (password ships
+      //                in the JS bundle), so a per-viewer "N used" reading is
+      //                not a meaningful number to show any individual demo
+      //                user, and the upgrade-oriented framing elsewhere on
+      //                this screen doesn't apply to a reviewer account either.
       setStatus(next.degraded || next.accountType === 'demo' ? null : next);
     } catch {
       // Signed out, offline, etc. — leave whatever we last had; a counter is

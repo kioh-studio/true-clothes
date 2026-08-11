@@ -14,6 +14,11 @@ export default function WardrobeIntroScreen() {
   const { t } = useTranslation();
   const { completeOnboarding } = useAuthStore();
   const [show, setShow] = useState(false);
+  // In-flight guard — both CTAs below call completeOnboarding(); without this
+  // a double-tap could fire two concurrent onboarding-complete requests, and
+  // an uncaught rejection would leave the tap with no feedback at all (no
+  // local loading state existed here before).
+  const [busy, setBusy] = useState(false);
 
   const STEPS = [
     { n: '01', label: t('onboardingWardrobeIntro_step1') },
@@ -25,12 +30,20 @@ export default function WardrobeIntroScreen() {
   // navigating anyway leaves the server row unmarked, bouncing the user back
   // to Welcome/OTP on the next cold start.
   const finish = async (dest: string, replace: boolean) => {
-    const res = await completeOnboarding();
-    if (!res.ok) {
-      Alert.alert(t('onboardingCommon_couldNotFinishSetupAlertTitle'), res.message ?? t('onboardingCommon_pleaseTryAgain'));
-      return;
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await completeOnboarding();
+      if (!res.ok) {
+        Alert.alert(t('onboardingCommon_couldNotFinishSetupAlertTitle'), res.message ?? t('onboardingCommon_pleaseTryAgain'));
+        return;
+      }
+      if (replace) router.replace(dest as never); else router.push(dest as never);
+    } catch {
+      Alert.alert(t('onboardingCommon_couldNotFinishSetupAlertTitle'), t('onboardingCommon_pleaseTryAgain'));
+    } finally {
+      setBusy(false);
     }
-    if (replace) router.replace(dest as never); else router.push(dest as never);
   };
 
   useEffect(() => {
@@ -88,7 +101,7 @@ export default function WardrobeIntroScreen() {
         </View>
 
         <View style={{ flex: 1, minHeight: 32 }} />
-        <PrimaryButton onPress={() => finish('/add-item', false)}>
+        <PrimaryButton onPress={() => finish('/add-item', false)} disabled={busy}>
           {t('tabs_wardrobe_addFirstItem')}
         </PrimaryButton>
         <View style={{ height: 16 }} />
