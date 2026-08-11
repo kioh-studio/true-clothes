@@ -12,9 +12,11 @@
 // the row with). #2 secondaries (tops/outerwear) form a column to its
 // right, smaller than the anchor, stacked downward starting at the anchor's
 // top Y. #3 accessories/shoes are the smallest, laid out in row(s) below the
-// lowest bottom edge of the anchor+secondaries, spread evenly left→right and
-// wrapping onto a new row when they don't fit on one line. The whole
-// composition is then scaled down to fit the items area if it overflows, and
+// lowest bottom edge of the anchor+secondaries, each row centered on the
+// anchor's horizontal centerline (clamped into the frame) and packed
+// left→right within itself, wrapping onto a new row when items don't fit on
+// one line. The whole composition is then scaled down to fit the items
+// area if it overflows, and
 // vertically centered if it underflows. See `buildLayout` below.
 
 import { itemById } from '../../data';
@@ -201,8 +203,9 @@ export function buildLayout(rawItems: Entry[], areaAspect = 0.9): PositionedEntr
   });
 
   // #3 — accessories/shoes: smallest, in row(s) below the lowest clothing
-  // bottom edge, left-aligned with the anchor's left edge, packed
-  // left→right, wrapping when a row overflows.
+  // bottom edge, each row centered on the anchor's horizontal centerline
+  // (clamped into the frame), items packed left→right within the row,
+  // wrapping when a row overflows.
   const accEntries = allAccessories.slice(0, 8);
   const accH = COLLAGE.ACC_H_FRAC * H;
   const accBoxesRaw = accEntries.map((item, i) => {
@@ -222,12 +225,13 @@ export function buildLayout(rawItems: Entry[], areaAspect = 0.9): PositionedEntr
   let rowY = clothes.length > 0 ? clothesBottom + COLLAGE.ACC_ROW_TOP_GAP : 0;
 
   const accPlaced: Placed[] = [];
-  // Row start X: the anchor's actual left edge (works for both the
-  // left-column case, left = ANCHOR_LEFT, and the centered no-secondary
-  // case, left = 50 − w/2 — accessories start under the anchor either way).
-  // Falls back to ACC_MARGIN when there's no anchor at all.
-  const rowStartX = anchorBox ? anchorBox.left : COLLAGE.ACC_MARGIN;
-  const SPAN = (100 - COLLAGE.ACC_MARGIN) - rowStartX; // usable horizontal span (wu)
+  // Every row centers on the anchor's horizontal centerline (works for both
+  // the left-column anchor and the centered no-secondary anchor alike).
+  // Falls back to the frame's own center when there's no anchor at all.
+  const centerX = anchorBox ? anchorBox.left + anchorBox.w / 2 : 50;
+  // Row capacity is independent of the anchor position — the full usable
+  // width, same as before rows were positioned relative to the anchor.
+  const SPAN = 100 - 2 * COLLAGE.ACC_MARGIN; // usable horizontal span (wu)
   let i = 0;
   while (i < accBoxesRaw.length) {
     const row: typeof accBoxesRaw = [];
@@ -252,9 +256,16 @@ export function buildLayout(rawItems: Entry[], areaAspect = 0.9): PositionedEntr
       j++;
     }
 
-    // Left-aligned with a fixed gap — no more space-evenly distribution
-    // (a lone accessory used to end up centered mid-row, reading detached
-    // from the anchor above it).
+    // Centered on the anchor's centerline, clamped so the row never spills
+    // past the frame margins — packed left→right within the row with a
+    // fixed gap (no space-evenly distribution: a lone accessory used to end
+    // up centered mid-row, reading detached from the anchor above it).
+    const k = row.length;
+    const rowWidth = sumW + (k - 1) * COLLAGE.ACC_GAP;
+    const rowStartX = Math.min(
+      Math.max(centerX - rowWidth / 2, COLLAGE.ACC_MARGIN),
+      100 - COLLAGE.ACC_MARGIN - rowWidth,
+    );
     let left = rowStartX;
     for (const b of row) {
       const top = rowY + (accH - b.h) / 2;

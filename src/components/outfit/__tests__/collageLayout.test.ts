@@ -188,7 +188,7 @@ describe('buildLayout — flow layout hierarchy', () => {
     }
   });
 
-  it("accessories left-align with the anchor's left edge", () => {
+  it("a single accessory row centers on the anchor's horizontal centerline", () => {
     const items = [
       entry('jeans-1', 'JEANS'),
       entry('tee-1', 'TEE'),
@@ -198,12 +198,14 @@ describe('buildLayout — flow layout hierarchy', () => {
     const byId = bySlotId(positioned);
     const anchorSlot = byId.get('jeans-1')!;
     const sneakersSlot = byId.get('sneakers-1')!;
+    const anchorCenter = anchorSlot.left + anchorSlot.w / 2;
+    const sneakersCenter = sneakersSlot.left + sneakersSlot.w / 2;
     // No overflow for this outfit, so scale-to-fit/centering never touch
     // `left` — direct equality holds.
-    expect(Math.abs(sneakersSlot.left - anchorSlot.left)).toBeLessThanOrEqual(0.1);
+    expect(Math.abs(sneakersCenter - anchorCenter)).toBeLessThanOrEqual(0.1);
   });
 
-  it("accessories under a centered anchor start at its left edge", () => {
+  it("an accessory row under a centered anchor centers on the anchor's centerline", () => {
     const items = [
       entry('jeans-1', 'JEANS'),
       entry('sneakers-1', 'SNEAKERS'),
@@ -214,8 +216,13 @@ describe('buildLayout — flow layout hierarchy', () => {
     const anchorSlot = byId.get('jeans-1')!;
     const sneakersSlot = byId.get('sneakers-1')!;
     const bagSlot = byId.get('bag-1')!;
-    expect(Math.abs(sneakersSlot.left - anchorSlot.left)).toBeLessThanOrEqual(0.1);
-    expect(bagSlot.left).toBeGreaterThan(sneakersSlot.left + sneakersSlot.w);
+    const anchorCenter = anchorSlot.left + anchorSlot.w / 2;
+    const groupLeft = Math.min(sneakersSlot.left, bagSlot.left);
+    const groupRight = Math.max(sneakersSlot.left + sneakersSlot.w, bagSlot.left + bagSlot.w);
+    const groupCenter = (groupLeft + groupRight) / 2;
+    expect(Math.abs(groupCenter - anchorCenter)).toBeLessThanOrEqual(0.1);
+    // ACC_GAP = 3 (wu) — second accessory starts at first's right edge + gap.
+    expect(Math.abs(bagSlot.left - (sneakersSlot.left + sneakersSlot.w + 3))).toBeLessThanOrEqual(0.01);
   });
 
   it('anchor centers horizontally when there are no secondaries', () => {

@@ -402,19 +402,22 @@ enforces a strict visual hierarchy across three priority tiers:
   is always the BIGGEST item on the card: left side, top-aligned. When the
   outfit has an anchor but zero secondaries, the anchor is horizontally
   centered on the card instead (no column to share the row with), and the
-  accessory row(s) below it start from the anchor's own left edge either
-  way, so they always read as attached to it rather than floating loose.
+  accessory row(s) below it are centered on the anchor's own horizontal
+  centerline either way, so they always read as attached to it rather than
+  floating loose.
 - **#2 secondaries** — tops/outerwear form a column to the anchor's right,
   each smaller than the anchor, stacked downward starting at the anchor's
   top Y (so the anchor and the first secondary always begin at the same
   height), ordered outer → mid → inner as before.
 - **#3 accessories/shoes** — the smallest tier, laid out in row(s) below the
-  lowest bottom edge of the anchor+secondaries. Rows are left-aligned with
-  the anchor's left edge (not centered/evenly-spread — a lone shoe pair used
-  to land mid-screen and read as detached), items packed left→right with a
-  fixed gap between them. A row wraps onto a new row once the next item
-  wouldn't fit on the current line — no more hard cap of 3 accessories; up
-  to 8 are laid out.
+  lowest bottom edge of the anchor+secondaries. Each row is centered on the
+  anchor's horizontal centerline (clamped so it never spills past the frame
+  margins — not left-aligned or evenly-spread across the full width; a lone
+  shoe pair used to land dead-center of the whole card and read as
+  detached from the outfit above it), items packed left→right within the
+  row with a fixed gap between them. A row wraps onto a new row once the
+  next item wouldn't fit on the current line — no more hard cap of 3
+  accessories; up to 8 are laid out.
 
 The whole composition is then **scaled down to fit** the items area (about
 its horizontal center line) if it overflows vertically, and **vertically
