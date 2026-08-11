@@ -7,7 +7,9 @@
 //
 // Layout model (flow, not static zones, since 2026-08-12): three priority
 // tiers. #1 the anchor (bottom/one-piece) is the biggest item, placed at the
-// left, top-aligned. #2 secondaries (tops/outerwear) form a column to its
+// left, top-aligned — unless there are zero secondaries, in which case the
+// anchor is horizontally centered on the card instead (no column to share
+// the row with). #2 secondaries (tops/outerwear) form a column to its
 // right, smaller than the anchor, stacked downward starting at the anchor's
 // top Y. #3 accessories/shoes are the smallest, laid out in row(s) below the
 // lowest bottom edge of the anchor+secondaries, spread evenly left→right and
@@ -163,17 +165,22 @@ export function buildLayout(rawItems: Entry[], areaAspect = 0.9): PositionedEntr
   type Placed = { entry: Entry; box: Box; z: number };
   const clothes: Placed[] = [];
 
-  // #1 — anchor: biggest item, left side, top-aligned.
+  // #2 (computed first, needed to decide anchor placement) — secondaries:
+  // smaller column to the right, stacked down from the anchor's top Y.
+  const secondaries = allSecondaries.slice(0, 4);
+
+  // #1 — anchor: biggest item, top-aligned. Left column when there are
+  // secondaries to share the row with; horizontally centered on the card
+  // when the anchor is the only clothing item (no secondary column to
+  // balance against).
   let anchorBox: Box | null = null;
   if (anchor) {
     const { w, h } = fitTopLeft(ASPECT[anchor.type] ?? 0.58, COLLAGE.ANCHOR_MAX_W, COLLAGE.ANCHOR_MAX_H_FRAC * H);
-    anchorBox = { left: COLLAGE.ANCHOR_LEFT, top: 0, w, h };
+    const left = secondaries.length === 0 ? 50 - w / 2 : COLLAGE.ANCHOR_LEFT;
+    anchorBox = { left, top: 0, w, h };
     clothes.push({ entry: anchor, box: anchorBox, z: 1 });
   }
 
-  // #2 — secondaries: smaller column to the right, stacked down from the
-  // anchor's top Y.
-  const secondaries = allSecondaries.slice(0, 4);
   const n = secondaries.length;
   let secTop = 0;
   secondaries.forEach((item, i) => {

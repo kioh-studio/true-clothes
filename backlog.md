@@ -489,6 +489,14 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
 
 ## B. Cần thiết bị thật / dữ liệu thật (không verify được từ máy dev)
 
+- [ ] **Collage flow layout — chưa verify trực quan trên máy thật** (2026-08-12) — layout
+  collage mới (anchor to nhất bên trái / căn giữa khi không có secondary; secondaries cột
+  phải top-aligned theo Y anchor; accessories hàng dưới cùng trải đều + wrap; scale-to-fit
+  + căn giữa dọc; `areaAspect` đo qua onLayout) mới chỉ verify bằng 13 unit test + tsc.
+  Cần mở app trên emulator/máy thật, lướt feed qua nhiều outfit (2 món, 3-4 món, nhiều
+  phụ kiện, chỉ dress+giày) xem tỷ lệ/khoảng cách nhìn có đúng ý không — các hằng số
+  trong `COLLAGE` (`src/components/outfit/collageLayout.ts`) là draft, có thể cần tune.
+
 - [ ] **Try-on face composite — `faceDetect.ts`'s `NORMALIZE_TO_UNIT` vẫn chưa calibrate
   trên thiết bị thật** (2026-08-07, đợt edit-in-place + composite diagnostics). Chưa biết
   BlazeFace short-range cần input [0,1] hay [-1,1] — diagnostics mới thêm ở

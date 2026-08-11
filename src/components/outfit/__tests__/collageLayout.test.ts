@@ -188,6 +188,22 @@ describe('buildLayout — flow layout hierarchy', () => {
     }
   });
 
+  it('anchor centers horizontally when there are no secondaries', () => {
+    const items = [
+      entry('jeans-1', 'JEANS'),
+      entry('sneakers-1', 'SNEAKERS'),
+      entry('bag-1', 'BAG'),
+    ];
+    const positioned = buildLayout(items);
+    const byId = bySlotId(positioned);
+    const anchorSlot = byId.get('jeans-1')!;
+    expect(Math.abs(anchorSlot.left + anchorSlot.w / 2 - 50)).toBeLessThanOrEqual(0.1);
+    for (const id of ['sneakers-1', 'bag-1']) {
+      const s = byId.get(id)!;
+      expect(s.top).toBeGreaterThanOrEqual(anchorSlot.top + anchorSlot.h - 0.01);
+    }
+  });
+
   it('accessories are the smallest tier', () => {
     const items = [
       entry('jeans-1', 'JEANS'),

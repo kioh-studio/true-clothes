@@ -399,7 +399,11 @@ tables, one fixed arrangement per item count) with a flow layout that
 enforces a strict visual hierarchy across three priority tiers:
 
 - **#1 anchor** — the bottom/one-piece item (dress, trousers, jeans, skirt…)
-  is always the BIGGEST item on the card: left side, top-aligned.
+  is always the BIGGEST item on the card: left side, top-aligned. When the
+  outfit has an anchor but zero secondaries, the anchor is horizontally
+  centered on the card instead (no column to share the row with), and the
+  accessory rows below it stay centered under it, unchanged from their
+  normal space-evenly-below-the-lowest-clothing-edge behaviour.
 - **#2 secondaries** — tops/outerwear form a column to the anchor's right,
   each smaller than the anchor, stacked downward starting at the anchor's
   top Y (so the anchor and the first secondary always begin at the same
