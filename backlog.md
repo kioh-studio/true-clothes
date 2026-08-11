@@ -142,6 +142,27 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
 
 ## Z. Wardrobe photos — dangling `photo_storage='local'` refs (2026-08-08)
 
+- [ ] **`tee-airism.png` là ảnh Harrington Jacket từ commit đầu tiên — cần ảnh tee thật**
+  (2026-08-12, phát hiện khi truy vết card "2 áo khoác không có top" trên feed).
+  Chuỗi nhân quả đã verify từng bước: `assets/items/tee-airism.png` byte-identical với
+  `jacket-harrington.png` (31.098 bytes, sai từ commit `c41a644`) → upload cloud y nguyên
+  cho CẢ 2 wardrobe (object `cf299883-…png` folder `d90a166b…` và folder `19595dec…`,
+  cùng 80.205 bytes với object harrington) → backfill AI đọc ảnh jacket nên gắn
+  `can_layer=true` + hex/drape/visual_interest của jacket cho "cái tee" → engine layer
+  tee ngoài polo (log: "AIRism Cotton Tee (outwear)", tip "wear the tee open over the
+  polo") và feed card nhìn như 2 jacket không top. Engine/collage KHÔNG có bug — outfit
+  hợp lệ, chỉ ảnh sai. ĐÃ LÀM 2026-08-12: null các field suy-từ-ảnh (`can_layer`,
+  `primary_hex`, `secondary_hex`, `drape`, `print_scale`, `visual_interest`,
+  `distressed`) trên 2 row AIRism (`cf299883…` + `29945877…`) → TEE hết layer được theo
+  rule. CŨNG ĐÃ LÀM cùng ngày (anh Khôi duyệt phương án tự tải ảnh Uniqlo): thay
+  `assets/items/tee-airism.png` bằng flat shot AIRism Cotton Oversized Tee trắng thật
+  (goods_00_465185, xoá logo góc, 1000×1000 PNG) và upload đè CẢ 2 object cloud.
+  CÒN LẠI: (1) chạy lại backfill-item-metadata cho 2 item AIRism (cần
+  `BACKFILL_ADMIN_SECRET`) để điền lại hex/drape/visual_interest từ ảnh đúng;
+  (2) ảnh cũ có thể còn trong device cache (`ensureCloudCached` cache theo id) —
+  cần clear app data / xoá cache trên máy test để thấy ảnh mới; (3) tiện thể: demo
+  `512 Slim Taper (Charcoal)` đang trỏ ảnh bản Blue — lệch màu nhỏ, sửa nếu muốn.
+
 - [ ] **3 demo-wardrobe items có ảnh gãy (broken image placeholder)** — phát hiện
   2026-08-08. Trong DB live (user `19595dec-bad6-48e7-a859-fbabee490b7d`), 3/35
   `clothing_items` có `photo_storage='local'` + `photo_url='wardrobe-photos/<uuid>.png'`:
