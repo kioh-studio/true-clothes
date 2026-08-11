@@ -2134,3 +2134,17 @@ những gì đợt này phát hiện thêm mà CHƯA làm.
   `'shoes'`/`'accessory'` bao giờ, và `LABEL_TO_KEY` (enrichment.ts) không có entry cho
   `shoe_size`/`shoe_width`. Fixture đã sẵn sàng — chỉ còn thiếu code fix (mapping table +
   scoring branch mới) để dữ liệu này thực sự có tác dụng.
+- [ ] **8/10 formula chưa bao giờ sinh được outfit cho onepiece (dress/jumpsuit)** (2026-08-12,
+  phát hiện khi fix bug starvation outerwear của `generateOnepieceCandidates`) —
+  `getFormulaPools` (generation.ts) build pool từ `cats.top`/`cats.bottom`, còn `categorize`
+  xếp onepiece vào bucket riêng (`cats.onepiece`), không bao giờ vào `top`/`bottom`. Nên một
+  chiếc váy chỉ có thể được sinh ra qua đúng 2 formula mà `generateOnepieceCandidates` hardcode
+  (`one_two_three` khi bare/+accessory, `layering_stack` khi có outerwear) — 8 formula còn lại
+  trong `FORMULA_CATALOG` (`monochrome`, `neutral_pop`, `tonal_gradient`, `high_low`,
+  `texture_stack`, `pattern_solid`, `rule_of_thirds`, `contrast_pairing`) KHÔNG BAO GIỜ sinh
+  được outfit cho onepiece, dù về mặt màu/chất liệu/formality chiếc váy đó có hợp formula nào
+  đi nữa. Đây là gap thật (không phải bug vừa fix — phần vừa fix chỉ là starvation trong 2
+  formula sẵn có), nhưng scope lớn hơn nhiều (cần thread onepiece pool qua toàn bộ hệ thống
+  formula-pool, hoặc viết path onepiece-aware riêng cho từng formula) và là quyết định sản
+  phẩm (formula nào thực sự hợp lý cho 1 món đồ liền thân) — chưa làm, chỉ ghi lại. Chi tiết:
+  `plan.md` mục "One-piece candidate generation..." 2026-08-12, phần "Out of scope".

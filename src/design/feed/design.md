@@ -390,3 +390,45 @@ detail attribute row), which renders `WardrobeItem.colors` — a free-form,
 user-entered string array, not the `PrimaryColor` enum — already in natural
 case, not upper-cased. Left alone; it's a different data shape and a
 different design question, not a mechanical swap onto these new keys.
+
+## Collage flow layout — hierarchy & fit-to-frame (2026-08-12)
+
+`src/components/outfit/collageLayout.ts`'s `buildLayout` replaced the old
+static-zone collage (fixed `ANCHOR_ZONE`/`SEC_ZONES`/`ACC_ZONES` lookup
+tables, one fixed arrangement per item count) with a flow layout that
+enforces a strict visual hierarchy across three priority tiers:
+
+- **#1 anchor** — the bottom/one-piece item (dress, trousers, jeans, skirt…)
+  is always the BIGGEST item on the card: left side, top-aligned.
+- **#2 secondaries** — tops/outerwear form a column to the anchor's right,
+  each smaller than the anchor, stacked downward starting at the anchor's
+  top Y (so the anchor and the first secondary always begin at the same
+  height), ordered outer → mid → inner as before.
+- **#3 accessories/shoes** — the smallest tier, laid out in row(s) below the
+  lowest bottom edge of the anchor+secondaries, spread evenly left→right.
+  A row wraps onto a new row once the next item wouldn't fit on the current
+  line — no more hard cap of 3 accessories; up to 8 are laid out.
+
+The whole composition is then **scaled down to fit** the items area (about
+its horizontal center line) if it overflows vertically, and **vertically
+centered** if it underflows — so both a sparse 2-item outfit and a heavy
+9-item outfit read as a deliberate composition rather than clipped or
+floating in a corner.
+
+Sizing is computed in "width units" (1 wu = 1% of the items-area width); the
+area's real aspect ratio (`areaAspect = width / height`, measured via
+`onLayout` on the items-area `View` in `Collage.tsx`) converts wu to a
+vertical axis (`H = 100 / areaAspect`) before layout math runs, so the
+composition adapts to the actual pixel shape of the card rather than
+assuming a fixed ratio. `Collage.tsx` passes `areaAspect` (`undefined` until
+the first layout pass, which falls back to `buildLayout`'s default) into
+`buildLayout`, included in the `useMemo` deps that already track
+`outfit.itemIds`/`wardrobeById`.
+
+All layout constants (gaps, column bounds, per-tier max size fractions) live
+in one exported `COLLAGE` object in `collageLayout.ts` rather than the old
+per-count zone tables. `collageLayout.ts` keeps its zero-React-Native-import
+constraint (type-only imports only) so it stays testable from plain
+ts-jest/node — see `__tests__/collageLayout.test.ts`'s `buildLayout — flow
+layout hierarchy` block for the anchor/secondary/accessory ordering and
+fit-to-frame assertions.

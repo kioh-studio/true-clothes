@@ -43,13 +43,28 @@ filter → candidate generation → ranking → quality gate → top 10).
     work; the other four profiles don't set the field, so `ctx.shapeGoal`
     stays `undefined` for them (`shapeGoalDelta`'s own no-op condition) —
     zero behavior change.
+  - `onepiece` (23 items: 8 dresses / 8 shoes / 5 outerwear / 2 accessories,
+    smartcasual style, no tops/bottoms at all) — added 2026-08-12 to close
+    the harness's other blind spot: none of the other five fixtures contains
+    a single DRESS/JUMPSUIT/OVERALLS/GOWN item, so `generateOnepieceCandidates`
+    in `generation.ts` was completely unreachable from this harness. Dresses
+    (8) × shoes (8) = 64 deliberately EXCEEDS `ONEPIECE_CAP` (60) in the bare
+    cross product alone — the exact precondition that starved the pre-fix
+    outerwear loop (it ran AFTER the bare double loop, which `return`ed on
+    hitting the cap before the outerwear loop ever started). No top/bottom
+    items are included on purpose: every formula pool in `getFormulaPools`
+    and the `generateFallback` path both require tops AND bottoms, so with
+    neither present, `generateCandidates`' output is *exactly*
+    `generateOnepieceCandidates`' output — isolating the one-piece path
+    completely, so any outerwear-bearing outfit in a run against this
+    fixture can only have come from there.
 
   Do not edit `smartcasual` / `streetwear` / `resort` casually — these are
   the baselines every snapshot is compared against; `measured` /
-  `measured-goal` are additive and were added specifically so those three
-  never need to be touched to cover new ground. `WARDROBE` / `PROFILE`
-  remain exported as aliases for `PROFILES.smartcasual` for backward
-  compatibility.
+  `measured-goal` / `onepiece` are additive and were added specifically so
+  those three never need to be touched to cover new ground. `WARDROBE` /
+  `PROFILE` remain exported as aliases for `PROFILES.smartcasual` for
+  backward compatibility.
 - `run.ts` — runs the pipeline against a given engine directory, writes a
   snapshot JSON, and prints a human-readable table.
 - `judge.ts` — blind A/B judge for two snapshots (Gemini, or a manual prompt
@@ -79,8 +94,8 @@ directory always produces byte-identical JSON — this is what makes the
 snapshot diff meaningful across engine changes.
 
 `--profile <name>` selects which fixture wardrobe + user profile to run
-(`smartcasual` | `streetwear` | `resort` | `measured` | `measured-goal`, see
-`fixture.ts`). Defaults to `smartcasual` if omitted:
+(`smartcasual` | `streetwear` | `resort` | `measured` | `measured-goal` |
+`onepiece`, see `fixture.ts`). Defaults to `smartcasual` if omitted:
 
 ```sh
 deno run --allow-read --allow-write scripts/eval-feed/run.ts \

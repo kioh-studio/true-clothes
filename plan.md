@@ -7151,3 +7151,152 @@ shared. No commit, no Supabase deploy — per instruction.
   belt) is real but structurally inert — `scoreItemFit` never branches on `'shoes'`/`'accessory'`
   categories, and `LABEL_TO_KEY` has no entry for the shoe labels. The fixture is ready; the
   scoring fix is not written.
+
+## One-piece candidate generation: outerwear starvation fix + `onepiece` eval fixture (010-wardrobe-critic follow-up, 2026-08-12)
+
+### The bug
+
+`generateOnepieceCandidates` (`generation.ts`) built a dress/jumpsuit's candidates in two
+sequential passes: a bare `onepiece × shoes` double loop, then — AFTER it — a diagonal loop that
+added outerwear. The bare loop `return`ed the moment `candidates.length >= ONEPIECE_CAP` (60). Any
+wardrobe where `onepieces × shoes >= 60` (e.g. 8 dresses × 8 shoes = 64) hit the cap inside the
+bare loop and returned before the outerwear loop ever ran — **zero** dress-with-outerwear outfits,
+ever, for that wardrobe. A dress wardrobe past a modest size silently lost its entire layered-look
+category. Two smaller gaps rode along: no accessory variant existed for a one-piece at all (the
+core top/bottom path emits bare/+accessory/+outerwear/+both via `variantsFor`; the one-piece path
+had no accessory branch), and the outerwear loop itself was a diagonal
+(`shoes[i % shoes.length]`/`outwear[i % outwear.length]`) rather than a product, so even a
+wardrobe under the cap could produce at most one coat look per dress.
+
+### The `top === bottom` convention was NOT the bug — deliberately kept
+
+`slots.top === slots.bottom === <onepiece id>` (documented at `generation.ts:622` as "Q29") is
+correct as designed: `ranking.ts`'s `slotsToIds` dedupes the flattened slot list before scoring, so
+downstream code that resolves "the top item" via `.find(i => i.category === 'top' ||
+i.category === 'onepiece')` (and the equivalent for bottom) never double-counts a dress. A reading
+from an earlier session that called this a hack was wrong; it was re-verified this session and
+left untouched. No `onepiece` slot was added to `OutfitSlots`, and `Core` (the anchor-composition
+type in `generateFromPool`) was not touched either — the fix is scoped entirely to
+`generateOnepieceCandidates`.
+
+### The fix
+
+Restructured `generateOnepieceCandidates` to give a one-piece the same variant treatment the
+top/bottom core path gets in `generateFromPool`, and to make `ONEPIECE_CAP` truncate fairly instead
+of exhausting one variant class first:
+
+1. Build `(onepiece, shoe)` pairs from the same cross product as before, but cap the pair-building
+   loop itself at `ONEPIECE_CAP` pairs (not just the final candidate count) — the worst case is
+   exactly one candidate per pair (no outerwear, no accessory in the pool), so no more than
+   `ONEPIECE_CAP` pairs can ever be needed, and capping here keeps a huge wardrobe (many dresses ×
+   many shoes) from building an unbounded cross product before truncation.
+2. For each pair, build its distinct variants — bare, +accessory, +outerwear, +both — using the
+   same `pick`/`shuffle` idiom `variantsFor` already uses in the core path, only including a
+   variant class whose pool (outerwear / accessory) is non-empty. Each pair's variant list is
+   shuffled independently.
+3. Emit **round-robin across pairs** (every pair's Nth variant before any pair's N+1th), mirroring
+   `generateFromPool`'s `coreVariants` loop (~601–618). Combined with the per-pair shuffle, this is
+   what makes the cap truncate fairly: because each pair's own variant ORDER is randomized
+   independently, "round 0" across many pairs is already a representative mix of
+   bare/accessory/outerwear/both, not a monoculture of bare looks the way the old
+   bare-loop-then-outerwear-loop structure was. `ONEPIECE_CAP` is unchanged as the bound.
+4. Formula tagging kept its existing intent — bare stays `'one_two_three'`, anything carrying
+   outerwear stays `'layering_stack'` — and the new accessory-only variant was resolved by matching
+   how the CORE path tags equivalent variants: a formula there is a property of the POOL a core
+   came from, not of which optional slot got filled (an accessory added to a `rule_of_thirds` core
+   stays `'rule_of_thirds'`), so the onepiece accessory-only variant follows its bare sibling
+   (`'one_two_three'`) rather than getting a tag of its own.
+
+**RNG-order care:** the new accessory-pool `shuffle` call was deliberately placed AFTER the
+`onepieces.length === 0 || shoes.length === 0` early return, not alongside the pre-existing
+onepiece/shoes/outwear shuffles above it. Placing it above would have consumed extra draws from the
+shared seeded `rand` for every wardrobe with accessories but no onepieces — i.e. every one of the
+five pre-existing eval fixtures — silently shifting the RNG sequence `generateFromPool` consumes
+downstream in `generateCandidates` and changing their snapshots for a wardrobe segment the fix
+doesn't even touch. Caught empirically (see Verify) before landing.
+
+### The `onepiece` eval fixture (`scripts/eval-feed/fixture.ts`)
+
+None of the five existing fixtures contains a single onepiece item, so the harness was structurally
+blind to this entire path. Added a sixth, purely additive `PROFILES` entry — `smartcasual` /
+`streetwear` / `resort` / `measured` / `measured-goal` untouched and reconfirmed byte-identical
+(see Verify).
+
+`onepiece`: 23 items — 8 dresses / 8 shoes / 5 outerwear / 2 accessories, smartcasual style,
+**deliberately no top/bottom items at all**. 8 dresses × 8 shoes = 64 pairs, chosen specifically to
+exceed `ONEPIECE_CAP` (60) in the bare cross product alone — the exact precondition that starved
+the pre-fix outerwear loop. Every item's color/material/fit/formality was hand-checked against the
+smartcasual `StyleConfig` (`filtering.ts`) so all 23 clear the style filter on their own attributes
+— the filter's safety net only restores rejected items for the `top`/`bottom`/`shoes` categories,
+never `onepiece`/`outwear`/`accessory`, so nothing here is riding on a fallback. Three items needed
+a formality-safe color/material swap during verification (a black/navy HEELS or OXFORDS, and a
+wool navy BLAZER, all landed at formality 5.0 — 0.5 over smartcasual's `[2.0, 4.0]` ±0.5 filter
+tolerance once the type's base formality, the `black`/`navy` `COLOR_FORMALITY_SHIFT` (+0.5), and/or
+the `wool` material bonus (+0.5) stacked; re-colored to taupe/gray and re-materialed to cotton where
+needed, landing exactly on the 4.5 boundary — see inline comments in `fixture.ts`).
+
+No tops/bottoms means every formula pool in `getFormulaPools` and the `generateFallback` path (both
+require tops AND bottoms) return empty for this wardrobe — `generateCandidates`' output against it
+is *exactly* `generateOnepieceCandidates`' output, isolating the one-piece path completely so any
+outerwear-bearing outfit in a run can only have come from there.
+
+### Measured, before and after
+
+Two comparisons, both against the `onepiece` fixture, seed `eval:fixed-seed-001`:
+
+**1. Raw `generateCandidates` output** (formula-candidate path only, not blended with
+`generateHeroCandidates` — the cleanest, most direct measurement of the actual bug): pre-fix
+engine (a scratch copy with `generation.ts` restored to `git show HEAD:...`, everything else live)
+vs. the fixed engine, both fed the same style-filtered 23-item wardrobe (8 onepiece / 8 shoes / 5
+outwear / 2 accessory):
+
+  | | total | bare | +accessory | +outerwear (any) |
+  |---|---|---|---|---|
+  | pre-fix | 60 | 60 | 0 | **0** |
+  | post-fix | 60 | 15 | 10 | **35** |
+
+  Pre-fix is exactly zero, confirming the fixture reproduces the starvation precisely as predicted
+  (the bare loop alone reaches `ONEPIECE_CAP` and returns). Post-fix, 35/60 (58%) carry outerwear,
+  spread fairly against 15 bare and 10 accessory-only — no class was starved.
+
+**2. `run.ts`'s blended top-10** (`generateHeroCandidates` + `generateCandidates`, ranked,
+quality-gated — the actual feed shape): pre-fix shows **1/10** outfits with outerwear, post-fix
+shows **4/10**. The pre-fix top-10 isn't exactly zero because `generateHeroCandidates` has its own,
+separate, ALREADY-correct one-piece-plus-outerwear path (`buildAroundFixed` with `outwearAll`
+threaded through) — unaffected by this bug and unaffected by this fix; its one hero-sourced
+outerwear outfit is why the blended pre-fix count is 1, not 0. The raw-candidate comparison above
+is the unambiguous signal; this one confirms the fix reaches the actual feed.
+
+### New engine test: `onepiece.test.ts`
+
+Added `supabase/functions/generate-outfits/engine/onepiece.test.ts` (5 tests), driven through the
+public `generateCandidates` (no top/bottom items in its fixtures, for the same isolation reason as
+the eval fixture — no need to export the private `generateOnepieceCandidates`):
+`top === bottom === the onepiece id` on every candidate; a wardrobe whose bare combinations exceed
+`ONEPIECE_CAP` still yields outerwear-bearing candidates (the starvation-guarantee pin); formula
+tagging (`layering_stack` iff outerwear present, else `one_two_three`); determinism for a fixed
+seed; and a no-outerwear wardrobe stays fully bare (regression guard on the untouched path).
+
+### Verify
+
+`npx tsc --noEmit`: clean. `deno test --allow-all supabase/functions/generate-outfits/engine/`: 307
+passed / 0 failed (302 prior + 5 new `onepiece.test.ts`). `deno test --allow-all
+supabase/functions/evaluate-item/`: 37 passed. `deno test --allow-all
+supabase/functions/wardrobe-critic/`: 11 passed. `npx jest`: 42 suites / 574 tests passed
+(unchanged). The five protected fixture snapshots (`smartcasual`/`streetwear`/`resort`/`measured`/
+`measured-goal`) re-diffed content-identical against the pre-fix engine after the RNG-order
+correction above (only the `engineDir` path field, which literally echoes the `--engine` CLI
+argument, differs). The `onepiece` snapshot itself reproduced byte-identical across two independent
+runs against the live engine. No commit, no Supabase deploy — per instruction.
+
+### Out of scope — logged to `backlog.md`
+
+A one-piece cannot enter `generateFromPool` at all — its pools are built from `cats.top`/
+`cats.bottom` (`getFormulaPools`), and `categorize` files one-pieces into their own `onepiece`
+bucket, never into `top` or `bottom`. So a dress can only ever be generated under `one_two_three`
+or `layering_stack` (the two formulas `generateOnepieceCandidates` hardcodes) — the other 8 of 10
+catalog formulas (`monochrome`, `neutral_pop`, `tonal_gradient`, `high_low`, `texture_stack`,
+`pattern_solid`, `rule_of_thirds`, `contrast_pairing`) can never produce a dress outfit, no matter
+how well a dress would fit them. Real coverage gap, much bigger change (would need onepiece pools
+threaded through the whole formula-pool system, or a parallel formula-aware one-piece path), and a
+product call on which formulas even make sense for a single garment — not attempted here.

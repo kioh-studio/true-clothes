@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Image, StyleSheet, Text } from 'react-native';
 import { Outfit } from '../../data';
 import { T } from '../../design/tokens';
@@ -72,12 +72,14 @@ export function OutfitCollage({
 }: CollageProps) {
   const wardrobeItems = useAppStore(s => s.wardrobeItems);
   const wardrobeById = useMemo(() => new Map(wardrobeItems.map(w => [w.id, w])), [wardrobeItems]);
+  const [areaSize, setAreaSize] = useState<{ w: number; h: number } | null>(null);
+  const areaAspect = areaSize && areaSize.h > 0 ? areaSize.w / areaSize.h : undefined;
   const positioned = useMemo(() => {
     const entries = outfit.itemIds
       .map(id => toEntry(id, wardrobeById))
       .filter((e): e is Entry => e != null);
-    return buildLayout(entries);
-  }, [outfit.itemIds, wardrobeById]);
+    return buildLayout(entries, areaAspect);
+  }, [outfit.itemIds, wardrobeById, areaAspect]);
 
   const hasTip = showTitle && !!outfit.stylingTip;
   const titleY = titleTop != null ? titleTop : (compact ? 16 : 24);
@@ -103,7 +105,13 @@ export function OutfitCollage({
       )}
 
       {/* Items area: absolute from below title to near bottom */}
-      <View style={[styles.itemsArea, { top: itemsTop }]}>
+      <View
+        style={[styles.itemsArea, { top: itemsTop }]}
+        onLayout={e => {
+          const { width, height } = e.nativeEvent.layout;
+          setAreaSize({ w: width, h: height });
+        }}
+      >
         {positioned.map(entry => (
           <CollageSlot key={entry.id} entry={entry} />
         ))}

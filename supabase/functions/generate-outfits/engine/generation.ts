@@ -620,31 +620,100 @@ function generateFromPool(pool: FormulaPool, rand: () => number, target?: Target
 }
 
 // One-piece garments (dress/jumpsuit) fill both core slots themselves (Q29):
-// the candidate is onepiece + shoes, optionally layered with outerwear.
-// slots.top === slots.bottom === the one-piece id; ranking dedupes item lists.
+// the candidate is onepiece + shoes, optionally layered with outerwear and/or
+// an accessory. slots.top === slots.bottom === the one-piece id — this is
+// DELIBERATE, not a hack: ranking.ts's slotsToIds dedupes the flattened slot
+// list before scoring, so downstream code that resolves "the top item" /
+// "the bottom item" via `.find(i => i.category === 'top' || 'onepiece')`
+// etc. never double-counts a dress. Do not add a separate `onepiece` slot to
+// OutfitSlots.
+//
+// Round-robin matters here for the same reason it does in generateFromPool's
+// coreVariants loop (~601-618): with enough dresses × shoes, the cross
+// product alone can exceed ONEPIECE_CAP, so if every pair's BARE variant were
+// emitted before any pair's dressed-up ones, the cap would exhaust itself on
+// bare looks and outerwear/accessory variants would NEVER be reached — a
+// dress wardrobe would silently lose its entire layered-look category. Round-
+// robin (every pair's Nth variant before any pair's N+1th), combined with
+// shuffling each pair's own variant order, spreads the cap truncation evenly
+// across bare/+accessory/+outerwear/+both instead of exhausting one class
+// first.
 const ONEPIECE_CAP = 60;
 
 function generateOnepieceCandidates(items: FitItem[], rand: () => number): FormulaCandidate[] {
   const onepieces = shuffle(items.filter(i => i.category === 'onepiece'), rand);
   const shoes     = shuffle(items.filter(i => i.category === 'shoes'), rand);
   const outwear   = shuffle(items.filter(i => i.category === 'outwear'), rand);
+  // Same early-out as before this fix (onepieces/shoes/outwear are shuffled
+  // unconditionally either way, exactly as before): a wardrobe with zero
+  // onepieces or zero shoes returns [] here having consumed only those three
+  // shuffles' worth of `rand`. `accs` is shuffled AFTER this check, not
+  // alongside the other three above — every existing fixture (none of which
+  // contain a onepiece) hits this early return, so if `accs` were shuffled
+  // above, its extra `rand` draws would shift the RNG sequence consumed by
+  // every DOWNSTREAM formula-pool call in generateCandidates for wardrobes
+  // that never touch this function's real logic at all, silently changing
+  // unrelated snapshots. Keeping it below preserves byte-identical output
+  // for every onepiece-free wardrobe.
   if (onepieces.length === 0 || shoes.length === 0) return [];
+  const accs = shuffle(items.filter(i => i.category === 'accessory'), rand);
 
-  const candidates: FormulaCandidate[] = [];
+  const pick = (arr: FitItem[]) => arr[Math.floor(rand() * arr.length)];
+
+  // (onepiece, shoe) pairs — the same cross product as before, but capped at
+  // ONEPIECE_CAP pairs while building it: the worst case is exactly one
+  // candidate per pair (an onepiece pool with no outerwear and no
+  // accessory), so no more than ONEPIECE_CAP pairs can ever be needed, and
+  // capping here keeps a large wardrobe (many dresses × many shoes) from
+  // building an unbounded cross product before truncation.
+  const pairs: { op: FitItem; shoe: FitItem }[] = [];
+  pairLoop:
   for (const op of onepieces) {
     for (const shoe of shoes) {
-      candidates.push({ slots: { top: op.id, bottom: op.id, shoes: shoe.id }, formula: 'one_two_three' });
-      if (candidates.length >= ONEPIECE_CAP) return candidates;
+      pairs.push({ op, shoe });
+      if (pairs.length >= ONEPIECE_CAP) break pairLoop;
     }
   }
-  for (let i = 0; i < onepieces.length && outwear.length > 0; i++) {
-    const op = onepieces[i];
-    const shoe = shoes[i % shoes.length];
-    candidates.push({
-      slots: { top: op.id, bottom: op.id, shoes: shoe.id, outwear: outwear[i % outwear.length].id },
-      formula: 'layering_stack',
-    });
-    if (candidates.length >= ONEPIECE_CAP) break;
+
+  // For each pair, its distinct full-outfit variants — bare, +accessory,
+  // +outerwear, +both — only including a variant class whose pool is
+  // non-empty (same idiom as variantsFor in generateFromPool), then
+  // shuffled so no single class systematically leads for every pair.
+  //
+  // Formula tagging: bare and +accessory stay 'one_two_three' — in the core
+  // path a formula is a property of the POOL a core came from, not of which
+  // optional slot got filled (an accessory added to a rule_of_thirds core
+  // stays 'rule_of_thirds'), so the accessory-only onepiece variant follows
+  // its bare sibling rather than getting a formula of its own. Any variant
+  // carrying outerwear stays 'layering_stack', matching the pre-existing tag.
+  const variantsFor = (op: FitItem, shoe: FitItem): FormulaCandidate[] => {
+    const base: OutfitSlots = { top: op.id, bottom: op.id, shoes: shoe.id };
+    const vs: FormulaCandidate[] = [{ slots: { ...base }, formula: 'one_two_three' }];
+    if (accs.length > 0) {
+      vs.push({ slots: { ...base, accessory: pick(accs).id }, formula: 'one_two_three' });
+    }
+    if (outwear.length > 0) {
+      vs.push({ slots: { ...base, outwear: pick(outwear).id }, formula: 'layering_stack' });
+    }
+    if (outwear.length > 0 && accs.length > 0) {
+      vs.push({
+        slots: { ...base, outwear: pick(outwear).id, accessory: pick(accs).id },
+        formula: 'layering_stack',
+      });
+    }
+    return shuffle(vs, rand);
+  };
+
+  const pairVariants = pairs.map(({ op, shoe }) => variantsFor(op, shoe));
+  const maxRounds = pairVariants.reduce((m, v) => Math.max(m, v.length), 0);
+
+  const candidates: FormulaCandidate[] = [];
+  for (let round = 0; round < maxRounds; round++) {
+    for (const vs of pairVariants) {
+      if (round >= vs.length) continue;
+      candidates.push(vs[round]);
+      if (candidates.length >= ONEPIECE_CAP) return candidates;
+    }
   }
   return candidates;
 }

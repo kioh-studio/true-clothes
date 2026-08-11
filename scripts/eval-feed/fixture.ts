@@ -843,6 +843,156 @@ const MEASURED_GOAL_PROFILE = {
   shapeGoal: 'hourglass' as const,
 };
 
+// ─── One-piece wardrobe (23 items) — added 2026-08-12 to close the eval
+// harness's other blind spot: none of the five fixtures above contains a
+// single onepiece (DRESS/JUMPSUIT/OVERALLS/GOWN) item, so the entire
+// generateOnepieceCandidates path in generation.ts was unreachable by this
+// harness. Deliberately NO top/bottom items — every formula pool in
+// getFormulaPools requires both, and generateFallback requires both too, so
+// with none present generateCandidates' output is EXACTLY
+// generateOnepieceCandidates' output. That isolates the one-piece path
+// completely: any outerwear-bearing outfit in a run against this fixture can
+// only have come from there, making before/after counts unambiguous.
+//
+// Dresses(8) × Shoes(8) = 64 pairs, deliberately chosen to EXCEED
+// ONEPIECE_CAP (60) in the bare cross product alone — the exact precondition
+// that starved the pre-fix outerwear loop (it sat AFTER the bare double loop
+// and that loop's own `return` on hitting the cap meant the outerwear loop
+// never ran). Outerwear(5) and Accessories(2) are included so both optional
+// variant classes are reachable. Colors/materials/fits are drawn from the
+// smartcasual STYLE_CONFIGS entry (filtering.ts) — perfect/allowed palette
+// tiers only (navy/charcoal/black/beige/cream/olive/burgundy/taupe/brown/
+// natural/white), fabricsAllowed only (cotton/wool/linen/silk/cashmere/
+// jersey/leather/suede — no polyester/nylon/fleece), fits slim/regular/
+// relaxed only, pattern solid throughout (avoids the full_print/loud_logo
+// bannedFeatures) — so every item actually clears the style filter instead
+// of leaning on the top/bottom/shoes-only safety net (which doesn't cover
+// the 'onepiece' category at all).
+
+const ONEPIECE_WARDROBE: ClothingItemRow[] = [
+  // ── Dresses (8) ──
+  {
+    id: 'op-dress-navy', type: 'DRESS', name: 'Silk Wrap Dress Navy', color: 'Navy',
+    material: 'Silk', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'op-dress-charcoal', type: 'DRESS', name: 'Wool Shift Dress Charcoal', color: 'Charcoal',
+    material: 'Wool', fit: 'slim', pattern: 'solid', warmthSeason: 'midweight_transitional',
+  },
+  {
+    id: 'op-dress-black', type: 'DRESS', name: 'Cotton Slip Dress Black', color: 'Black',
+    material: 'Cotton', fit: 'slim', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'op-dress-beige', type: 'DRESS', name: 'Linen Shirt Dress Beige', color: 'Beige',
+    material: 'Linen', fit: 'relaxed', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'op-dress-cream', type: 'DRESS', name: 'Silk Slip Dress Cream', color: 'Cream',
+    material: 'Silk', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'op-dress-olive', type: 'DRESS', name: 'Cotton Midi Dress Olive', color: 'Olive',
+    material: 'Cotton', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'op-dress-burgundy', type: 'DRESS', name: 'Jersey Wrap Dress Burgundy', color: 'Burgundy',
+    material: 'Jersey', fit: 'slim', pattern: 'solid', warmthSeason: 'midweight_transitional',
+  },
+  {
+    id: 'op-dress-taupe', type: 'DRESS', name: 'Cashmere Sweater Dress Taupe', color: 'Taupe',
+    material: 'Cashmere', fit: 'relaxed', pattern: 'solid', warmthSeason: 'warm_winter',
+  },
+
+  // ── Shoes (8) ──
+  {
+    id: 'op-shoes-flats-black', type: 'FLATS', name: 'Ballet Flats Black', color: 'Black',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'op-shoes-loafers-brown', type: 'LOAFERS', name: 'Penny Loafers Brown', color: 'Brown',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    // Taupe (2026-08-12): HEELS' base formality (4.5) plus black's +0.5
+    // color shift (enrichment.ts COLOR_FORMALITY_SHIFT) pushed this to 5.0,
+    // outside smartcasual's [2–4] ±0.5 filter tolerance — taupe carries no
+    // shift, landing exactly on the 4.5 boundary (passes).
+    id: 'op-shoes-heels-taupe', type: 'HEELS', name: 'Pointed Heels Taupe', color: 'Taupe',
+    material: 'Leather', fit: 'slim', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    // Black (2026-08-12): SANDALS' base formality (1.0) needs the +0.5
+    // black/charcoal/navy color shift to clear the [1.5, 4.5] filter
+    // tolerance — natural carries no shift and landed at 1.0 (rejected).
+    id: 'op-shoes-sandals-black', type: 'SANDALS', name: 'Strappy Sandals Black', color: 'Black',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'op-shoes-mules-taupe', type: 'MULES', name: 'Suede Mules Taupe', color: 'Taupe',
+    material: 'Suede', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'op-shoes-boots-charcoal', type: 'BOOTS', name: 'Chelsea Boots Charcoal', color: 'Charcoal',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'warm_winter',
+  },
+  {
+    // Taupe (2026-08-12): same OXFORDS boundary issue as the heels above —
+    // base 4.5 + navy's +0.5 shift = 5.0 (rejected); taupe has no shift.
+    id: 'op-shoes-oxfords-taupe', type: 'OXFORDS', name: 'Oxford Flats Taupe', color: 'Taupe',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'op-shoes-sneakers-white', type: 'SNEAKERS', name: 'Minimal Sneakers White', color: 'White',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+
+  // ── Outerwear (5) ──
+  {
+    // Gray + Cotton (2026-08-12): BLAZER's base formality (4.5) already sits
+    // at smartcasual's ceiling, so navy's +0.5 color shift AND wool's +0.5
+    // material bonus each independently push it to 5.0 (rejected); gray
+    // carries no color shift and cotton carries no material bonus, landing
+    // exactly on the 4.5 boundary (passes).
+    id: 'op-outer-blazer-gray', type: 'BLAZER', name: 'Cotton Blazer Gray', color: 'Gray',
+    material: 'Cotton', fit: 'regular', pattern: 'solid', warmthSeason: 'midweight_transitional',
+  },
+  {
+    id: 'op-outer-coat-charcoal', type: 'COAT', name: 'Overcoat Charcoal', color: 'Charcoal',
+    material: 'Wool', fit: 'relaxed', pattern: 'solid', warmthSeason: 'warm_winter',
+  },
+  {
+    id: 'op-outer-jacket-beige', type: 'JACKET', name: 'Cotton Jacket Beige', color: 'Beige',
+    material: 'Cotton', fit: 'regular', pattern: 'solid', warmthSeason: 'midweight_transitional',
+  },
+  {
+    id: 'op-outer-jacket-olive', type: 'JACKET', name: 'Field Jacket Olive', color: 'Olive',
+    material: 'Cotton', fit: 'regular', pattern: 'solid', warmthSeason: 'midweight_transitional',
+  },
+  {
+    id: 'op-outer-coat-black', type: 'COAT', name: 'Wool Coat Black', color: 'Black',
+    material: 'Wool', fit: 'relaxed', pattern: 'solid', warmthSeason: 'warm_winter',
+  },
+
+  // ── Accessories (2) ──
+  {
+    id: 'op-acc-bag-black', type: 'BAG', name: 'Leather Tote Black', color: 'Black',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'op-acc-belt-brown', type: 'BELT', name: 'Leather Belt Brown', color: 'Brown',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+];
+
+const ONEPIECE_PROFILE = {
+  selectedStyles: ['smartcasual'],
+  colorPreferences: ['navy', 'charcoal', 'black', 'beige'],
+  colorSeason: 'autumn',
+  weatherSeason: 'allSeason',
+  bodyMeasurements: BODY_MEASUREMENTS,
+};
+
 // ─── Named profiles ────────────────────────────────────────────────────────────
 
 export const PROFILES = {
@@ -851,6 +1001,7 @@ export const PROFILES = {
   resort: { wardrobe: RESORT_WARDROBE, profile: RESORT_PROFILE },
   measured: { wardrobe: MEASURED_WARDROBE, profile: MEASURED_PROFILE },
   'measured-goal': { wardrobe: MEASURED_WARDROBE, profile: MEASURED_GOAL_PROFILE },
+  onepiece: { wardrobe: ONEPIECE_WARDROBE, profile: ONEPIECE_PROFILE },
 } as const;
 
 export type ProfileName = keyof typeof PROFILES;

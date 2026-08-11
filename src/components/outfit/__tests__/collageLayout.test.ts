@@ -88,3 +88,121 @@ describe('buildLayout — end-to-end z ordering', () => {
     expect(byId.get('cardigan-1')).toBeLessThan(byId.get('shirt-1')!);
   });
 });
+
+describe('buildLayout — flow layout hierarchy', () => {
+  const area = (s: { w: number; h: number }) => s.w * s.h;
+  const bySlotId = (positioned: ReturnType<typeof buildLayout>) =>
+    new Map(positioned.map(p => [p.id, p.slot]));
+
+  it('anchor is the largest item', () => {
+    const items = [
+      entry('jeans-1', 'JEANS'),
+      entry('jacket-1', 'JACKET'),
+      entry('tee-1', 'TEE'),
+      entry('sneakers-1', 'SNEAKERS'),
+    ];
+    const positioned = buildLayout(items);
+    const byId = bySlotId(positioned);
+    const anchorSlot = byId.get('jeans-1')!;
+    for (const p of positioned) {
+      if (p.id === 'jeans-1') continue;
+      expect(area(anchorSlot)).toBeGreaterThan(area(p.slot));
+    }
+  });
+
+  it("secondaries start at the anchor's top Y and stack downward on the right", () => {
+    const items = [
+      entry('jeans-1', 'JEANS'),
+      entry('jacket-1', 'JACKET'),
+      entry('tee-1', 'TEE'),
+      entry('sneakers-1', 'SNEAKERS'),
+    ];
+    const positioned = buildLayout(items);
+    const byId = bySlotId(positioned);
+    const anchorSlot = byId.get('jeans-1')!;
+    const jacketSlot = byId.get('jacket-1')!; // outer → first secondary
+    const teeSlot = byId.get('tee-1')!; // inner → second secondary
+
+    expect(jacketSlot.top).toBeCloseTo(anchorSlot.top, 5);
+    expect(jacketSlot.left).toBeGreaterThanOrEqual(44);
+    expect(teeSlot.left).toBeGreaterThanOrEqual(44);
+    expect(teeSlot.top).toBeGreaterThan(jacketSlot.top);
+  });
+
+  it('accessories sit below the lowest clothing item', () => {
+    const items = [
+      entry('trousers-1', 'TROUSERS'),
+      entry('shirt-1', 'SHIRT'),
+      entry('sneakers-1', 'SNEAKERS'),
+      entry('bag-1', 'BAG'),
+    ];
+    const positioned = buildLayout(items);
+    const byId = bySlotId(positioned);
+    const clothesBottom = Math.max(
+      ...['trousers-1', 'shirt-1'].map(id => {
+        const s = byId.get(id)!;
+        return s.top + s.h;
+      }),
+    );
+    for (const id of ['sneakers-1', 'bag-1']) {
+      const s = byId.get(id)!;
+      expect(s.top).toBeGreaterThanOrEqual(clothesBottom - 0.01);
+    }
+  });
+
+  it('many accessories wrap onto a second row', () => {
+    const items = [
+      entry('jeans-1', 'JEANS'),
+      entry('tee-1', 'TEE'),
+      entry('sneakers-1', 'SNEAKERS'),
+      entry('bag-1', 'BAG'),
+      entry('belt-1', 'BELT'),
+      entry('sunglasses-1', 'SUNGLASSES'),
+      entry('hat-1', 'HAT'),
+    ];
+    const positioned = buildLayout(items);
+    const byId = bySlotId(positioned);
+    const accIds = ['sneakers-1', 'bag-1', 'belt-1', 'sunglasses-1', 'hat-1'];
+    const tops = new Set(accIds.map(id => Math.round(byId.get(id)!.top * 100) / 100));
+    expect(tops.size).toBeGreaterThanOrEqual(2);
+  });
+
+  it('everything fits inside the frame', () => {
+    const items = [
+      entry('dress-1', 'DRESS'),
+      entry('coat-1', 'COAT'),
+      entry('cardigan-1', 'CARDIGAN'),
+      entry('shirt-1', 'SHIRT'),
+      entry('boots-1', 'BOOTS'),
+      entry('bag-1', 'BAG'),
+      entry('belt-1', 'BELT'),
+      entry('hat-1', 'HAT'),
+      entry('sunglasses-1', 'SUNGLASSES'),
+    ];
+    const positioned = buildLayout(items);
+    for (const p of positioned) {
+      expect(p.slot.left).toBeGreaterThanOrEqual(0);
+      expect(p.slot.top).toBeGreaterThanOrEqual(-0.01);
+      expect(p.slot.left + p.slot.w).toBeLessThanOrEqual(100.01);
+      expect(p.slot.top + p.slot.h).toBeLessThanOrEqual(100.01);
+    }
+  });
+
+  it('accessories are the smallest tier', () => {
+    const items = [
+      entry('jeans-1', 'JEANS'),
+      entry('jacket-1', 'JACKET'),
+      entry('sneakers-1', 'SNEAKERS'),
+      entry('bag-1', 'BAG'),
+    ];
+    const positioned = buildLayout(items);
+    const byId = bySlotId(positioned);
+    const anchorSlot = byId.get('jeans-1')!;
+    const secondarySlot = byId.get('jacket-1')!;
+    for (const id of ['sneakers-1', 'bag-1']) {
+      const accSlot = byId.get(id)!;
+      expect(area(accSlot)).toBeLessThan(area(secondarySlot));
+      expect(area(accSlot)).toBeLessThan(area(anchorSlot));
+    }
+  });
+});
