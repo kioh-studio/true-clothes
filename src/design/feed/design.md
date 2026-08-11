@@ -402,16 +402,19 @@ enforces a strict visual hierarchy across three priority tiers:
   is always the BIGGEST item on the card: left side, top-aligned. When the
   outfit has an anchor but zero secondaries, the anchor is horizontally
   centered on the card instead (no column to share the row with), and the
-  accessory rows below it stay centered under it, unchanged from their
-  normal space-evenly-below-the-lowest-clothing-edge behaviour.
+  accessory row(s) below it start from the anchor's own left edge either
+  way, so they always read as attached to it rather than floating loose.
 - **#2 secondaries** — tops/outerwear form a column to the anchor's right,
   each smaller than the anchor, stacked downward starting at the anchor's
   top Y (so the anchor and the first secondary always begin at the same
   height), ordered outer → mid → inner as before.
 - **#3 accessories/shoes** — the smallest tier, laid out in row(s) below the
-  lowest bottom edge of the anchor+secondaries, spread evenly left→right.
-  A row wraps onto a new row once the next item wouldn't fit on the current
-  line — no more hard cap of 3 accessories; up to 8 are laid out.
+  lowest bottom edge of the anchor+secondaries. Rows are left-aligned with
+  the anchor's left edge (not centered/evenly-spread — a lone shoe pair used
+  to land mid-screen and read as detached), items packed left→right with a
+  fixed gap between them. A row wraps onto a new row once the next item
+  wouldn't fit on the current line — no more hard cap of 3 accessories; up
+  to 8 are laid out.
 
 The whole composition is then **scaled down to fit** the items area (about
 its horizontal center line) if it overflows vertically, and **vertically
@@ -436,3 +439,46 @@ constraint (type-only imports only) so it stays testable from plain
 ts-jest/node — see `__tests__/collageLayout.test.ts`'s `buildLayout — flow
 layout hierarchy` block for the anchor/secondary/accessory ordering and
 fit-to-frame assertions.
+
+### Measured content-bounds crop for real wardrobe photos (2026-08-12)
+
+A real DB-backed wardrobe photo (e.g. a phone shot of a pair of jeans) rides
+inside whatever frame the user photographed — large empty background
+margins, an arbitrary bitmap aspect — where a curated catalog PNG is already
+a tight crop of just the garment. Sizing the collage box from the static
+`ASPECT` table and rendering with `resizeMode="contain"` meant a real photo's
+actual garment shrank to fit around its own margins, reading noticeably
+smaller than catalog art in the same slot. Fixed at the root: the garment's
+tight content bounds are now measured on-device, once per photo, and both
+the layout sizing and the rendered crop use that measurement instead.
+
+- **Measurement.** `src/features/wardrobe-photos/contentBounds.ts` (pure,
+  jest-testable, same zero-RN-import discipline as `collageLayout.ts`)
+  estimates the photo's background colour from its border-pixel median, then
+  finds the bounding box of pixels that differ from it by more than a
+  Manhattan-RGB threshold. `contentBoundsUri.ts` wraps it for a real `uri`
+  (expo-image-manipulator downscale → jpeg-js decode, same pipeline as the
+  dominant-colour reader in `wardrobe-add/colorClusterUri.ts`) and
+  session-caches the result per uri, since feed cards remount constantly as
+  the pager scrolls.
+- **Fallback to null everywhere.** An unusable measurement — too little
+  content (noise), a box already filling ≥96% of both dimensions (nothing
+  to gain from cropping, or a busy non-plain background), or an implausibly
+  thin box — resolves to `null`, not a bad guess. Bundled catalog art (a
+  `png` require-asset, or an `asset:<key>` reference) is never measured at
+  all — it's already tight. Every consumer treats `null` as "render exactly
+  like before this existed": the static `ASPECT[type]` fallback for sizing,
+  `resizeMode="contain"` for rendering.
+- **Layout.** `collageLayout.ts`'s `Entry.aspect` (optional) carries the
+  measured aspect through to `buildLayout`, which now resolves every item's
+  aspect as `entry.aspect ?? ASPECT[type] ?? <fallback>` at all three tiers
+  (anchor/secondary/accessory) — a garment with a wide measured aspect gets
+  a wide box, sized correctly instead of guessed from its coarse type.
+- **Rendering.** `Collage.tsx`'s `CollageSlot` still falls back to the old
+  `resizeMode="contain"` `<Image>` when there's no measurement. With one,
+  the slot `View` clips (`overflow: hidden`) and an absolutely-positioned
+  `<Image resizeMode="stretch">` inside it is scaled/offset so only the
+  measured rect fills the slot — since the slot was already sized to the
+  measured aspect, this crops out the background margin with no distortion.
+  A small local hook, `useEntryAspects`, resolves each entry's photo source
+  and runs the measurement per outfit card, keyed by item id.

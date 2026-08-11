@@ -1,30 +1,92 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Image, StyleSheet, Text } from 'react-native';
 import { Outfit } from '../../data';
 import { T } from '../../design/tokens';
 import { useAppStore } from '../../stores/appStore';
-import { useItemPhoto } from '../../features/wardrobe-photos';
+import {
+  useItemPhoto, resolveItemPhotoSource, photoSourceUri, contentBoundsFromUri, isAssetRef,
+  type ContentMeasure,
+} from '../../features/wardrobe-photos';
 import { type Entry, type PositionedEntry, toEntry, buildLayout } from './collageLayout';
 
 // ─── Per-item image (resolves png / local file / cloud via useItemPhoto) ──────
-function CollageSlot({ entry }: { entry: PositionedEntry }) {
+// `measure`, when present, is the on-device measured content-bounds crop for
+// this item's photo (real wardrobe photos carry background margins a
+// bundled catalog PNG never has) — see Collage.tsx's `useEntryAspects` and
+// contentBounds.ts. Present → render only that rect, filling the slot
+// (no letterboxing, since buildLayout already sized the slot to the
+// measured aspect). Absent (bundled art, or measurement not ready/failed)
+// → unchanged `resizeMode="contain"` fallback.
+function CollageSlot({ entry, measure }: { entry: PositionedEntry; measure: ContentMeasure | null }) {
   const { source, status } = useItemPhoto(entry.photo);
+  const outerStyle = {
+    position: 'absolute' as const,
+    left:   `${entry.slot.left}%` as `${number}%`,
+    top:    `${entry.slot.top}%`  as `${number}%`,
+    width:  `${entry.slot.w}%`    as `${number}%`,
+    height: `${entry.slot.h}%`    as `${number}%`,
+    zIndex: entry.slot.z,
+    ...(measure ? { overflow: 'hidden' as const } : null),
+  };
   return (
-    <View
-      style={{
-        position: 'absolute',
-        left:   `${entry.slot.left}%` as `${number}%`,
-        top:    `${entry.slot.top}%`  as `${number}%`,
-        width:  `${entry.slot.w}%`    as `${number}%`,
-        height: `${entry.slot.h}%`    as `${number}%`,
-        zIndex: entry.slot.z,
-      }}
-    >
+    <View style={outerStyle}>
       {status === 'ready' && source ? (
-        <Image source={source} style={styles.itemImage} resizeMode="contain" />
+        measure ? (
+          <Image
+            source={source}
+            resizeMode="stretch"
+            style={{
+              position: 'absolute',
+              left:   `${-(measure.rect.x / measure.rect.w) * 100}%` as `${number}%`,
+              top:    `${-(measure.rect.y / measure.rect.h) * 100}%` as `${number}%`,
+              width:  `${(1 / measure.rect.w) * 100}%` as `${number}%`,
+              height: `${(1 / measure.rect.h) * 100}%` as `${number}%`,
+            }}
+          />
+        ) : (
+          <Image source={source} style={styles.itemImage} resizeMode="contain" />
+        )
       ) : null}
     </View>
   );
+}
+
+// ─── Measured content-bounds aspect per entry ─────────────────────────────────
+// Resolves each entry's photo source and runs the on-device content-bounds
+// crop measurement (contentBoundsUri.ts — session-cached there, so remounts
+// don't re-measure). Bundled catalog art (png / `asset:` ref) is already
+// tight-cropped and is never measured. Populates incrementally as
+// measurements land; a brief reflow while they do is acceptable.
+function useEntryAspects(entries: Entry[]): Map<string, ContentMeasure> {
+  const [measures, setMeasures] = useState<Map<string, ContentMeasure>>(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    const toMeasure = entries.filter(e => e.photo.png == null && !isAssetRef(e.photo.photoPath));
+
+    toMeasure.forEach(entry => {
+      resolveItemPhotoSource(entry.photo).then(resolved => {
+        if (cancelled || resolved.status !== 'ready') return;
+        const uri = photoSourceUri(resolved.source);
+        if (!uri) return;
+        contentBoundsFromUri(uri).then(measure => {
+          if (cancelled || !measure) return;
+          setMeasures(prev => {
+            if (prev.has(entry.id)) return prev;
+            const next = new Map(prev);
+            next.set(entry.id, measure);
+            return next;
+          });
+        });
+      });
+    });
+
+    return () => { cancelled = true; };
+    // Re-measure only when the entry set itself changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries]);
+
+  return measures;
 }
 
 /** Small standalone thumbnail (used by the feed meta strip). */
@@ -74,12 +136,16 @@ export function OutfitCollage({
   const wardrobeById = useMemo(() => new Map(wardrobeItems.map(w => [w.id, w])), [wardrobeItems]);
   const [areaSize, setAreaSize] = useState<{ w: number; h: number } | null>(null);
   const areaAspect = areaSize && areaSize.h > 0 ? areaSize.w / areaSize.h : undefined;
-  const positioned = useMemo(() => {
-    const entries = outfit.itemIds
+  const rawEntries = useMemo(() => {
+    return outfit.itemIds
       .map(id => toEntry(id, wardrobeById))
       .filter((e): e is Entry => e != null);
-    return buildLayout(entries, areaAspect);
-  }, [outfit.itemIds, wardrobeById, areaAspect]);
+  }, [outfit.itemIds, wardrobeById]);
+  const measures = useEntryAspects(rawEntries);
+  const positioned = useMemo(() => {
+    const withAspect = rawEntries.map(e => ({ ...e, aspect: measures.get(e.id)?.aspect }));
+    return buildLayout(withAspect, areaAspect);
+  }, [rawEntries, measures, areaAspect]);
 
   const hasTip = showTitle && !!outfit.stylingTip;
   const titleY = titleTop != null ? titleTop : (compact ? 16 : 24);
@@ -113,7 +179,7 @@ export function OutfitCollage({
         }}
       >
         {positioned.map(entry => (
-          <CollageSlot key={entry.id} entry={entry} />
+          <CollageSlot key={entry.id} entry={entry} measure={measures.get(entry.id) ?? null} />
         ))}
       </View>
     </View>

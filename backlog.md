@@ -496,6 +496,13 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   Cần mở app trên emulator/máy thật, lướt feed qua nhiều outfit (2 món, 3-4 món, nhiều
   phụ kiện, chỉ dress+giày) xem tỷ lệ/khoảng cách nhìn có đúng ý không — các hằng số
   trong `COLLAGE` (`src/components/outfit/collageLayout.ts`) là draft, có thể cần tune.
+  Cùng đợt (2026-08-12, sau feedback "quần không được scale lên"): pipeline đo
+  **content-bounds** on-device mới (`src/features/wardrobe-photos/contentBounds.ts` +
+  `contentBoundsUri.ts`, crop sát món đồ + aspect thật cho layout) cũng CALIBRATION-PENDING:
+  threshold Manhattan 60 / min-content 1% / pad 2% chưa chạy qua ảnh thật. Case cần soi kỹ
+  trên máy: đồ TRẮNG trên nền trắng (nguy cơ box chỉ bắt được phần có bóng đổ → crop cụt
+  món đồ; nếu gặp thì tăng threshold hoặc thêm guard), và ảnh remote retailer (manipulate
+  có thể fail → fallback contain, chỉ cần xác nhận không crash).
 
 - [ ] **Try-on face composite — `faceDetect.ts`'s `NORMALIZE_TO_UNIT` vẫn chưa calibrate
   trên thiết bị thật** (2026-08-07, đợt edit-in-place + composite diagnostics). Chưa biết

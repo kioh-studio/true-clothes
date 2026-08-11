@@ -188,6 +188,36 @@ describe('buildLayout — flow layout hierarchy', () => {
     }
   });
 
+  it("accessories left-align with the anchor's left edge", () => {
+    const items = [
+      entry('jeans-1', 'JEANS'),
+      entry('tee-1', 'TEE'),
+      entry('sneakers-1', 'SNEAKERS'),
+    ];
+    const positioned = buildLayout(items);
+    const byId = bySlotId(positioned);
+    const anchorSlot = byId.get('jeans-1')!;
+    const sneakersSlot = byId.get('sneakers-1')!;
+    // No overflow for this outfit, so scale-to-fit/centering never touch
+    // `left` — direct equality holds.
+    expect(Math.abs(sneakersSlot.left - anchorSlot.left)).toBeLessThanOrEqual(0.1);
+  });
+
+  it("accessories under a centered anchor start at its left edge", () => {
+    const items = [
+      entry('jeans-1', 'JEANS'),
+      entry('sneakers-1', 'SNEAKERS'),
+      entry('bag-1', 'BAG'),
+    ];
+    const positioned = buildLayout(items);
+    const byId = bySlotId(positioned);
+    const anchorSlot = byId.get('jeans-1')!;
+    const sneakersSlot = byId.get('sneakers-1')!;
+    const bagSlot = byId.get('bag-1')!;
+    expect(Math.abs(sneakersSlot.left - anchorSlot.left)).toBeLessThanOrEqual(0.1);
+    expect(bagSlot.left).toBeGreaterThan(sneakersSlot.left + sneakersSlot.w);
+  });
+
   it('anchor centers horizontally when there are no secondaries', () => {
     const items = [
       entry('jeans-1', 'JEANS'),
@@ -220,5 +250,25 @@ describe('buildLayout — flow layout hierarchy', () => {
       expect(area(accSlot)).toBeLessThan(area(secondarySlot));
       expect(area(accSlot)).toBeLessThan(area(anchorSlot));
     }
+  });
+});
+
+describe('buildLayout — measured content-bounds aspect override', () => {
+  it('a measured Entry.aspect takes precedence over the static ASPECT table', () => {
+    // JEANS falls back to ASPECT.JEANS = 0.54 (tall/narrow); a measured
+    // content-bounds crop of 2.0 (wide/short) should visibly override it.
+    const withAspect: Entry = { ...entry('jeans-1', 'JEANS'), aspect: 2.0 };
+    const control: Entry = entry('jeans-2', 'JEANS');
+
+    const overrideSlot = buildLayout([withAspect])[0].slot;
+    const controlSlot = buildLayout([control])[0].slot;
+
+    // Both outfits use the same default areaAspect, so slot.w/slot.h scales
+    // with the entry's aspect by the same constant in both cases — the
+    // override should read through as a clearly bigger w/h ratio.
+    const overrideRatio = overrideSlot.w / overrideSlot.h;
+    const controlRatio = controlSlot.w / controlSlot.h;
+    expect(overrideRatio).toBeGreaterThan(controlRatio);
+    expect(overrideRatio / controlRatio).toBeCloseTo(2.0 / 0.54, 1);
   });
 });

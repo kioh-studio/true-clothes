@@ -78,7 +78,13 @@ export const CATEGORY_TYPE: Record<WardrobeItem['category'], string> = {
 // An outfit item drawn from EITHER the bundled mock catalog (png) OR a real
 // DB-backed wardrobe item (resolved on-device via useItemPhoto). `type` drives
 // layout; `photo` is fed to useItemPhoto (which handles png / local / cloud).
-export type Entry = { id: string; type: string; photo: PhotoInput; hasImage: boolean };
+// `aspect` is the garment's MEASURED w/h ratio (contentBounds.ts, on-device
+// content-bounds crop — real photos carry background margins the static
+// ASPECT table below can't know about), injected by the render layer after
+// measurement lands; undefined until then, or for photos that skip
+// measurement (bundled catalog art). Falls back to ASPECT[type] in
+// buildLayout when absent, exactly like before this existed.
+export type Entry = { id: string; type: string; photo: PhotoInput; hasImage: boolean; aspect?: number };
 
 export function toEntry(id: string, wardrobeById: Map<string, WardrobeItem>): Entry | null {
   const mock = itemById(id);
@@ -175,7 +181,7 @@ export function buildLayout(rawItems: Entry[], areaAspect = 0.9): PositionedEntr
   // balance against).
   let anchorBox: Box | null = null;
   if (anchor) {
-    const { w, h } = fitTopLeft(ASPECT[anchor.type] ?? 0.58, COLLAGE.ANCHOR_MAX_W, COLLAGE.ANCHOR_MAX_H_FRAC * H);
+    const { w, h } = fitTopLeft(anchor.aspect ?? ASPECT[anchor.type] ?? 0.58, COLLAGE.ANCHOR_MAX_W, COLLAGE.ANCHOR_MAX_H_FRAC * H);
     const left = secondaries.length === 0 ? 50 - w / 2 : COLLAGE.ANCHOR_LEFT;
     anchorBox = { left, top: 0, w, h };
     clothes.push({ entry: anchor, box: anchorBox, z: 1 });
@@ -187,7 +193,7 @@ export function buildLayout(rawItems: Entry[], areaAspect = 0.9): PositionedEntr
     const secMaxH = anchorBox
       ? Math.min(COLLAGE.SEC_MAX_H_FRAC * H, (anchorBox.h - (n - 1) * COLLAGE.GAP) / n)
       : COLLAGE.SEC_MAX_H_FRAC * H;
-    const { w, h } = fitTopLeft(ASPECT[item.type] ?? 0.85, COLLAGE.SEC_MAX_W, secMaxH);
+    const { w, h } = fitTopLeft(item.aspect ?? ASPECT[item.type] ?? 0.85, COLLAGE.SEC_MAX_W, secMaxH);
     const left = COLLAGE.SEC_LEFT + (COLLAGE.SEC_MAX_W - w) / 2;
     const box: Box = { left, top: secTop, w, h };
     clothes.push({ entry: item, box, z: 2 + i });
@@ -195,11 +201,12 @@ export function buildLayout(rawItems: Entry[], areaAspect = 0.9): PositionedEntr
   });
 
   // #3 — accessories/shoes: smallest, in row(s) below the lowest clothing
-  // bottom edge, spread evenly left→right, wrapping when a row overflows.
+  // bottom edge, left-aligned with the anchor's left edge, packed
+  // left→right, wrapping when a row overflows.
   const accEntries = allAccessories.slice(0, 8);
   const accH = COLLAGE.ACC_H_FRAC * H;
   const accBoxesRaw = accEntries.map((item, i) => {
-    const aspect = ASPECT[item.type] ?? 1.3;
+    const aspect = item.aspect ?? ASPECT[item.type] ?? 1.3;
     const unclampedW = accH * aspect;
     let w = Math.min(unclampedW, COLLAGE.ACC_MAX_W);
     let h = accH;
@@ -215,7 +222,12 @@ export function buildLayout(rawItems: Entry[], areaAspect = 0.9): PositionedEntr
   let rowY = clothes.length > 0 ? clothesBottom + COLLAGE.ACC_ROW_TOP_GAP : 0;
 
   const accPlaced: Placed[] = [];
-  const SPAN = 100 - 2 * COLLAGE.ACC_MARGIN; // usable horizontal span (wu)
+  // Row start X: the anchor's actual left edge (works for both the
+  // left-column case, left = ANCHOR_LEFT, and the centered no-secondary
+  // case, left = 50 − w/2 — accessories start under the anchor either way).
+  // Falls back to ACC_MARGIN when there's no anchor at all.
+  const rowStartX = anchorBox ? anchorBox.left : COLLAGE.ACC_MARGIN;
+  const SPAN = (100 - COLLAGE.ACC_MARGIN) - rowStartX; // usable horizontal span (wu)
   let i = 0;
   while (i < accBoxesRaw.length) {
     const row: typeof accBoxesRaw = [];
@@ -240,13 +252,14 @@ export function buildLayout(rawItems: Entry[], areaAspect = 0.9): PositionedEntr
       j++;
     }
 
-    const k = row.length;
-    const spacing = (SPAN - sumW) / (k + 1);
-    let left = COLLAGE.ACC_MARGIN + spacing;
+    // Left-aligned with a fixed gap — no more space-evenly distribution
+    // (a lone accessory used to end up centered mid-row, reading detached
+    // from the anchor above it).
+    let left = rowStartX;
     for (const b of row) {
       const top = rowY + (accH - b.h) / 2;
       accPlaced.push({ entry: b.entry, box: { left, top, w: b.w, h: b.h }, z: 6 + b.index });
-      left = left + b.w + spacing;
+      left = left + b.w + COLLAGE.ACC_GAP;
     }
 
     rowY = rowY + accH + COLLAGE.ACC_GAP;
