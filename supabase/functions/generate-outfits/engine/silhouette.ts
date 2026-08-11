@@ -444,8 +444,6 @@ const NEUTRAL_BASELINE = { top: 3, bottom: 3, waist: false, rounded: false };
  * Volume scale (VOLUME): slim=1 … regular=2 … oversized=5; neutral garment = 2.
  */
 export function resultingBodySilhouette(items: FitItem[], bodyShape?: BodyShape): OutfitSilhouetteShape {
-  const base = bodyShape ? BODY_BASELINE[bodyShape] : NEUTRAL_BASELINE;
-
   const topItem    = items.find(i => i.category === 'top' || i.category === 'onepiece');
   const outerItem  = items.find(i => i.category === 'outwear');
   const bottomItem = items.find(i => i.category === 'bottom' || i.category === 'onepiece');
@@ -457,6 +455,24 @@ export function resultingBodySilhouette(items: FitItem[], bodyShape?: BodyShape)
     outerItem ? (VOLUME[outerItem.fit] ?? 2) : 0,
   );
   const bottomGarmentVol = bottomItem ? (VOLUME[bottomItem.fit] ?? 2) : 2;
+
+  return silhouetteFromVolumes(topGarmentVol, bottomGarmentVol, outfitWaistDefinition(items), bodyShape);
+}
+
+// Core resulting-shape math, factored out of resultingBodySilhouette (2026-08-11)
+// so isShapeGoalReachable below can exhaustively probe the SAME branches —
+// particularly the base.rounded/base.waist short-circuits — without either
+// duplicating the thresholds by hand (which would drift) or constructing fake
+// FitItem[] wardrobes just to reach them. `waistDefined` is the outcome
+// outfitWaistDefinition(items) would have produced; resultingBodySilhouette
+// computes it from real items, isShapeGoalReachable enumerates both booleans.
+function silhouetteFromVolumes(
+  topGarmentVol: number,
+  bottomGarmentVol: number,
+  waistDefined: boolean,
+  bodyShape?: BodyShape,
+): OutfitSilhouetteShape {
+  const base = bodyShape ? BODY_BASELINE[bodyShape] : NEUTRAL_BASELINE;
 
   const eTop    = base.top    + (topGarmentVol - 2);
   const eBottom = base.bottom + (bottomGarmentVol - 2);
@@ -473,10 +489,40 @@ export function resultingBodySilhouette(items: FitItem[], bodyShape?: BodyShape)
   // base.waist (true for hourglass ONLY) could ever produce 'hourglass', so
   // no triangle/rectangle/apple wearer could ever see it, no matter how
   // waist-defining their actual outfit was.
-  if (outfitWaistDefinition(items)) return 'hourglass';
+  if (waistDefined) return 'hourglass';
   if (base.rounded) return 'oval';             // apple midsection reads rounded, absent an outfit-made waist
   if (base.waist) return 'hourglass';          // defined waist survives a balanced look
   return 'rectangle';                          // straight column
+}
+
+const VOLUME_RANGE = [1, 2, 3, 4, 5];
+
+/**
+ * Reachability predicate for the shapeGoal penalty (010-wardrobe-critic
+ * follow-up, 2026-08-11). Answers: for this body_shape baseline, does ANY
+ * outfit exist whose resultingBodySilhouette could read as `goal`? Total and
+ * pure — exhaustively walks the same (topGarmentVol, bottomGarmentVol,
+ * waistDefined) space silhouetteFromVolumes consumes (5 x 5 x 2 = 50 cheap,
+ * deterministic checks), so it is derived from the SAME branches
+ * resultingBodySilhouette actually uses rather than a hand-maintained lookup
+ * table that would drift the moment that function's thresholds change.
+ *
+ * Exists because some (baseline, goal) pairs are structurally impossible: an
+ * 'apple' baseline's base.rounded=true always wins the balanced-read branch
+ * over 'rectangle' (short of an extreme diff, which reads as
+ * triangle/inverted-triangle instead, or avg>=5, which reads as oval
+ * instead) — no outfit can ever make it read 'rectangle'. shapeGoalDelta
+ * (ranking.ts) consults this to turn what would otherwise be a permanent,
+ * unearnable penalty into a no-op for exactly those pairs.
+ */
+export function isShapeGoalReachable(bodyShape: BodyShape | undefined, goal: OutfitSilhouetteShape): boolean {
+  for (const topVol of VOLUME_RANGE) {
+    for (const bottomVol of VOLUME_RANGE) {
+      if (silhouetteFromVolumes(topVol, bottomVol, false, bodyShape) === goal) return true;
+      if (silhouetteFromVolumes(topVol, bottomVol, true, bodyShape) === goal) return true;
+    }
+  }
+  return false;
 }
 
 // ─── Match / affinity helpers ────────────────────────────────────────────────

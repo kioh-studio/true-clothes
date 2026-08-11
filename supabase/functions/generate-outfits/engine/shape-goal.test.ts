@@ -126,3 +126,71 @@ Deno.test('shapeGoal leaves ctx.bodyMeasurements.body_shape untouched', () => {
   rankCandidates(candidates, itemMap, ctx);
   assertEquals(ctx.bodyMeasurements.body_shape, 'rectangle');
 });
+
+// ─── unreachable shapeGoal -> no-op, not a standing penalty (2026-08-11 fix) ──
+// resultingBodySilhouette can never read 'rectangle' for an 'apple' baseline
+// (base.rounded always wins the balanced-read branch — see
+// isShapeGoalReachable's comment in silhouette.ts) or for an 'hourglass'
+// baseline (base.waist wins it instead). Before this fix, those users took
+// SHAPE_GOAL_MISS_PENALTY on every outfit forever, for a goal the engine
+// itself made unreachable. shapeGoalDelta must now neutralise to exactly 0
+// instead — same totalScore as shapeGoal unset — rather than chasing the
+// silhouette semantics.
+
+// No belt/structural piece -> resultingBodySilhouette('apple', these items) ==
+// 'oval' (base.rounded), confirmed in silhouette.test.ts. 'rectangle' would
+// previously have been a miss (-0.05) on every single card.
+const plainItems = () => [
+  fi('top', 'top',    { typeName: 'SHIRT',    primaryColor: 'white', fit: 'regular' }),
+  fi('bot', 'bottom', { typeName: 'TROUSERS', primaryColor: 'navy',  fit: 'regular' }),
+  fi('shoe', 'shoes', { typeName: 'SNEAKERS', primaryColor: 'white' }),
+];
+const plainCandidates: OutfitCandidate[] = [
+  { slots: { top: 'top', bottom: 'bot', shoes: 'shoe' }, formula: 'one_two_three' },
+];
+
+Deno.test("shapeGoal='rectangle' + body_shape='apple' (unreachable pair) -> delta is exactly 0, no permanent penalty", () => {
+  const items = plainItems();
+  const itemMap = new Map(items.map(i => [i.id, i]));
+  const bodyMeasurements = { body_shape: 'apple' as const };
+  const unset = rankCandidates(plainCandidates, itemMap, baseCtx({ bodyMeasurements }));
+  const goalSet = rankCandidates(plainCandidates, itemMap, baseCtx({ bodyMeasurements, shapeGoal: 'rectangle' }));
+  assertEquals(goalSet[0].totalScore, unset[0].totalScore,
+    'unreachable shapeGoal must not move totalScore at all (neither bonus nor penalty)');
+});
+
+Deno.test("shapeGoal='rectangle' + body_shape='hourglass' (unreachable pair) -> delta is exactly 0, no permanent penalty", () => {
+  const items = plainItems();
+  const itemMap = new Map(items.map(i => [i.id, i]));
+  const bodyMeasurements = { body_shape: 'hourglass' as const };
+  const unset = rankCandidates(plainCandidates, itemMap, baseCtx({ bodyMeasurements }));
+  const goalSet = rankCandidates(plainCandidates, itemMap, baseCtx({ bodyMeasurements, shapeGoal: 'rectangle' }));
+  assertEquals(goalSet[0].totalScore, unset[0].totalScore,
+    'unreachable shapeGoal must not move totalScore at all (neither bonus nor penalty)');
+});
+
+// ─── reachable shapeGoal on the SAME 'apple' baseline still bites (mechanism not disabled) ──
+// Proves the unreachable-guard above is scoped to the specific unreachable
+// pair, not a blanket bypass: 'apple' can still earn a bonus (goal='hourglass',
+// via a belt) and still take a penalty (goal='triangle', missed) exactly as
+// before the fix.
+
+Deno.test("shapeGoal='hourglass' + body_shape='apple' (reachable, matched via belt) still raises totalScore", () => {
+  const items = outfitItems(); // includes a belt -> resultingBodySilhouette == 'hourglass'
+  const itemMap = new Map(items.map(i => [i.id, i]));
+  const bodyMeasurements = { body_shape: 'apple' as const };
+  const off = rankCandidates(candidates, itemMap, baseCtx({ bodyMeasurements }));
+  const matched = rankCandidates(candidates, itemMap, baseCtx({ bodyMeasurements, shapeGoal: 'hourglass' }));
+  assert(matched[0].totalScore > off[0].totalScore,
+    `expected matched (${matched[0].totalScore}) > unset (${off[0].totalScore})`);
+});
+
+Deno.test("shapeGoal='triangle' + body_shape='apple' (reachable, missed) still lowers totalScore", () => {
+  const items = outfitItems(); // belt -> resultingBodySilhouette == 'hourglass', a deliberate miss for 'triangle'
+  const itemMap = new Map(items.map(i => [i.id, i]));
+  const bodyMeasurements = { body_shape: 'apple' as const };
+  const off = rankCandidates(candidates, itemMap, baseCtx({ bodyMeasurements }));
+  const missed = rankCandidates(candidates, itemMap, baseCtx({ bodyMeasurements, shapeGoal: 'triangle' }));
+  assert(missed[0].totalScore < off[0].totalScore,
+    `expected missed (${missed[0].totalScore}) < unset (${off[0].totalScore})`);
+});

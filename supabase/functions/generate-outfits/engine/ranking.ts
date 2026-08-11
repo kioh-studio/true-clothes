@@ -14,7 +14,7 @@ import {
 } from './scoring.ts';
 import { tasteAffinityDelta, tasteDismissPenalty } from './taste.ts';
 import { FormulaId } from './generation.ts';
-import { resultingBodySilhouette } from './silhouette.ts';
+import { resultingBodySilhouette, isShapeGoalReachable } from './silhouette.ts';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INTENT RESOLVER
@@ -226,12 +226,26 @@ function passesHardConstraints(fitItems: FitItem[], ctx: EngineContext, formula?
 // the waist (outfitWaistDefinition, via resultingBodySilhouette). 'auto' /
 // 'natural' / undefined → 0, no-op (matches resolveTargetSilhouette's own
 // OFF condition for this feature). CALIBRATION-PENDING magnitudes.
+//
+// Unreachable-goal guard (2026-08-11): some (body_shape, goal) pairs are
+// structurally impossible for resultingBodySilhouette to ever produce — e.g.
+// an 'apple' baseline's base.rounded short-circuit always wins over
+// 'rectangle' (see isShapeGoalReachable's own comment in silhouette.ts).
+// Without this guard those users took SHAPE_GOAL_MISS_PENALTY on every single
+// outfit, forever, for a goal the engine itself made unreachable — punishing
+// them for a target they had no way to earn. Neutralise to 0 instead of
+// chasing the silhouette semantics (a real question about whether outfit
+// evidence should be allowed to override base.rounded the way
+// outfitWaistDefinition already does for hourglass — out of scope here, see
+// backlog.md). A reachable match/miss still earns its bonus/penalty exactly
+// as before.
 const SHAPE_GOAL_MATCH_BONUS = 0.08;
 const SHAPE_GOAL_MISS_PENALTY = 0.05;
 
 function shapeGoalDelta(items: FitItem[], ctx: EngineContext): number {
   const goal = ctx.shapeGoal;
   if (!goal || goal === 'auto' || goal === 'natural') return 0;
+  if (!isShapeGoalReachable(ctx.bodyMeasurements.body_shape, goal)) return 0;
   const resulting = resultingBodySilhouette(items, ctx.bodyMeasurements.body_shape);
   return resulting === goal ? SHAPE_GOAL_MATCH_BONUS : -SHAPE_GOAL_MISS_PENALTY;
 }
@@ -265,7 +279,6 @@ export function rankCandidates(
   const w = ctx.scoringWeights;
   const wStyle      = w?.style      ?? W_STYLE;
   const wColor      = w?.color      ?? W_COLOR;
-  const wProportion = w?.proportion ?? W_PROPORTION;
   const wFormality  = w?.formality  ?? W_FORMALITY;
   const wSeason     = w?.season     ?? W_SEASON;
   const wTexture    = w?.texture    ?? W_TEXTURE;
@@ -275,6 +288,12 @@ export function rankCandidates(
   const bodyHasMeasurements = Object.values(ctx.bodyMeasurements)
     .some(v => typeof v === 'number');
   const wFit = bodyHasMeasurements ? Math.max(w?.fit ?? W_FIT, 0.18) : (w?.fit ?? W_FIT);
+  // Fix B (2026-08-11): mirror wFit's floor for wProportion. Both dimensions
+  // depend on real measurement/fit data the same way (fitHasData /
+  // proportionHasData below gate them identically) — without this floor a
+  // style's weight override could drive proportion arbitrarily low even for a
+  // fully measured wardrobe, while fit could not.
+  const wProportion = bodyHasMeasurements ? Math.max(w?.proportion ?? W_PROPORTION, 0.18) : (w?.proportion ?? W_PROPORTION);
 
   const scored: ScoredOutfit[] = [];
 

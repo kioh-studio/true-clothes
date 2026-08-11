@@ -6814,3 +6814,220 @@ supabase/functions/evaluate-item/`: 37 passed / 0 failed (unchanged — reuses t
 no behavioural drift observed). `deno test --allow-all supabase/functions/wardrobe-critic/`: 11
 passed / 0 failed (unchanged, same reason). `npx jest`: 41 suites / 569 tests passed (unchanged
 — no client code touched). No commit, no Supabase deploy — per instruction.
+
+## Style neighbor reciprocity fix + `poseEstimated` provenance actually set (2026-08-11)
+
+Two unrelated small fixes bundled in one session.
+
+### Style catalog: `bohemian → y2k` / `bohemian → athleisure` neighbors made bidirectional
+
+`style-catalog-consistency.test.ts` already asserted neighbor bidirectionality, but the
+assertion was deliberately scoped: it skipped any edge where BOTH endpoints belonged to the
+original 8-style catalog (`ORIGINAL_8`), with a comment documenting exactly this pair as the
+known exception, "left as-is (not this task's scope to touch old-old edges) and logged in
+backlog.md." So the invariant existed and passed, but did not cover these two pairs by design —
+a documented test-gap, not a silent bug in the test. `bohemian` listed `y2k` (weight 0.3) and
+`athleisure` (weight 0.2) as neighbors; neither listed `bohemian` back.
+
+A full catalog-wide sweep (`deno run` script iterating every `STYLE_CONFIGS` neighbor edge,
+checking the reverse edge exists) confirmed these were the ONLY two asymmetric pairs across all
+32 styles — no other pair, old or new, was found broken.
+
+Fixed in `filtering.ts` by adding the reverse edges, with weights chosen per pair rather than
+copied from the forward edge (neighbor weight means "how much would a fan of A also like B",
+which is not symmetric by construction):
+- `y2k → bohemian`: **0.2** (not 0.3). Y2k's other 0.3-weight cross-aesthetic ties (coquette,
+  grunge, artsy) share its playful/edgy mood or bold palette; bohemian shares neither (earth
+  palette y2k never touches, romantic/artistic mood vs y2k's playful/edgy). The only real bridge
+  is pattern-heaviness (bohemian patternLevel 3.5 vs y2k 4.0) — thinner than the 0.3 cousins, so
+  it sits at the catalog's floor weight instead.
+- `athleisure → bohemian`: **0.2**. Athleisure's palette treats black/charcoal as perfect
+  neutrals (bohemian bans both); athleisure bans wool/cashmere/silk/suede/tweed that bohemian
+  allows freely. The only real overlap is silhouette looseness (both allow relaxed/oversized) —
+  the catalog's weakest-tie territory.
+
+`style-catalog-consistency.test.ts`'s bidirectionality test is now unscoped — the `ORIGINAL_8`
+carve-out and its exclusion logic were removed, and the test (renamed `'style catalog: every
+neighbor edge is bidirectional'`) now covers the entire catalog with no exceptions. Since the
+sweep found no other asymmetric pairs, this passes cleanly without needing to mark anything
+`ignore`d.
+
+**Not done (explicitly out of scope for this session): the DB migration.** `filtering.ts`'s
+neighbors are hand-synced into `public.styles.neighbors` by migration with no generator — this
+edit does not reach the client until a migration ships. SQL the owner would need:
+```sql
+update public.styles set neighbors = neighbors || '[{"id":"bohemian","weight":0.2}]'::jsonb
+  where id = 'y2k';
+update public.styles set neighbors = neighbors || '[{"id":"bohemian","weight":0.2}]'::jsonb
+  where id = 'athleisure';
+```
+See `backlog.md` (marked resolved with this note) for the full record.
+
+### `poseEstimated` now actually gets set
+
+The DB column `body_measurements.pose_estimated` (`NOT NULL DEFAULT false`) has been correctly
+*mapped* by `measurementService.ts` since an earlier session, but nothing ever *set* it to
+`true` — logged as an open gap in `backlog.md`. Traced the real pose-scan flow this session:
+`app/measurements-scan.tsx` runs actual on-device pose estimation (BlazePose + MODNet + side-view
+depth) and publishes its result via `fitEngineStore.pendingEstimate`; two screens consume it —
+`app/(onboarding)/measurements.tsx` (via the `useMeasurements` hook) and `app/measurements-edit.tsx`
+(its own local form state, does not use the hook). Neither ever included `poseEstimated` in its
+save payload.
+
+Chosen semantics (provenance of the whole SAVED VALUE SET, not per-field): a save counts as
+pose-estimated only while every measurement field still holds exactly what the last scan
+produced. Any manual edit to a measurement field — even just one — clears the flag to `false`
+for the whole set, rather than trying to track which individual fields are still "clean." This
+follows the code shape rather than fighting it: both screens flatten `pendingEstimate` into a
+single flat form-values object the moment it's consumed (`values`/`v`), so there is no per-field
+provenance seam to preserve even if a finer-grained answer were desired.
+
+Implementation, mirrored in both screens since they don't share form state:
+- `useMeasurements.ts`: new `poseEstimated` state (initialized from whatever was already saved,
+  so revisiting an untouched screen doesn't lie about a previous scan). `setField()` now clears
+  it on every manual edit. New `applyEstimate()` applies a full estimate object in one state
+  update and sets the flag `true` — callers must use this instead of looping `setField()` per
+  field, since each `setField()` call in a loop would immediately clear the flag the previous
+  call just set. `save()` now includes `poseEstimated` in the `saveMeasurements()` payload.
+  `app/(onboarding)/measurements.tsx`'s pendingEstimate-consumption effect now calls
+  `applyEstimate()` once instead of one `setField()` call per field.
+- `app/measurements-edit.tsx`: parallel local `poseEstimated` state (this screen doesn't use the
+  hook). The field-edit wrapper `set()` only clears the flag for actual measurement-value keys
+  (height/weight/chest/waist/hips/inseam/thigh/rise/shoulder/sleeve/torso) — NOT for the CM/IN or
+  KG/LB unit toggles or the preferred-fit selector, since those don't change what was measured.
+  The late-hydrate resync effect and the Discard button both restore `poseEstimated` to the
+  store/baseline value alongside the fields they already resync, so neither leaves it stale.
+  `handleSave()` now includes `poseEstimated` in the `setBodyMeasurements()` payload.
+
+Added `src/services/__tests__/measurementService.poseEstimated.test.ts` (5 tests) covering the
+one pure seam that exists without hook-render infrastructure: the `bodyToRow`/`rowToBody` mapper
+via `upsertMyMeasurements`/`fetchMyMeasurements`, verifying `true` and `false` are both written
+explicitly (an explicit `false` must clear a stale `true`, not be dropped) while `undefined` is
+correctly omitted ("don't touch"), and that a fetched row's `pose_estimated` maps back to
+`poseEstimated` in both directions. Did not add hook/screen-level tests — the repo has no
+`@testing-library/react-hooks`/render-hook infrastructure, and contorting the code to fake a seam
+for that wasn't worth it for this fix.
+
+### Verify
+
+`npx tsc --noEmit`: clean. `npx jest`: 42 suites / 574 tests passed (was 41/569 — +1 suite / +5
+tests, all in the new `measurementService.poseEstimated.test.ts`). `deno test --allow-all
+supabase/functions/generate-outfits/engine/`: 294 passed / 0 failed (unchanged count — the
+catalog test was strengthened/renamed, not added to; two new neighbor edges added data-side).
+No commit, no Supabase deploy — per instruction.
+
+## Unwinnable shapeGoal penalty fix + `wProportion` floor (010-wardrobe-critic follow-up, 2026-08-11)
+
+Two independent, small fixes to `engine/silhouette.ts` and `engine/ranking.ts`. No filtering/
+generation/client files touched (another session was concurrently editing `filtering.ts` and
+client screens — see the two sessions above/around this one).
+
+### Fix A — `shapeGoalDelta` was punishing users for missing a goal the engine had made unreachable
+
+The shapeGoal feature (2026-08-10 entry above) rewards outfits whose `resultingBodySilhouette`
+matches the user's chosen goal and penalizes a miss (`±0.08` / `−0.05`). But
+`resultingBodySilhouette`'s balanced-read branch has two short-circuits that make some goals
+structurally impossible for some `body_shape` baselines to ever reach: `base.rounded` (true only
+for `apple`) and `base.waist` (true only for `hourglass`) both win over the `'rectangle'`
+fallback whenever `diff` is within `[-2, 2)` and `avg < 5` — the ONLY branch that can ever
+produce `'rectangle'`. Concretely: **an `apple`- or `hourglass`-baseline user who sets their
+shapeGoal to `'rectangle'` can never be labelled that, no matter what they wear** — every single
+outfit took the `−0.05` miss penalty forever, for a target the engine itself made unreachable.
+
+**Correcting the 2026-08-10 backlog note's premise**: that note (and the task instruction driving
+this fix) assumed `'triangle'` was *also* unreachable for `apple`. Verified this is wrong by
+exhaustively walking the volume space: `resultingBodySilhouette`'s `diff <= -2` check (the
+`'triangle'` branch) runs UNCONDITIONALLY, before `base.rounded` is ever consulted — a
+slim-top/wide-bottom outfit always clears it regardless of baseline. Only `'rectangle'` is
+actually unreachable, and it's unreachable for **two** baselines, not one: `apple`
+(`base.rounded`) and `hourglass` (`base.waist`, previously unflagged). Every other
+(baseline, goal) pair in the full 6×5 matrix (5 `BodyShape` values + `undefined`, ×
+`'hourglass'|'rectangle'|'oval'|'inverted-triangle'|'triangle'`) is reachable.
+
+**Design (chốt by the driving instruction): neutralise, don't chase the semantics.** Whether
+outfit evidence should be allowed to override `base.rounded`/`base.waist` the way
+`outfitWaistDefinition` already overrides them for `'hourglass'` is a real, separate question —
+it would change how EVERY apple/hourglass user's resulting silhouette reads, across every
+feature that consumes `resultingBodySilhouette`, not just shapeGoal. That needs anh Khôi's
+sign-off, so it's logged as a new open `backlog.md` item instead of folded into this patch.
+This patch only stops the permanent, unearnable penalty.
+
+Implementation: factored `resultingBodySilhouette`'s core diff/avg/branch math out into a new
+private `silhouetteFromVolumes(topGarmentVol, bottomGarmentVol, waistDefined, bodyShape)`, so
+both `resultingBodySilhouette` (real items → real `topGarmentVol`/`bottomGarmentVol`/
+`outfitWaistDefinition(items)`) and the new exported `isShapeGoalReachable(bodyShape, goal)`
+call the exact same branches — no hand-maintained lookup table that could drift when the
+thresholds change. `isShapeGoalReachable` exhaustively walks `topVol × bottomVol × waistDefined`
+= 5×5×2 = 50 cheap, deterministic checks and returns whether `goal` is ever produced. Total,
+pure, no `FitItem` construction needed. `shapeGoalDelta` (`ranking.ts`) now calls it first and
+returns `0` immediately when the pair is unreachable, before touching `resultingBodySilhouette`
+at all.
+
+Tests: `silhouette.test.ts` pins `isShapeGoalReachable('apple','rectangle')` and
+`isShapeGoalReachable('hourglass','rectangle')` both `false`, `isShapeGoalReachable('apple',
+'triangle')` `true` (the corrected case), plus a full-matrix loop asserting every other pair is
+reachable. `shape-goal.test.ts` (ranking-level) pins `shapeGoalDelta` contributing exactly `0`
+— `totalScore` byte-identical to `shapeGoal` unset — for `apple+'rectangle'` and
+`hourglass+'rectangle'` on a plain (no belt/structured-piece) outfit that would previously have
+taken the miss penalty on every card; and separately confirms the mechanism isn't disabled
+wholesale by re-running the existing match/miss assertions on `apple` specifically
+(`apple+'hourglass'` via a belt still raises `totalScore`, `apple+'triangle'` still lowers it).
+
+### Fix B — floor `wProportion` the same way `wFit` is already floored
+
+`ranking.ts`'s `wFit` gets `Math.max(w?.fit ?? W_FIT, 0.18)` whenever `bodyHasMeasurements` — a
+style's weight override can't drive fit weight below 0.18 once the user has entered real body
+measurements. `wProportion` had no equivalent: `w?.proportion ?? W_PROPORTION` alone, so a style
+override could push proportion arbitrarily low even for a fully measured wardrobe, while fit
+could not — an inconsistency between two dimensions that are gated by the exact same
+`fitHasData`/`proportionHasData` provenance checks a few lines below. Mirrored the floor exactly:
+same `0.18`, same `bodyHasMeasurements` condition, same `Math.max` shape, computed right after
+`bodyHasMeasurements` (moved `wProportion`'s declaration down from the initial weight-destructure
+block so it can see that flag, same way `wFit` already does).
+
+The backlog scoped this as explicitly optional — "only if it doesn't destabilize existing
+tests" — so the plan was to land it, run the full engine suite, and revert on any failure. It
+landed clean: full `deno test --allow-all supabase/functions/generate-outfits/engine/` (302
+tests total, including this session's 8 new ones) — **0 failures**. No test asserted or depended
+on `wProportion` staying at its unfloored default under `bodyHasMeasurements`, so the floor was
+kept as-is.
+
+### Eval harness measurement (3 profiles, `scripts/eval-feed/run.ts`)
+
+Known limitation stated up front, confirmed rather than assumed: none of the three fixtures
+(`smartcasual`/`streetwear`/`resort`) sets `shapeGoal` in `EngineContext`, so `shapeGoalDelta`
+returns `0` identically before and after Fix A for all three — **Fix A produces zero eval
+movement**, exactly as expected, and its correctness rests entirely on the unit tests above, not
+manufactured eval data. All observed movement below is Fix B: all three fixtures set
+`bodyMeasurements` with real numeric fields (`body_height: 172`, etc. — `BODY_MEASUREMENTS` in
+`fixture.ts`), so `bodyHasMeasurements` is `true` for all three, and none of the style-derived
+`scoringWeights` for these profiles already sits at/above 0.18 for `proportion` — so the floor
+lifts `wProportion` from the 0.10 default to 0.18 for every profile, redistributing the weighted
+average and reshuffling close-scoring outfits.
+
+| Profile | Top-10 rank changes | Entries/exits | Rank 1 Δ | Rank 2 Δ | Rank 3 Δ |
+|---|---|---|---|---|---|
+| smartcasual | 6 of 10 | 0 / 0 | −0.0067 | +0.0021 | +0.0050 |
+| streetwear | 4 of 10 | 1 in / 1 out | 0.0000 | +0.0027 | −0.0035 |
+| resort | 8 of 10 | 1 in / 1 out | −0.0000 | +0.0031 (identity swap: rank 2 became a different outfit) | −0.0059 (identity swap) |
+
+Deltas stay small (≤0.03 at any single position, single-digit-percent of the 0–1 score range) —
+consistent with `wProportion` moving only from 0.10→0.18 within a 7-dimension weighted average,
+not a dominant term. `resort` saw the most reshuffling (8/10) because its top outfits cluster
+tightly (0.73–0.86 range, several near-ties), so even a small per-dimension reweight is enough to
+swap adjacent ranks; `streetwear`'s top outfits are more separated (several exact `0.9500` ties
+from taste-multiplier caps) so fewer positions moved. No outfit's identity changed outside the
+top 10 in a way that suggests a scoring regression — every entry/exit pair was already sitting
+near the rank-10 boundary in the base run.
+
+### Verify
+
+`npx tsc --noEmit`: clean. `deno test --allow-all supabase/functions/generate-outfits/engine/`:
+302 passed / 0 failed (was 294 — +8 new tests: 4 for `isShapeGoalReachable` in
+`silhouette.test.ts`, 4 for the ranking-level unreachable-guard/still-works-when-reachable
+behaviour in `shape-goal.test.ts`). `deno test --allow-all supabase/functions/evaluate-item/`: 37
+passed / 0 failed (unchanged). `deno test --allow-all supabase/functions/wardrobe-critic/`: 11
+passed / 0 failed (unchanged). `npx jest`: 41 suites / 569 tests passed at the time this session
+ran it (a concurrent session's `measurementService.poseEstimated.test.ts` landed 42/574
+separately — see the entry directly above this one; unrelated to these two fixes, no client code
+touched here). No commit, no Supabase deploy — per instruction.

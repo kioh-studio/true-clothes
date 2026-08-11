@@ -116,24 +116,22 @@ Deno.test('style catalog: every neighbor id resolves to a real style', () => {
   }
 });
 
-// ─── (3) neighbors added by the catalog expansion are symmetric ────────────
-// Scoped to edges touching at least one of the 14 NEW styles — the task's
-// bidirectionality requirement is about this expansion's own additions
-// ("thêm style mới làm neighbor của style cũ... hai chiều"), not a retroactive
-// fix of the original 8. One pre-existing asymmetry predates this change:
-// bohemian → y2k (0.3) and bohemian → athleisure (0.2) were never reciprocated
-// (y2k/athleisure's own neighbor lists don't include bohemian) — verified
-// against the catalog as it stood before this migration. Left as-is (not this
-// task's scope to touch old-old edges) and logged in backlog.md.
-const ORIGINAL_8 = new Set([
-  'oldmoney', 'minimalist', 'streetwear', 'smartcasual', 'preppy', 'athleisure', 'y2k', 'bohemian',
-]);
-
-Deno.test('style catalog: every neighbor edge touching a new style is bidirectional', () => {
+// ─── (3) every neighbor edge in the whole catalog is bidirectional ─────────
+// Originally scoped to edges touching only the 14 NEW styles (the catalog
+// expansion's own additions), with a documented carve-out for two pre-
+// existing one-directional edges from the original 8-style catalog:
+// bohemian → y2k (0.3) and bohemian → athleisure (0.2) were never
+// reciprocated. Fixed 2026-08-11 (see 'Reciprocity fix' comments on y2k's
+// and athleisure's neighbor lists above — reciprocal weights were chosen
+// deliberately per pair, not copied from the forward edge). A full
+// catalog-wide sweep at fix time found no other asymmetric pairs, so this
+// assertion is now unscoped and covers every style, old and new alike — any
+// future one-directional edge (in either an existing or a newly added style)
+// fails this test immediately, naming the exact missing reverse edge.
+Deno.test('style catalog: every neighbor edge is bidirectional', () => {
   const byId = new Map(STYLE_CONFIGS.map(c => [c.id, c]));
   for (const config of STYLE_CONFIGS) {
     for (const n of config.neighbors) {
-      if (ORIGINAL_8.has(config.id) && ORIGINAL_8.has(n.styleId)) continue; // pre-existing old-old edge, out of scope
       const other = byId.get(n.styleId);
       assert(other, `${config.id} → ${n.styleId}: target style missing`);
       const hasReverse = other!.neighbors.some(back => back.styleId === config.id);

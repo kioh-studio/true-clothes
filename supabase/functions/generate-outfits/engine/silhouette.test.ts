@@ -13,9 +13,10 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.208.0/assert/mod.ts';
 import {
   resolveTargetSilhouette, pairSilhouetteMatch, measurementPriorityBoost, outfitSilhouetteTag,
-  resultingBodySilhouette, outfitWaistDefinition,
+  resultingBodySilhouette, outfitWaistDefinition, isShapeGoalReachable,
 } from './silhouette.ts';
-import { EngineContext, FitItem, ItemCategory, GarmentMeasurements, TargetSilhouette } from './types.ts';
+import type { OutfitSilhouetteShape } from './silhouette.ts';
+import { EngineContext, FitItem, ItemCategory, GarmentMeasurements, TargetSilhouette, BodyShape } from './types.ts';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -494,4 +495,49 @@ Deno.test("shapeGoal='hourglass' targets balanced volume (the waist itself comes
   const ctx = baseCtx({ bodyMeasurements: { body_shape: 'triangle' }, shapeGoal: 'hourglass' });
   const target = resolveTargetSilhouette(ctx, NO_ITEMS);
   assertEquals(target.targets, [{ topVol: 2, bottomVol: 2, weight: 1.0, label: 'shape_goal_hourglass_balanced' }]);
+});
+
+// ─── isShapeGoalReachable (2026-08-11 fix) ───────────────────────────────────
+// Whether ANY outfit could make resultingBodySilhouette read as `goal` for a
+// given body_shape baseline — consulted by shapeGoalDelta (ranking.ts) to
+// turn a structurally-unearnable penalty into a no-op. Derived by exhaustively
+// walking the same (topVol, bottomVol, waistDefined) space
+// resultingBodySilhouette's math consumes (verified empirically against every
+// (BodyShape | undefined) x OutfitSilhouetteShape combination below), not a
+// hand-maintained guess.
+//
+// The only unreachable pairs across the full matrix are 'rectangle' for the
+// two baselines whose balanced-read branch is intercepted before it can fall
+// through to 'rectangle': 'apple' (base.rounded, see resultingBodySilhouette's
+// own comment) and 'hourglass' (base.waist — a hip/shoulder-balanced hourglass
+// body never reads as a straight column either, it reads as still-hourglass).
+// Note this deliberately does NOT include apple+'triangle': an extreme
+// slim-top/wide-bottom pairing hits the diff<=-2 branch UNCONDITIONALLY,
+// before base.rounded is ever consulted, so it stays reachable for every
+// baseline — confirmed here rather than assumed.
+
+Deno.test("isShapeGoalReachable: 'apple'+'rectangle' is unreachable — base.rounded always wins the balanced-read branch", () => {
+  assertEquals(isShapeGoalReachable('apple', 'rectangle'), false);
+});
+
+Deno.test("isShapeGoalReachable: 'hourglass'+'rectangle' is unreachable — base.waist always wins the balanced-read branch", () => {
+  assertEquals(isShapeGoalReachable('hourglass', 'rectangle'), false);
+});
+
+Deno.test("isShapeGoalReachable: 'apple'+'triangle' IS reachable — the diff<=-2 branch fires before base.rounded is consulted", () => {
+  assertEquals(isShapeGoalReachable('apple', 'triangle'), true);
+});
+
+Deno.test('isShapeGoalReachable: full matrix — every pair reachable except apple/rectangle and hourglass/rectangle', () => {
+  const shapes: (BodyShape | undefined)[] = ['hourglass', 'rectangle', 'triangle', 'inverted_triangle', 'apple', undefined];
+  const goals: OutfitSilhouetteShape[] = ['hourglass', 'rectangle', 'oval', 'inverted-triangle', 'triangle'];
+  const expectedUnreachable = new Set(['apple:rectangle', 'hourglass:rectangle']);
+
+  for (const shape of shapes) {
+    for (const goal of goals) {
+      const key = `${shape}:${goal}`;
+      const expected = !expectedUnreachable.has(key);
+      assertEquals(isShapeGoalReachable(shape, goal), expected, `expected ${key} reachable=${expected}`);
+    }
+  }
 });

@@ -182,6 +182,16 @@ export const STYLE_CONFIGS: StyleConfig[] = [
       { styleId: 'athflow', weight: 0.8 },
       // Style catalog expansion batch 2 (2026-08-10)
       { styleId: 'sporty', weight: 0.5 },
+      // Reciprocity fix (2026-08-11): bohemian already listed athleisure
+      // (0.2, its weakest tie) but athleisure never listed bohemian back.
+      // Not a blind copy of 0.2 — independently the weakest plausible tie:
+      // athleisure's palette treats black/charcoal as perfect neutrals while
+      // bohemian bans both, and athleisure bans wool/cashmere/silk/suede/
+      // tweed that bohemian allows freely. The only real overlap is
+      // silhouette looseness (both allow relaxed/oversized), which is
+      // exactly the floor-weight (0.2) territory this catalog already uses
+      // for its faintest connections.
+      { styleId: 'bohemian', weight: 0.2 },
     ],
     popularity: 0.724,
   },
@@ -203,6 +213,16 @@ export const STYLE_CONFIGS: StyleConfig[] = [
       { styleId: 'streetwear', weight: 0.6 }, { styleId: 'athleisure', weight: 0.4 },
       // Style catalog expansion (2026-08-10)
       { styleId: 'coquette', weight: 0.3 }, { styleId: 'grunge', weight: 0.3 }, { styleId: 'artsy', weight: 0.3 },
+      // Reciprocity fix (2026-08-11): bohemian already listed y2k (0.3) but
+      // y2k never listed bohemian back. Not a blind copy of 0.3 — y2k's
+      // other cross-aesthetic ties (coquette/grunge/artsy) sit at 0.3
+      // because they share y2k's playful/edgy mood or bold palette;
+      // bohemian shares neither (romantic/artistic mood, earth palette y2k
+      // doesn't touch at all) and the only real bridge is patternLevel
+      // (boho 3.5 vs y2k 4.0 — both maximalist/pattern-heavy). That's a
+      // thinner overlap than the 0.3 cousins, so it sits at this catalog's
+      // floor weight (0.2) instead.
+      { styleId: 'bohemian', weight: 0.2 },
     ],
     popularity: 0.400,
   },

@@ -220,6 +220,19 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   hourglass. Test mới: `silhouette.test.ts` (apple+blazer→hourglass,
   rectangle+belt→hourglass, + case âm giữ nguyên hành vi cũ khi không có tín hiệu eo).
 
+- [ ] **`base.rounded` (apple) và `base.waist` (hourglass) chặn cứng nhánh "cân bằng" →
+  không outfit nào khiến 2 baseline này đọc ra `rectangle`** (2026-08-11, phát hiện khi
+  fix hình phạt shapeGoal ở trên — KHÔNG sửa trong task đó, cần anh Khôi duyệt trước).
+  Câu hỏi thật: có nên cho bằng chứng từ OUTFIT (vd. cạp cao rõ ràng, không structured
+  piece nào, không avg cao) được PHÉP lật `base.rounded`/`base.waist` để đọc ra
+  `rectangle`, giống cách `outfitWaistDefinition` đã lật chúng để đọc ra `hourglass`
+  (fix 2026-08-10)? Đây là câu hỏi về Ý NGHĨA của "resulting silhouette" — sửa nó đổi
+  cách đọc dáng cho MỌI user apple/hourglass ở mọi tính năng dùng `resultingBodySilhouette`
+  (không chỉ shapeGoal), không phải side-effect nên làm ngầm trong một patch hình phạt.
+  Hiện tại: goal `rectangle` cho 2 baseline này đã được neutralise (không còn bị trừ điểm)
+  qua `isShapeGoalReachable`, nhưng user vẫn KHÔNG BAO GIỜ thấy outfit của mình được gắn
+  nhãn `rectangle` — chỉ là không còn bị phạt vì điều đó nữa.
+
 - [ ] **`resultingBodySilhouette` vẫn chỉ đọc ~2.5 biến (volume top/bottom + 1 cờ nhị
   phân "có eo do outfit tạo hay không")** (2026-08-10, còn treo sau fix trên) — mô hình
   vẫn bỏ qua các đòn bẩy stylist kinh điển khác: vị trí eo cụ thể (cạp cao/thấp), đường
@@ -245,14 +258,31 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   `evaluate-item` và report của `wardrobe-critic` hiện KHÔNG biết tới dáng đích user đã
   chọn. Cần quyết định có đáng làm không trước khi tự ý mở rộng phạm vi.
 
-- [ ] **`targetsForDesiredShape('rectangle', 'apple')` không thể đạt được về mặt toán học**
-  (2026-08-10, giới hạn đã biết, KHÔNG sửa trong task này) — baseline `apple` có
-  `rounded: true`, luôn thắng nhánh "cân bằng" bất cứ khi nào `avg < 5` trong
-  `resultingBodySilhouette` — nên user apple chọn goal `rectangle` hoặc `triangle` không
-  bao giờ nhận đúng nhãn đó (ra `oval` khi avg thấp, ra `hourglass` nếu outfit có tín
-  hiệu chiết eo). `shapeGoalDelta` vẫn sẽ trừ điểm những outfit này dù engine đã cố hết
-  sức — trade-off cần anh Khôi cân nhắc: có nên sửa `base.rounded` logic hay chấp nhận
-  giới hạn này.
+- [x] **Engine trừ điểm user vì trượt một goal mà chính engine khiến không thể đạt được**
+  — FIXED 2026-08-11. Gốc vấn đề (đã sửa lại mô tả so với ghi chú 2026-08-10 ở trên: ghi
+  chú đó nói CẢ `rectangle` LẪN `triangle` không đạt được với baseline `apple` — kiểm tra
+  lại kỹ bằng cách vét cạn không gian volume thì **chỉ `rectangle` thực sự bất khả thi**;
+  `triangle` VẪN đạt được bình thường vì nhánh `diff <= -2` trong `resultingBodySilhouette`
+  chạy TRƯỚC `base.rounded`, không bị nó chặn). `rectangle` bất khả thi cho **2** baseline,
+  không phải 1: `apple` (`base.rounded=true` luôn thắng nhánh "cân bằng") VÀ `hourglass`
+  (`base.waist=true` cũng luôn thắng nhánh đó, chưa từng được nhắc tới trước đây) — không
+  outfit nào khiến 2 baseline này đọc ra `rectangle` được.
+  Design quyết định: KHÔNG đuổi theo sửa semantics của `resultingBodySilhouette` (việc đó
+  đổi cách đọc dáng cho MỌI user apple/hourglass, cần anh Khôi duyệt riêng — xem mục mới
+  ngay dưới) — chỉ **vô hiệu hoá hình phạt không thể tránh khỏi**. Thêm hàm thuần
+  `isShapeGoalReachable(bodyShape, goal)` (`silhouette.ts`) — tách phần lõi tính toán
+  (`silhouetteFromVolumes`) ra khỏi `resultingBodySilhouette` rồi vét cạn không gian
+  (topVol × bottomVol × waistDefined = 5×5×2 = 50 tổ hợp rẻ, tất định) để xác định liệu
+  goal có bao giờ đạt được không — SUY RA từ đúng logic thật, không phải bảng tra tay sẽ
+  lệch khi hàm gốc đổi. `shapeGoalDelta` (`ranking.ts`) gọi predicate này trước, trả về 0
+  (no-op) khi goal bất khả thi cho baseline đó, thay vì trừ điểm đứng hoài. Match/miss
+  reachable vẫn thưởng/phạt như cũ (test khoá: `apple`+`hourglass` reachable vẫn cộng điểm,
+  `apple`+`triangle` reachable vẫn trừ khi trượt). Test mới: `silhouette.test.ts`
+  (`isShapeGoalReachable` — pin 2 cặp bất khả thi + toàn bộ ma trận 6 baseline × 5 goal),
+  `shape-goal.test.ts` (delta = 0 đúng byte cho `apple`+`rectangle` và `hourglass`+`rectangle`).
+  Đo bằng eval harness (3 profile smartcasual/streetwear/resort): cả 3 fixture đều KHÔNG
+  set `shapeGoal`, nên `shapeGoalDelta` luôn = 0 trước và sau fix — Fix A không tạo dịch
+  chuyển nào trong eval, đúng như dự kiến; correctness dựa hoàn toàn vào unit test.
 
 - [x] **Personal Colour v3 Phase A — face scan + calibrated colour math** — DONE 2026-08-04
   (implemented this session per `docs/personal-color-v3-phase-a-instruction.md`, scope
@@ -992,10 +1022,17 @@ edge functions / chưa chạy eas build — chờ anh Khôi duyệt riêng.
   `pairAffinity`-style confidence-blend that `generateFromPool` got. Left out to keep the
   change surface small; `buildAroundFixed` operates on id arrays only (not `FitItem`s),
   so wiring this in properly needs a small refactor to pass items through.
-- [ ] **Floor `wProportion` upward when measured item count is high**, mirroring the
-  existing `wFit` 0.18 floor in `engine/ranking.ts` (2026-07-12) — spec called this out as
-  optional ("only if it doesn't destabilize existing tests"); skipped to keep risk low for
-  this pass.
+- [x] **Floor `wProportion` upward when measured item count is high**, mirroring the
+  existing `wFit` 0.18 floor in `engine/ranking.ts` (2026-07-12) — DONE 2026-08-11. Mirrored
+  `wFit`'s exact shape: `wProportion = bodyHasMeasurements ? Math.max(w?.proportion ??
+  W_PROPORTION, 0.18) : (w?.proportion ?? W_PROPORTION)`, same `bodyHasMeasurements`
+  condition, same 0.18 floor. Ran the full engine deno suite (294 baseline → 302 with this
+  session's other new tests) after landing it: 0 failures — the spec's "only if it doesn't
+  destabilize existing tests" condition was met cleanly, no revert needed. Confirmed via the
+  eval harness too: all 3 profiles (smartcasual/streetwear/resort) show rank/score movement
+  in their top 10 purely from this floor (all 3 fixtures set `bodyMeasurements` with numeric
+  fields, so `wProportion` moves from the 0.10 default up to 0.18 regardless of any
+  style-weight override) — see `plan.md`'s 2026-08-11 entry for the measured table.
 - [x] **Dịch ~37 tên màu primaryColor sang vi cho colorTone tag trên feed card** (2026-07-12)
   — tạm hiển thị tên EN viết hoa (không có namespace màu i18n sẵn có để tái dùng, xem
   `app/(tabs)/index.tsx` `colorToneMetaLabel` + `src/design/feed/design.md`).
@@ -1856,13 +1893,23 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   `scripts/eval-feed/fixture.ts`) sinh ĐƯỢC 0 outfit hợp lệ trước fix (mọi combo 2-pattern-đậm
   bị hard-ban), sinh được một số sau fix. Chi tiết: `plan.md` "Style catalog consistency"
   (2026-08-11).
-- [ ] **Neighbor một chiều CÓ SẴN TỪ TRƯỚC: `bohemian → y2k` (0.3) và
-  `bohemian → athleisure` (0.2) không được đáp lại** — phát hiện khi viết test
-  bidirectionality cho việc mở catalog (2026-08-10), nhưng đây là bug có sẵn trong 8
-  style gốc, không phải do lần mở catalog này gây ra. Không sửa vì ngoài scope (chỉ được
-  phép "thêm neighbors hai chiều" cho style MỚI, không phải sửa quan hệ cũ-cũ). Sửa thì
-  cần thêm `bohemian` vào neighbors của `y2k` và `athleisure` ở cả `filtering.ts` lẫn
-  `public.styles`.
+- [x] **RESOLVED (2026-08-11)** — Neighbor một chiều có sẵn từ trước: `bohemian → y2k`
+  (0.3) và `bohemian → athleisure` (0.2) không được đáp lại. Đã thêm `y2k → bohemian`
+  (0.2) và `athleisure → bohemian` (0.2) vào `filtering.ts` — trọng số được chọn riêng
+  từng cặp (không copy ngược 0.3/0.2 mù quáng), lý do nằm trong comment tại chỗ thêm.
+  Quét lại TOÀN BỘ 32 style trong `STYLE_CONFIGS` (script đối chiếu neighbor hai chiều)
+  xác nhận đây là 2 cặp bất đối xứng DUY NHẤT trong cả catalog — không còn cặp nào khác.
+  Test `style-catalog-consistency.test.ts` được siết lại: assertion bidirectionality giờ
+  bao phủ TOÀN catalog (bỏ hẳn phần loại trừ `ORIGINAL_8`), không còn ngoại lệ. `deno test`
+  294 passed / 0 failed sau khi sửa.
+  **CHƯA đụng migration/DB** (đúng scope task) — `public.styles.neighbors` vẫn lệch với
+  `filtering.ts` cho tới khi có migration sau. SQL cần chạy (chưa chạy):
+  ```sql
+  update public.styles set neighbors = neighbors || '[{"id":"bohemian","weight":0.2}]'::jsonb
+    where id = 'y2k';
+  update public.styles set neighbors = neighbors || '[{"id":"bohemian","weight":0.2}]'::jsonb
+    where id = 'athleisure';
+  ```
 - [ ] **`mobwife` (Mob Wife) — style bị DỪNG, chưa ship, thiếu vocabulary "fur"** —
   yêu cầu đợt 2 (22→33) có `mobwife`, nhưng vật liệu định danh của style này là lông thú
   ("lông thú, da, vàng kim"). `FabricName` (`supabase/functions/generate-outfits/engine/
@@ -2012,17 +2059,29 @@ Việc mới phát sinh/còn treo từ đợt dọn backlog lớn hôm nay (nhi�
 đã RESOLVE được đánh dấu `[x]` ngay tại vị trí gốc của chúng ở các section phía trên — đây là
 những gì đợt này phát hiện thêm mà CHƯA làm.
 
-- [ ] **`poseEstimated` chưa từng được SET ở bất kỳ đâu trong app, dù plumbing đã tồn tại**
-  (2026-08-11) — `measurementService.ts` giờ map `pose_estimated`/`measurements_consent` xuyên
-  qua `bodyToRow()`/`rowToBody()` (xem section E, mục đã đánh dấu `[x]` ở trên), nhưng đó chỉ
-  là sửa đường ống — không có màn hình/flow nào trong app thực sự set `poseEstimated: true`.
-  Field này có nghĩa "số đo này có phải suy ra từ AI pose estimation không" nhưng app hiện tại
-  chỉ có nhập tay + AI-scan-từ-ảnh (khác pose estimation thật) — nên có thể field này ĐÚNG RA
-  luôn là `false`/absent với luồng hiện tại, hoặc cần một call site set nó khi flow pose-
-  estimate (`src/features/measurements/` pose pipeline, xem memory `project_pose_measure_
-  pipeline`) thực sự chạy. Cần rà lại toàn bộ call site `setBodyMeasurements`/
-  `saveMeasurements` xem có nên set `poseEstimated` ở đâu không trước khi coi plumbing này là
-  "xong".
+- [x] **RESOLVED (2026-08-11)** — `poseEstimated` chưa từng được SET ở bất kỳ đâu trong app.
+  Truy vết xác nhận: `app/measurements-scan.tsx` CHÍNH LÀ pose estimation thật (BlazePose +
+  MODNet + side-view depth, xem memory `project_pose_measure_pipeline`) — ghi nhận
+  `pendingEstimate` (`fitEngineStore`) và hai màn hình tiêu thụ nó
+  (`app/(onboarding)/measurements.tsx` qua hook `useMeasurements`, và `app/measurements-edit.tsx`
+  với state cục bộ riêng) chưa từng đưa `poseEstimated` vào payload `save()`/`setBodyMeasurements`.
+  Đã sửa ở CẢ HAI điểm chạm:
+  - `useMeasurements.ts`: thêm state `poseEstimated` (khởi tạo từ giá trị đã lưu), hàm
+    `applyEstimate()` mới (áp toàn bộ estimate + set `poseEstimated=true` trong 1 lần, tránh vòng
+    lặp `setField` tự xoá cờ mình vừa set) và `setField()` giờ tự set `poseEstimated=false` mỗi
+    lần sửa tay 1 field. `save()` giờ gửi kèm `poseEstimated`.
+  - `measurements-edit.tsx`: thêm state cục bộ tương tự (không dùng hook trên) — wrapper `set()`
+    chỉ xoá cờ khi field là MEASUREMENT VALUE thật (không xoá khi đổi unit CM/IN hay `fit`), effect
+    tiêu thụ `pendingEstimate` set cờ `true`, nút Discard khôi phục cờ về baseline, `handleSave`
+    gửi kèm `poseEstimated`.
+  Ngữ nghĩa chốt: cờ đánh dấu provenance của CẢ BỘ GIÁ TRỊ đang lưu, không phải từng field — sửa
+  tay dù chỉ 1 field sau khi scan sẽ xoá cờ về `false` (không giữ nguyên `true` một phần), vì code
+  gộp mọi field vào một object `values`/`v` phẳng ngay khi consume estimate, không có seam
+  per-field tự nhiên để giữ provenance riêng từng ô.
+  Test mới: `src/services/__tests__/measurementService.poseEstimated.test.ts` (5 test, mapper
+  round-trip qua `upsertMyMeasurements`/`fetchMyMeasurements` — `true`/`false` đều ghi tường minh,
+  `undefined` bị bỏ qua đúng ngữ nghĩa "đừng đụng"). Không viết test cho 2 hook/screen trên vì
+  repo chưa có `@testing-library/react-hooks`/render infra — không cố nặn seam giả.
 - [ ] **Onboarding resume chỉ best-effort — nút Skip không để lại dấu vết** (2026-08-11) —
   `src/features/onboarding/resumeRoute.ts` (mới) tự ghi rõ trong comment: KHÔNG có cột/bảng
   `onboarding_step` checkpoint thật, resume signal tái dùng dữ liệu mỗi bước đã lưu khi bấm

@@ -23,7 +23,7 @@ export default function MeasurementsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
-  const { values, setField, bodyShape, bodyShapeOverride, setBodyShapeOverride, consentGiven, setConsentGiven, save, saving, error } = useMeasurements();
+  const { values, setField, applyEstimate, bodyShape, bodyShapeOverride, setBodyShapeOverride, consentGiven, setConsentGiven, save, saving, error } = useMeasurements();
 
   const [heightUnit, setHeightUnit] = React.useState('CM');
 
@@ -32,20 +32,25 @@ export default function MeasurementsScreen() {
   const setPendingEstimate = useFitEngineStore((s) => s.setPendingEstimate);
   useEffect(() => {
     if (!pendingEstimate) return;
-    if (pendingEstimate.body_bust   != null) setField('body_bust',   String(pendingEstimate.body_bust));
-    if (pendingEstimate.body_waist  != null) setField('body_waist',  String(pendingEstimate.body_waist));
-    if (pendingEstimate.body_hip    != null) setField('body_hip',    String(pendingEstimate.body_hip));
-    if (pendingEstimate.body_inseam != null) setField('body_inseam', String(pendingEstimate.body_inseam));
-    // Lengths — not shown on this lean onboarding form, but saved and editable
-    // later in Settings → Size & measurements.
-    if (pendingEstimate.body_shoulder_width    != null) setField('body_shoulder_width',    String(pendingEstimate.body_shoulder_width));
-    if (pendingEstimate.body_sleeve_length     != null) setField('body_sleeve_length',     String(pendingEstimate.body_sleeve_length));
-    if (pendingEstimate.body_upper_body_length != null) setField('body_upper_body_length', String(pendingEstimate.body_upper_body_length));
+    // applyEstimate (not setField per field) — it marks the value set as
+    // scan-derived (poseEstimated) in one shot; looping setField here would
+    // each immediately clear that flag again (setField's manual-edit path).
+    applyEstimate({
+      body_bust:   pendingEstimate.body_bust,
+      body_waist:  pendingEstimate.body_waist,
+      body_hip:    pendingEstimate.body_hip,
+      body_inseam: pendingEstimate.body_inseam,
+      // Lengths — not shown on this lean onboarding form, but saved and
+      // editable later in Settings → Size & measurements.
+      body_shoulder_width:    pendingEstimate.body_shoulder_width,
+      body_sleeve_length:     pendingEstimate.body_sleeve_length,
+      body_upper_body_length: pendingEstimate.body_upper_body_length,
+    });
     // A previously saved shape must not shadow the fresh estimate: clearing the
     // override lets the badge re-derive from the just-estimated bust/waist/hip.
     setBodyShapeOverride(null);
     setPendingEstimate(null);
-  }, [pendingEstimate, setPendingEstimate, setField, setBodyShapeOverride]);
+  }, [pendingEstimate, setPendingEstimate, applyEstimate, setBodyShapeOverride]);
   const [weightUnit, setWeightUnit] = React.useState('KG');
 
   // Nudge the user toward completing/confirming the auto-derived body shape.

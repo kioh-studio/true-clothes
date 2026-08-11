@@ -30,6 +30,13 @@ const SHAPE_LABEL_KEYS: Record<BodyShape, string> = {
 
 function cmStr(val?: number) { return val ? String(Math.round(val)) : ''; }
 
+// Value-bearing form keys whose edit clears provenance — the unit toggles
+// (heightUnit/weightUnit) and `fit` (a preference, not a body measurement)
+// deliberately do NOT clear it: they don't change what number was measured.
+const MEASUREMENT_VALUE_KEYS = new Set([
+  'height', 'weight', 'chest', 'waist', 'hips', 'inseam', 'thigh', 'rise', 'shoulder', 'sleeve', 'torso',
+]);
+
 // Flatten a BodyMeasurements snapshot into the form's local shape. Extracted
 // so both the initial useState() below AND the late-hydrate resync effect
 // build the exact same object from the store — unit fields (heightUnit/
@@ -86,7 +93,17 @@ export default function MeasurementsEditScreen() {
   // Last store value we've reconciled against — lets the effect below tell
   // "the store just changed" apart from "this screen just re-rendered".
   const lastBmRef = useRef(bm);
-  const set = (k: string, val: string) => setV((p) => ({ ...p, [k]: val }));
+  // Provenance of the currently-held VALUE SET (mirrors useMeasurements.ts's
+  // same-named state/reasoning): true only while every measurement field
+  // still holds exactly what the last pose scan produced. `set()` below
+  // clears it on any hand-edit to a measurement value; the pendingEstimate
+  // effect further down sets it true when a fresh scan is applied.
+  const [poseEstimated, setPoseEstimated] = useState(bm.poseEstimated ?? false);
+  const initialPoseEstimatedRef = useRef(poseEstimated);
+  const set = (k: string, val: string) => {
+    setV((p) => ({ ...p, [k]: val }));
+    if (MEASUREMENT_VALUE_KEYS.has(k)) setPoseEstimated(false);
+  };
 
   // Body shape is derived live from bust/waist/hip — whether typed by hand or
   // pre-filled by the AI scan — unless the user picks a manual override below.
@@ -125,6 +142,9 @@ export default function MeasurementsEditScreen() {
       const nextShapeOverride = deriveShapeOverride(bm);
       setShapeOverride(nextShapeOverride);
       initialShapeOverrideRef.current = nextShapeOverride;
+      const nextPoseEstimated = bm.poseEstimated ?? false;
+      setPoseEstimated(nextPoseEstimated);
+      initialPoseEstimatedRef.current = nextPoseEstimated;
     }
   }, [bm, v, shapeOverride]);
 
@@ -158,6 +178,10 @@ export default function MeasurementsEditScreen() {
     // A fresh estimate should not stay shadowed by an old manual pick — revert
     // to AUTO so the shape re-derives from the just-estimated numbers.
     setShapeOverride(null);
+    // This uses setV directly (not the `set` wrapper) so it doesn't trip its
+    // own manual-edit clear — mark the freshly-applied value set as
+    // scan-derived here instead.
+    setPoseEstimated(true);
     setPendingEstimate(null);
   }, [pendingEstimate, setPendingEstimate]);
   const [saveError, setSaveError] = useState('');
@@ -213,6 +237,7 @@ export default function MeasurementsEditScreen() {
         // left behind (see measurementService.bodyToRow()).
         bodyShape,
         preferredFit: v.fit as PreferredFit,
+        poseEstimated,
       });
       router.back();
     } catch (err) {
@@ -358,6 +383,7 @@ export default function MeasurementsEditScreen() {
             onPress={() => {
               setV({ ...initialRef.current });
               setShapeOverride(initialShapeOverrideRef.current);
+              setPoseEstimated(initialPoseEstimatedRef.current);
               setSaveError('');
             }}
             style={styles.discardBtn}

@@ -61,6 +61,13 @@ export function useMeasurements() {
   const [consentGiven, setConsentGiven] = useState(measurements?.measurementsConsent ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Provenance of the currently-held VALUE SET, not per-field: true only while
+  // every numeric field still holds exactly what the last pose scan produced.
+  // Starts from whatever was already saved (so an untouched re-visit doesn't
+  // lie about a previous scan); applyEstimate() below sets it true, and any
+  // hand-edit via setField() clears it — once the user touches even one
+  // field, the saved set can no longer be truthfully labelled "from the scan".
+  const [poseEstimated, setPoseEstimated] = useState(measurements?.poseEstimated ?? false);
   // A saved shape counts as a manual override ONLY if it matches NEITHER the
   // current classifier NOR the legacy (pre-2026-08-03) classifier's output for
   // the saved measurements — otherwise it's just current or old-classifier
@@ -77,6 +84,25 @@ export function useMeasurements() {
 
   const setField = useCallback((key: NumericKey, val: string) => {
     setValues(prev => ({ ...prev, [key]: val }));
+    // A manual edit — even to a field the scan never touched — means the
+    // value set as a whole is no longer purely scan-derived.
+    setPoseEstimated(false);
+  }, []);
+
+  // Applies a full pose-scan estimate in one shot (as opposed to setField's
+  // one-manual-edit-at-a-time), and marks the value set as scan-derived.
+  // Callers should use this instead of looping setField() for each estimated
+  // field, or the loop's own setField calls would immediately clear the flag
+  // they're trying to set.
+  const applyEstimate = useCallback((estimate: Partial<Record<NumericKey, number>>) => {
+    setValues(prev => {
+      const next = { ...prev };
+      for (const [k, v] of Object.entries(estimate)) {
+        if (v != null) next[k as NumericKey] = String(v);
+      }
+      return next;
+    });
+    setPoseEstimated(true);
   }, []);
 
   const parsedMeasurements = useMemo((): BodyMeasurements => {
@@ -119,6 +145,7 @@ export function useMeasurements() {
         // leave a stale, now-inconsistent shape behind (see bodyToRow()).
         bodyShape,
         measurementsConsent: consentGiven,
+        poseEstimated,
       });
       return { ok: true };
     } catch {
@@ -128,16 +155,18 @@ export function useMeasurements() {
     } finally {
       setSaving(false);
     }
-  }, [saving, parsedMeasurements, bodyShape, consentGiven, saveMeasurements, t]);
+  }, [saving, parsedMeasurements, bodyShape, consentGiven, poseEstimated, saveMeasurements, t]);
 
   return {
     values,
     setField,
+    applyEstimate,
     bodyShape,
     bodyShapeOverride,
     setBodyShapeOverride,
     consentGiven,
     setConsentGiven,
+    poseEstimated,
     isDirty,
     saving,
     error,
