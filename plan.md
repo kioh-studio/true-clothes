@@ -6553,3 +6553,126 @@ expected — re-encoding doesn't change any `require()` path or exported type). 
 no Supabase deploy, no AAB rebuild — per instruction (the AAB-level saving is an
 estimate proportional to the on-disk saving; an actual rebuild to confirm the new
 `drawable-mdpi` size is still open in `backlog.md`).
+
+## Wear-on-you file leak, `tried_on` interaction, candidate re-scoring, migration file (2026-08-11)
+
+Four scoped fixes on Flow B ("Wear on you", `app/try-on/wear.tsx` / `useWearOnYou.ts`)
+and the Wardrobe Critic bridge, plus a migration file recording a live constraint change
+made minutes earlier. All four were pre-designed; this session implemented, did not
+redesign.
+
+**1. File leak.** `tryOnWearService.generateWearOn` writes every render to
+`documentDirectory/try-on/wear_*.jpg`, and — when face compositing succeeds —
+`faceComposite.ts` writes a second file to `cacheDirectory/try-on/composite_*.jpg`. Neither
+was ever deleted: the screen only ever held the result in `useState`, and there is no
+save/share/add-to-wardrobe affordance for a wear-on-you render anywhere in the codebase
+(confirmed by search — `src/design/try-on/design.md` documents no such action), so every
+generation and every `regenerate()` orphaned a file forever. Fixed entirely inside
+`useWearOnYou.ts` (not the screen), because the hook already owns the file's producer
+(`generate()`) and every place `result` changes:
+- `regenerate()` and `pickAnother()` now delete the render they're about to replace
+  before clearing it — same "replacing an unacted-on render" case in both places.
+- A `resultRef` (kept in lockstep with `result` state via a `setResultTracked` wrapper)
+  plus a `mountedRef`, set in a `useEffect`'s mount/cleanup pair, delete whatever render
+  is still held the moment the hook unmounts (X, "Done", hardware back, swipe-back — an
+  unmount effect catches all of them uniformly, unlike the codebase's other precedent,
+  `tryOnStore.reset()`, which is only invoked from an explicit button handler).
+- Two more paths that existed but were unreachable through today's UI (the `generating`
+  in-flight guard blocks them) got the same treatment for completeness: a stale
+  `generateWearOn`/`compositeFace` resolution (superseded by a newer run) now deletes
+  its own output before returning, and a generation that finishes AFTER the screen was
+  already left deletes its result immediately instead of calling `setState` on an
+  unmounted hook.
+All deletes go through `FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {})`
+— best-effort, never throws into the UI, per the RN-safe-API precedent used everywhere
+else in this codebase (`tryOnStore.cleanupTempImage`).
+
+**2. `tried_on` interaction (Flow B only).** Added `'tried_on'` to the client type union
+(`src/types/outfit.ts`) and `logTriedOn()` to `outfitInteractionService.ts`, same
+upsert/`ignoreDuplicates` shape as `logViewed`/`logDismissed`. Called from inside
+`useWearOnYou.generate()`'s success path, right after face compositing resolves and
+`finalResult` is known — the point the credit was actually spent and a render genuinely
+exists — fired unconditionally there (even if the screen was left mid-generation and the
+file itself gets deleted per fix #1 above; the underlying user action still happened and
+is still a real signal), never on screen entry, never on failure.
+
+Flow A ("Scan", `tryOnStore.ts`/`app/try-on/result.tsx`) deliberately does NOT log this:
+its scanned item has no `clothing_items.id` (it isn't owned yet), so a row keyed by it
+would resolve to zero real wardrobe items server-side and be pure noise for the taste
+vector — worse, actively misleading, since `aggregateOutfits` (`engine/taste.ts`) silently
+drops any outfit_id whose split ids don't resolve against the wardrobe map.
+
+Flow B's own outfit id passed through `data`/`extra` nav params is NOT trustworthy on its
+own — `app/build.tsx`'s manual canvas builder sends `id: 'builder_preview'` and
+`MixMatchFeed.tsx`'s "SEE IT ON YOU" sends `id: mixmatch-${index}`, neither a real
+slot-key. `generate-outfits/index.ts` confirms the server doesn't care about slot
+*position* at all — `outfit_id` is just split on `'|'` and each piece independently
+looked up against the wardrobe map (`positives.map(r => ({ itemIds:
+String(r.outfit_id).split('|')... }))`) — so the correct fix was to stop trusting the nav
+id entirely and instead build the logged id directly from real data: `wear.tsx` now
+computes `ownedOutfitItemIds` = `outfit.itemIds` filtered down to ids present in
+`useAppStore`'s real wardrobe (`wardrobeItems`), which naturally excludes the unowned
+scanned `extra` candidate (never in the wardrobe) AND any demo/static outfit reached via
+a demo outfit's detail page (`src/data`, never real DB rows) — exactly the "the outfit's
+own real slot-key id is still the right thing to log, but skip when none is available"
+behaviour the design called for. `useWearOnYou` takes this as a new optional
+`outfitItemIds` arg and skips the log entirely when it's empty.
+
+Server side (`generate-outfits/index.ts` + `engine/taste.ts`): added `'tried_on'` to the
+positives query's `.in([...])` list, and a new `TRIED_ON_WEIGHT = 1.5` constant (marked
+CALIBRATION-PENDING, matching every other feed-signal weight in this file) used in the
+type→weight switch. The value sits strictly between `SAVED_WEIGHT` (1) and `WORN_WEIGHT`
+(2): trying something on costs a real credit and deliberate effort — a stronger signal
+than a passive bookmark — but it is still consideration, not the commitment of actually
+wearing the outfit that day, so it stays below `WORN_WEIGHT`. Two new deno tests in
+`taste-feed-signals.test.ts` pin this down: a weighted-sum test proving the constant's
+exact value (`0.5·viewed + 1·saved + 1.5·tried_on + 2·worn = 5`), and an ordering test
+(at `n=4`, below `CONF_FULL=8`, so confidence hasn't saturated and a weight difference
+visibly changes the bonus) proving `tasteAffinityDelta` ranks tried_on strictly between
+saved and worn at equal sample count.
+
+**3. Candidate bridge wired (T032).** The server side of `wardrobe-critic`'s
+`candidate_item` → `candidate: { unlock_count, matched_archetype_id }` bridge was already
+done and deployed; the client never called it — `fetchGapReport()` sent an empty body,
+and `ResultScreen.tsx`'s "Fills your gap: {label}" line just echoed the label the user
+already saw on the Wardrobe Report, without ever re-scoring the item actually scanned.
+`wardrobeCriticService.fetchGapReport()` now takes an optional `CandidateItemInput`
+(`type`/`color`/`material`/`fit` — a 1:1 match with `GarmentMetadata`, no transform
+needed) and includes it as `candidate_item` in the request body when present; the
+no-argument call site (`wardrobeCriticStore.fetchReport`) is unaffected.
+
+A new hook, `src/features/try-on/useCandidateUnlock.ts`, is the actual wiring —
+deliberately NOT routed through `wardrobeCriticStore`: that store caches the no-argument
+report keyed by a wardrobe-content hash, and mixing a per-scanned-item re-score into that
+cache would either stomp the general report's own `candidate: null` or get silently
+skipped by the cache-hit check when the wardrobe hasn't changed since the last fetch. The
+hook instead calls the service directly from local `useState`, the same pattern
+`MeasurementAIMap.tsx` already uses for its own one-off AI call. It's gated on the exact
+condition that renders the existing banner (`pendingGapArchetypeId && pendingGapLabel`),
+so an ordinary scan never spends the shared 10/hour `wardrobe_critic` rate-limit budget —
+only a scan reached via a GapCard's "try when shopping" action does. On any
+failure/timeout the hook's result just stays `null` and `ResultScreen.tsx` renders nothing
+extra — the existing label-only line is completely untouched, there's no loading spinner,
+and the verdict (`VerdictPanel`, the screen's primary content) never waits on this.
+
+New i18n keys `resultScreen_fillsGapUnlocks` (en: "Unlocks {{count}} new look{{suffix}}",
+vi: "Mở khóa {{count}} look mới" — same singular/suffix convention as the existing
+`gapCard_unlocks`) render as a second, smaller line under the existing gap-fill banner
+once `useCandidateUnlock` resolves. Documented in `src/design/try-on/design.md`.
+
+**4. Migration file.** `supabase/migrations/20260811000006_outfit_interactions_tried_on.sql`
+records the `outfit_interactions_type_check` constraint widening (7 values: saved, worn,
+scheduled, impression, viewed, dismissed, tried_on) that was applied directly to the live
+DB minutes before this session, mirroring `20260807000001_outfit_interactions_viewed_
+dismissed.sql`'s "already applied, do not re-run" header for the same class of schema
+drift.
+
+### Verify
+
+`npx tsc --noEmit`: clean. `npx jest`: 41 suites / 569 tests passed (unchanged — this
+session's only new tests are deno). `deno test --allow-all
+supabase/functions/generate-outfits/engine/`: 286 passed / 0 failed (was 284 — +2 new
+tests for `TRIED_ON_WEIGHT`). `deno test --allow-all supabase/functions/wardrobe-critic/`:
+11 passed / 0 failed (unchanged — the candidate_item path was already exercised
+server-side; this session only added the client caller). Both new i18n keys confirmed
+present in `en.json` and `vi.json`. No commit, no Supabase deploy — per instruction.

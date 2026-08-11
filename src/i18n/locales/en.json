@@ -1069,6 +1069,7 @@
   "resultScreen_scoring": "Scoring this item…",
   "resultScreen_retryLabel": "RETRY",
   "resultScreen_fillsGap": "Fills your gap: {{label}}",
+  "resultScreen_fillsGapUnlocks": "Unlocks {{count}} new look{{suffix}}",
   "resultScreen_adding": "ADDING…",
   "resultScreen_notForMe": "Not for me",
   "resultScreen_addedTitle": "Added to your wardrobe",

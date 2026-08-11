@@ -377,11 +377,13 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   bị hardcode `null` ở `toExtractedItem` (comment cũ nói "not extracted" — sai từ khi
   server thêm `can_layer` 2026-07-03) khiến ước lượng của AI luôn bị vứt bỏ dù đã sửa các
   chỗ khác. Xem `plan.md` changelog cùng ngày.
-- [ ] **Wardrobe critic — Try-On candidate re-scoring (T032, optional).** Server +
-  client core DONE 2026-07-03 (xem `plan.md` changelog "Wardrobe Critic — client").
-  Còn thiếu: gọi lại `wardrobe-critic` với `candidate_item` từ Try-On result để hiện
-  unlock-count THẬT của món vừa scan (hiện chỉ có dòng "Fills your gap: {label}" thuần
-  trình bày, không chấm lại). Không nằm trong phạm vi task được giao phiên này.
+- [x] **Wardrobe critic — Try-On candidate re-scoring (T032, optional).** ĐÃ LÀM
+  2026-08-11: `ResultScreen.tsx` giờ gọi `wardrobe-critic` với `candidate_item`
+  (`useCandidateUnlock` hook, `wardrobeCriticService.fetchGapReport`'s mới nhận optional
+  `candidateItem`) đúng lúc banner "Fills your gap: {label}" hiện ra (`pendingGapArchetypeId`
+  set), và hiện thêm dòng unlock-count THẬT (`resultScreen_fillsGapUnlocks`, i18n en/vi)
+  bên dưới label cũ. Fail-soft: lỗi/chậm không đụng tới dòng label-only, không chặn verdict,
+  không spinner. Xem `plan.md` changelog cùng ngày.
 - [ ] **Wardrobe critic — chưa smoke-test trên thiết bị thật.** Chỉ verify được
   `tsc --noEmit` + `jest` từ máy dev (không có Metro/thiết bị trong phiên này). Cần chạy
   qua Menu → Wardrobe Report (3 mode: gaps/starter/complete), free vs premium gating,
@@ -1581,9 +1583,19 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
 - [ ] **Occasion/mood wired server-side nhưng client không bao giờ gửi** — intent duy nhất
   client gửi là seasonOverride từ 4-band nhiệt độ; `times_worn`/`worn_cooldown_ids` cũng
   không ai gửi → không có rotation/novelty. (2026-08-06)
-- [ ] **Try-on là ngõ cụt dữ liệu** — signal "đang cân nhắc look này" đắt nhất app không
-  ghi interaction, không save được look, không feed về taste/critic (cầu nối
-  candidate_item của wardrobe-critic T032 server có sẵn, client chưa viết). (2026-08-06)
+- [ ] **Try-on là ngõ cụt dữ liệu — MỘT PHẦN đã fix 2026-08-11.** ĐÃ LÀM: Flow B
+  ("Wear on you", `app/try-on/wear.tsx`) giờ ghi interaction `tried_on` sau khi generate
+  thành công (`logTriedOn`, `outfitInteractionService.ts`), taste vector server-side đã đọc
+  type này với trọng số `TRIED_ON_WEIGHT=1.5` (giữa saved và worn — xem `engine/taste.ts`,
+  CALIBRATION-PENDING). Flow A ("Scan") vẫn KHÔNG ghi (đúng, vì item chưa có
+  `clothing_items.id` thật — xem `plan.md` changelog cùng ngày). File leak của render
+  (documentDirectory/cacheDirectory) cũng đã fix (`useWearOnYou.ts`: xoá khi regenerate,
+  pickAnother, và rời màn hình). CÒN THIẾU (chưa nằm trong phạm vi lần này, vẫn là quyết
+  định sản phẩm mở): chưa có nơi PERSIST cái render đã tạo (chưa upload Supabase Storage,
+  chưa có bề mặt "Saved" nào cho nó) — người dùng vẫn không "save được look" theo nghĩa xem
+  lại sau; nó chỉ tồn tại trong phiên xem hiện tại rồi bị xoá. Cần quyết định trước khi làm:
+  có đáng lưu render AI (chi phí storage + rủi ro privacy ảnh người dùng) hay không.
+  (2026-08-06, cập nhật 2026-08-11)
 
 ### Try-on riêng
 - [x] ĐÃ FIX 2026-08-06 (copy en/vi disclosure Google AI + latency claim; Privacy Policy doc vẫn cần rà) — **Privacy copy thiếu disclosure** — "Your photo is never stored on our servers" đúng

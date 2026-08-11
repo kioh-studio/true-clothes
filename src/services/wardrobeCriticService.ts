@@ -44,13 +44,32 @@ async function isRateLimited(error: unknown): Promise<boolean> {
 }
 
 /**
- * Fetch a fresh gap-analysis report for the current user. Body is empty —
- * the contract's `candidate_item` bridge extension is not used here.
- * Throws WardrobeCriticRateLimitedError on 429, WardrobeCriticNetworkError
- * otherwise. The store catches and maps these to UI state.
+ * Candidate item for the contract's optional `candidate_item` bridge
+ * extension (Try-On → Wardrobe Critic, feature 010) — 1:1 with
+ * GarmentMetadata's type/color/material/fit (see useCandidateUnlock.ts).
+ * When present, the response gains `candidate: { unlockCount,
+ * matchedArchetypeId }` scored against this specific item; everything else
+ * in the response is unaffected.
  */
-export async function fetchGapReport(): Promise<WardrobeGapReport> {
-  const body = useAppStore.getState().bodyNeutralMode ? { body_neutral: true } : {};
+export interface CandidateItemInput {
+  type: string;
+  color?: string;
+  material?: string | null;
+  fit?: string | null;
+}
+
+/**
+ * Fetch a fresh gap-analysis report for the current user. Body is empty
+ * unless `candidateItem` is passed (the contract's `candidate_item` bridge
+ * extension — see useCandidateUnlock.ts for the Try-On call site; the
+ * wardrobeCriticStore's own no-argument Wardrobe Report fetch never passes
+ * this). Throws WardrobeCriticRateLimitedError on 429,
+ * WardrobeCriticNetworkError otherwise. The store catches and maps these to
+ * UI state; useCandidateUnlock instead fails silently (see its own header).
+ */
+export async function fetchGapReport(candidateItem?: CandidateItemInput): Promise<WardrobeGapReport> {
+  const body: Record<string, unknown> = useAppStore.getState().bodyNeutralMode ? { body_neutral: true } : {};
+  if (candidateItem) body.candidate_item = candidateItem;
   const { data, error } = await sb.functions.invoke('wardrobe-critic', { body });
 
   if (error) {

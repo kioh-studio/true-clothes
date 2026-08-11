@@ -30,6 +30,13 @@ const AFFINITY_FLOOR = 0.4;   // affinity at/below this earns no bonus (so off-t
 // maps outfit_interactions rows to PositiveOutfit entries.
 export const VIEWED_WEIGHT = 0.5;
 export const SAVED_WEIGHT = 1;
+// `tried_on` (AI "wear on you" render, feature 010, 2026-08-11 —
+// CALIBRATION-PENDING, not yet tuned against real outcome data): sits between
+// SAVED_WEIGHT and WORN_WEIGHT. Trying something on costs the user a real
+// credit and deliberate effort — a stronger signal than a bookmark — but it's
+// still consideration rather than the commitment of actually wearing the
+// outfit, so it stays below WORN_WEIGHT.
+export const TRIED_ON_WEIGHT = 1.5;
 export const WORN_WEIGHT = 2;
 
 // Ceiling on the dismiss penalty (feed-signals, 2026-08-07 — CALIBRATION-

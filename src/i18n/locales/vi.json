@@ -1069,6 +1069,7 @@
   "resultScreen_scoring": "Đang chấm điểm món này…",
   "resultScreen_retryLabel": "THỬ LẠI",
   "resultScreen_fillsGap": "Lấp khoảng trống: {{label}}",
+  "resultScreen_fillsGapUnlocks": "Mở khóa {{count}} look mới",
   "resultScreen_adding": "ĐANG THÊM…",
   "resultScreen_notForMe": "Không hợp với tôi",
   "resultScreen_addedTitle": "Đã thêm vào tủ đồ",

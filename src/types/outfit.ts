@@ -2,7 +2,7 @@ export interface OutfitInteraction {
   id: string;
   userId: string;
   outfitId: string;
-  type: 'saved' | 'worn' | 'scheduled' | 'impression' | 'viewed' | 'dismissed';
+  type: 'saved' | 'worn' | 'scheduled' | 'impression' | 'viewed' | 'dismissed' | 'tried_on';
   outfitData: Record<string, unknown> | null;
   wornAt: string | null;
   scheduledDate: string | null;

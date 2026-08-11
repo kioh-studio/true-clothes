@@ -136,6 +136,36 @@ export async function logDismissed(entry: FeedSignalEntry): Promise<void> {
   if (error) console.warn('[outfitInteractions] dismissed log failed:', error.message);
 }
 
+// Try-on signal (feature 010, 2026-08-11): logs an AI "wear on you" render as
+// a `tried_on` interaction — Flow B ("Wear on you", app/try-on/wear.tsx) only.
+// Flow A ("Scan", a not-yet-owned garment with no clothing_items.id) must
+// never call this — its items have no real id, so the row would key an
+// outfit_id resolving to zero real items and be pure noise for the server
+// taste vector (engine/taste.ts TRIED_ON_WEIGHT). Same upsert/ignoreDuplicates
+// shape as logViewed/logDismissed above; fire-and-forget at the call site — a
+// failure must never block or surface in the UI.
+export interface TriedOnEntry {
+  /** Pipe-joined real, owned wardrobe item ids — same slot-key format the
+   *  server splits on (see generate-outfits/index.ts). Caller is responsible
+   *  for excluding any unowned/scanned candidate item riding along. */
+  outfitId: string;
+}
+
+export async function logTriedOn(entry: TriedOnEntry): Promise<void> {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return;
+
+  const { error } = await sb.from('outfit_interactions').upsert(
+    {
+      user_id: user.id,
+      outfit_id: entry.outfitId,
+      type: 'tried_on',
+    },
+    { onConflict: 'user_id,outfit_id,type', ignoreDuplicates: true },
+  );
+  if (error) console.warn('[outfitInteractions] tried_on log failed:', error.message);
+}
+
 export async function fetchInteractions(): Promise<OutfitInteraction[]> {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return [];

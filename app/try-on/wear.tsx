@@ -196,10 +196,23 @@ export default function WearOnYouScreen() {
   // greyed out with no explanation. Surface a clear reason instead.
   const noGarments = garmentsReady && garments.length === 0;
 
+  // Real, OWNED wardrobe item ids in this outfit (feature 010's `tried_on`
+  // logging) — filters `outfit.itemIds` down to ids that actually exist in
+  // useAppStore's wardrobe. This naturally excludes: the scanned/unowned
+  // `extra` candidate (never in the wardrobe), and demo/static outfit ids
+  // (src/data, never real DB rows) when this screen is reached from a demo
+  // outfit's detail page. Empty when neither applies → useWearOnYou skips
+  // logging rather than inventing an outfit id.
+  const ownedOutfitItemIds = useMemo(() => {
+    const ownedIds = new Set(wardrobeItems.map((item) => item.id));
+    return (outfit.itemIds as string[]).filter((iid) => ownedIds.has(iid));
+  }, [outfit.itemIds, wardrobeItems]);
+
   const w = useWearOnYou({
     garments,
     profile,
     context: { title: outfit.title, style: outfit.style, occasion: outfit.context },
+    outfitItemIds: ownedOutfitItemIds,
   });
 
   const itemCount = (outfit.itemIds as string[]).length + (extraGarment ? 1 : 0);

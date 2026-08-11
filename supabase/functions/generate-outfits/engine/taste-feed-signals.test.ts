@@ -15,7 +15,7 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.208.0/assert/mod.ts';
 import {
   buildTasteVector, buildDismissVector, tasteAffinityDelta, tasteDismissPenalty,
-  PositiveOutfit, VIEWED_WEIGHT, SAVED_WEIGHT, WORN_WEIGHT,
+  PositiveOutfit, VIEWED_WEIGHT, SAVED_WEIGHT, TRIED_ON_WEIGHT, WORN_WEIGHT,
 } from './taste.ts';
 import { FitItem, ItemCategory } from './types.ts';
 
@@ -91,6 +91,45 @@ Deno.test('viewed contributes a positive bonus, weaker than saved at equal count
   const dSaved = tasteAffinityDelta(formalItems, savedTv);
   assert(dViewed > 0, `viewed-only history should still earn a positive bonus, got ${dViewed}`);
   assert(dViewed < dSaved, `viewed (${dViewed}) should be weaker than saved (${dSaved}) at equal count`);
+});
+
+// ─── (a.2) tried_on sits between saved and worn (feature 010, 2026-08-11) ────
+
+Deno.test('confidence uses the weighted sum 0.5·viewed + saved + 1.5·tried_on + 2·worn', () => {
+  const map = wardrobe();
+  const mixed: PositiveOutfit[] = [
+    { itemIds: FORMAL_OUTFIT, weight: VIEWED_WEIGHT },   // 0.5
+    { itemIds: FORMAL_OUTFIT, weight: SAVED_WEIGHT },    // 1
+    { itemIds: FORMAL_OUTFIT, weight: TRIED_ON_WEIGHT }, // 1.5
+    { itemIds: FORMAL_OUTFIT, weight: WORN_WEIGHT },     // 2
+  ];
+  const tv = buildTasteVector(mixed, map)!;
+  assertEquals(tv.sampleCount, 5);
+});
+
+Deno.test('tried_on contributes a bonus strictly between saved and worn at equal count', () => {
+  const map = wardrobe();
+  // n=4 keeps saved (sampleCount 4) and tried_on (sampleCount 6) below
+  // CONF_FULL=8 so their confidence hasn't saturated yet — only then does a
+  // higher weight visibly translate into a bigger bonus. worn (sampleCount 8)
+  // exactly saturates.
+  const n = 4;
+  const savedTv = buildTasteVector(
+    Array.from({ length: n }, () => ({ itemIds: FORMAL_OUTFIT, weight: SAVED_WEIGHT })), map,
+  )!;
+  const triedOnTv = buildTasteVector(
+    Array.from({ length: n }, () => ({ itemIds: FORMAL_OUTFIT, weight: TRIED_ON_WEIGHT })), map,
+  )!;
+  const wornTv = buildTasteVector(
+    Array.from({ length: n }, () => ({ itemIds: FORMAL_OUTFIT, weight: WORN_WEIGHT })), map,
+  )!;
+  const formalItems = FORMAL_OUTFIT.map(id => map.get(id)!);
+
+  const dSaved = tasteAffinityDelta(formalItems, savedTv);
+  const dTriedOn = tasteAffinityDelta(formalItems, triedOnTv);
+  const dWorn = tasteAffinityDelta(formalItems, wornTv);
+  assert(dTriedOn > dSaved, `tried_on (${dTriedOn}) should be stronger than saved (${dSaved})`);
+  assert(dTriedOn < dWorn, `tried_on (${dTriedOn}) should be weaker than worn (${dWorn})`);
 });
 
 // ─── (b) dismissed penalises matching outfits, not different ones ───────────

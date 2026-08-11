@@ -16,6 +16,7 @@ import {
   IconChevronLeft, IconChevronRight, IconX, IconLayers, IconCheck,
 } from '../../../components/icons';
 import { useTryOn } from '../useTryOn';
+import { useCandidateUnlock } from '../useCandidateUnlock';
 import { computeWardrobeFit } from '../wardrobeFit';
 import { ItemOnWhite } from './ItemOnWhite';
 import { VerdictPanel } from './VerdictPanel';
@@ -49,11 +50,20 @@ export function ResultScreen() {
 
   // 010-wardrobe-critic Try-On bridge (T031): if the user arrived here via a
   // GapCard's "try when shopping" action, wardrobeCriticStore remembers WHICH
-  // gap they're checking. Purely presentational — no re-scoring here (that's
-  // the optional candidate_item extension, not implemented).
+  // gap they're checking.
   const pendingGapArchetypeId = useWardrobeCriticStore((s) => s.pendingGapArchetypeId);
   const pendingGapLabel = useWardrobeCriticStore((s) => s.pendingGapLabel);
   const clearPendingGap = useWardrobeCriticStore((s) => s.clearPendingGap);
+
+  // Re-score the ACTUAL scanned item against the critic (T032, 2026-08-11) —
+  // only while the gap-fill banner below would render, so an ordinary scan
+  // never spends the shared wardrobe-critic rate-limit budget. Fails silently
+  // (see useCandidateUnlock's header); the label-only banner line is never
+  // gated on this.
+  const candidateUnlock = useCandidateUnlock(
+    scannedItem?.metadata ?? null,
+    Boolean(pendingGapArchetypeId && pendingGapLabel),
+  );
 
   // Trigger evaluation on mount if verdict is not yet available
   useEffect(() => {
@@ -294,6 +304,16 @@ export function ResultScreen() {
                 label: i18n.language?.startsWith('vi') ? pendingGapLabel.vi : pendingGapLabel.en,
               })}
             </Text>
+            {/* Real re-score of THIS scanned item (T032) — only appears once the
+                critic call resolves; absent on failure/timeout, never a spinner. */}
+            {candidateUnlock ? (
+              <Text style={styles.gapFillUnlockText}>
+                {t('resultScreen_fillsGapUnlocks', {
+                  count: candidateUnlock.unlockCount,
+                  suffix: candidateUnlock.unlockCount === 1 ? '' : 's',
+                })}
+              </Text>
+            ) : null}
           </View>
         ) : null}
 
@@ -500,6 +520,12 @@ const styles = StyleSheet.create({
     color: T.color.secondary,
     fontStyle: 'italic',
     fontFamily: T.font.serifLight,
+  },
+  gapFillUnlockText: {
+    ...type.ui,
+    fontSize: 10,
+    color: T.color.tertiary,
+    marginTop: T.s(1.5),
   },
   evaluatingState: {
     flexDirection: 'row',

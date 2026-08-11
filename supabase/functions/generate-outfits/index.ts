@@ -15,7 +15,7 @@ import { generateCandidates, generatePinnedCandidates, generateHeroCandidates, G
 import { resolveIntent, applyIntent, rankCandidates, dailyShuffle } from './engine/ranking.ts';
 import { resolveTargetSilhouette, outfitSilhouetteTag, resultingBodySilhouette } from './engine/silhouette.ts';
 import { deriveStylingTips } from './engine/styling-tips.ts';
-import { buildTasteVector, buildDismissVector, VIEWED_WEIGHT, SAVED_WEIGHT, WORN_WEIGHT } from './engine/taste.ts';
+import { buildTasteVector, buildDismissVector, VIEWED_WEIGHT, SAVED_WEIGHT, TRIED_ON_WEIGHT, WORN_WEIGHT } from './engine/taste.ts';
 import { seasonForMonth, resolveHemisphere, outfitDominantColor, computeUserAttributes } from './engine/scoring.ts';
 import { curateOutfits, curatorEnabled, CuratorImage } from './engine/curator.ts';
 
@@ -124,7 +124,10 @@ Deno.serve(async (req) => {
       // payload grew without limit as an account aged. Same cap as the impressions
       // query below for consistency. `viewed` added (feed-signals, 2026-08-07) —
       // a weak positive alongside saved/worn, see engine/taste.ts VIEWED_WEIGHT.
-      supabase.from('outfit_interactions').select('outfit_id, type').eq('user_id', userId).in('type', ['saved', 'worn', 'viewed']).order('created_at', { ascending: false }).limit(300),
+      // `tried_on` added (feature 010, 2026-08-11) — an AI "wear on you" render,
+      // see engine/taste.ts TRIED_ON_WEIGHT. A type absent from this list is
+      // silently never read into the taste vector.
+      supabase.from('outfit_interactions').select('outfit_id, type').eq('user_id', userId).in('type', ['saved', 'worn', 'viewed', 'tried_on']).order('created_at', { ascending: false }).limit(300),
       // Exposure history (lift upgrade 2026-07-02): what the feed already SHOWED
       // this user. Turns the taste bonus from raw save-affinity into save-vs-shown
       // lift. Recent 300 only — enough for a stable baseline, bounded payload.
@@ -362,15 +365,19 @@ Deno.serve(async (req) => {
     const fitItems = wardrobeRows.map(toFitItem);
 
     // Taste vector (lever L2): learn a per-user preference from the outfits they've
-    // VIEWED/SAVED/WORN. The outfit_id is the slot key (top|bottom|shoes|outwear|accessory),
-    // so item ids are recovered by splitting it and resolved against the FULL wardrobe
-    // (not today's style-filtered subset, so the signal isn't biased by the filter).
-    // worn > saved > viewed (see engine/taste.ts VIEWED_WEIGHT/SAVED_WEIGHT/WORN_WEIGHT).
+    // VIEWED/SAVED/TRIED_ON/WORN. The outfit_id is the slot key (top|bottom|shoes|
+    // outwear|accessory), so item ids are recovered by splitting it and resolved
+    // against the FULL wardrobe (not today's style-filtered subset, so the signal
+    // isn't biased by the filter). worn > tried_on > saved > viewed (see
+    // engine/taste.ts VIEWED_WEIGHT/SAVED_WEIGHT/TRIED_ON_WEIGHT/WORN_WEIGHT).
     // Undefined when no usable history → ranking is unaffected.
     const fullItemMap = new Map<string, FitItem>(fitItems.map(i => [i.id, i]));
     const positives = ((interactionsRes.data ?? []) as Array<{ outfit_id: string; type: string }>).map(r => ({
       itemIds: String(r.outfit_id).split('|').filter(Boolean),
-      weight: r.type === 'worn' ? WORN_WEIGHT : r.type === 'viewed' ? VIEWED_WEIGHT : SAVED_WEIGHT,
+      weight: r.type === 'worn' ? WORN_WEIGHT
+        : r.type === 'tried_on' ? TRIED_ON_WEIGHT
+          : r.type === 'viewed' ? VIEWED_WEIGHT
+            : SAVED_WEIGHT,
     }));
     // Impressions share the slot-key outfit_id format, so item ids parse the same way.
     const exposures = ((impressionsRes.data ?? []) as Array<{ outfit_id: string }>).map(r => ({

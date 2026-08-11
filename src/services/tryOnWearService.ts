@@ -6,7 +6,11 @@
 //
 // The user's photo is downscaled on-device, sent as a transient base64 data URI,
 // and never uploaded to storage. The generated result is written to a local
-// file (documentDirectory) so it persists for the session and can be re-shown.
+// file (documentDirectory) so it persists long enough to be shown/regenerated/
+// composited. This module never deletes it — `useWearOnYou` owns that file's
+// lifetime end-to-end (deletes it on regenerate, on picking a new photo, and
+// on leaving the wear screen, since there is currently no save/share/add-to-
+// wardrobe action that would need it to outlive the screen).
 
 import * as FileSystem from 'expo-file-system/legacy';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';

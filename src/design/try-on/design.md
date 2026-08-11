@@ -470,3 +470,28 @@ This is purely a copy/classification change — the phase machine, retry
 affordances (`pickAnother` / `regenerate`), and the `invalid` verdict path
 (`v.valid === false`, a real "photo not usable" outcome, never an error) are
 untouched.
+
+## Scan Result — real unlock-count under the gap-fill banner (T032, 2026-08-11)
+
+`ResultScreen.tsx`'s existing `gapFillBanner` (shown only when the user arrived
+via a GapCard's "try when shopping" action — `pendingGapArchetypeId` is set)
+gains one more line, directly under the existing italic "Fills your gap:
+{label}" text, same left-aligned block:
+
+- `gapFillUnlockText` — `type.ui` at 10px, `T.color.tertiary`, `marginTop:
+  T.s(1.5)`. Copy: `resultScreen_fillsGapUnlocks` ("Unlocks {{count}} new
+  look{{suffix}}" / "Mở khóa {{count}} look mới") — same singular/plural
+  suffix convention as the existing `gapCard_unlocks` line on the Wardrobe
+  Report's own gap cards.
+- Appears ONLY once `useCandidateUnlock` (a background, best-effort call to
+  `wardrobe-critic` with the scanned item's own type/color/material/fit as
+  `candidate_item`) resolves — no placeholder, no loading state, no spinner.
+  On failure, timeout, or while still pending, this second line simply never
+  renders; the original label-only line is completely unaffected either way.
+- The scoring call fires only while the banner itself is showing (same
+  `pendingGapArchetypeId && pendingGapLabel` gate), so an ordinary scan never
+  spends the shared `wardrobe_critic` rate-limit budget — only the specific
+  "try when shopping" flow does.
+- Purely additive to a secondary/presentational section — never blocks or
+  delays the verdict (`VerdictPanel`), which remains the screen's primary
+  content and renders independently.
