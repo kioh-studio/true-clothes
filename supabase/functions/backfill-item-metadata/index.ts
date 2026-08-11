@@ -40,12 +40,13 @@ const corsHeaders = {
 };
 
 // Mirror generate-item-image exactly: same vision model + endpoint shape.
-// gemini-2.5-flash retires 2026-10-16 (Google shutdown); GEMINI_FLASH_MODEL is
-// the shared vision/text-tier secret — same var moves generate-item-image,
-// map-measurements, tryon-validate, and curator.ts together. Default is
-// gemini-3.6-flash (see generate-item-image/index.ts for the pricing note).
+// GEMINI_FLASH_MODEL is the shared vision/text-tier secret — same var moves
+// generate-item-image, map-measurements, tryon-validate, and curator.ts
+// together. Default stays gemini-2.5-flash (retires 2026-10-16 — priced
+// upgrade path + rationale in generate-item-image/index.ts's VISION_MODEL
+// comment).
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-const VISION_MODEL = Deno.env.get('GEMINI_FLASH_MODEL') || 'gemini-3.6-flash';
+const VISION_MODEL = Deno.env.get('GEMINI_FLASH_MODEL') || 'gemini-2.5-flash';
 
 // The private bucket that holds wardrobe item photos (see itemPhotoService.ts /
 // 20260614000001_clothing_items_photo_storage.sql). For photo_storage='cloud',

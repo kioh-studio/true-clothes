@@ -7,9 +7,10 @@
 //
 // Pipeline:
 //   1. Derive measure group from garment_type (top/bottom/shoe/other).
-//   2. Single Gemini TEXT_MODEL call (default gemini-3.6-flash, override via
-//      GEMINI_FLASH_MODEL — gemini-2.5-flash retires 2026-10-16) with the
-//      structured system prompt.
+//   2. Single Gemini TEXT_MODEL call (default gemini-2.5-flash, override via
+//      GEMINI_FLASH_MODEL — gemini-2.5-flash retires 2026-10-16, see
+//      generate-item-image/index.ts's VISION_MODEL comment for the upgrade
+//      path) with the structured system prompt.
 //   3. Server-side sanitisation: clamp, range-drop, coerce types.
 //   Returns the clean result as JSON 200.
 
@@ -25,8 +26,10 @@ const corsHeaders = {
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 // Shared vision/text-tier secret — same var moves generate-item-image,
-// backfill-item-metadata, tryon-validate, curator.ts together.
-const TEXT_MODEL = Deno.env.get('GEMINI_FLASH_MODEL') || 'gemini-3.6-flash';
+// backfill-item-metadata, tryon-validate, curator.ts together. Default stays
+// gemini-2.5-flash (retires 2026-10-16 — priced upgrade path + rationale in
+// generate-item-image/index.ts's VISION_MODEL comment).
+const TEXT_MODEL = Deno.env.get('GEMINI_FLASH_MODEL') || 'gemini-2.5-flash';
 
 // ─── Gemini helpers ───────────────────────────────────────────────────────────
 

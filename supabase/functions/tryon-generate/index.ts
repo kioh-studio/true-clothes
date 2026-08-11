@@ -58,11 +58,12 @@ const GEN_TIMEOUT_MS = 45000;
 // the GENERATED image before it's accepted. TRYON_VERIFY_MODEL (call-site
 // override) takes priority over GEMINI_FLASH_MODEL (the shared vision/text-tier
 // secret also used by generate-item-image, backfill-item-metadata,
-// map-measurements, tryon-validate, curator.ts). gemini-2.5-flash retires
-// 2026-10-16 — default moved to gemini-3.6-flash.
+// map-measurements, tryon-validate, curator.ts). Default stays gemini-2.5-flash
+// (retires 2026-10-16 — priced upgrade path + rationale in
+// generate-item-image/index.ts's VISION_MODEL comment).
 const VERIFY_MODEL = Deno.env.get('TRYON_VERIFY_MODEL')
   || Deno.env.get('GEMINI_FLASH_MODEL')
-  || 'gemini-3.6-flash';
+  || 'gemini-2.5-flash';
 const VERIFY_TIMEOUT_MS = 10000;
 const TRANSIENT = new Set([429, 500, 502, 503, 504]);
 const MAX_GARMENT_IMAGES = 6;

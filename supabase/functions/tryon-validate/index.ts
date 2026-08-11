@@ -4,8 +4,10 @@
 //
 // Cheap GATE before the expensive image generation: confirm the uploaded photo
 // shows ONE clear human subject, visible head-to-toe, that we can dress. Runs
-// VISION_MODEL (vision → text; default gemini-3.6-flash, override via
-// GEMINI_FLASH_MODEL — gemini-2.5-flash retires 2026-10-16) and returns a
+// VISION_MODEL (vision → text; default gemini-2.5-flash, override via
+// GEMINI_FLASH_MODEL — gemini-2.5-flash retires 2026-10-16, see
+// generate-item-image/index.ts's VISION_MODEL comment for the upgrade path)
+// and returns a
 // small JSON verdict the client uses to either proceed or ask the user to
 // pick another photo.
 //
@@ -32,8 +34,10 @@ const corsHeaders = {
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 // Shared vision/text-tier secret — same var moves generate-item-image,
-// backfill-item-metadata, map-measurements, curator.ts together.
-const VISION_MODEL = Deno.env.get('GEMINI_FLASH_MODEL') || 'gemini-3.6-flash';
+// backfill-item-metadata, map-measurements, curator.ts together. Default stays
+// gemini-2.5-flash (retires 2026-10-16 — priced upgrade path + rationale in
+// generate-item-image/index.ts's VISION_MODEL comment).
+const VISION_MODEL = Deno.env.get('GEMINI_FLASH_MODEL') || 'gemini-2.5-flash';
 const TIMEOUT_MS = 12000;
 
 const SYSTEM = `You are a strict image gate for a virtual clothing try-on feature. You are shown ONE photo. Decide whether it is suitable for rendering an outfit onto the person.

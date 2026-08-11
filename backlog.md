@@ -1266,13 +1266,16 @@ Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offlin
   đang set gì vẫn không vỡ). Đổi model từ giờ chỉ cần `supabase secrets set`, không cần
   deploy code. Xem `plan.md` "Gemini model migration" (2026-08-11).
 
-- [x] **Deadline cung: `gemini-2.5-*` bi Google tat 16/10/2026** (2026-08-04) — FIXED
-  2026-08-11: flash tier đổi default sang `gemini-3.6-flash` ở toàn bộ 9 chỗ gọi Gemini
-  (qua `GEMINI_FLASH_MODEL`, xem mục ngay trên). Lite tier (`gemini-2.5-flash-lite`) CỐ Ý
-  KHÔNG migrate — chưa có shutdown date công bố, xem mục riêng bên dưới. **Phát hiện thêm
-  ngoài phạm vi mục này**: `gemini-3-pro-image-preview` (image-gen tier) hoá ra ĐÃ bị tắt từ
-  2026-06-25 (đã qua), không phải deadline tương lai — production đã gọi model đã retired
-  suốt từ đó tới hôm nay. Đổi sang `gemini-3-pro-image` (GA), giá không đổi (~$0.134/ảnh).
+- [ ] **Deadline cung: `gemini-2.5-*` bi Google tat 16/10/2026** (2026-08-04) — PARTIALLY
+  ADDRESSED 2026-08-11: toàn bộ 9 chỗ gọi Gemini giờ đọc `GEMINI_FLASH_MODEL` qua env override
+  (xem mục ngay trên), nên đổi model thật sau này chỉ là 1 lần `supabase secrets set`, không
+  cần deploy code. NHƯNG default hardcoded VẪN CỐ Ý giữ `gemini-2.5-flash` (anh Khôi quyết
+  định cost-first — xem mục mới trong section AE bên dưới: `gemini-3.6-flash` đắt 5x input/3x
+  output, hoặc `gemini-3.5-flash-lite` cost-neutral nhưng vision yếu hơn). Deadline 16/10/2026
+  VẪN CÒN TREO, chưa migrate thật. **Phát hiện thêm ngoài phạm vi mục này, ĐÃ FIX thật**:
+  `gemini-3-pro-image-preview` (image-gen tier) hoá ra ĐÃ bị tắt từ 2026-06-25 (đã qua), không
+  phải deadline tương lai — production đã gọi model đã retired suốt từ đó tới hôm nay. Đổi
+  sang `gemini-3-pro-image` (GA), giá không đổi (~$0.134/ảnh).
 - [ ] **Don bay giam gia von lon nhat: doi model image-gen** (2026-08-04) — **VẪN CHƯA LÀM**,
   đừng nhầm với fix 2026-08-11 ở trên (2 việc khác nhau): fix hôm đó chỉ SỬA model đã bị
   Google retired (`gemini-3-pro-image-preview` → `gemini-3-pro-image`, GIÁ KHÔNG ĐỔI, cùng
@@ -1930,6 +1933,19 @@ những gì đợt này phát hiện thêm mà CHƯA làm.
   comment (`describe-outfit/index.ts`, `evaluate-item/note.ts`): `gemini-3.1-flash-lite`
   ($0.25/M in, $1.50/M out, tự nó cũng shutdown 2027-05-07) hoặc `gemini-3.5-flash-lite`
   ($0.30/M in, $2.50/M out, chưa công bố shutdown).
+- [ ] **Flash-tier migration ĐẾN HẠN trước 16/10/2026 — chỉ còn cách 1 Supabase secret**
+  (2026-08-11) — anh Khôi quyết định GIỮ default `gemini-2.5-flash` (không đổi sang
+  `gemini-3.6-flash` như một session trước từng làm rồi bị revert) vì `GEMINI_FLASH_MODEL`
+  override đã tồn tại ở mọi call site (`generate-item-image`, `backfill-item-metadata`,
+  `map-measurements`, `tryon-validate`, `tryon-generate`'s `TRYON_VERIFY_MODEL`,
+  `generate-outfits/engine/curator.ts`, `scripts/eval-feed/judge.ts`) nên migrate thật sau
+  này chỉ là 1 lần `supabase secrets set GEMINI_FLASH_MODEL=...`, không cần deploy code. 2
+  đường nâng cấp đã định giá sẵn: (1) `gemini-3.6-flash` — $1.50/M in + $7.50/M out, đắt hơn
+  5x input / 3x output so với `gemini-2.5-flash` hôm nay ($0.30/$2.50); (2)
+  `gemini-3.5-flash-lite` — cost-neutral ($0.30/$2.50, chưa công bố shutdown) nhưng tier lite
+  yếu hơn ở vision so với flash hiện tại. Ai nhặt việc này lên cần cân nhắc giá vs chất lượng
+  vision trước 16/10/2026 — xem `generate-item-image/index.ts`'s VISION_MODEL comment để có
+  lý do đầy đủ.
 - [x] **Danh sách edge function CẦN DEPLOY sau đợt dọn backlog hôm nay** — ĐÃ DEPLOY XONG
   2026-08-11 (cùng session, theo yêu cầu anh Khôi). 9 function, deploy TỪNG CÁI một bằng
   Supabase CLI (`npx supabase functions deploy <name> --project-ref trtjcsxcowqecsebvyme`),

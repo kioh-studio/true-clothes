@@ -6161,9 +6161,16 @@ fallback), `GEMINI_IMAGE_MODEL` (image-gen tier — `generate-item-image`, `tryo
 Previously only 3/9 call sites read an env var at all; the other 6 were hardcoded and needed a
 code deploy to change models.
 
-**Flash tier**: moved default from `gemini-2.5-flash` to `gemini-3.6-flash` — the 2.5 tier has
-a real, announced shutdown (2026-10-16, confirmed against Google's official deprecations
-table).
+**Flash tier — deliberately NOT migrated yet (owner decision, cost-first, same reasoning as the
+lite tier below)**: default stays `gemini-2.5-flash`. Unlike the lite tier, this one DOES have a
+real, announced shutdown (2026-10-16, confirmed against Google's official deprecations table),
+so it must be migrated before then — but not now, because the upgrade path is meaningfully
+pricier than today's default: `gemini-3.6-flash` at $1.50/M in + $7.50/M out is 5x input / 3x
+output over `gemini-2.5-flash`'s $0.30/$2.50, and the cost-neutral alternative,
+`gemini-3.5-flash-lite` ($0.30/$2.50, no shutdown announced), is weaker at vision than the
+current flash tier. Because `GEMINI_FLASH_MODEL` is now an env override at every call site, the
+actual migration whenever it happens is a Supabase secret change with no redeploy required —
+tracked in `backlog.md` with the 2026-10-16 deadline and both priced candidates.
 
 **Image tier — an already-live production bug, not just a future deadline**: moved default
 from `gemini-3-pro-image-preview` to `gemini-3-pro-image` (GA). The preview model's own
@@ -6185,8 +6192,8 @@ longer-lived `gemini-3.5-flash-lite` ($0.30/M in, $2.50/M out, no shutdown annou
 the `GEMINI_FLASH_LITE_MODEL` env override now exists, migrating the day Google *does*
 announce a lite-tier shutdown is a Supabase secret change with no redeploy required.
 
-`scripts/eval-feed/judge.ts` (dev tooling, not deployed) updated the same way — default
-`gemini-2.5-flash` → `gemini-3.6-flash`, override via the same `GEMINI_FLASH_MODEL`.
+`scripts/eval-feed/judge.ts` (dev tooling, not deployed) got the same env-override treatment —
+default stays `gemini-2.5-flash`, override via the same `GEMINI_FLASH_MODEL`.
 
 ### Security audit: demo account, credit metering, RLS
 

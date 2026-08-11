@@ -7,8 +7,9 @@
 //   ExtractedItemWithImage = { image_data: base64|"", mime_type: string, metadata: GarmentMetadata }
 //
 // Pipeline (Gemini for both steps):
-//   1) VISION_MODEL (vision → text; default gemini-3.6-flash, override via
-//      GEMINI_FLASH_MODEL — gemini-2.5-flash retires 2026-10-16): detect every
+//   1) VISION_MODEL (vision → text; default gemini-2.5-flash, override via
+//      GEMINI_FLASH_MODEL — gemini-2.5-flash retires 2026-10-16, see the
+//      VISION_MODEL comment below for the priced upgrade path): detect every
 //      garment the primary subject wears, returning a controlled-vocabulary
 //      JSON array. Each object is validated/snapped server-side (prompt.ts) so
 //      no free text in controlled fields reaches the client.
@@ -42,8 +43,14 @@ const corsHeaders = {
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 // GEMINI_FLASH_MODEL is the shared vision/text-tier secret (also used by
 // backfill-item-metadata, map-measurements, tryon-validate, curator.ts).
-// gemini-2.5-flash retires 2026-10-16 — default moved to gemini-3.6-flash.
-const VISION_MODEL = Deno.env.get('GEMINI_FLASH_MODEL') || 'gemini-3.6-flash';
+// Default stays gemini-2.5-flash — it retires 2026-10-16 (real, dated Google
+// shutdown), so this MUST migrate before then, but not yet: the upgrade path
+// is already priced (gemini-3.6-flash at $1.50/M in + $7.50/M out — 5x input /
+// 3x output vs today's $0.30/$2.50; or the cost-neutral gemini-3.5-flash-lite
+// at $0.30/$2.50 with no shutdown announced, though the lite tier is weaker at
+// vision). Because GEMINI_FLASH_MODEL exists, switching later is a Supabase
+// secret change, no redeploy.
+const VISION_MODEL = Deno.env.get('GEMINI_FLASH_MODEL') || 'gemini-2.5-flash';
 // GEMINI_IMAGE_MODEL is the shared image-gen-tier secret (also used by
 // tryon-generate). The old default, gemini-3-pro-image-preview, was shut down
 // by Google on 2026-06-25 (confirmed: official deprecations table lists that
