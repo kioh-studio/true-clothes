@@ -1,3 +1,12 @@
+> **Audit 2026-08-11** — rà lại toàn bộ ~122 mục `- [ ]` đang mở so với code hiện tại. Kết
+> quả: 8 mục hoá ra đã implement xong từ lâu nhưng backlog quên đóng (3 trong số đó treo hơn
+> một tháng) — đã xoá theo đúng quy ước dưới đây; 4 mục mô tả sai đủ để dẫn nhầm hướng người
+> đọc sau (VD tưởng thiếu dependency đã cài từ tuần trước, tưởng con số cũ vẫn đúng sau khi
+> đã tối ưu) — đã viết lại cho khớp thực tế; 1 cặp trùng lặp (`modest` style) — đã gộp một.
+> Bài học: một việc CHƯA thật sự xong cho tới khi backlog entry của nó được đóng NGAY trong
+> cùng phiên — để treo dù chỉ vài tuần là bắt người sau tốn công điều tra lại, hoặc tệ hơn là
+> đi sửa một chỗ đã đúng.
+
 ## AB. Phát hiện phiên 2026-08-10 (review toàn app + khảo sát engine)
 
 - [x] 🔴 **`app/build.tsx` "Build an Outfit" chạy hoàn toàn trên MOCK** (2026-08-10) —
@@ -422,14 +431,14 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   set), và hiện thêm dòng unlock-count THẬT (`resultScreen_fillsGapUnlocks`, i18n en/vi)
   bên dưới label cũ. Fail-soft: lỗi/chậm không đụng tới dòng label-only, không chặn verdict,
   không spinner. Xem `plan.md` changelog cùng ngày.
-- [ ] **Wardrobe critic — chưa smoke-test trên thiết bị thật.** Chỉ verify được
-  `tsc --noEmit` + `jest` từ máy dev (không có Metro/thiết bị trong phiên này). Cần chạy
-  qua Menu → Wardrobe Report (3 mode: gaps/starter/complete), free vs premium gating,
-  end-of-feed card, và Try-On bridge line trên thiết bị/emulator thật trước khi coi là
-  xong hẳn.
-- [ ] **Curator → multimodal (PAID feed).** Gửi thumbnail item thật cho Gemini khi curate
-  24 candidates — tầng taste nhìn bằng mắt thay vì đọc label. Trade-off: chi phí Gemini
-  mỗi lần kéo feed (paid tier) + latency. Vẫn là lever lớn nhất cho "đẹp thật".
+- [ ] **Wardrobe critic — chưa smoke-test trên thiết bị thật.** T032 candidate re-scoring
+  (dòng unlock-count thật trên banner "Fills your gap: {label}" ở `ResultScreen.tsx`) đã
+  ship 2026-08-11 (`useCandidateUnlock`, `resultScreen_fillsGapUnlocks`) nhưng cũng chỉ
+  verify được `tsc --noEmit` + `jest`, chưa chạy qua máy thật lần nào — narrow scope còn
+  lại xuống đúng phần chưa test: chạy qua Menu → Wardrobe Report (3 mode:
+  gaps/starter/complete), free vs premium gating, end-of-feed card, Try-On bridge line, VÀ
+  dòng unlock-count T032 mới (fail-soft theo thiết kế — xác nhận lỗi/chậm không chặn
+  verdict, không hiện spinner) trên thiết bị/emulator thật trước khi coi là xong hẳn.
 - [x] **Ingest-time visual enrichment (đợt 2) — DONE 2026-07-03** (plan.md changelog).
   3 field mới `print_scale`/`drape`/`visual_interest` (cột + extraction schema + backfill fn
   + engine tiêu thụ: statementStrength/heroScore/housePOV). Suite 113/113, generate-outfits +
@@ -587,8 +596,6 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   đã có `weatherSeason`, fetch sẽ nằm ở generate-outfits + evaluate-item index.
 - [ ] **Persist GPS lat/lng**: chính xác hemisphere cho nước xích đạo + unblock weather API.
   Cột mới + capture trong `locationService` (đã có GPS fix trong tay). Làm cùng weather API.
-- [ ] **Slot mid-layer thứ 6** (look 3 lớp thật: base+mid+outer): đụng OutfitSlots/canvas/
-  Collage/outfit-key/paging; user base VN ít cần — chờ nhu cầu thị trường lạnh.
 - [ ] **B-full — vision-camera realtime overlay** (~15fps): 4 native deps mới + rủi ro
   16 KB alignment; chỉ làm nếu B-lite (~1.2s poll) lag thật ngoài đời.
 - [ ] **Branding 0b**: `MIEN-icon-dark` làm iOS dark/tinted icon; wordmark trên header
@@ -714,25 +721,12 @@ chọn ảnh thư viện (`tryOnStore.ts` + `useAddWizard.ts` toDataUri, giờ �
   cùng ra 71). Sửa thành `clamp01(raw + delta)`; 21/21 green; đã deploy evaluate-item.
 - [x] Debounce double-tap — FIXED 2026-07-03: `openOutfit` có in-flight ref guard (chặn
   push trùng route trong ~400ms); `appStore.addWardrobeItem` có in-flight-promise guard.
-- [ ] Onboarding bỏ dở giữa chừng (VD: sau location, trước measurements) rồi mở lại app →
-  luôn bắt lại từ email/OTP (`(onboarding)/index.tsx` không resume đúng bước), không mất
-  dữ liệu nhưng trải nghiệm giật cục.
 
 **Crash / hang (Low, latent):**
 - [x] `app/styles-edit.tsx:125` non-null assertion — FIXED 2026-07-03 (cùng đợt fix styles
   catalog): thay bằng guard an toàn, bỏ qua phần tử không tìm thấy thay vì crash.
 - [x] `appStore.ts`/`authStore.hydrate()` thiếu in-flight guard — FIXED 2026-07-03: cả 2 giờ
   có in-flight-promise guard, lần gọi thứ 2 khi đang chạy sẽ reuse promise thay vì đua nhau.
-
-## D. Tuning nhỏ — phát hiện 2026-07-03 (từ fixture streetwear)
-
-- [ ] **Pattern-mix ×0.85 cộng dồn với flat-look ×0.85.** Với look streetwear 2 pattern
-  toàn đồ tối, hai multiplier nhân nhau (0.7225) → combo 2-pattern tốt nhất đạt 0.865,
-  hụt cutoff top-24 (~0.872) dù mọi chiều khác gần tối đa. Đúng thiết kế "single-pattern
-  nhỉnh hơn mặc định" nhưng độ cộng dồn hơi gắt cho chính style profile được phép mix.
-  Cân nhắc: miễn flat-look multiplier khi đã ăn pattern-mix multiplier (một tội không
-  phạt hai lần), hoặc nới pattern-mix lên 0.9 cho pattern-friendly styles. Đo lại bằng
-  `run.ts --profile streetwear` sau khi chỉnh.
 
 ## F. Audit toàn repo 2026-07-03 (đợt 2, 6-agent Fable) — fix đợt lớn 2026-07-03
 
@@ -975,15 +969,6 @@ edge functions / chưa chạy eas build — chờ anh Khôi duyệt riêng.
   `personCropRect`), infer lại trên crop đó, map kết quả về full-square space. Lightning vẫn
   chạy live poll loop y nguyên. Xem `plan.md` changelog "Body-measurement pipeline precision
   overhaul (2026-07-12)" + `src/features/measurements/{cropMath,poseEstimate}.ts`.
-- [ ] **`evaluate-item` AI fit-note type mismatch** (2026-07-06, phát hiện khi làm tone12
-  quality bonus — không thuộc phạm vi task đó, không do session này gây ra): `deno check
-  supabase/functions/evaluate-item/index.ts` báo TS2322 tại lời gọi `buildNoteContext(...)`
-  — `note.ts` khai báo tham số `pattern?: string` nhưng `ClothingItemRow.pattern` thực tế là
-  `string | null | undefined`. Xác nhận bằng `git stash` (lỗi vẫn còn khi bỏ hết đổi của
-  session tone12, tức thuộc code AI-fit-note đã có sẵn từ trước, chưa commit). Không chặn
-  `deno test` (không type-check) hay `supabase functions deploy` (không hard-fail trên lỗi
-  này), nhưng nên fix cho sạch: đổi `pattern?: string` → `pattern?: string | null` trong
-  note.ts, hoặc coalesce `itemRow.pattern ?? undefined` tại call site.
 - [x] **SEASON_FLATTERING.avoid có entry chết** — FIXED 2026-07-06 (measured-hex color layer
   session): mở rộng `PrimaryColor` union +11 (`mustard, rust, coral, mint, lavender, sage,
   terracotta, mauve, wine, fuchsia, denim` — xem `plan.md` changelog). `COLOR_MAP` trong
@@ -1268,40 +1253,20 @@ Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offlin
   21/21, wardrobe-critic 9/9 — tat ca xanh. Van CHUA kiem chung tren du lieu tu do that,
   moi chay tren fixture cua sim.
 
-- [ ] **Paywall gay trong build submit (khong co `react-native-purchases`)** (2026-08-04, phat hien
-  khi soan khai bao App Store) — `package.json` KHONG co dependency `react-native-purchases`, nen
-  `usePremium.ts` require() that bai -> `Purchases = null` -> `app/paywall.tsx` luon hien fallback
-  "unavailable" va nut Upgrade bi `disabled`. Entry point lai rat de cham: Profile tab ->
-  "Subscription" (`app/(tabs)/profile.tsx:26`), ScanScreen, UploadStep. Rui ro Apple reject
-  Guideline 2.1 (tinh nang khong hoat dong). Huong xu ly cho ban 1.0.0: an muc Subscription +
-  cac CTA tro toi /paywall, HOAC set `account_type='premium'` cho demo account de reviewer khong
-  gap paywall. Ban sau: cai that RevenueCat SDK + tao IAP product tren ASC.
-  **Bo sung 2026-08-04 (neu chon duong lam IAP that):** `app/paywall.tsx` hien KHONG co bat ky
-  disclosure nao ma Apple Guideline 3.1.2 bat buoc voi auto-renewable subscription — thieu ca
-  5 thu: ten subscription, do dai chu ky, gia moi chu ky, cau "tu dong gia han tru khi huy",
-  va 2 link Terms(EULA) + Privacy Policy ngay tren man paywall canh nut mua. Grep toan repo chi
-  thay dong text thuan `onboarding_account_terms` trong en.json (khong phai link). Ngoai ra
-  con phai dien 2 field trong App Store Connect: License Agreement (dung duoc ban chuan cua
-  Apple) va Privacy Policy URL (**phai tu host — Apple khong cap, va bat buoc voi MOI app ke ca
-  ban free/khong IAP**). Thieu -> reject 3.1.2.
-  **Trang thai da verify 2026-08-04 (goi y do kho hon plan.md ghi):** `revenuecat-webhook` DA
-  deploy (ACTIVE v3, verify_jwt=false — dung); `app/_layout.tsx` DA wire `Purchases.configure()`
-  + `Purchases.logIn(userId)` dung chuan. Con thieu phia minh: dependency
-  `react-native-purchases`, `EXPO_PUBLIC_REVENUECAT_API_KEY` trong eas.json, va secret
-  `REVENUECAT_WEBHOOK_SECRET` (chua co trong `supabase secrets list`).
-  **Cap nhat 2026-08-04**: anh Khoi DA chay install — `react-native-purchases@^10.6.0` +
-  `react-native-purchases-ui@^10.6.0` gio co trong `package.json` va `node_modules`. Con lai
-  la 2 key + setup Apple/RevenueCat dashboard.
-  **Cap nhat 2026-08-04 (Test Store key)**: da wire `EXPO_PUBLIC_REVENUECAT_API_KEY` (Test Store
-  key `test_…`, KHONG phai key that) vao `.env` + `eas.json` `build.development.env` — chi de
-  test paywall local qua dev-client, khong dung duoc cho build submit (Test Store key lam SDK
-  crash tren release build). Van con thieu key that (`appl_…`/`goog_…`) truoc khi build store.
-  **Cap nhat 2026-08-05 (disclosure code-side DA XONG)**: `app/paywall.tsx` gio co du 4/5 thu code
-  lam duoc — ten plan, gia, cau auto-renew/24h, 2 link Terms+Privacy (xem `plan.md` "Paywall:
-  dynamic package list + Apple 3.1.2 disclosures"). Con lai la phan KHONG lam bang code duoc:
-  Privacy Policy URL van la placeholder chua host that (xem item rieng phia tren), va 2 field
-  trong App Store Connect (License Agreement, Privacy Policy URL) van chua dien — do chi lam
-  duoc trong dashboard ASC.
+- [ ] **Paywall — Privacy Policy chưa host + 2 field App Store Connect chưa điền** (mở
+  2026-08-04, RETITLED 2026-08-11: tiêu đề gốc "gãy trong build submit vì thiếu
+  `react-native-purchases`" đã SAI kể từ 2026-08-04 — `react-native-purchases@^10.6.0` +
+  `react-native-purchases-ui@^10.6.0` đã cài (`package.json` + `node_modules`),
+  `app/_layout.tsx` đã wire `Purchases.configure()` + `Purchases.logIn(userId)`, và
+  `app/paywall.tsx` đã render động toàn bộ `availablePackages` kèm đủ disclosure Apple
+  3.1.2 (tên plan, giá, chu kỳ, câu auto-renew/24h, 2 link Terms+Privacy — xem `plan.md`
+  "Paywall: dynamic package list + Apple 3.1.2 disclosures"). Cái THẬT còn treo trước khi
+  submit App Store: (1) `src/config/legal.ts`'s `PRIVACY_URL` vẫn là placeholder chưa host
+  trang nào (chi tiết đầy đủ ở mục "PRIVACY_URL là PLACEHOLDER" cùng section J); (2) 2 field
+  trong App Store Connect — License Agreement (dùng được bản chuẩn của Apple) và Privacy
+  Policy URL — vẫn chưa điền, chỉ làm được trong dashboard ASC, không phải code. Thiếu 1
+  trong 2 → Apple reject Guideline 3.1.2. Còn thiếu RevenueCat key thật (`appl_…`/`goog_…`,
+  hiện chỉ có Test Store key `test_…` dùng để dev-client local) trước khi build submit thật.
 
 ## J. Kinh te don vi / chi phi bien — audit 2026-08-04 (truoc khi dinh gia subscription)
 
@@ -1377,19 +1342,6 @@ Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offlin
   credit `ai_extraction`/`try_on` van dang chay binh thuong tren production; neu constraint
   con chan thi RPC da fail-open tu lau va free user cung se khong bi tru credit.)
 
-- [ ] **VERIFY LIVE DB (cu, da thay the bang muc tren): `usage_credits` cot**
-  (2026-08-04, **NANG MUC DO UU TIEN 2026-08-05 — gio anh huong ca revenue correctness,
-  khong chi free-tier enforcement**) — migration `20260608000007_usage_credits.sql:4-11` tao
-  cot `used`/`free_limit` VA constraint `credit_type in ('worn_outfit_scan')` (khong co
-  `ai_extraction`/`try_on`), nhung RPC `consume_usage_credit` (`20260625000002_...sql:39-47`)
-  va `usageCreditService.ts` deu doc/ghi `credits_used`/`credits_limit` va dung credit_type
-  `ai_extraction`/`try_on`. Khong co migration nao trong repo sua cot hay constraint nay —
-  drift chua xac minh duoc voi live DB (KHONG duoc tu y query DB trong task nay). Neu live DB
-  con theo migration cu, RPC loi -> `gateCredit` FAIL OPEN (khong doi voi task 2026-08-05:
-  hanh vi fail-open nay duoc GIU NGUYEN co chu dinh) -> **CA free lan premium deu khong bi tru
-  credit** — tuc quota premium 15 try-on + 10 ai_extraction vua them (2026-08-05) se KHONG
-  duoc enforce thuc te, khong chi anh huong free tier nhu truoc. Phai query live DB xac nhan
-  TRUOC KHI tin tuong credit gate co hieu luc that (ca free va premium).
 - [x] **Marketing copy con noi "unlimited" sau khi premium co quota** (2026-08-05, phat sinh
   tu task them premium quota) — **FIXED 2026-08-05**: `paywall_subtitle`, `paywall_benefit1`,
   `paywall_benefit2`, va `premium_upgradeSubtitle` trong `en.json`/`vi.json` da bo het claim
@@ -1685,12 +1637,6 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   sang `PromiseLike<...>` (pure type fix, `await` chấp nhận mọi thenable, không đổi runtime).
   CÙNG fix áp dụng cho `generate-item-image/index.ts`'s `MinimalClient` (cùng vấn đề, tự phát
   hiện thêm khi sửa).
-- [ ] Caption "đã hoàn credit" của quality_warning hơi lệch với account demo (không trừ credit
-  nên không hoàn) — chỉ gặp ở account reviewer, ưu tiên thấp. (2026-08-06) LƯU Ý 2026-08-11:
-  demo giờ CÓ trừ credit thật (xem section J, "demo vẫn vô hạn... nay đã LỖI THỜI") nên tiền
-  đề của mục này ("demo không trừ credit nên không hoàn") cũng đã thay đổi — demo giờ hoàn
-  credit như mọi tier khác, caption không còn lệch. Coi như hết hiệu lực, không cần sửa gì
-  thêm.
 - [x] `evaluate-item/index.ts:199` lỗi type PRE-EXISTING (`pattern: string|null|undefined` vào
   `buildNoteContext` expect `string|undefined`) — fix 1 dòng `?? undefined` khi nào tiện.
   (2026-08-06) FIXED 2026-08-11 (2026-08-11 batch, confirmed defect #2): đúng 1 dòng
@@ -1778,16 +1724,16 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   `~/.gradle/gradle.properties` — user-level đè project-level, EAS không bị ảnh hưởng,
   NHƯNG nguy hiểm vì anh Khôi build AAB release cục bộ → có thể vô tình ship AAB thiếu
   arm64 lên Play; (b) tăng data partition emulator để 170 MB vừa thoải mái. (2026-08-10)
-- [ ] **ML Kit chiếm ~28M native + 4M assets trong APK, có thể có phần thừa** — breakdown
-  lib/x86_64 (71.5M tổng): `libmlkitcommonpipeline` 11.6M, `libmlkit_google_ocr_pipeline`
-  11.1M, `libbarhopper_v3` (barcode) 5.6M. Assets bundle 4M thì 100% là model ML Kit
-  (`mlkit_label_default_model` 1.95M, `mlkit-google-ocr-models` 1.22M,
-  `mlkit_barcode_models` 0.84M) — không có asset nào của MIEN.
-  Nguồn: `modules/expo-item-extract/android/build.gradle:75` khai `text-recognition:16.0.1`
-  (OCR ~11M — kiểm tra xem code có thật sự gọi không, nếu không thì bỏ);
-  `node_modules/expo-camera/android/build.gradle:31` kéo `barcode-scanning:17.3.0`
-  transitive (~6M — có thể exclude nếu app không dùng scanner). Chưa đụng vì cần verify
-  call-site trước. (2026-08-09)
+- [ ] **ML Kit `barcode-scanning` (~6M, kéo transitive qua `expo-camera`) exclude được —
+  OCR thì KHÔNG** (2026-08-09, câu hỏi mở đã RESOLVED 2026-08-11: đã verify call-site, đừng
+  điều tra lại). `text-recognition:16.0.1` (OCR, ~11M, khai ở
+  `modules/expo-item-extract/android/build.gradle:75`) THẬT SỰ được gọi qua
+  `ExpoItemExtractModule` — không thể bỏ. `barcode-scanning:17.3.0` (~6M, kéo transitive từ
+  `node_modules/expo-camera/android/build.gradle:31`) có ZERO call site trong toàn app —
+  MIEN không quét mã vạch ở đâu cả, việc còn lại chỉ là exclude nó khỏi build (Gradle
+  exclude transitive dependency trên `expo-camera`, hoặc packaging/proguard exclude tương
+  đương) để lấy lại ~6M mà không đụng OCR. `libmlkitcommonpipeline` (11.6M) là runtime
+  dùng chung cho mọi ML Kit feature — không tách được nếu còn giữ OCR, đừng nhắm vào nó.
 
 ## O. Production readiness — phát hiện khi review build (2026-08-09)
 - [x] **`.easignore` KHÔNG loại thư mục build native → EAS upload thừa ~2 GB** — ĐÃ VÁ
@@ -1830,28 +1776,25 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   không phải gửi ảnh đi; (b) đổi BlazePose Heavy → Full/Lite; (c) quantize fp16→int8.
   Bị `require()` tĩnh ở `poseEstimate.ts:129,154`, `silhouette.ts:70,91`,
   `faceDetect.ts:48` nên Metro luôn nhúng. (2026-08-09)
-- [ ] **9.43 MB ảnh demo wardrobe (`drawable-mdpi`, 97 file) nằm trong bản production** —
-  `src/data/index.ts:51+` `require()` tĩnh toàn bộ `assets/items/*.png` (nặng nhất:
-  jacket-ma1-navy 1.09 MB, jacket-utility-olive 1.01 MB…). Đây là code production, KHÔNG
-  bị `.easignore` loại (chỉ `seedLocalPhotos.dev.ts` bị loại). Cần xác định: dữ liệu demo
-  này có thật sự cần ship cho user thật không, hay chỉ phục vụ dev/onboarding — nếu không
-  cần thì cắt gần 10 MB. (2026-08-09)
-  **Update 2026-08-11:** đã tái nén 43 file trong `assets/items/` (palette PNG quantization
-  + max deflate, giữ nguyên alpha, downscale cạnh dài >1600px xuống ~1200×1600) —
-  18.40 MB → 8.25 MB trên đĩa (**-55.2%**), không đổi cách hiển thị (verify: alpha/aspect
-  ratio giữ nguyên trên cả 43 file, kiểm tra mắt 3 file nén nhiều nhất không banding/viền
-  cứng). Ước tính phần `drawable-mdpi` trong AAB co theo tỷ lệ tương tự, còn khoảng ~4-5 MB
-  thay vì 9.43 MB — **chưa đo lại AAB thật** (cần build release để xác nhận số chính xác).
-  Chi tiết: `plan.md` changelog 2026-08-11.
-  **Đồng thời: đảo ngược một phần tiền đề của mục này.** Data demo này KHÔNG phải rác chờ
-  xoá — nó có tải trọng sản phẩm thật: `app/(tabs)/index.tsx:160` set
-  `isDemo = wardrobeItems.length === 0`, nghĩa là MỌI user thật mới (tủ đồ rỗng) đang xem
-  chính feed demo này (đây là bản chất của T022 "demo feed cho user mới"), và `OUTFITS`
-  cũng là fallback khi generation chưa ra kết quả. Xoá thẳng bộ demo = xoá luôn empty-state
-  cho user mới — đây là quyết định sản phẩm cần anh Khôi chốt, không phải việc dọn dẹp kỹ
-  thuật đơn thuần. Đòn bẩy còn lại an toàn hơn: **chỉ `OUTFITS.slice(0, 2)`** thực sự được
-  dùng cho demo feed rỗng — một lần cắt tỉa sau này (chỉ ship item mà 2 outfit đó tham
-  chiếu, không phải toàn bộ 43 file) mới là hướng giảm tiếp mà không đụng sản phẩm.
+- [ ] **Demo wardrobe images — AAB chưa đo lại sau đợt nén 2026-08-11** (`drawable-mdpi`,
+  97 file, `src/data/index.ts:51+` `require()` tĩnh toàn bộ `assets/items/*.png`; đây là
+  code production, KHÔNG bị `.easignore` loại). RETITLED 2026-08-11: con số "9.43 MB" của
+  audit gốc (2026-08-09) đã STALE — 43/97 file đã được tái nén cùng ngày (palette PNG
+  quantization + max deflate, giữ nguyên alpha, downscale cạnh dài >1600px xuống
+  ~1200×1600): 18.40 MB → 8.25 MB trên đĩa (**-55.2%**), verify alpha/aspect ratio giữ
+  nguyên + kiểm tra mắt 3 file nén nhiều nhất không banding/viền cứng (chi tiết: `plan.md`
+  changelog 2026-08-11). Ước tính `drawable-mdpi` trong AAB co theo tỷ lệ tương tự (còn
+  khoảng ~4-5 MB) nhưng **CHƯA build release để đo số chính xác** — việc còn lại của mục
+  này chỉ còn là bước đo, không phải bước nén.
+  **Tiền đề "chỉ là rác chờ xoá" cũng bị đảo ngược** (ghi nhận cùng đợt 2026-08-11): data
+  demo này có tải trọng sản phẩm thật — `app/(tabs)/index.tsx:160` set `isDemo =
+  wardrobeItems.length === 0`, nghĩa là MỌI user thật mới (tủ đồ rỗng) đang xem chính feed
+  demo này (bản chất T022 "demo feed cho user mới"), và `OUTFITS` cũng là fallback khi
+  generation chưa ra kết quả. Xoá thẳng bộ demo = xoá luôn empty-state cho user mới — quyết
+  định sản phẩm cần anh Khôi chốt, không phải dọn dẹp kỹ thuật đơn thuần. Đòn bẩy an toàn
+  còn lại: chỉ `OUTFITS.slice(0, 2)` thực sự được dùng cho demo feed rỗng — cắt riêng phần
+  item mà 2 outfit đó tham chiếu (không phải toàn bộ 43 file) là hướng giảm tiếp không đụng
+  sản phẩm.
 - [ ] **`com.amazon.device:amazon-appstore-sdk:3.0.5` bị kéo vào build** — phát hiện qua
   R8 warning khi build release. Nhiều khả năng do RevenueCat kéo transitive (hỗ trợ Amazon
   Appstore). MIEN chỉ phát hành Play + App Store → nhiều khả năng loại được để giảm dex.
@@ -1910,26 +1853,18 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   update public.styles set neighbors = neighbors || '[{"id":"bohemian","weight":0.2}]'::jsonb
     where id = 'athleisure';
   ```
-- [ ] **`mobwife` (Mob Wife) — style bị DỪNG, chưa ship, thiếu vocabulary "fur"** —
-  yêu cầu đợt 2 (22→33) có `mobwife`, nhưng vật liệu định danh của style này là lông thú
-  ("lông thú, da, vàng kim"). `FabricName` (`supabase/functions/generate-outfits/engine/
-  types.ts`) không có entry fur/faux-fur nào, và không có fabric nào trong union hiện tại
-  đóng vai trò xấp xỉ hợp lý (khác với `glam`'s sequin/satin, vốn map được vào `silk`/
-  `velvet` đã có). Cần anh Khôi quyết: (a) thêm `FabricName` value mới cho fur (có ripple
-  sang ingestion/enrichment, cần đánh giá riêng), hoặc (b) chấp nhận xấp xỉ mất mát (leather
-  + `metallic` color + textureRichness cao — nhưng lúc đó không còn là "mob wife" thật, chỉ
-  là bản sao khác tên của elegant/gothic). Chưa thêm vào `STYLE_CONFIGS` hay `public.styles`.
-  (2026-08-10)
 - [ ] **`modest` — style bị DỪNG, chưa ship, thiếu attribute "độ phủ da"** — yêu cầu đợt 2
   có `modest`, nhưng ràng buộc định danh của style này (tay/chân dài, cổ kín) không có trục
-  nào trong `StyleConfig`/`FitItem` diễn tả được. `filterByStyle` chỉ kiểm 5 trục: màu,
-  fabric, fit, formality, banned features — không trục nào liên quan tới độ dài tay áo/gấu
-  quần/cổ áo. `GarmentMeasurements` có số đo (`sleeves`, `body_length`...) nhưng không có
-  ngưỡng tối thiểu nào gắn với style, và không có field categorial nào cho "độ phủ da". Cần
-  anh Khôi quyết: thêm attribute coverage mới vào `FitItem`/`StyleConfig` (thiết kế mới, có
-  ripple sang enrichment/ingestion) trước khi style này diễn tả được đúng nghĩa — không tự
-  chế bằng cách cấm `bodycon` (vừa thừa vừa thiếu: cấm nhiều đồ bodycon vẫn kín, lọt nhiều
-  đồ relaxed nhưng hở). Chưa thêm vào `STYLE_CONFIGS` hay `public.styles`. (2026-08-10)
+  nào trong `StyleConfig`/`FitItem` diễn tả được. `filterByStyle` chỉ kiểm 5-6 trục hiện có:
+  màu, fabric, fit, formality, banned features (type) — không trục nào liên quan tới độ dài
+  tay áo/gấu quần/cổ áo. `GarmentMeasurements` có số đo (`sleeves`, `body_length`...) nhưng
+  không có ngưỡng tối thiểu nào gắn với style, và không có field categorial nào cho "độ phủ
+  da". Cần anh Khôi quyết: thêm attribute coverage mới vào `FitItem`/`StyleConfig` (thiết kế
+  mới, có ripple sang enrichment/ingestion), hoặc chấp nhận xấp xỉ có mất mát qua silhouette
+  — không tự chế bằng cách cấm `bodycon` (vừa thừa vừa thiếu: cấm nhiều đồ bodycon vẫn kín,
+  lọt nhiều đồ relaxed nhưng hở). Chưa thêm vào `STYLE_CONFIGS` hay `public.styles`. Xác
+  nhận lại 2026-08-11 (lúc duyệt unlock `mobwife`): lý do stop vẫn giống hệt, chưa authorize
+  làm. (2026-08-10)
 - [x] **UX đề xuất: 31 style tile là dài — cân nhắc "show more" hoặc gom nhóm** — sau đợt 2
   (22→31), `styles.tsx`/`styles-edit.tsx` vẫn là một `flexWrap` grid không giới hạn trong
   `ScrollView`, không vỡ layout nhưng cuộn dài hơn hẳn (~16 hàng so với ~11 hàng ở 22 style).
@@ -2028,13 +1963,6 @@ Các mục dưới đây là việc chưa làm/chưa hoàn hảo, cố ý dừng
   `bannedFeatures`/`typesBanned`) đều đang làm việc theo item, không theo cặp/outfit. Cả
   hai là thiết kế mới (ripple sang `generation.ts`/`filtering.ts`), cần anh Khôi quyết
   trước khi làm — không tự chế trong task này.
-- [ ] **`modest` style vẫn còn treo** — lý do stop giống hệt lần trước (batch 2, 2026-08-10):
-  đặc trưng của nó là độ che phủ da (tay áo/gấu váy/cổ áo), nhưng `FitItem`/
-  `GarmentMeasurements` (`types.ts`) không có tín hiệu nào cho việc này, và
-  `filterByStyle` chỉ có 6 trục hiện có (màu/vải/fit/formality/banned features/type) —
-  không trục nào đo được độ che phủ. Cần quyết định thiết kế mới (thêm attribute
-  coverage vào `FitItem`/ingest, hoặc chấp nhận xấp xỉ có mất mát qua silhouette) trước
-  khi làm — chưa authorize trong task 2026-08-11 (unlock `mobwife`).
 - [ ] **2 bảng fabric-keyed chưa điền cho `fur`** (2026-08-11, cân nhắc khi unlock
   `mobwife`): `enrichment.ts`'s `MATERIAL_STYLE_BOOSTS` (map material → style id) và
   `scoring.ts`'s `NATURAL_FABRICS` ("đọc sang/đắt tiền" bonus set). Cố ý bỏ qua:
