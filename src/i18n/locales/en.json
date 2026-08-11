@@ -45,6 +45,8 @@
   "wearOnYou_photoNotSuitable": "This photo isn't quite right. Please choose another.",
   "wearOnYou_validationFailed": "Couldn't check the photo. Check your connection and try again.",
   "wearOnYou_generationFailed": "Couldn't generate your try-on. Please try again.",
+  "wearOnYou_serviceUnavailable": "The AI service is temporarily unavailable. Please try again later.",
+  "wearOnYou_generationNetworkFailed": "Couldn't generate your try-on. Check your connection and try again.",
   "tabs_home_brand": "MIEN",
   "tabs_home_weatherLabel": "–",
   "tabs_home_allWeatherFilter": "ALL",

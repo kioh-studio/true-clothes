@@ -14,7 +14,7 @@
 import { useCallback, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { validatePersonPhoto, generateWearOn } from '../../services/tryOnWearService';
+import { validatePersonPhoto, generateWearOn, classifyTryOnFailure } from '../../services/tryOnWearService';
 import { checkCredit, isCreditExhausted } from '../../services/usageCreditService';
 import { useCreditQuota } from '../monetization/useCreditQuota';
 import { hasPremiumAccountType } from '../../services/profileService';
@@ -85,9 +85,16 @@ export function useWearOnYou({ garments, profile, context }: UseWearOnYouArgs) {
         setReason(v.reason || i18n.t('wearOnYou_photoNotSuitable'));
         setPhase('invalid');
       }
-    } catch {
+    } catch (e) {
       if (id !== runId.current) return;
-      setReason(i18n.t('wearOnYou_validationFailed'));
+      // Distinguish "the AI service itself failed" (tryon-validate reached
+      // Gemini and got an error back — nothing wrong with the user's
+      // connection) from a genuine network failure, instead of always
+      // blaming the user's connection (backlog "L. Gemini prepay credits
+      // CẠN", 2026-08-07: a Gemini 429 surfaced as a 502 here and told a
+      // user with a fine connection to "check your connection").
+      const kind = classifyTryOnFailure(e);
+      setReason(i18n.t(kind === 'service' ? 'wearOnYou_serviceUnavailable' : 'wearOnYou_validationFailed'));
       setPhase('invalid');
     }
   }, []);
@@ -205,7 +212,14 @@ export function useWearOnYou({ garments, profile, context }: UseWearOnYouArgs) {
           setPhase('ready');
           return;
         }
-        setErrorMsg(i18n.t('wearOnYou_generationFailed'));
+        // Same distinction as runValidation's catch above, applied to the
+        // generate path (backlog explicitly calls out generateWearOn too).
+        const kind = classifyTryOnFailure(err);
+        setErrorMsg(i18n.t(
+          kind === 'service' ? 'wearOnYou_serviceUnavailable'
+            : kind === 'network' ? 'wearOnYou_generationNetworkFailed'
+              : 'wearOnYou_generationFailed',
+        ));
         setPhase('error');
       }
     } finally {

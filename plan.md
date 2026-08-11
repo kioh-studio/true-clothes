@@ -6280,3 +6280,64 @@ supabase/functions/evaluate-item/`: 37 passed, 0 failed. `deno test --allow-all
 supabase/functions/wardrobe-critic/`: 11 passed, 0 failed. Not run: `expo`/`eas` build, no
 Supabase Edge Function deploy (owner deploys separately — see `backlog.md` for the full list of
 functions this session touched), no commit/push — all per instruction.
+
+## Try-on failure classification — AI service down vs genuine network failure (2026-08-11)
+
+Backlog "L. Gemini prepay credits CẠN" (2026-08-07) recorded the root cause of a real
+support case: the Google API key ran out of prepay credits, Gemini returned 429
+RESOURCE_EXHAUSTED, `tryon-validate` turned that into a 502, and the client showed
+"Kiểm tra kết nối và thử lại" (check your connection) to a user whose network was fine
+the entire time. The two failure classes were being conflated into one copy string in
+both `useWearOnYou.ts`'s `runValidation` and `generate` catch blocks.
+
+Traced both edge functions' actual failure shapes rather than guessing: `tryon-validate`
+returns 502 when the upstream Gemini vision call itself errors, 503 when
+`GOOGLE_API_KEY` isn't configured, 500 on an internal exception, 429 on its own rate
+limiter, 400 on a malformed `photo_uri`. `tryon-generate` returns the same 500/502/503
+shape for its own upstream/config/internal failures (502 also covers "Gemini returned
+no image after retries"), plus 402 `credit_exhausted` (already handled separately by
+the existing `isCreditExhausted()` in `usageCreditService.ts`, untouched here). Both are
+called via `sb.functions.invoke()`, which throws one of three typed errors from
+`@supabase/functions-js`: `FunctionsFetchError` when the underlying `fetch()` itself
+never got a response (offline, DNS failure, timeout — a genuine network problem), or
+`FunctionsHttpError`/`FunctionsRelayError` when a response DID come back with a
+non-2xx status (the request reached the function; whatever failed, failed
+server-side — this is the class the 2026-08-07 incident actually belongs to).
+
+Added `classifyTryOnFailure(error): 'network' | 'service' | 'unknown'` to
+`src/services/tryOnWearService.ts` (service layer, not the hook or a component, per
+CLAUDE.md's "no business logic in components") — a pure function keyed off
+`error.name`, so it needs no supabase/expo mocking to unit-test beyond what's required
+to import the module. `useWearOnYou.ts`'s two catch blocks (`runValidation`, `generate`)
+now call it and branch on the result instead of always showing the network-flavored
+copy; the `'unknown'` bucket (e.g. a local image-manipulation error, which isn't a
+`functions.invoke` failure at all) falls back to each phase's original copy unchanged,
+so nothing regresses for errors outside this split. The `invalid` phase's
+`v.valid === false` path (a real "photo isn't usable" *verdict* from the model, not a
+thrown error) was already handled separately before this change and stays untouched.
+
+Two new i18n keys added to both `en.json`/`vi.json`: `wearOnYou_serviceUnavailable`
+("The AI service is temporarily unavailable. Please try again later." / "Dịch vụ AI
+đang gián đoạn — thử lại sau.", shared by both the validate and generate paths since
+the underlying cause and correct copy are identical) and
+`wearOnYou_generationNetworkFailed` (generate path's network case — no existing
+network-specific copy existed for generate to reuse, since `wearOnYou_generationFailed`
+was always generic — so this mirrors `wearOnYou_validationFailed`'s existing "check your
+connection" phrasing, adapted to the generate context: "Couldn't generate your try-on.
+Check your connection and try again." / "Không tạo được ảnh thử đồ. Kiểm tra kết nối và
+thử lại."). Documented in `src/design/try-on/design.md`'s new "Failure copy — AI service
+down vs genuine network failure (2026-08-11)" section.
+
+Also, while auditing `backlog.md` for this session: confirmed and closed a second, unrelated
+stale item — "`assignBucketKey`'s catch-all lands unclassifiable items (e.g. headwear) in
+the 'BAGS' strip'" was already resolved by the earlier same-day "Style grid 'Show all'
+truncation + builder ACCESSORIES bucket rename" work (`src/features/wardrobe-build/buckets.ts`
+renamed the fallback bucket itself to `ACCESSORIES`, not just its label — verified against
+`BUILDER_FALLBACK_BUCKET` and the `buckets.test.ts` coverage before flipping the checkbox).
+
+### Verify
+
+`npx tsc --noEmit`: clean. `npx jest`: 39 suites / 561 tests passed (was 38/556 — +1 suite,
++5 tests: `src/services/__tests__/tryOnWearService.classify.test.ts`, covering
+`classifyTryOnFailure`'s network/service/unknown branches). No commit, no Supabase deploy —
+per instruction.

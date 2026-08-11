@@ -45,6 +45,8 @@
   "wearOnYou_photoNotSuitable": "Ảnh chưa phù hợp. Hãy chọn ảnh khác.",
   "wearOnYou_validationFailed": "Không kiểm tra được ảnh. Kiểm tra kết nối và thử lại.",
   "wearOnYou_generationFailed": "Không tạo được ảnh thử đồ. Vui lòng thử lại.",
+  "wearOnYou_serviceUnavailable": "Dịch vụ AI đang gián đoạn — thử lại sau.",
+  "wearOnYou_generationNetworkFailed": "Không tạo được ảnh thử đồ. Kiểm tra kết nối và thử lại.",
   "tabs_home_brand": "MIEN",
   "tabs_home_weatherLabel": "–",
   "tabs_home_allWeatherFilter": "TẤT CẢ",

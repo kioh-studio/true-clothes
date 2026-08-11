@@ -432,3 +432,41 @@ Rules, same as the wardrobe-add upload step:
 Distinct from the pre-existing `creditsRemaining` state in the same hook, which
 is only populated for non-premium accounts at block/completion time and drives
 no copy of its own.
+
+## Failure copy — AI service down vs genuine network failure (2026-08-11)
+
+Both failure states (`invalid` after `runValidation`'s catch, `error` after
+`generate`'s catch) previously showed a single "check your connection" style
+message for every non-verdict failure, regardless of cause. Reported 2026-08-07
+(backlog "L. Gemini prepay credits CẠN"): the Google API key ran out of prepay
+credits, Gemini returned 429 RESOURCE_EXHAUSTED, tryon-validate turned that
+into a 502 — and the user, whose network was completely fine, was told to
+check their connection. Misleading in exactly the moment they need an accurate
+signal (only anh Khôi can act on "AI service down"; a user can act on "check
+your connection" only when that's actually true).
+
+Both `runValidation` and `generate` in `useWearOnYou.ts` now classify the
+caught error via `classifyTryOnFailure()` (`src/services/tryOnWearService.ts`)
+before picking copy:
+
+- **AI service unavailable** (the function reached the server but Gemini/the
+  function itself failed — `tryon-validate`/`tryon-generate` returning
+  500/502/503, e.g. missing `GOOGLE_API_KEY`, an upstream Gemini error, or an
+  internal exception): `wearOnYou_serviceUnavailable` — "The AI service is
+  temporarily unavailable. Please try again later." /
+  "Dịch vụ AI đang gián đoạn — thử lại sau." Shared copy across both phases.
+- **Genuine network/offline failure** (the request never reached the server —
+  `fetch()` itself rejected): validate keeps the pre-existing
+  `wearOnYou_validationFailed` copy unchanged; generate gets a new, parallel
+  `wearOnYou_generationNetworkFailed` ("Couldn't generate your try-on. Check
+  your connection and try again." / "Không tạo được ảnh thử đồ. Kiểm tra kết
+  nối và thử lại.").
+- **Unclassified** (e.g. a local image-manipulation error, not a
+  `functions.invoke` failure at all): both phases fall back to their original,
+  unchanged generic copy (`wearOnYou_validationFailed` /
+  `wearOnYou_generationFailed`) — no regression for errors outside this split.
+
+This is purely a copy/classification change — the phase machine, retry
+affordances (`pickAnother` / `regenerate`), and the `invalid` verdict path
+(`v.valid === false`, a real "photo not usable" outcome, never an error) are
+untouched.

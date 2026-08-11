@@ -23,7 +23,7 @@
   instead of silently vanishing — see follow-up note below on that fallback's label
   mismatch. Tests: `src/features/wardrobe-build/__tests__/toBuilderItem.test.ts`.
 
-- [ ] **`assignBucketKey`'s catch-all lands unclassifiable items (e.g. headwear) in the
+- [x] **`assignBucketKey`'s catch-all lands unclassifiable items (e.g. headwear) in the
   "BAGS" strip** (2026-08-10, judgment call made while resolving the item above — see
   `src/features/wardrobe-build/toBuilderItem.ts`). `BUILDER_BUCKETS` in `app/build.tsx`
   has no bucket for `headwear`/generic accessories (only `BAGS: ['BAG']`) — it was
@@ -34,6 +34,14 @@
   a hat. Cosmetic mismatch, not a data-loss bug. If real `headwear`/non-bag-accessory
   wardrobe items turn out to be common, consider a proper `ACCESSORIES` bucket (new
   `BUILDER_BUCKETS` entry + `build_bucketAccessories` i18n key) instead of the fallback.
+  RESOLVED 2026-08-11 (same session as "Style grid 'Show all' truncation + builder
+  ACCESSORIES bucket rename", see `plan.md`) — the suggested fix shipped for real:
+  `src/features/wardrobe-build/buckets.ts` renamed the catch-all bucket itself to
+  `ACCESSORIES` (`BUILDER_FALLBACK_BUCKET = 'ACCESSORIES'`, label key
+  `build_bucketAccessories`), not just its label, so headwear/unclassifiable items now
+  land in a bucket whose header honestly reads "ACCESSORIES" instead of "BAGS". Covered
+  by `src/features/wardrobe-build/__tests__/buckets.test.ts` (e.g. `CAP`/`HAT` →
+  `ACCESSORIES`, real `BAG` items still resolve there via their listed type too).
 
 - [x] **Engine KHÔNG sinh được outfit layer blazer-chồng-hoodie** (2026-08-10, phát
   hiện khi anh Khôi đưa ảnh K-fashion thật để khảo sát). RESOLVED 2026-08-10 (cùng
@@ -1573,9 +1581,24 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   CHỈ anh Khôi nạp được: https://ai.studio/projects. Ảnh hưởng MỌI tính năng Gemini:
   tryon-validate/generate, generate-item-image (scan), evaluate-item note, curator
   (curator fail-open nên feed vẫn chạy, chỉ mất curated).
-- [ ] Client map lỗi 502 của tryon-validate thành copy "kiểm tra kết nối" — misleading;
+- [x] Client map lỗi 502 của tryon-validate thành copy "kiểm tra kết nối" — misleading;
   nên phân biệt lỗi dịch vụ AI ("Dịch vụ AI đang gián đoạn — thử lại sau") vs lỗi mạng
   thật. Tương tự cho generateWearOn. (2026-08-07)
+  RESOLVED 2026-08-11 — new `classifyTryOnFailure()` in
+  `src/services/tryOnWearService.ts` reads the `.name` supabase-js's
+  `functions.invoke()` throws (`FunctionsFetchError` = fetch never reached the
+  server = genuine network failure; `FunctionsHttpError`/`FunctionsRelayError` =
+  a response DID come back with a non-2xx status = server-side/AI failure,
+  covers tryon-validate/tryon-generate's 500/502/503) and buckets it
+  'network' | 'service' | 'unknown'. `src/features/try-on/useWearOnYou.ts`'s
+  `runValidation` and `generate` catches now branch on this instead of always
+  showing the network copy. New i18n keys (both `en.json`/`vi.json`):
+  `wearOnYou_serviceUnavailable` (shared by both paths — "The AI service is
+  temporarily unavailable. Please try again later." /
+  "Dịch vụ AI đang gián đoạn — thử lại sau.") and
+  `wearOnYou_generationNetworkFailed` (generate path's network case, mirrors
+  the existing `wearOnYou_validationFailed` phrasing). Tests:
+  `src/services/__tests__/tryOnWearService.classify.test.ts`.
 - [x] Verify constraint live `outfit_interactions.type` (2026-08-07, qua Management API
   /database/query): CHECK in ('saved','worn','scheduled','impression') — migration files
   thiếu 'impression' (drift xác nhận). Muốn thêm 'viewed'/'dismissed' phải ALTER constraint

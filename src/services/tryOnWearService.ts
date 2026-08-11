@@ -80,6 +80,42 @@ async function toScaledDataUri(localUri: string): Promise<string> {
 }
 
 /**
+ * Failure bucket for an error thrown by validatePersonPhoto/generateWearOn —
+ * both call `sb.functions.invoke`, which throws one of three typed errors
+ * (see @supabase/functions-js): `FunctionsFetchError` when the underlying
+ * `fetch()` itself failed (no response at all — offline, DNS, timeout — a
+ * genuine network problem), or `FunctionsHttpError`/`FunctionsRelayError`
+ * when a response DID come back but with a non-2xx status (the request
+ * reached tryon-validate/tryon-generate; whatever failed, failed
+ * server-side — see those functions' `503` "GOOGLE_API_KEY not configured",
+ * `502` upstream Gemini failure, `500` internal error, etc.).
+ *
+ * 'unknown' covers anything else (e.g. a local error from the image
+ * manipulator, or a malformed response) — callers fall back to their
+ * existing generic copy for this bucket, unchanged from before this split.
+ *
+ * NOT meant to classify 402 credit_exhausted responses — callers check that
+ * separately via `isCreditExhausted()` (usageCreditService.ts) before
+ * falling back to this classifier.
+ */
+export type TryOnFailureKind = 'network' | 'service' | 'unknown';
+
+/**
+ * Distinguishes a genuine network failure from an AI-service-side failure.
+ * Conflating the two was reported 2026-08-07 (backlog "L. Gemini prepay
+ * credits CẠN"): the Google API key ran out of prepay credits, Gemini
+ * returned 429 RESOURCE_EXHAUSTED, tryon-validate turned that into a 502 —
+ * and the client told the user to "check your connection" even though their
+ * network was fine the whole time.
+ */
+export function classifyTryOnFailure(error: unknown): TryOnFailureKind {
+  const name = (error as { name?: unknown } | null)?.name;
+  if (name === 'FunctionsFetchError') return 'network';
+  if (name === 'FunctionsHttpError' || name === 'FunctionsRelayError') return 'service';
+  return 'unknown';
+}
+
+/**
  * Gate an uploaded photo before the expensive generation: confirms a single
  * clear human subject. Returns { valid, reason } — reason is user-facing copy
  * (Vietnamese) explaining why to pick another photo when invalid.
