@@ -252,6 +252,11 @@ const FABRIC_DEFAULTS: Record<string, FabricDefaults> = {
   Nylon:   { fabricWeight: 'light',  breathability: 'medium' },
   Canvas:  { fabricWeight: 'medium', breathability: 'medium' },
   Silk:    { fabricWeight: 'light',  breathability: 'high'   },
+  // Rayon/viscose (2026-08-12) — reinstated cellulose fibre, light and
+  // breathable like linen/silk. It's a fast-fashion womenswear staple
+  // (Uniqlo blouses/dresses etc.); without this entry every rayon item fell
+  // back to the 'medium'/'medium' default, understating its warmth profile.
+  Rayon:   { fabricWeight: 'light',  breathability: 'high'   },
   Plated:  { fabricWeight: 'medium', breathability: 'low'    },
   Steel:   { fabricWeight: 'heavy',  breathability: 'low'    },
   Acetate: { fabricWeight: 'light',  breathability: 'low'    },

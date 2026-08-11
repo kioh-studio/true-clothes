@@ -20,15 +20,15 @@ export const TYPES = [
 ] as const;
 
 export const COLORS = [
-  'White', 'Cream', 'Ivory', 'Beige', 'Sand', 'Stone', 'Dove', 'Tan', 'Camel', 'Gold',
+  'White', 'Cream', 'Ivory', 'Beige', 'Sand', 'Stone', 'Dove', 'Tan', 'Nude', 'Camel', 'Gold',
   'Mustard', 'Ochre', 'Yellow', 'Orange', 'Coral', 'Rust', 'Terracotta', 'Burgundy', 'Wine', 'Red',
-  'Pink', 'Fuchsia', 'Purple', 'Lavender', 'Mauve', 'Olive', 'Green', 'Sage', 'Mint', 'Forest',
+  'Pink', 'Blush', 'Fuchsia', 'Purple', 'Lavender', 'Mauve', 'Olive', 'Green', 'Sage', 'Mint', 'Forest',
   'Emerald', 'Teal', 'Blue', 'Denim', 'Indigo',
   'Navy', 'Slate', 'Grey', 'Charcoal', 'Black', 'Brown', 'Multicolor', 'Natural',
 ] as const;
 
 export const MATERIALS = [
-  'Cotton', 'Wool', 'Linen', 'Silk', 'Cashmere', 'Denim', 'Leather', 'Suede', 'Nylon',
+  'Cotton', 'Wool', 'Linen', 'Silk', 'Rayon', 'Cashmere', 'Denim', 'Leather', 'Suede', 'Nylon',
   'Polyester', 'Canvas', 'Corduroy', 'Tweed', 'Flannel', 'Jersey', 'Fleece', 'Velvet',
 ] as const;
 
@@ -146,6 +146,14 @@ const FIT_ALIASES: Record<string, string> = {
   oversized: 'oversized', oversize: 'oversized', boxy: 'oversized',
 };
 
+// Viscose is the same fibre as rayon (regenerated cellulose) — international
+// product labelling uses both names interchangeably, but only 'Rayon' is in
+// the controlled vocabulary. Deliberately NOT extended to 'modal'/'lyocell':
+// those are chemically distinct fibres, not synonyms.
+const MATERIAL_ALIASES: Record<string, string> = {
+  viscose: 'Rayon',
+};
+
 const PATTERN_ALIASES: Record<string, string> = {
   solid: 'solid', plain: 'solid',
   striped: 'striped', stripe: 'striped', stripes: 'striped', pinstripe: 'striped',
@@ -188,7 +196,8 @@ export function sanitizeHex(v: unknown): string | null {
   return m ? '#' + m[1].toLowerCase() : null;
 }
 export function snapMaterial(v: unknown): string | null {
-  return MATERIAL_LC.get(lc(v)) ?? null;
+  const k = lc(v);
+  return MATERIAL_LC.get(k) ?? MATERIAL_ALIASES[k] ?? null;
 }
 export function snapFit(v: unknown): string | null {
   return FIT_ALIASES[lc(v)] ?? null;

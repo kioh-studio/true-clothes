@@ -7436,3 +7436,179 @@ need those rows' `can_layer` cleared to `NULL` (a destructive write) before the 
 touch them again. Not attempted — needs the owner's explicit go-ahead. Also open: whether HENLEY
 should be removed from the LAYER_FABRICS/heavy-weight shortcut branch entirely (see the correction
 section above) — flagged, not decided.
+
+## Demo woman account (demo-woman@mien.app) + womenswear wardrobe (2026-08-12)
+
+Seeded a second demo account on the live project (`trtjcsxcowqecsebvyme` — single env, no
+dev/prod split) so the app has a real female persona wardrobe instead of the all-male/no-gender
+70-row catalogue flagged in `backlog.md` §AD. Everything below is production data.
+
+**Auth + profile.** Created `auth.users` row `demo-woman@mien.app` (uid
+`b543c515-0b5d-4b8e-8d40-caf76a46ed67`) via the Admin API, same password as the existing demo
+account (`EXPO_PUBLIC_DEMO_PASSWORD`, confirmed equal to the `.env` value — no new secret,
+no native rebuild needed). The `on_auth_user_created` trigger auto-created its `profiles` row and
+`wardrobes` row (wardrobe id `4cc7dcbd-ad9e-4ea6-a8ab-b9879e9ab77e`); updated the profile in place
+(`set role service_role` first — `profiles_protect_account_type` blocks `account_type` writes from
+any other role) to: `full_name`/`display_name` "Demo Woman", `gender = 'WOMAN'`,
+`date_of_birth = '1997-03-15'`, `location_city/country = 'Ho Chi Minh City'/'Vietnam'`,
+`onboarding_complete = true`, `account_type = 'premium'`, `color_season = 'winter'`,
+`color_tone12 = 'true_winter'`, `personal_palette` = the 26-hex `TONE12_BOARDS.true_winter` board
+(`src/features/personal-color/tone12.ts`) flattened neutrals→core→accents.
+
+**Why True Winter.** The wardrobe being imported is a cool-neutral minimalist/Parisian-office set
+— pure white, true black ×4, cool grey, stone, nude, blush — which is exactly True Winter's
+neutral spine. Only the cream cardigan sits slightly warm of that axis, which is fine: it gives the
+wardrobe critic a mild, real thing to flag rather than a manufactured "perfect" wardrobe.
+
+**Body + style.** `body_measurements`: 162cm/50kg, hourglass, girths as FULL circumference (repo
+convention — bust 86 / waist 66 / hip 90), `preferred_fit = 'REGULAR'`. `style_profiles`:
+`selected_styles = [minimalist, parisian, officechic, elegant]`, `color_preferences = [Black,
+Charcoal, Dove, Slate, Navy]`, `shape_goal = 'auto'`.
+
+**Wardrobe import — partial (7 of 11 planned items).** Source: the "Womenswear (2026-08-11)" block
+in `src/data/index.ts` (+ the J.Crew `blazer_margeaux_blk` row right after it). `price`, `size`,
+and every `m_*` were left NULL on purpose — the source product pages (Uniqlo, Charles & Keith)
+render those client-side, never exposed in the fetched HTML, and the repo's field policy is "leave
+blank rather than guess." Imported successfully: `dress_black`, `skirt_pencil_blk`,
+`skirt_pleated_stn`, `cardigan_cream`, `blazer_grey_w`, `trousers_wide_blk`, `blazer_margeaux_blk`
+(new random uuids, not the mock-data string ids). Images uploaded to the private `wardrobe-photos`
+bucket at `<uid>/<itemId>.png` (`photo_storage = 'cloud'`); verified via `supabase storage ls` (7
+objects listed) and 3 signed-URL GETs returning HTTP 200 with real byte counts (270KB–683KB).
+
+**BLOCKED — 4 items not imported: `blouse_white`, `dress_floral`, `heels_nude`,
+`camisole_blush`.** `clothing_items` has FK constraints not listed in the task's "facts about the
+live schema" (only the CHECK constraints were enumerated): `material` → `fabric_types(name)` and
+`color` → `colors(name)`. Live vocab has no `rayon` in `fabric_types` (blocks the two Rayon items —
+blouse, floral dress) and no `Nude`/`Blush` in `colors` (blocks the heels and the camisole). Did
+not substitute a nearby existing vocab value (e.g. `silk` for `rayon`, `Stone`/`Pink` for
+`Nude`/`Blush`) because that's a design call outside this task's authority, not a mechanical fix —
+see `backlog.md` for the open item and the two ways to unblock it (extend the vocab tables, or
+remap to existing values).
+
+**Hex extraction.** Ported `supabase/functions/generate-outfits/engine/colorCluster.ts`'s
+`dominantHexes` line-for-line to a throwaway Python script (Pillow 12.2 / Python 3.12, both already
+installed) run over each `assets/items/<slug>.png`. Same stride/near-white/near-black sampling,
+same 16-bucket histogram + Manhattan-distance clustering, same 15%-share secondary-cluster rule.
+Sanity-checked (no near-black false positive on light garments) before inserting; results for the
+7 imported items: `dress_black` #212122/#151516, `skirt_pencil_blk` #28282a/NULL,
+`skirt_pleated_stn` #4a4943/#66645b, `cardigan_cream` #eae6d9/NULL, `blazer_grey_w`
+#999892/#adaca6, `trousers_wide_blk` #2a2b2d/#333436, `blazer_margeaux_blk` #1b1b1a/#363636.
+
+**App wiring — two demo accounts.** `src/config/demo.ts` gained `DEMO_PROFILE_WOMAN`, a
+`DemoAccount` interface, `DEMO_ACCOUNTS` (man first, woman second), and `findDemoAccount(email)`
+(case-insensitive, trimmed lookup). `src/stores/authStore.ts`: `sendOtp`'s email branch now gates
+on `findDemoAccount(trimmedEmail)` instead of `=== DEMO_EMAIL`; `verifyOtp` resolves the matched
+account first (`pendingPhone === DEMO_PHONE` → `DEMO_ACCOUNTS[0]`, else `findDemoAccount
+(pendingEmail)`), signs in with `demoAcct.email`, and — the part that would otherwise silently
+corrupt the new account — calls `updateMyProfile(userId, demoAcct.profile)` instead of the
+hardcoded `DEMO_PROFILE`, so a demo-woman sign-in no longer overwrites her seeded profile with the
+man's `gender: 'MAN'`/`Demo User` on every login. `DEMO_PHONE` still maps only to the first (man)
+account — phone-based demo login behaviour is unchanged. New test:
+`src/config/__tests__/demo.test.ts` (exact/case-insensitive/whitespace-trimmed match, unknown email
+→ undefined).
+
+### Verify
+
+`npx tsc --noEmit`: clean. `npx jest`: 44 suites / 594 tests passed (43/589 baseline + 5 new
+`demo.test.ts` cases). SQL verification (Management API, `postgres` role):
+`clothing_items → wardrobes → profiles` grouped by owner gender now shows `WOMAN = 7` (not 11 —
+see the BLOCKED note above); all 7 rows have non-NULL `photo_url`, `photo_storage = 'cloud'`,
+`primary_hex` matching the hex regex; type distribution 2 BLAZER / 2 SKIRT / 1 each
+DRESS/CARDIGAN/TROUSERS. `profiles` row for the new uid: `gender = 'WOMAN'`,
+`account_type = 'premium'`, `color_tone12 = 'true_winter'`, `onboarding_complete = true`, palette
+length 26. `body_measurements` and `style_profiles` rows exist. Cross-tenant check: all 7 items'
+`wardrobe_id` resolves only to the new uid's wardrobe (no other user's row count changed).
+No `expo`/`eas build` run (quota).
+
+### Out of scope / open — logged to `backlog.md`
+
+The 4-item vocab-FK blocker above; `delete-user`'s guard not covering this `premium`-tier demo
+account even though its password ships in the public bundle; all 7 imported items having NULL
+`m_*` so the fit engine scores them neutrally for this account; the pre-existing `profiles.email`
+drift on the original demo account.
+
+## Demo woman account — phase 2: vocab expansion, remaining 4 items (2026-08-12)
+
+Unblocked the FK gap from the section above. anh Khôi's call (not a mechanical judgment call left
+to the task): **extend the vocabulary at every layer that touches it, not remap to a nearby
+existing value.** The gap existed because the live `fabric_types`/`colors` catalogue was built out
+from an all-male wardrobe — `rayon` (a fast-fashion womenswear staple: Uniqlo blouses, jersey
+dresses) and pale neutrals like `Nude`/`Blush` (footwear, foundation garments) simply never came up
+before this import.
+
+**Layer 1 — DB vocab.** New migration
+`supabase/migrations/20260812000001_vocab_rayon_nude_blush.sql`: `fabric_types` +`rayon`
+(weight/breathability/season = light/high/summer, same bucket as linen/silk, `style_boosts='{}'`);
+`colors` +`Nude`/+`Blush`. The colour attrs were NOT hand-picked — ported
+`colorAttrsFromHex()`/`hexToHsl()`/`familyFromHsl()`/`KNOWN_FAMILIES` from
+`generate-item-image/index.ts` line-for-line into a throwaway Node script and ran it against the
+pixel-measured hexes, so these two rows are byte-identical to what the live `ensureColors` ingest
+path would have produced itself:
+
+| name | hex | tag | primary_color | lightness | saturation | hue | sat_pct | lum_pct | undertone |
+|---|---|---|---|---|---|---|---|---|---|
+| Nude | #ba9276 | WARM | orange | medium | balanced | 25 | 33 | 60 | warm |
+| Blush | #f5e1e0 | WARM | red | light | balanced | 3 | 51 | 92 | warm |
+
+(Blush landing in the `red` family bucket, not `pink`, is the real function's own quirk at very
+high lightness — ported faithfully, not "fixed.") `active=true` on both, matching what
+`ensureColors` sets for every auto-added colour; confirmed no query in the codebase filters
+`colors.active` in a way that would change any UI (onboarding's colour picker reads the hardcoded
+`COLORS` array in `src/data/index.ts`, never this table). Applied directly to live via the
+Management-API `q.ps1` helper (no Docker on this machine for `supabase db push`); migration file
+committed for schema-history parity.
+
+**Layer 2 — fit engine.** `generate-outfits/engine/enrichment.ts`'s `FABRIC_DEFAULTS` gained
+`Rayon: { fabricWeight: 'light', breathability: 'high' }`, next to `Silk`/`Linen`. Without it,
+every rayon item silently fell back to the generic `medium`/`medium` default. Deliberately did
+**not** add `rayon` to `LAYER_FABRICS` (not a layering/overshirt fabric) or `NATURAL_FABRICS`
+(regenerated cellulose, doesn't "read" like wool/silk/linen — same reasoning backlog §AD used for
+`fur`). Also deliberately left it OUT of `MATERIAL_STYLE_BOOSTS`, `FABRIC_NAME_MAP`/`FabricName`,
+and `deriveFormality`'s luxury-material bump (`Wool`/`Cashmere`/`Silk`/`Fur` → +0.5) — those are
+separate material-keyed tables the spec didn't hand down a value for, and several other real
+materials already in `FABRIC_DEFAULTS` (`Acetate`, `Plated`, `Steel`) are likewise absent from all
+three, so leaving rayon in that same "has defaults, no extra opt-in treatment" state is the
+consistent no-guess choice, not an oversight.
+
+**Layer 3 — Gemini prompt vocab.** `generate-item-image/prompt.ts`: `COLORS` +`Nude` (next to `Tan`)
+and +`Blush` (next to `Pink`); `MATERIALS` +`Rayon` (next to `Silk`). New `MATERIAL_ALIASES` map
+(mirrors the existing `FIT_ALIASES`/`PATTERN_ALIASES` shape) with `viscose → Rayon` — international
+garment labels use the two names interchangeably for the same fibre; deliberately did NOT alias
+`modal`/`lyocell` (chemically distinct fibres). `snapMaterial` now checks `MATERIAL_ALIASES` after
+the exact-match lookup.
+
+**Redeployed (Supabase CLI, `npx supabase functions deploy <name>`, no `--no-verify-jwt`):**
+`generate-outfits`, `wardrobe-critic`, `evaluate-item` (all import `engine/enrichment.ts`) and
+`generate-item-image`, `backfill-item-metadata` (both import `generate-item-image/prompt.ts`) — 5
+functions total, found by grepping actual import statements rather than guessing. All came back
+`ACTIVE` with `verify_jwt: true` unchanged (`backfill-item-metadata` was already `verify_jwt: false`
+before this deploy — it's an admin endpoint gated by its own `BACKFILL_ADMIN_SECRET`, not touched).
+
+**Remaining 4 items imported.** `blouse_white`, `dress_floral`, `heels_nude`, `camisole_blush` —
+same pre-generated UUIDs, pixel-measured hexes, and field values recorded in the phase-1 section
+above, `material` stored lowercase to match the `fabric_types.name` FK convention. Images uploaded
+to the same private `wardrobe-photos/<uid>/<itemId>.png` path. Wardrobe is now the full 11/11
+planned items.
+
+### Verify
+
+`WOMAN` gender-join count now `11` (was 7). Full-wardrobe check across all 11 rows:
+`null_photo_url=0`, `not_cloud=0`, `bad_hex=0`; type distribution 2 DRESS / 2 SKIRT / 2 BLAZER / 1
+each BLOUSE / CARDIGAN / HEELS / CAMISOLE / TROUSERS — exact match to plan. Storage: 11 objects
+under the uid prefix; signed-URL GET on the two newest (`dress_floral`, `heels_nude`) both returned
+HTTP 200 with byte counts matching the local source PNGs exactly (438941 and 112404 bytes) and
+valid PNG magic bytes. `fabric_types`/`colors` rows for `rayon`/`Nude`/`Blush` present with the
+attrs above. New Deno test
+`supabase/functions/generate-outfits/engine/rayon-fabric.test.ts` proves `toFitItem()` on a
+`material: 'rayon'` row resolves `fabricWeight: 'light'`, `breathability: 'high'` (not the
+`medium`/`medium` default a genuinely-unknown material still gets, checked in the same test as a
+control) — full engine Deno suite: 309 passed, 0 failed. `npx tsc --noEmit`: clean. `npx jest`: 44
+suites / 594 tests passed (unchanged from phase 1 — no regression). No `expo`/`eas build` run.
+
+### Out of scope / open — logged to `backlog.md`
+
+Other materials/colours the catalogue likely still lacks (`modal`, `lyocell`, `spandex`, `tencel`,
+`acrylic`, `ramie` — confirmed absent from `fabric_types` and not added here); whether rayon should
+also get a `MATERIAL_STYLE_BOOSTS` entry, a `FabricName`/`FABRIC_NAME_MAP` value, or a
+`deriveFormality` luxury bump; the three items already open from phase 1 (`delete-user` guard, NULL
+`m_*`, stale `profiles.email`).

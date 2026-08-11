@@ -31,7 +31,7 @@ import {
 import type { ColorSeason } from '../types/profile';
 import type { ColorTone12 } from '../features/personal-color/tone12';
 import { sb } from '../services/supabase';
-import { DEMO_PHONE, DEMO_EMAIL, DEMO_OTP, DEMO_PASSWORD, DEMO_PROFILE } from '../config/demo';
+import { DEMO_PHONE, DEMO_EMAIL, DEMO_OTP, DEMO_PASSWORD, DEMO_ACCOUNTS, findDemoAccount } from '../config/demo';
 import { useFitEngineStore } from './fitEngineStore';
 import { useAppStore } from './appStore';
 import { withTimeout, HYDRATE_TIMEOUT_MS } from '../utils/withTimeout';
@@ -169,7 +169,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     const trimmedEmail = email.trim();
     if (trimmedEmail) {
-      if (trimmedEmail === DEMO_EMAIL) {
+      if (findDemoAccount(trimmedEmail)) {
         set({ pendingPhone: '', pendingEmail: trimmedEmail, pendingAuthMethod: 'email' });
         return { ok: true };
       }
@@ -184,20 +184,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { pendingPhone, pendingEmail, pendingAuthMethod } = get();
     if (!pendingPhone && !pendingEmail) return { ok: false, message: i18n.t('authStore_noVerificationInProgress') };
 
-    // Demo account — sign into the fixed demo user (stable uid) via password.
-    // That uid owns a pre-seeded wardrobe (32 items + cloud images), so the
-    // OTP "000000" UX maps to a real, persistent account rather than a fresh
-    // anonymous user. (Anonymous sign-in is disabled on the project.)
-    const isDemo = (pendingPhone === DEMO_PHONE || pendingEmail === DEMO_EMAIL) && code === DEMO_OTP;
-    if (isDemo) {
+    // Demo account — sign into a fixed demo user (stable uid) via password.
+    // That uid owns a pre-seeded wardrobe (cloud images), so the OTP "000000"
+    // UX maps to a real, persistent account rather than a fresh anonymous
+    // user. (Anonymous sign-in is disabled on the project.) Phone always
+    // resolves to the first (man) account; email resolves via lookup so a
+    // second demo email (e.g. demo-woman@mien.app) routes to its own uid.
+    const demoAcct = pendingPhone === DEMO_PHONE
+      ? DEMO_ACCOUNTS[0]
+      : findDemoAccount(pendingEmail);
+    const isDemo = !!demoAcct && code === DEMO_OTP;
+    if (isDemo && demoAcct) {
       if (!DEMO_PASSWORD) return { ok: false, message: i18n.t('authStore_demoNotConfigured') };
-      const demoRes = await signInWithPassword(DEMO_EMAIL, DEMO_PASSWORD);
+      const demoRes = await signInWithPassword(demoAcct.email, DEMO_PASSWORD);
       if (!demoRes.ok) return { ok: false, message: i18n.t('authStore_demoSignInFailed') };
       const userId = await getCurrentUserId();
       if (!userId) return { ok: false, message: i18n.t('authStore_demoSignInFailed') };
       await Promise.all([
         markOnboardingComplete(userId),
-        updateMyProfile(userId, DEMO_PROFILE),
+        updateMyProfile(userId, demoAcct.profile),
       ]);
       await hydrateProfile(set, userId);
       set({ pendingPhone: '', pendingEmail: '', pendingAuthMethod: '' });
