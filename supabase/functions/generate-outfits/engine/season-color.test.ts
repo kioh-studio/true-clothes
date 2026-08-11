@@ -14,7 +14,7 @@ import { assert, assertEquals, assertAlmostEquals } from 'https://deno.land/std@
 import {
   scoreColorHarmony, seasonForMonth, hemisphereForCountry, resolveHemisphere,
   scoreOutfitFit, bodyShapeMultiplier, bodyShapeAdjustment, attributeSimilarity, scoreItemFit,
-  tone12QualityBonus, TONE12_AVOID, preferredFitDelta,
+  tone12QualityBonus, TONE12_AVOID, preferredFitDelta, softKnee,
 } from './scoring.ts';
 import { toFitItem } from './enrichment.ts';
 import { ClothingItemRow, FitItem, BodyMeasurements, GarmentMeasurements, StyleAttributes, PreferredFit } from './types.ts';
@@ -662,4 +662,160 @@ Deno.test('scoreOutfitFit — applies the preferred-fit delta even when body_sha
   assert(noPref < 1.0, `expected base score to have headroom below the ceiling, got ${noPref}`);
   assert(slimPref > noPref, `expected SLIM preference to raise the score of an all-slim outfit (no body_shape), got ${slimPref} vs ${noPref}`);
   assert(oversizedPref < noPref, `expected OVERSIZED preference to lower the score of an all-slim outfit (no body_shape), got ${oversizedPref} vs ${noPref}`);
+});
+
+// ─── Fix A: soft-knee output shaping (2026-08-11) ────────────────────────────
+// scoreOutfitFit's raw sum (base + shapeDelta + prefDelta) routinely exceeds
+// 1.0 (documented case: hourglass + all-slim tailored, base 0.823 + shapeDelta
+// 0.224 = 1.047). A hard clamp flattened every such outfit to exactly 1.0,
+// destroying ranking separation. softKnee replaces the clamp with a smooth,
+// strictly-monotone compression that is identity on [0.1, 0.9].
+
+Deno.test('softKnee — identity in the confined blast radius [0.1, 0.9]', () => {
+  for (const raw of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+    assertEquals(softKnee(raw), raw, `expected softKnee(${raw}) to be untouched identity, got ${softKnee(raw)}`);
+  }
+});
+
+Deno.test('softKnee — matches the specified sanity checks', () => {
+  assertAlmostEquals(softKnee(1.047), 0.977, 0.001, `expected softKnee(1.047) ≈ 0.977, got ${softKnee(1.047)}`);
+  assertAlmostEquals(softKnee(1.44), 0.9995, 0.0005, `expected softKnee(1.44) ≈ 0.9995, got ${softKnee(1.44)}`);
+  assertEquals(softKnee(0.5), 0.5, `expected softKnee(0.5) to be exactly 0.5, got ${softKnee(0.5)}`);
+});
+
+Deno.test('softKnee — asymptotic toward 0 and 1 but never reaches them', () => {
+  // Values chosen within double-precision range (an input of, say, 10 decays
+  // exp() past the ~1e-16 representable threshold and legitimately rounds to
+  // exactly 1 in floating point — a float limitation, not a domain concern,
+  // since the real scoreOutfitFit input range tops out around 1.44).
+  assert(softKnee(1.44) < 1, `expected softKnee(1.44) < 1, got ${softKnee(1.44)}`);
+  assert(softKnee(3) < 1, `expected softKnee(3) < 1, got ${softKnee(3)}`);
+  assert(softKnee(-2) > 0, `expected softKnee(-2) > 0, got ${softKnee(-2)}`);
+  assert(softKnee(-1) > 0, `expected softKnee(-1) > 0, got ${softKnee(-1)}`);
+});
+
+Deno.test('softKnee — strictly monotone across the whole domain, including above 1 and below 0', () => {
+  const samples: number[] = [];
+  for (let x = -1.5; x <= 2.5; x += 0.05) samples.push(x);
+  for (let i = 1; i < samples.length; i++) {
+    const a = softKnee(samples[i - 1]);
+    const b = softKnee(samples[i]);
+    assert(a < b, `expected f(${samples[i - 1].toFixed(2)})=${a} < f(${samples[i].toFixed(2)})=${b} — monotonicity broken`);
+  }
+});
+
+Deno.test('scoreOutfitFit — soft-knee preserves ranking separation for two outfits that both overshoot raw 1.0', () => {
+  // Both outfits share the IDENTICAL top (fit=slim, chest ease=1 → base=1.0,
+  // the only measured item) under an hourglass body + SLIM preference, so base
+  // is held constant and only the bottom's fit — via bodyShapeAdjustment's
+  // shape-match delta and preferredFitDelta's preference-match delta — varies
+  // the amount by which raw overshoots 1.0. Before the fix both would clamp to
+  // an indistinguishable 1.0; after the fix they must stay ordered and < 1.0.
+  const body: BodyMeasurements = { body_bust: 90, body_shape: 'hourglass', preferredFit: 'SLIM' };
+  const top = withRealFit(makeFitItem('top', 'top', 'slim', { chest: 91 })); // ease=1, lands in the shifted ideal band → score 1.0
+
+  // Bottom volume 2 (regular) is an EXACT hourglass_fitted match (topVol=1,
+  // bottomVol=2 → bestDist=0 → max +0.10 raw shape delta) and still fits the
+  // SLIM preference reasonably (regular=0.6 compat) — the larger overshoot.
+  const bottomBigOvershoot = makeFitItem('bot_big', 'bottom', 'regular');
+  // Bottom volume 5 (oversized) is a poor hourglass match (bestDist=3 → 0 raw
+  // shape delta) and clashes with the SLIM preference (oversized=0.1 compat)
+  // — the smaller overshoot.
+  const bottomSmallOvershoot = makeFitItem('bot_small', 'bottom', 'oversized');
+
+  const scoreBigOvershoot = scoreOutfitFit([top, bottomBigOvershoot], body);
+  const scoreSmallOvershoot = scoreOutfitFit([top, bottomSmallOvershoot], body);
+
+  assert(scoreBigOvershoot < 1.0, `expected the bigger-overshoot outfit to stay below 1.0 (no hard clamp), got ${scoreBigOvershoot}`);
+  assert(scoreSmallOvershoot < 1.0, `expected the smaller-overshoot outfit to stay below 1.0, got ${scoreSmallOvershoot}`);
+  assert(scoreBigOvershoot > scoreSmallOvershoot,
+    `expected separation to survive the knee: bigger raw overshoot (${scoreBigOvershoot}) should still outscore the smaller one (${scoreSmallOvershoot}) — a hard clamp would have flattened both to 1.0`);
+});
+
+// ─── Fix B: loose-side guess-widening ceiling clamp (2026-08-11) ─────────────
+// Backlog: "Guess-widening still lets a guessed-fit score exceed its real-fit
+// counterpart on the LOOSE side" — widening ok[1] for a guessed label can only
+// ever RAISE a too-roomy point's score, never lower it, so a wrong guess
+// mathematically outscored a correctly-labelled real garment whenever the ease
+// landed between the real ok[1] and the wider guessed ok[1]. Fix: clamp a
+// guessed GIRTH key's widened ok[1] to the ceiling a REAL label on the same
+// garment/fit would have (the shift-only, pre-widening ok[1]) — a no-op for
+// real items, only engages for guessed ones.
+
+Deno.test('loose-side ceiling clamp — a guessed oversized top never outscores its real-fit counterpart at an ease between the real and (old) guessed ok[1]', () => {
+  // body_bust=90, fit=oversized, chest key: shiftCm = (0.22-0.06)*90*1 = 14.4.
+  // Real (unwidened) window: ideal=[16.4,20.4], ok=[14.4,26.4].
+  // Guessed (pre-fix) widened window: ok=[14.4-4.8, 26.4+4.8] = [9.6, 31.2].
+  // Ease=27 sits ABOVE the real ok[1]=26.4 (real floors to 0.2) but INSIDE the
+  // old guessed ok[1]=31.2 (guessed would score well above 0.2) — exactly the
+  // bug. After the fix, guessed's ok[1] is clamped to 26.4 too.
+  // Names deliberately avoid any FIT_FROM_STRING keyword substring (slim/
+  // regular/relaxed/wide/oversized/...) — see the Part 1b comment above —
+  // so makeFitItem's synthetic row name doesn't accidentally flip the guessed
+  // item's provenance.fit to true via the name-keyword fallback.
+  const body: BodyMeasurements = { body_bust: 90 };
+  const realTop = withRealFit(makeFitItem('wardrobe_real_top_ceiling', 'top', 'oversized', { chest: 117 })); // ease=27
+  const guessedTop = makeFitItem('wardrobe_guessed_top_ceiling', 'top', 'oversized', { chest: 117 }); // ease=27
+  assertEquals(guessedTop.provenance.fit, false, 'sanity check: item must be genuinely guessed');
+  assertEquals(realTop.provenance.fit, true, 'sanity check: item must be genuinely real-labelled');
+
+  const realResult = scoreItemFit(realTop, body);
+  const guessedResult = scoreItemFit(guessedTop, body);
+
+  assertAlmostEquals(realResult.score, 0.2, 0.01, `expected the real-labelled top (ease past its own ok[1]) to floor to ~0.2, got ${realResult.score}`);
+  assert(guessedResult.score <= realResult.score + 1e-9,
+    `expected guessed (${guessedResult.score}) to never exceed real (${realResult.score}) after the ceiling clamp`);
+  assertAlmostEquals(guessedResult.score, realResult.score, 0.01,
+    `expected the clamp to bring the guessed score down to (approximately) the real score, got guessed=${guessedResult.score} real=${realResult.score}`);
+});
+
+Deno.test('loose-side ceiling clamp — "real never scores below guessed" invariant holds on the LOOSE side across the documented residual fits/eases', () => {
+  // Fix B is scoped to the LOOSE side (ok[1]) only — it deliberately does not
+  // touch the pre-existing (2026-08-03, already-resolved, out of this fix's
+  // scope) tight-side girth floor, which has its own separate, accepted
+  // asymmetry (a guessed item's widened ok[0] may still legitimately beat a
+  // real item's un-widened, fit-raised ok[0] down in the tight zone — that
+  // clamp only guarantees a floor at the ABSOLUTE table value, not parity
+  // with the real label). So this invariant is checked only for eases past
+  // each fit's own shifted ideal[1] — the loose-side zone Fix B targets —
+  // computed by hand from FIT_EASE_PCT/KEY_EASE_WEIGHT at body_bust=90,
+  // weight(chest)=1: shiftCm = (FIT_EASE_PCT[fit]-0.06)*90, ideal[1] = 6+shiftCm.
+  //   relaxed (0.11):   shiftCm=4.5  → ideal[1]=10.5
+  //   wide (0.16):      shiftCm=9.0  → ideal[1]=15.0
+  //   oversized (0.22): shiftCm=14.4 → ideal[1]=20.4
+  const body: BodyMeasurements = { body_bust: 90 };
+  const looseSideEases: Partial<Record<FitItem['fit'], number[]>> = {
+    relaxed: [12, 14, 16, 18, 20],
+    wide: [16, 18, 20, 22],
+    oversized: [22, 24, 26, 28, 30],
+  };
+  // ids are deliberately keyword-free (see the comment on the test above) —
+  // encoding fit/ease in the id string would flip the "guessed" item's
+  // provenance.fit to true via the name-keyword fallback and silently make
+  // this test vacuous (both sides "real", clamp never exercised).
+  let counter = 0;
+  for (const [fit, eases] of Object.entries(looseSideEases) as [FitItem['fit'], number[]][]) {
+    for (const ease of eases) {
+      counter++;
+      const chest = 90 + ease;
+      const real = withRealFit(makeFitItem(`wardrobe_pair_${counter}_real`, 'top', fit, { chest }));
+      const guessed = makeFitItem(`wardrobe_pair_${counter}_guessed`, 'top', fit, { chest });
+      assertEquals(guessed.provenance.fit, false, `sanity check: pair ${counter} (fit=${fit}, ease=${ease}) guessed item must be genuinely guessed`);
+      const realResult = scoreItemFit(real, body);
+      const guessedResult = scoreItemFit(guessed, body);
+      assert(guessedResult.score <= realResult.score + 1e-9,
+        `invariant violated for fit=${fit} ease=${ease}: guessed=${guessedResult.score} > real=${realResult.score}`);
+    }
+  }
+});
+
+Deno.test('loose-side ceiling clamp — does NOT touch the base per-fit shift for a REAL declared fit (only caps the guess-widening delta)', () => {
+  // A correctly-cut REAL oversized top must still score materially higher
+  // than under the old absolute thresholds (this mirrors the existing
+  // Part 1 "fit-relative ease" test) — proving the clamp is a no-op for real
+  // items and the legitimate per-fit outward shift is untouched.
+  const body: BodyMeasurements = { body_bust: 90 };
+  const wellCutOversized = withRealFit(makeFitItem('oversized_top_ceiling_check', 'top', 'oversized', { chest: 108 })); // ease=18
+  const result = scoreItemFit(wellCutOversized, body);
+  assert(result.score > 0.9, `expected a correctly-cut REAL oversized top to still score > 0.9 (base shift untouched by the ceiling clamp), got ${result.score}`);
 });

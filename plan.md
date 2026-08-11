@@ -6676,3 +6676,141 @@ tests for `TRIED_ON_WEIGHT`). `deno test --allow-all supabase/functions/wardrobe
 11 passed / 0 failed (unchanged — the candidate_item path was already exercised
 server-side; this session only added the client caller). Both new i18n keys confirmed
 present in `en.json` and `vi.json`. No commit, no Supabase deploy — per instruction.
+
+## `scoreOutfitFit` soft-knee output shaping + guess-widening loose-side ceiling clamp (2026-08-11)
+
+Two pre-designed fixes to `supabase/functions/generate-outfits/engine/scoring.ts`, both in
+`scoreOutfitFit`'s call chain, both backlog items (`backlog.md` ~1166, ~324). Implemented and
+tested only — design decisions were handed down, not made this session.
+
+**Fix A — soft knee replaces the hard `[0,1]` clamp.** `scoreOutfitFit`'s raw sum
+(`base + shapeDelta + prefDelta`) is additive by design (the comment on `bodyShapeAdjustment`
+above it explains why: additive, not multiplicative, specifically so a near-1.0 `base` doesn't
+erase `shapeDelta`'s ranking separation via multiplication). But the final line still ran the
+raw sum through `Math.max(0, Math.min(1, ...))` — a hard clamp that undoes the same goal at the
+other end: `shapeDelta` reaches ±0.32 and `prefDelta` ±0.12 on top of a `base` that is often
+already near 1.0 for a well-matched outfit, so the raw sum routinely exceeds 1.0 (documented
+case: hourglass body + all-slim tailored, `0.823 + 0.224 = 1.047`), and every such outfit
+flattened to an identical, unorderable `1.0`.
+
+Replaced with a small named pure helper, `softKnee(raw, k=0.9, s=0.1)`: identity on
+`[1-k, k] = [0.1, 0.9]`, and beyond that an exponential-decay compression —
+`k + s·(1 - e^{-(raw-k)/s})` above `k`, mirrored below `1-k` — that asymptotically approaches 0
+and 1 without ever reaching them. Three properties made this the right shape rather than, say,
+a sigmoid or a re-normalization: (1) the derivative at the knee is exactly 1 (matches the
+identity region's slope, so there's no visible kink where the two pieces join), (2) `exp()` is
+strictly monotone, so the whole function is strictly monotone across its entire domain —
+ordering (`f(a) < f(b)` for `a < b`) is never lost, only compressed, which is the actual
+property `scoreOutfitFit`'s ranking use depends on — and (3) the blast radius is *confined*:
+every score that was already inside `[0.1, 0.9]` is untouched, so outfits that weren't
+overshooting the old clamp are provably unaffected. `scoreOutfitFit`'s final line is now
+`return softKnee(base + shapeDelta + prefDelta);` — no `Math.max`/`Math.min` left.
+
+New deno tests in `season-color.test.ts` pin the sanity checks specified in the design: identity
+on `[0.1, 0.9]` exactly, `softKnee(1.047) ≈ 0.977`, `softKnee(1.44) ≈ 0.9995` (the theoretical
+max raw value), `softKnee(0.5) === 0.5` exactly, asymptotic-never-reaching at both ends, strict
+monotonicity swept across `[-1.5, 2.5]`, and an end-to-end `scoreOutfitFit` test proving two
+outfits that both overshoot raw 1.0 (via an hourglass body + varying preferred-fit/shape-match
+strength on an otherwise-identical outfit) stay in the same relative order and both land
+strictly below 1.0 — the exact separation a hard clamp would have destroyed.
+
+**Fix B — guess-widening no longer lets an uncertain label outscore a certain one.**
+`shiftThresholds` slides a girth key's `[ideal, ok]` window by the garment's declared `fit`
+(`FIT_EASE_PCT`), and — when the fit label was *inferred* rather than declared
+(`provenance.fit !== true`) — additionally widens the `ok` band by `GUESS_WIDENING` on both
+sides, so an uncertain label degrades gracefully instead of being crushed toward 0. The
+2026-08-03 girth-floor safety clamp fixed the tight side (`ok[0]` can never fall below the
+original table value) but left the loose side (`ok[1]`) unguarded: widening `ok[1]` outward can
+only ever *raise* a too-roomy point's score, never lower it, so whenever a garment's ease landed
+between the real label's own `ok[1]` and the wider guessed `ok[1]`, the guessed version
+mathematically outscored the real one (documented residuals: `oversized_hoodie` 0.943 guessed vs
+0.910 real, `oversized_knit` 0.904 vs 0.837, `structured_slim_blazer` 0.792 vs 0.788,
+`relaxed_overshirt` 0.998 vs 0.997 — `scripts/sim/body-shape-sim.ts` Section E1).
+
+Fix: `shiftThresholds` now records `shiftedOk1` — `ok[1]` as it stands right after the
+declared-fit shift but *before* guess-widening, i.e. exactly the ceiling a REAL label on the
+same garment/fit would have — and clamps the (possibly widened) `ok[1]` to it for GIRTH keys,
+mirroring the existing tight-side floor's placement (same `if (GIRTH_KEYS.has(thresholdKey))`
+block, applied after widening). One nuance versus a literal "clamp to the raw `FIT_THRESHOLDS`
+table value" mirror: the backlog's own recorded objection to option (a) — "the loose-side
+ceiling legitimately does need to move outward for looser fits, unlike the tight-side floor" —
+is about the *base* per-declared-fit shift (an honestly-labelled oversized garment's `ok[1]`
+should sit far above a slim garment's), which this fix must not touch. Clamping to the literal
+unshifted table constant would have done exactly that: it's a no-op for `slim` (whose shift is
+already negative, pushing `ok[1]` down, never up) but would silently cap every *real*
+relaxed/wide/oversized garment's `ok[1]` back down to the flat regular-fit ceiling — regressing
+the entire fit-relative-windowing feature for declared fits, not just the guessed-label bug.
+Clamping to `shiftedOk1` (shift-adjusted, pre-widening) instead is a no-op for every real item —
+their `ok[1]` already equals `shiftedOk1` exactly, since real items never enter the widening
+branch — and only engages when widening pushed a *guessed* item's ceiling past what its own
+declared fit would legitimately earn. This restores "a real fit label never scores below a
+guessed one" specifically in the zone Fix B targets (loose-side eases past each fit's shifted
+`ideal[1]`); the pre-existing tight-side floor has its own separate, already-accepted asymmetry
+(a guessed item's widened `ok[0]` can still beat a real item's fit-raised `ok[0]` down in a grey
+zone between the absolute floor and the real threshold) which this session did not touch or
+attempt to close — out of Fix B's stated scope.
+
+New deno tests in `season-color.test.ts`: a direct before/after-style case (oversized top, ease
+27, real floors to ~0.2 while a naively-widened guess would have scored ~0.82 — after the fix
+both floor to ~0.2), a sweep across `relaxed`/`wide`/`oversized` at eases past each fit's own
+shifted `ideal[1]` proving `guessed <= real` holds throughout the loose-side zone, and a
+regression guard proving a correctly-cut REAL oversized top still scores > 0.9 (i.e. the base
+per-fit shift for declared fits is untouched, only the guess-widening delta is capped).
+
+### Measured blast radius (offline eval harness, 3 fixture profiles)
+
+Ran `scripts/eval-feed/run.ts` before/after on all three fixtures (smartcasual, streetwear,
+resort) and diffed the top-10 by outfit identity:
+
+| profile | rank/entry changes | rank1 Δ | rank2 Δ | rank3 Δ | why |
+|---|---|---|---|---|---|
+| smartcasual | 0 rank changes, 0 entered/left | −0.0001 | −0.0055 | −0.0032 | Fix A engages (see below); Fix B does not (see below) |
+| streetwear | 0 rank changes, 0 entered/left | 0.0000 | 0.0000 | 0.0000 | neither fix reaches this fixture |
+| resort | 0 rank changes, 0 entered/left | 0.0000 | 0.0000 | 0.0000 | neither fix reaches this fixture |
+
+Investigated the two all-zero profiles rather than accepting silence at face value, per the
+task's own instruction ("a change that moves nothing means one of the two fixes is not reaching
+the fixture"). Root cause, confirmed directly against `scripts/eval-feed/fixture.ts`: the
+streetwear and resort wardrobes contain **zero** `measurements:` entries on any item (`grep -c
+"measurements:"` → 0 for both, vs 15 for smartcasual), so every item in those two fixtures is
+`measured: false` and `scoreItemFit` returns the flat neutral 0.5 for all of them — `base` in
+`scoreOutfitFit` is therefore always exactly 0.5, and even the maximum possible `shapeDelta`
+(±0.32, rectangle body shape) can only push the raw sum to 0.82, well under the softKnee's
+`k=0.9` knee — so Fix A is correctly a no-op there (identity region, as designed), and
+`shiftThresholds`'s GIRTH-key branch (where Fix B lives) never runs at all in the complete
+absence of garment measurements, independent of the fix. Separately — and this holds for **all
+three** profiles, including smartcasual — every single wardrobe item across all three fixtures
+declares an explicit `fit:` string field (`grep -c "fit: '"` → 73 hits, one per item), which
+`deriveFitWithProvenance` resolves to `provenance.fit = true` (a REAL label) every time; Fix B
+only ever changes behaviour for a GUESSED label (`provenance.fit !== true`), so it is
+structurally invisible to this offline harness regardless of profile — its correctness is
+demonstrated by the new unit tests (which explicitly construct guessed `FitItem`s), not by this
+harness. This is a property of the fixture data (deliberately fully-labelled, per its own
+"fixed fixture" header), not a defect in either fix.
+
+Fix A's real, measured effect is confined to smartcasual, the only fixture with per-item garment
+measurements to produce a `dims.fitScore` that climbs above the 0.9 knee: rank 1's `fitScore`
+moved `1.000000 → 0.984329` (previously hard-clamped at exactly 1.0), ranks 2/4/7/10 (an
+identical outfit repeated across formulas) moved `0.996053/0.971224 → 0.961731/0.950946`, while
+rank 9's `fitScore` (`0.853369`, below the knee) is byte-identical before/after — confirming the
+"confined blast radius" property directly against real data, not just the synthetic unit tests.
+`totalScore` deltas at ranks 1-3 are correspondingly small (−0.0001 to −0.0055) because
+`fitScore` is one of seven blended dimensions, not the whole score — and because these are
+already well-separated, high-quality outfits whose raw sum only barely crossed 1.0. Rank order
+is unchanged for all 10 positions in all 3 profiles: a monotone compression of already-separated
+scores does not reorder them by itself — its value is specifically in cases (like the
+hourglass + all-slim example, and the two synthetic `scoreOutfitFit` outfits in the new test)
+where two DIFFERENT raw overshoot amounts would otherwise have collapsed to the identical
+clamped 1.0 and become unorderable; none of the three fixtures happen to contain such a
+near-collision pair at the top of the feed today.
+
+### Verify
+
+`npx tsc --noEmit`: clean. `deno test --allow-all supabase/functions/generate-outfits/engine/`:
+294 passed / 0 failed (was 286 — +8 new tests: 6 for `softKnee`/soft-knee `scoreOutfitFit`
+behaviour, 3 for the loose-side ceiling clamp — one test iterates a table so file-level test
+count differs slightly from assertion count). `deno test --allow-all
+supabase/functions/evaluate-item/`: 37 passed / 0 failed (unchanged — reuses this scoring code;
+no behavioural drift observed). `deno test --allow-all supabase/functions/wardrobe-critic/`: 11
+passed / 0 failed (unchanged, same reason). `npx jest`: 41 suites / 569 tests passed (unchanged
+— no client code touched). No commit, no Supabase deploy — per instruction.

@@ -505,6 +505,9 @@ function shiftThresholds(t: Thresholds, thresholdKey: string, bodyVal: number, f
   if (shiftCm === 0) return t;
   const ideal: [number, number] = [t.ideal[0] + shiftCm, t.ideal[1] + shiftCm];
   let ok: [number, number] = [t.ok[0] + shiftCm, t.ok[1] + shiftCm];
+  // Loose-side ceiling BEFORE guess-widening — see the LOOSE-SIDE CEILING
+  // comment below where it's used to clamp a guessed item's widened ok[1].
+  const shiftedOk1 = ok[1];
   if (!fitIsReal) {
     const okHalfWidth = (ok[1] - ok[0]) / 2;
     ok = [ok[0] - GUESS_WIDENING * okHalfWidth, ok[1] + GUESS_WIDENING * okHalfWidth];
@@ -532,6 +535,21 @@ function shiftThresholds(t: Thresholds, thresholdKey: string, bodyVal: number, f
     // above ideal[0] (possible for a large negative shift), raise ideal[0]
     // to match rather than leave ok[0] > ideal[0].
     if (ok[0] > ideal[0]) ideal[0] = ok[0];
+    // LOOSE-SIDE CEILING (2026-08-11, mirrors the floor above — backlog "Guess-
+    // widening still lets a guessed-fit score exceed its real-fit counterpart
+    // on the LOOSE side"). `shiftedOk1` is `ok[1]` as it stood right after the
+    // declared-fit shift but BEFORE guess-widening — i.e. exactly the ceiling a
+    // REAL label on this same garment/fit would have. Clamping to it makes the
+    // clamp a no-op for real items (their `ok[1]` already equals shiftedOk1,
+    // since they never enter the widening branch above) and only bites when
+    // widening pushed a GUESSED item's ceiling past that. Uncertainty about the
+    // label should widen tolerance for a garment that's genuinely too loose to
+    // fail more gracefully — it must not manufacture a reward the real label
+    // wouldn't also get. Deliberately does NOT touch the base per-fit shiftCm
+    // itself: an honestly-declared oversized garment's `ok[1]` still legitimately
+    // sits far above a slim garment's — only the EXTRA widening delta is capped,
+    // restoring "a real fit label never scores below a guessed one" on both sides.
+    ok[1] = Math.min(ok[1], shiftedOk1);
   }
   return { ideal, ok };
 }
@@ -783,6 +801,42 @@ export function preferredFitDelta(items: FitItem[], preferredFit?: PreferredFit)
   return Math.max(-0.12, Math.min(0.12, (mean - 0.5) * 2 * 0.12));
 }
 
+// ── Soft-knee output shaping (2026-08-11) ──────────────────────────────────
+// `scoreOutfitFit`'s raw sum (base + shapeDelta + prefDelta) routinely exceeds
+// 1.0 — base alone can sit near 1.0 for a good match, and shapeDelta (±0.32)
+// and prefDelta (±0.12) are ADDITIVE on top of it by design (see the comment
+// on bodyShapeAdjustment above: additive, not multiplicative, specifically so
+// a near-1.0 base doesn't erase the delta's ranking separation via clamping).
+// A hard `Math.max(0, Math.min(1, raw))` defeats that same goal at the OTHER
+// end: every raw score above 1.0 (or below 0.0) flattens to the identical
+// clamped value and becomes unorderable — exactly the separation the
+// additive redesign exists to preserve.
+//
+// Fix: a smooth, monotone "knee" at both ends instead of a hard clamp. Below
+// the knee `K` (and above its mirror `1-K`) the score is untouched — the
+// blast radius is confined to outfits that were actually overshooting.
+// Beyond the knee, an exponential decay asymptotically compresses the raw
+// value into (0,1) without ever reaching either bound, so the [0,1] output
+// contract downstream consumers rely on still holds. Span `S` sets how much
+// "give" the knee has: the curve's own derivative is s * exp(-(raw-K)/S) *
+// (1/S)... i.e. exactly 1 at raw=K (matches the identity region's slope of 1
+// on both sides, so there's no visible kink) and it decays smoothly beyond
+// that. Because exp() is strictly monotone, the whole function stays
+// strictly monotone across its entire domain — ordering (f(a) < f(b) for
+// a < b) is never lost, only compressed, which is the actual property that
+// matters for a ranking feed.
+const SOFT_KNEE_K = 0.9;
+const SOFT_KNEE_S = 0.1;
+
+/** Soft-knee compression into (0,1): identity on [1-K, K], smooth asymptotic
+ *  compression beyond it on both ends. See the block comment above for why
+ *  this replaces a hard clamp for scoreOutfitFit's output. */
+export function softKnee(raw: number, k: number = SOFT_KNEE_K, s: number = SOFT_KNEE_S): number {
+  if (raw > k) return k + s * (1 - Math.exp(-(raw - k) / s));
+  if (raw < 1 - k) return (1 - k) - s * (1 - Math.exp(-((1 - k) - raw) / s));
+  return raw;
+}
+
 export function scoreOutfitFit(items: FitItem[], body: BodyMeasurements): number {
   if (items.length === 0) return 0.5;
   const results = items.map(item => scoreItemFit(item, body));
@@ -800,7 +854,7 @@ export function scoreOutfitFit(items: FitItem[], body: BodyMeasurements): number
   // must NOT be suppressed by body-neutral mode, so it is applied unconditionally
   // here (not gated behind the `body.body_shape` check above).
   const prefDelta = preferredFitDelta(items, body.preferredFit);
-  return Math.max(0, Math.min(1, base + shapeDelta + prefDelta));
+  return softKnee(base + shapeDelta + prefDelta);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

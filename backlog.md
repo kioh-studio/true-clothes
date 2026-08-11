@@ -321,23 +321,31 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
     `oversized_hoodie`/`oversized_knit`/`structured_slim_blazer`/`relaxed_overshirt` (largest:
     `oversized_hoodie` guessed 0.943 vs real 0.910). See new item below.
 
-- [ ] **Guess-widening still lets a guessed-fit score exceed its real-fit counterpart on the
-  LOOSE side** (2026-08-03, discovered while resolving the item above). The girth-floor clamp
-  only fixes the TIGHT side (`ok[0]`); `ok[1]` widening is untouched, and widening `ok[1]` can
-  mathematically only raise (never lower) a "too roomy but still ok" point's `easeScore` for a
-  fixed ease value — so `guessed >= real` per point whenever a garment's ease lands between
-  `ideal[1]` and `ok[1]` (proved by direct derivative check on `easeScore`'s loose-side
-  formula). Current wardrobe residuals (apple body, E1 table): `oversized_hoodie` 0.943
-  guessed vs 0.910 real, `oversized_knit` 0.904 vs 0.837, `structured_slim_blazer` 0.792 vs
-  0.788, `relaxed_overshirt` 0.998 vs 0.997 — all small, none violate the E1/E4 safety
-  guards, but they do violate the stricter "real must never score below guessed" ideal.
-  Needs a design decision (Opus/Fable triage, not Sonnet execute) before touching: (a) mirror
-  the girth-floor clamp on `ok[1]` too (a ceiling clamp — but the loose-side ceiling
-  legitimately DOES need to move outward for looser fits, unlike the tight-side floor which
-  never should, so this isn't a straightforward mirror), (b) widen `ideal` a little on the
-  loose side too so more well-cut guessed garments land inside it (changes E1's numbers
-  again), or (c) accept this as an inherent, bounded (<0.07 observed) property of
-  "uncertainty widening" and stop chasing it further.
+- [x] **Guess-widening still lets a guessed-fit score exceed its real-fit counterpart on the
+  LOOSE side** (2026-08-03, discovered while resolving the item above). RESOLVED 2026-08-11
+  (session "scoreOutfitFit soft-knee + guess-widening loose-side ceiling clamp") by option (a),
+  with a nuance: `shiftThresholds` now records `shiftedOk1` (the GIRTH key's `ok[1]` right after
+  the declared-fit shift but BEFORE guess-widening — i.e. the ceiling a REAL label on the same
+  garment/fit would have) and clamps the widened `ok[1]` to it, mirroring the tight-side floor's
+  placement (same `GIRTH_KEYS` block, applied after widening). NOT a clamp to the raw unshifted
+  `FIT_THRESHOLDS` table constant — that would have also capped every REAL relaxed/wide/oversized
+  garment's `ok[1]` back to the flat regular ceiling, regressing the base per-fit shift itself,
+  which is exactly the "loose-side ceiling legitimately DOES need to move outward" objection
+  recorded below. Clamping to `shiftedOk1` is a no-op for real items (their `ok[1]` already
+  equals it) and only engages for guessed items, restoring `guessed <= real` on the loose side
+  without touching declared-fit windows. 3 new deno tests in `season-color.test.ts` (direct
+  before/after case at ease=27 on an oversized top: real floors ~0.2, guessed also now floors
+  ~0.2 instead of ~0.82; a sweep across relaxed/wide/oversized past each fit's own shifted
+  `ideal[1]` proving the invariant; a regression guard that a REAL oversized top still scores
+  > 0.9, i.e. the base shift is untouched). Measured against the offline eval harness (3
+  fixtures): 0 observed movement — investigated and found structural, not a defect: all 73
+  fixture wardrobe items across all 3 profiles declare an explicit `fit:` string, so
+  `deriveFitWithProvenance` resolves every one to `provenance.fit = true` (REAL) — this fix
+  only ever changes GUESSED-label behaviour, so it is invisible to this fully-labelled offline
+  fixture data by construction; correctness is demonstrated by the new unit tests instead. See
+  `plan.md` changelog "`scoreOutfitFit` soft-knee output shaping + guess-widening loose-side
+  ceiling clamp (2026-08-11)" for the full writeup and the pre-existing tight-side asymmetry
+  this fix deliberately did NOT touch (separate, already-accepted, out of scope).
 
 - [x] **Side-photo depth capture** — DONE 2026-07-12 (implemented this session, anh Khôi
   đã duyệt trade-off): thêm bước chụp nghiêng 90° (turn interstitial + side scanning
@@ -1163,10 +1171,20 @@ Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offlin
   ngay: `bodyShapeMultiplier` viet lai thanh volume-distance dua tren `SHAPE_VOLUME_TARGETS`
   (scoring.ts) thay vi so khop chuoi fit — `regular`/`wide` gio deu co volume so sanh duoc,
   khong con "vo hinh". Xem Section C truoc/sau trong plan.md changelog.
-- [ ] **`scoreOutfitFit` bi clamp o 1.0** (2026-08-03) — hourglass + all-slim tailored:
+- [x] **`scoreOutfitFit` bi clamp o 1.0** (2026-08-03) — hourglass + all-slim tailored:
   base 0.823 + delta 0.224 = 1.047 -> clamp 1.0, mat separation o dau tren dung cai ma
-  comment trong `scoring.ts` noi la da tranh khi doi tu multiplier sang delta. NGOAI PHAM
-  VI phien 2026-08-03 (chi lam Part 1-4 da chot voi anh Khoi).
+  comment trong `scoring.ts` noi la da tranh khi doi tu multiplier sang delta. RESOLVED
+  2026-08-11 (session "scoreOutfitFit soft-knee + guess-widening loose-side ceiling clamp"):
+  hard `Math.max(0, Math.min(1, ...))` thay bang `softKnee()` (helper moi, xuat tu
+  `scoring.ts`) — identity tren [0.1, 0.9], nen mem (exponential decay) tu K=0.9, S=0.1 ra
+  ngoai hai dau, dao ham=1 tai knee (khong gay khuc), strictly monotone toan mien (kiem chung
+  bang test sweep [-1.5, 2.5]). softKnee(1.047)≈0.977, softKnee(1.44 — max ly thuyet)≈0.9995,
+  softKnee(0.5)=0.5 dung y. Do bang eval harness that (3 fixture): chi smartcasual co chuyen
+  dong (fixture duy nhat co garmentMeasurements) — rank1 fitScore 1.000000->0.984329, rank9
+  (0.853, duoi knee) khong doi byte-for-byte, dung nhu thiet ke "confined blast radius";
+  streetwear/resort khong chuyen dong vi ca hai fixture khong co `measurements:` nao (base
+  luon =0.5, raw toi da 0.82, khong bao gio vuot knee 0.9) — da dieu tra ro nguyen nhan, khong
+  phai fix khong hoat dong. Xem `plan.md` changelog cung ten cho chi tiet + bang do day du.
 - [x] **Mau thuan huong giua `bodyShapeMultiplier` va `fromBodyShape`** (2026-08-03) — FIXED
   cung ngay: ca hai gio doc chung `SHAPE_VOLUME_TARGETS` (scoring.ts) — `silhouette.ts`'s
   `fromBodyShape` khong con literal rieng. Sim Section D "Direction contradictions": 1 -> 0.
@@ -1179,7 +1197,7 @@ Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offlin
   plan.md changelog "Fit-relative ease windows + preferred-fit anchor (2026-08-03)" cho chi
   tiet + finding "khong hoan toan monotonic" (vai fixture Section C thap hon voi real-fit vi
   du lieu fixture goc khong proportionally-consistent per-point). `scoreOutfitFit` clamp-at-1.0
-  van CHUA fix (ngoai pham vi, xem muc rieng ben tren).
+  RESOLVED 2026-08-11 — xem muc rieng ben tren.
 - [x] **`app/measurements-edit.tsx` chua duoc wire vao hysteresis/legacy-override-check moi**
   (2026-08-03, phat hien khi lam classifier rewrite) — FIXED cung ngay 2026-08-03: `derivedShape`
   gio goi `stabilizeBodyShape(bm.bodyShape ?? null, {...})` thay vi goi `computeBodyShape` truc
