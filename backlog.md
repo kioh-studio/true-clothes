@@ -158,6 +158,23 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   Cần chốt: chụp/gán lại ảnh cho 3 item, hay set `photo_url=NULL, photo_storage='none'`
   để về empty-state sạch. `/dev-seed` KHÔNG fix được (3 id này không nằm trong seed list).
 
+  **CẬP NHẬT 2026-08-12** — 3 item gốc nói trên đã bị XOÁ hôm 2026-08-11 (có backup JSON).
+  Nhưng đợt backfill hôm nay lộ ra **3 item KHÁC cùng bệnh**, thuộc wardrobe
+  `a303e5b4-e0c6-4977-a8ab-bccee9546600`, tức lỗi này VẪN ĐANG TÁI DIỄN chứ không phải
+  sự cố một lần:
+  - `Black framed eyeglasses` (SUNGLASSES) → `2abf45dd-…jpg`
+  - `Black strap watch` (WATCH) → `df3891b0-…jpg`
+  - `Dark trousers` (TROUSERS) → `2ffc020a-…jpg`
+
+  Đã verify qua `storage.objects`: **không object nào trong 3 cái này tồn tại** trong bucket
+  `wardrobe-photos`, dù `photo_url` trỏ vào đó. Backfill fail đúng 3 món này với
+  `unfetchable image (photo_storage=local)` — nên chúng cũng là 3/70 món duy nhất không có
+  metadata đầy đủ.
+
+  CHƯA XOÁ, chờ anh Khôi chốt. Khuyến nghị: **set `photo_url=NULL, photo_storage='none'`**
+  thay vì xoá row — mắt kính/đồng hồ/quần tây là đồ thật trong tủ, xoá là mất món chứ không
+  chỉ mất ảnh; engine vẫn chấm được chúng nếu có metadata (hiện chưa, vì không có ảnh để đọc).
+
 - [ ] **Free tier: ảnh item không có bản cloud → mất khi cài lại app** — `storePhoto()`
   (`src/services/wardrobeService.ts:261`) chỉ upload cloud khi `tier==='premium'`;
   free tier dừng ở `writeDeviceCopy` → `photo_storage='local'`. Đây là nguyên nhân gốc
@@ -402,12 +419,21 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   lớn nhất đã được kiểm chứng; front+side cũng là capture pattern cả ngành hội tụ (3DLOOK,
   Bodygram, Size Stream, Esenca). Mốc thực tế: front-only+height ≈ 3–4cm MAE,
   front+side+H/W ≈ 1.5–2.5cm MAE (BMnet arXiv:2210.05667; PMC9177647).
-- [ ] **Chạy backfill hex + metadata trên prod** (2026-07-06, phiên measured-hex color
-  layer): `backfill-item-metadata` giờ cũng điền `primary_hex`/`secondary_hex` cho item cũ
-  (pixel algorithm thuần, không tốn Gemini call nếu metadata khác đã đủ). Cần
-  `BACKFILL_ADMIN_SECRET` (chỉ anh Khôi có) — chạy `dry_run: true` trước để xem
-  `filled: [...]` hợp lý rồi mới chạy thật. Đã deploy function; CHƯA chạy thật trên ~70 item
-  cũ thiếu hex.
+- [x] **Chạy backfill hex + metadata trên prod** — CHẠY XONG 2026-08-12 (sau khi anh Khôi nạp
+  lại Gemini prepay credits). Kết quả: **67/70 item** giờ có đủ `primary_hex`/`can_layer`/
+  `drape`/`visual_interest`/`print_scale`/`distressed`. 3 item không điền được vì không có ảnh
+  để nhìn — xem mục section Z (`photo_storage='local'`, file không tồn tại trong bucket).
+  Ghi nhận: `distressed = true` cho **đúng 0/67 item**, nên 14 style cấm `distressed` hiện
+  chưa loại được món nào trong tủ này — signal đã có dữ liệu, chỉ là không có positive.
+- [ ] **Bộ lọc của `backfill-item-metadata` tự chặn chính nó khi `limit` nhỏ** (2026-08-12,
+  phát hiện khi chạy backfill thật) — mệnh đề `.or()` chứa `secondary_hex.is.null`, mà rất
+  nhiều item **không có màu phụ thật**, nên chúng khớp bộ lọc VĨNH VIỄN kể cả sau khi đã điền
+  xong. Vì query `order by id` + `range(offset, offset+limit-1)`, phần đầu danh sách bị nghẽn
+  bởi item đã xong: chạy `limit:18` liên tiếp cho ra 16 → 5 → 2 → 1 → 1 updated rồi đứng, dù
+  còn hàng chục item chưa điền. Phải tăng `limit` hoặc phân trang bằng `offset` mới tới được
+  đuôi (và `limit:45` thì 504 vì vượt wall-clock của edge function). Sửa đúng: bỏ
+  `secondary_hex.is.null` khỏi bộ lọc (nó không phải tín hiệu "thiếu dữ liệu"), hoặc thêm cột
+  đánh dấu "đã backfill" thay vì suy ra từ NULL.
 - [x] **Thread `primary_hex`/`secondary_hex` qua ingest client** — DONE 2026-07-06 (follow-up
   cùng phiên measured-hex, theo yêu cầu gốc "extract by item cũng có colour"): cả 3 đường
   ingest giờ có hex ngay lúc lưu — (1) extract-by-item on-device tự đo bằng client port
@@ -2017,13 +2043,10 @@ những gì đợt này phát hiện thêm mà CHƯA làm.
   "đã ghé qua và bỏ qua" với "chưa bao giờ ghé qua" — nên resume sẽ đưa user quay lại đúng bước
   đó dù họ đã cố ý skip trước đây (tệ nhất chỉ là bấm Skip lại 1 lần, không mất dữ liệu). Muốn
   chính xác tuyệt đối cần thêm checkpoint thật (cột/bảng mới) — chưa authorize, chỉ ghi nhận.
-- [ ] **`distressed` cần chạy lại backfill cho ~70 item cũ** (2026-08-11) — cột
-  `clothing_items.distressed` mới thêm là `NULL` cho mọi item có sẵn trước hôm nay (fail-open
-  nên KHÔNG mass-fail wardrobe thật, nhưng những item đó vẫn chưa được style nào có
-  `bannedFeatures: ['distressed']` thực sự đánh giá đúng). Cần chạy `backfill-item-metadata`
-  admin function (dry_run trước, giống các lần backfill trước) — chỉ anh Khôi có
-  `BACKFILL_ADMIN_SECRET`. Item mới thêm từ giờ sẽ tự có field qua `generate-item-image`
-  extraction, không cần backfill.
+- [x] **`distressed` cần chạy lại backfill cho ~70 item cũ** — CHẠY XONG 2026-08-12, gộp chung
+  với đợt backfill hex/metadata (xem mục "Chạy backfill hex + metadata trên prod" ở section A
+  để có số liệu và các phát hiện kèm theo). 67/70 điền xong, 3 item thiếu ảnh không điền được,
+  và không item nào ra `distressed = true`.
 - [ ] **`sheer`/`cutout`/`sequin`/`animal_print` giờ có tiền lệ đầy đủ để làm theo** — xem mục
   đã cập nhật ở section AC phía trên: `distressed` hôm nay đã đi trọn vẹn con đường "cột DB
   nullable + field trên `FitItem` + enforcement fail-open + backfill sau" — 4 feature này chỉ
