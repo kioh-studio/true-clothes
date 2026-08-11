@@ -7300,3 +7300,139 @@ catalog formulas (`monochrome`, `neutral_pop`, `tonal_gradient`, `high_low`, `te
 how well a dress would fit them. Real coverage gap, much bigger change (would need onepiece pools
 threaded through the whole formula-pool system, or a parallel formula-aware one-piece path), and a
 product call on which formulas even make sense for a single garment — not attempted here.
+
+## `can_layer` bias fix: regular-fit SHIRT worn open (010-wardrobe-critic follow-up, 2026-08-12)
+
+### The problem — two places, one shared bias
+
+Whether a top can be worn OPEN/OVER another top is decided in two places, and both carried the
+same bias toward rugged/structured workwear: `deriveCanLayer` (`enrichment.ts`) only returned
+`true` for a SHIRT/HENLEY when it had a LAYER_FABRICS fabric (flannel/denim/corduroy/wool/tweed),
+a heavy fabric weight, or a relaxed/oversized fit — a regular-fit shirt in a light fabric (linen,
+oxford) always came back `false`, even though wearing one open over a tee is completely standard.
+`generate-item-image/prompt.ts`'s `can_layer` extraction instruction mattered MORE in practice:
+`enrichment.ts`'s `canLayer: item.canLayer ?? deriveCanLayer(...)` only falls back to the rule when
+the AI returned `null`, and as of a backfill run earlier this session most items already carry an
+AI-set value — so the prompt's judgment call, not the rule, is what most rows actually see. The
+prompt's positive exemplars were all "button-front overshirt/flannel/chore jacket, cardigan, open
+vest, knit meant to go over a shirt" — no soft shirt represented, so the AI inherited the same bias.
+
+### The fix
+
+**`deriveCanLayer`** — added one more branch after the existing relaxed/oversized check: a
+**declared** `fit === 'regular'` now also returns `true`, but **SHIRT only**, gated on provenance:
+
+```ts
+if (t === 'SHIRT' || t === 'HENLEY') {
+  if (fabricName && LAYER_FABRICS.has(fabricName)) return true;  // shacket/overshirt fabrics
+  if (fabricWeight === 'heavy') return true;
+  if (fit === 'relaxed' || fit === 'oversized') return true;     // overshirt-read silhouette
+  if (t !== 'SHIRT') return false;
+  return fit === 'regular' && fitReal;
+}
+```
+
+`deriveFitWithProvenance` already returned `{ fit, real }` (real = a stored `fit` column or a fit
+keyword in the item's name; false = a `TYPE_DEFAULT_FIT` guess). `TYPE_DEFAULT_FIT` maps
+`SHIRT: 'regular'`, so an item with no stored fit and no fit keyword in its name is *guessed* as
+regular — flipping regular→true unconditionally would make every unlabelled shirt layerable off a
+guess, not a real signal. `fitReal` (already destructured at the `toFitItem` call site, just not
+threaded through) is now passed into `deriveCanLayer` as a 5th parameter, and the new branch only
+fires when the regular fit is a real, declared signal. A guessed-regular shirt keeps the pre-fix
+`false`.
+
+**`prompt.ts`'s `can_layer` instruction** — rewritten so the test is CUT AND CLOSURE (a full-length
+front opening — buttons or zip the entire way down, or designed to hang open), not fabric weight:
+
+> `"can_layer": true | false | null. ONLY for tops and light outerwear: true when the garment has
+> a FULL-LENGTH front opening (buttons or zip the entire way down, or is designed to hang open) so
+> it can be worn OVER another top — button-front overshirt/flannel/chore jacket, cardigan, open
+> vest, knit meant to go over a shirt, AND a non-fitted, full-button-front shirt in ANY fabric
+> (linen shirt, oxford shirt, camp-collar or short-sleeve button-front shirt — a light fabric does
+> NOT disqualify it, only the closure does); false when there is no full front opening, even if
+> soft or loose (thin tee, fitted blouse, camisole, henley or any other placket-only pullover — a
+> henley's short neck placket does not count); null when unsure or not applicable (bottoms, shoes,
+> accessories).`
+
+### HENLEY explicitly excluded — correction mid-session
+
+The original diagnosis grouped SHIRT and HENLEY together (both already share the LAYER_FABRICS/
+heavy-weight/relaxed-oversized branch). Live-DB evidence corrected this mid-session: the only two
+henleys in production ("Waffle Henley", cotton, regular) already carry AI-extracted
+`can_layer = false`, and that judgment is *correct* — a henley has a short 2–4 button PLACKET at
+the neck, not a full-length button front, so it physically cannot be worn open over another top no
+matter how loose, heavy, or overshirt-fabric'd it is. The new `regular && fitReal` branch is
+therefore gated `if (t !== 'SHIRT') return false;` before it can fire — HENLEY never reaches it.
+
+I reconsidered (per the correction's ask) whether HENLEY should share the pre-existing
+LAYER_FABRICS/heavy-weight shortcuts at all, since the same anatomical argument (no full front
+opening) applies to those too — a flannel or heavy henley is still not open-wearable. I did **not**
+remove HENLEY from that shared branch: those two shortcuts predate this fix (present at `HEAD`,
+unrelated to today's regular-fit gap) and removing them would be a real production behavior change
+(any heavy/flannel henley currently `true` via that shortcut would flip to `false`) outside what
+was asked — flagged here for a decision rather than silently restructured, per the correction's
+own instruction.
+
+### The `layering` eval fixture (`scripts/eval-feed/fixture.ts`)
+
+12 items, smartcasual style — added as a fifth additive fixture (the existing five wardrobe
+definitions in `fixture.ts` are untouched; `git diff --stat` shows the file's change as pure
+insertions, 0 deletions). 2 base TEEs (light Cotton, `layerRole: 'base'`) as layering targets; 2
+SHIRTs with a **declared** `fit: 'regular'` in a light fabric (Linen, Cotton oxford — the exact
+"regular linen/oxford shirt over a tee" case from the diagnosis); 1 SHIRT with **no** stored `fit`
+and a name free of every `FIT_FROM_STRING` keyword (`Poplin Shirt Charcoal`) — a guessed-regular
+control that must stay `false` before AND after; 1 declared-regular HENLEY (`Waffle Henley Beige`)
+— a negative control proving the SHIRT-only scope. Bottoms/shoes/accessory items reuse color/
+material/fit combos already proven to clear the smartcasual style filter in `SMARTCASUAL_WARDROBE`.
+
+### Measured, before and after
+
+`run.ts --profile layering`, seed `eval:fixed-seed-001`, against a scratch copy of the engine with
+`enrichment.ts` restored to `git show HEAD:...` (pre-fix) vs. the live, fixed engine (post-fix):
+
+  | | shirt-in-outwear-slot outfits, top 10 |
+  |---|---|
+  | pre-fix | **0 / 10** |
+  | post-fix | **5 / 10** |
+
+Pre-fix is exactly zero (both declared-regular shirts return `false`, so no shirt ever qualifies
+for the dual-role layering path in `generation.ts`). Post-fix, "Oxford Shirt Blue" appears in the
+outwear slot over "Linen Shirt White" (ranks 3, 8, 10), over "Poplin Shirt Charcoal" — the
+guessed-regular shirt used as the BASE top, not the layer, which is correctly unaffected since only
+its own `canLayer` matters for the layer role, not the base's (ranks 6, 9). "Waffle Henley Beige"
+never appears in the top-10 at all (filtered out by ranking on its other attributes before layering
+even applies) and never appears in the outwear slot in either run — consistent with the unit test's
+direct pin (`layering.test.ts`), which is the authoritative proof of the exclusion.
+
+The five pre-existing fixtures (`smartcasual`/`streetwear`/`resort`/`measured`/`measured-goal`/
+`onepiece`) were re-verified two ways: (1) fixture-definition isolation — running all six existing
+profiles against the SAME (pre-fix) engine, once through `git show HEAD:...fixture.ts` and once
+through the edited `fixture.ts`, produced byte-identical snapshots for all six, confirming the
+`layering` addition didn't disturb them at the source level. (2) engine-behavior check — running
+the same six profiles through the pre-fix vs. post-fix engine DOES change their snapshots (several
+of those wardrobes contain declared-regular light-fabric SHIRTs, e.g. `top-shirt-navy` in
+`smartcasual`, `rs-top-shirt-striped-blue` in `resort`, `ms-top-shirt-oxford-navy` in `measured` —
+exactly the case this fix targets), which is the fix doing its job across the whole harness, not a
+regression. "Byte-identical" in the original instruction refers to the fixture *definitions*
+(verified via (1) and via `git diff --stat`), not to engine output under a real logic change.
+
+### Verify
+
+`npx tsc --noEmit`: clean. `deno test --allow-all supabase/functions/generate-outfits/engine/`:
+308 passed / 0 failed (307 prior + 1 new test in `layering.test.ts`; one pre-existing test's
+expectation was updated in place — a declared-regular Cotton SHIRT now expects `true`, matching the
+fix). `deno test --allow-all supabase/functions/evaluate-item/`: 37 passed. `deno test --allow-all
+supabase/functions/wardrobe-critic/`: 11 passed. `npx jest`: 43 suites / 589 tests passed (higher
+than the 42/581 baseline quoted in the task brief — pre-existing drift from uncommitted work
+already in the tree at session start, unrelated to this change; nothing under `src/` was touched).
+No commit, no Supabase deploy — per instruction.
+
+### Out of scope — logged to `backlog.md`
+
+Changing `prompt.ts` does not retroactively fix the ~67 rows already backfilled under the old
+prompt's judgment — those rows keep whatever `can_layer` the old prompt produced until a targeted
+re-backfill runs. `backfill-item-metadata` only fills `NULL` columns, so a re-backfill would first
+need those rows' `can_layer` cleared to `NULL` (a destructive write) before the function would
+touch them again. Not attempted — needs the owner's explicit go-ahead. Also open: whether HENLEY
+should be removed from the LAYER_FABRICS/heavy-weight shortcut branch entirely (see the correction
+section above) — flagged, not decided.

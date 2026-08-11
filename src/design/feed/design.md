@@ -437,10 +437,17 @@ the first layout pass, which falls back to `buildLayout`'s default) into
 
 All layout constants (gaps, column bounds, per-tier max size fractions) live
 in one exported `COLLAGE` object in `collageLayout.ts` rather than the old
-per-count zone tables. `collageLayout.ts` keeps its zero-React-Native-import
-constraint (type-only imports only) so it stays testable from plain
-ts-jest/node — see `__tests__/collageLayout.test.ts`'s `buildLayout — flow
-layout hierarchy` block for the anchor/secondary/accessory ordering and
+per-count zone tables. Tuned (2026-08-12, user feedback) to deliberately
+UNDER-fill the frame — generous gaps/margins, smaller max sizes per tier —
+rather than tile edge-to-edge: filling the frame read as crowded, against
+CLAUDE.md's "Breathe. Oversized padding, never crowded" design philosophy.
+Scale-to-fit still guards a heavy outfit from real overflow; the
+vertical-centering pass is what turns the resulting slack into breathing
+room above/below rather than an off-center composition. `collageLayout.ts`
+keeps its zero-React-Native-import constraint (type-only imports only) so
+it stays testable from plain ts-jest/node — see
+`__tests__/collageLayout.test.ts`'s `buildLayout — flow layout hierarchy`
+block for the anchor/secondary/accessory ordering and
 fit-to-frame assertions.
 
 ### Measured content-bounds crop for real wardrobe photos (2026-08-12)

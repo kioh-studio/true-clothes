@@ -58,13 +58,28 @@ filter → candidate generation → ranking → quality gate → top 10).
     `generateOnepieceCandidates`' output — isolating the one-piece path
     completely, so any outerwear-bearing outfit in a run against this
     fixture can only have come from there.
+  - `layering` (12 items, smartcasual style) — added 2026-08-12 to measure
+    the `deriveCanLayer` fix for regular-fit SHIRTs in light fabrics (see
+    `plan.md` 2026-08-12 entry). 2 base TEEs (light fabric, `layerRole:
+    'base'`); 2 SHIRTs with a DECLARED `fit: 'regular'` in a light fabric
+    (linen, cotton oxford) — expected to flip canLayer false→true under the
+    fix; 1 SHIRT with no stored `fit` and a name free of any fit keyword —
+    `deriveFitWithProvenance` guesses `TYPE_DEFAULT_FIT`'s 'regular' with
+    `real: false`, so it must stay canLayer:false before AND after (the
+    provenance gate's whole point); and 1 declared-regular HENLEY — proves
+    the fix's SHIRT-only scope (a henley's short neck placket can't open like
+    a shirt's full button front), so it must stay canLayer:false before AND
+    after too, even with a real fit signal. Bottoms/shoes/accessory items
+    reuse color/material/fit combos already proven to clear the smartcasual
+    style filter in `SMARTCASUAL_WARDROBE`, so the fixture spends its size on
+    the layering path, not re-proving the filter.
 
   Do not edit `smartcasual` / `streetwear` / `resort` casually — these are
   the baselines every snapshot is compared against; `measured` /
-  `measured-goal` / `onepiece` are additive and were added specifically so
-  those three never need to be touched to cover new ground. `WARDROBE` /
-  `PROFILE` remain exported as aliases for `PROFILES.smartcasual` for
-  backward compatibility.
+  `measured-goal` / `onepiece` / `layering` are additive and were added
+  specifically so those three never need to be touched to cover new ground.
+  `WARDROBE` / `PROFILE` remain exported as aliases for `PROFILES.smartcasual`
+  for backward compatibility.
 - `run.ts` — runs the pipeline against a given engine directory, writes a
   snapshot JSON, and prints a human-readable table.
 - `judge.ts` — blind A/B judge for two snapshots (Gemini, or a manual prompt
@@ -95,7 +110,7 @@ snapshot diff meaningful across engine changes.
 
 `--profile <name>` selects which fixture wardrobe + user profile to run
 (`smartcasual` | `streetwear` | `resort` | `measured` | `measured-goal` |
-`onepiece`, see `fixture.ts`). Defaults to `smartcasual` if omitted:
+`onepiece` | `layering`, see `fixture.ts`). Defaults to `smartcasual` if omitted:
 
 ```sh
 deno run --allow-read --allow-write scripts/eval-feed/run.ts \

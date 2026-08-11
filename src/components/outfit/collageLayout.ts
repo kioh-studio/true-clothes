@@ -136,19 +136,25 @@ export type PositionedEntry = Entry & { slot: Slot };
 
 // ─── Flow layout constants (all in "width units" — 1 wu = 1% of the items
 // area width) ─────────────────────────────────────────────────────────────
+// Sized to deliberately UNDER-fill the frame — luxury minimalism ("Breathe.
+// Oversized padding, never crowded", CLAUDE.md) means edge-to-edge items
+// read as crowded, not confident. Margins/gaps are generous on purpose;
+// scale-to-fit still guards against real overflow (a heavy outfit), and the
+// vertical-centering pass is what turns the resulting slack into breathing
+// room above/below rather than an off-center composition.
 export const COLLAGE = {
-  GAP: 3,                  // vertical gap between stacked secondaries (wu)
-  ACC_GAP: 3,               // gap between accessory rows and min horizontal gap (wu)
-  ACC_ROW_TOP_GAP: 4,       // gap between clothes bottom and first accessory row (wu)
-  ANCHOR_LEFT: 2,           // anchor column left edge (wu)
-  ANCHOR_MAX_W: 42,         // anchor max width (wu)
-  ANCHOR_MAX_H_FRAC: 0.68,  // anchor max height as fraction of H
-  SEC_LEFT: 46,             // secondary column left edge (wu)
-  SEC_MAX_W: 52,            // secondary column width (wu)
-  SEC_MAX_H_FRAC: 0.38,     // per-secondary max height as fraction of H
-  ACC_H_FRAC: 0.13,         // accessory height as fraction of H
-  ACC_MAX_W: 24,            // accessory max width (wu)
-  ACC_MARGIN: 2,            // left/right margin for accessory rows (wu)
+  GAP: 5,                   // vertical gap between stacked secondaries (wu)
+  ACC_GAP: 5,                // gap between accessory rows and min horizontal gap (wu)
+  ACC_ROW_TOP_GAP: 6,        // gap between clothes bottom and first accessory row (wu)
+  ANCHOR_LEFT: 5,            // anchor column left edge (wu)
+  ANCHOR_MAX_W: 36,          // anchor max width (wu)
+  ANCHOR_MAX_H_FRAC: 0.60,   // anchor max height as fraction of H
+  SEC_LEFT: 48,              // secondary column left edge (wu)
+  SEC_MAX_W: 47,             // secondary column width (wu) — right margin 5, matches ANCHOR_LEFT
+  SEC_MAX_H_FRAC: 0.33,      // per-secondary max height as fraction of H
+  ACC_H_FRAC: 0.12,          // accessory height as fraction of H
+  ACC_MAX_W: 22,             // accessory max width (wu)
+  ACC_MARGIN: 5,             // left/right margin for accessory rows (wu)
 } as const;
 
 // Internal mutable box used while building the layout, before the final

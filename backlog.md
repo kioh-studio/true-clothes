@@ -2022,6 +2022,16 @@ Các mục dưới đây là việc chưa làm/chưa hoàn hảo, cố ý dừng
   Scene7 `s7-img-facade/<CODE>_<COLOR>` (KHÔNG có hậu tố `_m`/`_d1`/`_d2`/`_d3` — các hậu tố đó
   là biến thể mặc trên người).
 
+- [ ] **DB live chưa có MỘT item nữ nào** (2026-08-12, đếm qua Management API). 70
+  `clothing_items` / 5 profiles: 35 món thuộc acc anh Khôi (`profiles.gender` = NULL),
+  35 món thuộc 2 acc demo `gender = 'MAN'`. Profile WOMAN duy nhất
+  (dieuthao408@gmail.com) có wardrobe RỖNG. Theo loại đồ cũng vậy: 0 món thuộc
+  DRESS/SKIRT/BLOUSE/CAMISOLE/JUMPSUIT/HEELS — toàn TEE/JACKET/POLO/CHINOS/JEANS.
+  11 món nữ ở mục AD chỉ nằm trong `src/data/index.ts` (mock local), CHƯA từng vào DB.
+  Hệ quả: mọi thứ chạy trên wardrobe thật của server (wardrobe-critic, generate-outfits,
+  backfill metadata) chưa bao giờ được test trên tủ đồ nữ. Cần seed một wardrobe nữ
+  thật trên DB trước khi tin kết quả 010-wardrobe-critic cho user nữ.
+
 ## AE. Backlog-clearing session — new follow-ups (2026-08-11)
 
 Việc mới phát sinh/còn treo từ đợt dọn backlog lớn hôm nay (nhiều agent song song). Các mục
@@ -2163,3 +2173,21 @@ những gì đợt này phát hiện thêm mà CHƯA làm.
   formula-pool, hoặc viết path onepiece-aware riêng cho từng formula) và là quyết định sản
   phẩm (formula nào thực sự hợp lý cho 1 món đồ liền thân) — chưa làm, chỉ ghi lại. Chi tiết:
   `plan.md` mục "One-piece candidate generation..." 2026-08-12, phần "Out of scope".
+- [ ] **Re-backfill `can_layer` cho ~67 item đã backfill bằng prompt cũ** (2026-08-12, phát
+  hiện khi sửa bias "regular-fit shirt không layer được" trong `deriveCanLayer` +
+  `prompt.ts`) — sửa prompt KHÔNG tự động cập nhật lại các row đã backfill trước đó; chúng
+  giữ nguyên `can_layer` do prompt cũ suy ra (thiên về fabric/fit, bỏ sót shirt mềm regular-
+  fit) cho tới khi có một lần re-backfill riêng. Vướng: `backfill-item-metadata` chỉ điền
+  cột đang `NULL`, nên phải xoá `can_layer` về `NULL` cho các row đó trước (ghi đè phá huỷ
+  dữ liệu hiện có) rồi mới backfill lại được — cần anh Khôi duyệt trước khi chạy vì đây là
+  destructive write trên DB live (không có dev/prod tách biệt). Chưa chạy gì, chỉ ghi lại.
+  Chi tiết: `plan.md` mục "`can_layer` bias fix..." 2026-08-12, phần "Out of scope".
+- [ ] **HENLEY có nên bỏ khỏi nhánh LAYER_FABRICS/heavy-weight shortcut trong
+  `deriveCanLayer` không?** (2026-08-12, phát hiện khi sửa bias can_layer, do coordinator
+  yêu cầu cân nhắc giữa chừng) — henley chỉ có placket ngắn 2–4 nút ở cổ, không phải nút cài
+  dọc hết thân như shirt, nên về lý thuyết KHÔNG thể mặc mở được dù vải flannel/wool/denim
+  hay dày (heavy). Hai shortcut này có từ trước phiên làm việc hôm nay (không phải bug mới),
+  nên chưa động vào — chỉ SHIRT-only cho nhánh `regular && fitReal` mới thêm hôm nay bị chặn
+  khỏi HENLEY. Nếu xoá 2 shortcut đó khỏi HENLEY sẽ đổi hành vi production thật (item henley
+  flannel/heavy nào đang `true` sẽ thành `false`) — cần anh Khôi quyết trước khi làm. Chi
+  tiết: `plan.md` mục "`can_layer` bias fix..." 2026-08-12, phần "HENLEY explicitly excluded".

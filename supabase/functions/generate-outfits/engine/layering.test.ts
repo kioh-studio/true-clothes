@@ -29,13 +29,41 @@ Deno.test('layerRole derives by type: base / mid / outer are all live', () => {
   assertEquals(toFitItem(row({ type: 'COAT' })).fabric.layerRole, 'outer');
 });
 
-Deno.test('canLayer: cardigan/vest always; flannel shirt yes; plain regular shirt no; tee never', () => {
+Deno.test('canLayer: cardigan/vest always; flannel shirt yes; declared-regular shirt yes; tee never', () => {
   assertEquals(toFitItem(row({ type: 'CARDIGAN' })).canLayer, true);
   assertEquals(toFitItem(row({ type: 'VEST' })).canLayer, true);
   assertEquals(toFitItem(row({ type: 'SHIRT', material: 'Flannel' })).canLayer, true);
-  assertEquals(toFitItem(row({ type: 'SHIRT', material: 'Cotton', fit: 'regular' })).canLayer, false);
+  // Declared regular fit (stored `fit` column) — a soft shirt in a light
+  // fabric worn open over a tee is standard; cut/closure decides, not weight.
+  assertEquals(toFitItem(row({ type: 'SHIRT', material: 'Cotton', fit: 'regular' })).canLayer, true);
   assertEquals(toFitItem(row({ type: 'SHIRT', material: 'Cotton', fit: 'oversized' })).canLayer, true);
   assertEquals(toFitItem(row({ type: 'TEE' })).canLayer, false);
+});
+
+Deno.test('canLayer: SHIRT regular only counts on a DECLARED fit, not a type-default guess', () => {
+  // No stored `fit`, no fit keyword in the name → deriveFitWithProvenance
+  // guesses TYPE_DEFAULT_FIT (regular for SHIRT) with real: false. Flipping
+  // regular→true unconditionally would make every unlabelled shirt
+  // layerable off that guess — must stay false.
+  assertEquals(toFitItem(row({ type: 'SHIRT', name: 'Shirt', material: 'Linen' })).canLayer, false);
+  assertEquals(toFitItem(row({ type: 'HENLEY', name: 'Henley', material: 'Cotton' })).canLayer, false);
+  // Stored `fit: 'regular'` (real signal) → true, even in a light fabric.
+  assertEquals(toFitItem(row({ type: 'SHIRT', material: 'Linen', fit: 'regular' })).canLayer, true);
+  // HENLEY is deliberately excluded from the regular-fit allowance (2026-08-12
+  // correction): a henley's short neck placket, unlike a shirt's full-length
+  // button front, physically cannot hang open over another top — declaring
+  // it 'regular' doesn't change that. Stays false even with a real fit signal.
+  assertEquals(toFitItem(row({ type: 'HENLEY', material: 'Cotton', fit: 'regular' })).canLayer, false);
+  // A fit keyword in the NAME is also a real signal per deriveFitWithProvenance.
+  assertEquals(toFitItem(row({ type: 'SHIRT', name: 'Regular Fit Oxford Shirt', material: 'Cotton' })).canLayer, true);
+  // Relaxed/oversized unchanged regardless of provenance.
+  assertEquals(toFitItem(row({ type: 'SHIRT', name: 'Oversized Oxford Shirt', material: 'Cotton' })).canLayer, true);
+  // Slim shirts never layer, declared or not.
+  assertEquals(toFitItem(row({ type: 'SHIRT', material: 'Linen', fit: 'slim' })).canLayer, false);
+  // LAYER_FABRICS and heavy-weight shortcuts still short-circuit before fit,
+  // even on a slim fit that the regular/declared path would otherwise reject.
+  assertEquals(toFitItem(row({ type: 'SHIRT', material: 'Denim', fit: 'slim' })).canLayer, true);
+  assertEquals(toFitItem(row({ type: 'SHIRT', material: 'Leather', fit: 'slim' })).canLayer, true);
 });
 
 Deno.test('canLayer: knits layer unless slim', () => {

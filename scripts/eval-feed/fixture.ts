@@ -993,6 +993,115 @@ const ONEPIECE_PROFILE = {
   bodyMeasurements: BODY_MEASUREMENTS,
 };
 
+// ─── Layering wardrobe (12 items) — added 2026-08-12 to measure the
+// deriveCanLayer fix (regular-fit SHIRT with a DECLARED fit now layers open,
+// same as relaxed/oversized already did; a guessed-regular SHIRT does not;
+// HENLEY is deliberately excluded from the allowance — see below).
+// Deliberately small and isolated: 2 base tops (light-fabric TEEs, one slim
+// one regular) that qualify as `layerRole: 'base'` layering targets, 2
+// declared-regular light-fabric SHIRTs (linen + oxford cotton — exactly the
+// "regular oxford/linen shirt worn open over a tee" case from the diagnosis)
+// that flip false→true under the fix, 1 SHIRT with NO stored `fit` and a
+// name free of any FIT_FROM_STRING keyword — deriveFitWithProvenance guesses
+// TYPE_DEFAULT_FIT's 'regular' for it with real:false, so it must stay false
+// before AND after the fix (the provenance gate's whole point) — and 1
+// declared-regular HENLEY, included as a negative case proving the SHIRT-
+// only scope of the fix: a henley's short neck placket (not a full-length
+// button front) means it can never be worn open regardless of a declared
+// 'regular' fit, so it must stay false before AND after too. Bottoms/
+// shoes/accessory items are colour/material/fit combos copy-pasted from
+// SMARTCASUAL_WARDROBE (already proven to clear the smartcasual style
+// filter — see filtering.ts palette/fabricsAllowed/formalityRange) so this
+// fixture isn't spending effort re-proving the style filter, only exercising
+// the dual-role layering path in generation.ts (a canLayer top may occupy
+// the outwear slot over a `layerRole: 'base'` top — see the comment there).
+// Do not fold this into SMARTCASUAL_WARDROBE — same file-level warning as
+// the other additive fixtures above: it's a fifth, additive fixture.
+
+const LAYERING_WARDROBE: ClothingItemRow[] = [
+  // ── Tops (6) — 2 base (light TEEs), 2 declared-regular light SHIRTs
+  // (expected false→true), 1 guessed-regular SHIRT (expected false, both
+  // before and after), 1 declared-regular HENLEY (expected false, both
+  // before and after — SHIRT-only scope, see block comment above) ──
+  {
+    id: 'lay-top-tee-white', type: 'TEE', name: 'Essential Tee White', color: 'White',
+    material: 'Cotton', fit: 'slim', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+  {
+    id: 'lay-top-tee-navy', type: 'TEE', name: 'Essential Tee Navy', color: 'Navy',
+    material: 'Cotton', fit: 'regular', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+  {
+    // Declared regular + Linen (light fabric, not in LAYER_FABRICS): the
+    // exact "regular linen shirt over a tee" case from the diagnosis.
+    id: 'lay-top-shirt-linen-declared', type: 'SHIRT', name: 'Linen Shirt White', color: 'White',
+    material: 'Linen', fit: 'regular', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+  {
+    // Declared regular + Cotton oxford (light fabric, not in LAYER_FABRICS).
+    id: 'lay-top-shirt-oxford-declared', type: 'SHIRT', name: 'Oxford Shirt Blue', color: 'Blue',
+    material: 'Cotton', fit: 'regular', pattern: 'solid', warmthSeason: 'midweight_transitional',
+  },
+  {
+    // GUESSED (no `fit` field) — name deliberately avoids every
+    // FIT_FROM_STRING keyword (slim/fitted/skinny/regular/standard/classic/
+    // relaxed/comfort/loose/wide/oversized/oversize/boxy) so
+    // deriveFitWithProvenance falls all the way to TYPE_DEFAULT_FIT's
+    // 'regular' guess with real:false. Must stay canLayer:false — the
+    // provenance gate exists specifically so a guessed-regular shirt does
+    // NOT flip true off a type-default guess.
+    id: 'lay-top-shirt-poplin-guessed', type: 'SHIRT', name: 'Poplin Shirt Charcoal', color: 'Charcoal',
+    material: 'Cotton', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    // Declared regular + Cotton, light fabric — same shape as the two SHIRT
+    // positives above, EXCEPT the type is HENLEY. Proves the fix's scope:
+    // a henley's short neck placket never opens the way a shirt's full
+    // button front does, so this must stay canLayer:false before AND after
+    // the fix even with a real (declared) fit signal.
+    id: 'lay-top-henley-declared-regular', type: 'HENLEY', name: 'Waffle Henley Beige', color: 'Beige',
+    material: 'Cotton', fit: 'regular', pattern: 'solid', warmthSeason: 'lightweight_summer',
+  },
+
+  // ── Bottoms (3) ──
+  {
+    id: 'lay-bottom-jeans-navy', type: 'JEANS', name: 'Straight Jeans Navy', color: 'Navy',
+    material: 'Denim', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'lay-bottom-chinos-khaki', type: 'CHINOS', name: 'Chino Pants Khaki', color: 'Khaki',
+    material: 'Cotton', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'lay-bottom-trousers-charcoal', type: 'TROUSERS', name: 'Wool Trousers Charcoal', color: 'Charcoal',
+    material: 'Wool', fit: 'regular', pattern: 'solid', warmthSeason: 'midweight_transitional',
+  },
+
+  // ── Shoes (2) ──
+  {
+    id: 'lay-shoes-sneakers-white', type: 'SNEAKERS', name: 'Minimal Sneakers White', color: 'White',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'lay-shoes-loafers-brown', type: 'LOAFERS', name: 'Penny Loafers Brown', color: 'Brown',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+
+  // ── Accessories (1) ──
+  {
+    id: 'lay-acc-belt-brown', type: 'BELT', name: 'Leather Belt Brown', color: 'Brown',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+];
+
+const LAYERING_PROFILE = {
+  selectedStyles: ['smartcasual'],
+  colorPreferences: ['navy', 'white', 'khaki', 'charcoal'],
+  colorSeason: 'autumn',
+  weatherSeason: 'summer',
+  bodyMeasurements: BODY_MEASUREMENTS,
+};
+
 // ─── Named profiles ────────────────────────────────────────────────────────────
 
 export const PROFILES = {
@@ -1002,6 +1111,7 @@ export const PROFILES = {
   measured: { wardrobe: MEASURED_WARDROBE, profile: MEASURED_PROFILE },
   'measured-goal': { wardrobe: MEASURED_WARDROBE, profile: MEASURED_GOAL_PROFILE },
   onepiece: { wardrobe: ONEPIECE_WARDROBE, profile: ONEPIECE_PROFILE },
+  layering: { wardrobe: LAYERING_WARDROBE, profile: LAYERING_PROFILE },
 } as const;
 
 export type ProfileName = keyof typeof PROFILES;

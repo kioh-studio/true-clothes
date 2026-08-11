@@ -295,13 +295,28 @@ function deriveCanLayer(
   fabricName: string | undefined,
   fabricWeight: FabricProfile['fabricWeight'],
   fit: ItemFit,
+  fitReal: boolean,
 ): boolean {
   const t = type.toUpperCase();
   if (t === 'CARDIGAN' || t === 'VEST') return true;               // born to be worn open
   if (t === 'SHIRT' || t === 'HENLEY') {
     if (fabricName && LAYER_FABRICS.has(fabricName)) return true;  // shacket/overshirt fabrics
     if (fabricWeight === 'heavy') return true;
-    return fit === 'relaxed' || fit === 'oversized';               // overshirt-read silhouette
+    if (fit === 'relaxed' || fit === 'oversized') return true;     // overshirt-read silhouette
+    // Regular-fit-worn-open is a SHIRT-ONLY allowance (2026-08-12 correction
+    // — do not fold HENLEY back into this branch). A shirt has a full-length
+    // button front and can hang open over another top regardless of how
+    // fitted its cut is; a henley has only a short 2–4 button PLACKET at the
+    // neck, not a full opening — it physically cannot be worn open no matter
+    // how loose, heavy, or overshirt-fabric'd it is. TYPE_DEFAULT_FIT also
+    // guesses SHIRT as 'regular' for any item with no stored fit and no fit
+    // keyword in its name, so flipping regular→true unconditionally would
+    // make every *unlabelled* shirt layerable off a guess — gate on
+    // provenance: only a DECLARED regular (stored `fit` column or a fit
+    // keyword in the name) counts; a guessed-regular keeps the pre-fix
+    // behaviour (false).
+    if (t !== 'SHIRT') return false;
+    return fit === 'regular' && fitReal;
   }
   if (t === 'SWEATER' || t === 'KNIT') return fit !== 'slim';      // knit-over-tee/oxford
   return false;
@@ -728,7 +743,7 @@ export function toFitItem(item: ClothingItemRow): FitItem {
     // fail-open, featuresPasses only rejects on a literal `true`.
     fabric: { ...fabric, pattern, layerRole, distressed: item.distressed ?? undefined },
     // Stored can_layer (AI-extracted or user-set) wins over the rule derivation.
-    canLayer: item.canLayer ?? deriveCanLayer(item.type, fabricName, fabric.fabricWeight, fit),
+    canLayer: item.canLayer ?? deriveCanLayer(item.type, fabricName, fabric.fabricWeight, fit, fitReal),
     garmentMeasurements: parseMeasurements(item.measurements, category),
     styleTags: styleTagsOf(item.type, item.color, item.material),
     fit,

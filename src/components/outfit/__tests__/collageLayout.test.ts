@@ -1,7 +1,7 @@
 // Unit tests for collageLayout.ts — pure layering/positioning math extracted
 // from Collage.tsx so it can be tested without a React Native runtime.
 
-import { resolveRoles, buildLayout, type Entry } from '../collageLayout';
+import { resolveRoles, buildLayout, COLLAGE, type Entry } from '../collageLayout';
 
 function entry(id: string, type: string): Entry {
   return {
@@ -221,8 +221,8 @@ describe('buildLayout — flow layout hierarchy', () => {
     const groupRight = Math.max(sneakersSlot.left + sneakersSlot.w, bagSlot.left + bagSlot.w);
     const groupCenter = (groupLeft + groupRight) / 2;
     expect(Math.abs(groupCenter - anchorCenter)).toBeLessThanOrEqual(0.1);
-    // ACC_GAP = 3 (wu) — second accessory starts at first's right edge + gap.
-    expect(Math.abs(bagSlot.left - (sneakersSlot.left + sneakersSlot.w + 3))).toBeLessThanOrEqual(0.01);
+    // Second accessory starts at first's right edge + ACC_GAP.
+    expect(Math.abs(bagSlot.left - (sneakersSlot.left + sneakersSlot.w + COLLAGE.ACC_GAP))).toBeLessThanOrEqual(0.01);
   });
 
   it('anchor centers horizontally when there are no secondaries', () => {
