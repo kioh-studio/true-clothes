@@ -443,7 +443,23 @@ rather than tile edge-to-edge: filling the frame read as crowded, against
 CLAUDE.md's "Breathe. Oversized padding, never crowded" design philosophy.
 Scale-to-fit still guards a heavy outfit from real overflow; the
 vertical-centering pass is what turns the resulting slack into breathing
-room above/below rather than an off-center composition. `collageLayout.ts`
+room above/below rather than an off-center composition.
+
+Retuned a second time (2026-08-12, same user feedback repeated — items still
+read too large and too tightly packed to feel refined). Two moves applied
+together, since either alone misses: every per-tier size cap dropped ~15–17%
+(anchor 36→30 wu and 0.60→0.52 H, secondaries 0.33→0.28 H, accessories
+0.12→0.10 H and 22→18 wu max width), and every gap grew ~40% (`GAP`/
+`ACC_GAP` 5→7, `ACC_ROW_TOP_GAP` 6→9). Shrinking sizes alone would only push
+slack out to the frame edge, not open space *between* the pieces — which is
+what "sát nhau quá" was about. Side margins moved 5→9 wu in lockstep on the
+anchor column (`ANCHOR_LEFT`), the secondary column (`SEC_LEFT`/`SEC_MAX_W`
+kept summing to 100 − margin) and the accessory rows (`ACC_MARGIN`), so the
+composition stays symmetrically inset rather than drifting left as items
+shrink. Net effect on a typical jeans + jacket + tee + sneakers outfit: the
+composition occupies ~68% of the items-area height (was ~78%), so the
+vertical-centering pass leaves roughly half again as much air above and
+below. `collageLayout.ts`
 keeps its zero-React-Native-import constraint (type-only imports only) so
 it stays testable from plain ts-jest/node — see
 `__tests__/collageLayout.test.ts`'s `buildLayout — flow layout hierarchy`

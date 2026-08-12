@@ -101,6 +101,29 @@ const ASSET = {
   'trousers-wide-black':  require('../../assets/items/trousers-wide-black.png')  as number,
   // Fetched item — J.Crew Margeaux Blazer (2026-08-11) — waist-defined blazer for outfitWaistDefinition
   'blazer-tailored-black': require('../../assets/items/blazer-tailored-black.png') as number,
+  // Fetched items — womenswear round 2 (2026-08-12) — shoes / outerwear / bag
+  'flats-ballet-black':        require('../../assets/items/flats-ballet-black.png')        as number,
+  'sneakers-white-women':      require('../../assets/items/sneakers-white-women.png')      as number,
+  'bag-tote-black-women':      require('../../assets/items/bag-tote-black-women.png')      as number,
+  'jacket-light-black-women':  require('../../assets/items/jacket-light-black-women.png')  as number,
+  'coat-trench-beige':         require('../../assets/items/coat-trench-beige.png')         as number,
+  'coat-wool-black':           require('../../assets/items/coat-wool-black.png')            as number,
+  // Fetched items — womenswear round 3 (2026-08-12) — base tops / knits / jeans / footwear / belt
+  'tee-white-women':           require('../../assets/items/tee-white-women.png')            as number,
+  'tee-black-women':           require('../../assets/items/tee-black-women.png')            as number,
+  'shirt-white-women':         require('../../assets/items/shirt-white-women.png')          as number,
+  'knit-black-women':          require('../../assets/items/knit-black-women.png')           as number,
+  'sweater-grey-women':        require('../../assets/items/sweater-grey-women.png')         as number,
+  'jeans-indigo-women':        require('../../assets/items/jeans-indigo-women.png')         as number,
+  'jeans-black-women':         require('../../assets/items/jeans-black-women.png')          as number,
+  'boots-black-women':         require('../../assets/items/boots-black-women.png')          as number,
+  'belt-black-women':          require('../../assets/items/belt-black-women.png')           as number,
+  'sandals-black-women':       require('../../assets/items/sandals-black-women.png')        as number,
+  'slides-black-women':        require('../../assets/items/slides-black-women.png')         as number,
+  'sneakers-black-women':      require('../../assets/items/sneakers-black-women.png')       as number,
+  'boots-knee-black-women':    require('../../assets/items/boots-knee-black-women.png')     as number,
+  'mules-black-women':         require('../../assets/items/mules-black-women.png')          as number,
+  'loafers-black-women':       require('../../assets/items/loafers-black-women.png')        as number,
 } satisfies Record<string, number>;
 
 // Measurement helpers — keeps item definitions concise
@@ -179,6 +202,35 @@ export const ITEMS: ClothingItem[] = [
   { id: 'heels_nude',        type: 'HEELS',    name: 'Emmy Pointed Kitten Heels', color: 'Nude',   material: 'Leather',   png: ASSET['heels-nude'],          tone: 2, wornCount: 0, addedDate: 'Aug 2026', brand: 'Charles & Keith' },
   { id: 'camisole_blush',    type: 'CAMISOLE', name: 'AIRism Bra Camisole',       color: 'Blush',  material: 'Polyester', png: ASSET['camisole-blush'],      tone: 1, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
   { id: 'trousers_wide_blk', type: 'TROUSERS', name: 'Wide Chino Pants',          color: 'Black',  material: 'Cotton',    png: ASSET['trousers-wide-black'], tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+
+  // ── Womenswear round 2 (2026-08-12) — shoes / outerwear / bag ──────────────
+  // No confirmed price/size/measurements from source product pages — omitted
+  // rather than guessed (see CLAUDE.md field-fill policy).
+  { id: 'flats_ballet_blk',   type: 'FLATS',    name: 'Leather Ballet Flats',      color: 'Black',    material: 'Leather', png: ASSET['flats-ballet-black'],       tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Mango' },
+  { id: 'sneakers_white_w',   type: 'SNEAKERS', name: 'Leather Sneakers',          color: 'White',    material: 'Leather', png: ASSET['sneakers-white-women'],     tone: 1, wornCount: 0, addedDate: 'Aug 2026', brand: 'Zara' },
+  { id: 'bag_tote_blk_w',     type: 'BAG',      name: 'Leather Tote Bag',          color: 'Black',    material: 'Leather', png: ASSET['bag-tote-black-women'],     tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Charles & Keith' },
+  { id: 'parka_light_blk',    type: 'PARKA',    name: 'Pocketable Parka',          color: 'Charcoal', material: 'Nylon',   png: ASSET['jacket-light-black-women'], tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'coat_trench_beige',  type: 'COAT',     name: 'Trench Coat',               color: 'Beige',    material: 'Cotton',  png: ASSET['coat-trench-beige'],        tone: 1, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'coat_wool_blk',      type: 'COAT',     name: 'Wool-Blend Coat',           color: 'Black',    material: 'Wool',    png: ASSET['coat-wool-black'],          tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+
+  // ── Womenswear round 3 (2026-08-12) — base tops / knits / jeans / footwear / belt ──
+  // No confirmed price/size/measurements from source product pages — omitted
+  // rather than guessed (see CLAUDE.md field-fill policy).
+  { id: 'tee_white_w',       type: 'TEE',      name: 'Crew Neck T-Shirt',                    color: 'White',  material: 'Cotton',  png: ASSET['tee-white-women'],         tone: 0, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'tee_black_w',       type: 'TEE',      name: 'Crew Neck T-Shirt',                    color: 'Black',  material: 'Cotton',  png: ASSET['tee-black-women'],         tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'shirt_white_w',     type: 'SHIRT',    name: 'Cotton Oxford Shirt',                  color: 'White',  material: 'Cotton',  png: ASSET['shirt-white-women'],       tone: 0, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'knit_black_w',      type: 'KNIT',     name: 'Extra Fine Merino Crew Neck Sweater',  color: 'Black',  material: 'Wool',    png: ASSET['knit-black-women'],        tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'knit_grey_w',       type: 'KNIT',     name: 'Extra Fine Merino Crew Neck Sweater',  color: 'Grey',   material: 'Wool',    png: ASSET['sweater-grey-women'],      tone: 1, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'jeans_indigo_w',    type: 'JEANS',    name: 'Stretch Slim Straight Jeans',          color: 'Indigo', material: 'Denim',   png: ASSET['jeans-indigo-women'],      tone: 2, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'jeans_black_w',     type: 'JEANS',    name: 'Straight Jeans',                       color: 'Black',  material: 'Denim',   png: ASSET['jeans-black-women'],       tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'boots_ankle_blk_w', type: 'BOOTS',    name: 'Chelsea Boots',                        color: 'Black',  material: 'Leather', png: ASSET['boots-black-women'],       tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'belt_black_w',      type: 'BELT',     name: 'Leather Belt',                         color: 'Black',  material: 'Leather', png: ASSET['belt-black-women'],        tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Uniqlo' },
+  { id: 'sandals_black_w',   type: 'SANDALS',  name: 'Fianna Strappy Slide Sandals',         color: 'Black',  material: 'Leather', png: ASSET['sandals-black-women'],     tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Charles & Keith' },
+  { id: 'slides_black_w',    type: 'SLIDES',   name: 'Woven Open-Toe Slides',                color: 'Black',                      png: ASSET['slides-black-women'],      tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Charles & Keith' },
+  { id: 'sneakers_black_w',  type: 'SNEAKERS', name: 'Jace Leather & Suede Sneakers',        color: 'Black',  material: 'Leather', png: ASSET['sneakers-black-women'],    tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Charles & Keith' },
+  { id: 'boots_knee_blk_w',  type: 'BOOTS',    name: 'Louise Block-Heel Knee-High Boots',    color: 'Black',  material: 'Leather', png: ASSET['boots-knee-black-women'],  tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Charles & Keith' },
+  { id: 'mules_black_w',     type: 'MULES',    name: 'The Day Mule',                         color: 'Black',  material: 'Leather', png: ASSET['mules-black-women'],       tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Everlane' },
+  { id: 'loafers_black_w',   type: 'LOAFERS',  name: 'Arven Penny Loafers',                  color: 'Black',  material: 'Leather', png: ASSET['loafers-black-women'],     tone: 3, wornCount: 0, addedDate: 'Aug 2026', brand: 'Charles & Keith' },
 
   // ── Waist-defined blazer (2026-08-11) — J.Crew ─────────────────────────────
   // Unlike blazer_grey_w (boxy, fit left blank), this one carries an explicit

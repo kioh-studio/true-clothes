@@ -7,6 +7,84 @@
 > cùng phiên — để treo dù chỉ vài tuần là bắt người sau tốn công điều tra lại, hoặc tệ hơn là
 > đi sửa một chỗ đã đúng.
 
+## AH. Engine không có khái niệm "tổng độ ấm" của outfit (2026-08-12)
+
+> ⚠ **ĐÃ THỬ SỬA VÀ ĐÃ REVERT trong cùng phiên 2026-08-12.** Bản sửa deploy lên
+> production (fn version 64), rồi A/B với baseline mới lộ ra là nó giết nhầm một
+> loạt outfit chuẩn → revert (`git checkout HEAD -- .../engine/`) + deploy lại
+> (version 65). Hai mục 🔴/🟠 dưới đây vì vậy **MỞ LẠI**, KHÔNG phải đã xong.
+> Chi tiết A/B + phân tích vì sao sai: `plan.md`, mục cùng tên, block ⚠ đầu mục.
+> Patch còn giữ ở scratchpad phiên (`engine-layering.patch`, 451 dòng) — KHÔNG
+> nằm trong repo, nếu cần làm lại thì đọc post-mortem trước khi apply.
+>
+> **Hai bài học bắt buộc cho lần làm lại:**
+> 1. Tiêu chí đúng của Part B là **base CÓ CỔ/nẹp khuy** (POLO, sơ mi cài khuy mặc
+>    trong cùng), KHÔNG phải "tay ngắn". Tay ngắn vơ nhầm cả `TEE` — mà tee dưới
+>    sweater dưới jacket là stack kinh điển nhất, đúng ví dụ mà comment slot `mid`
+>    trong `generation.ts` viện dẫn.
+> 2. Part A không được tính lớp **outer** ngang giá lớp trong. Sweater len + coat len
+>    = 3+3 = 6 > ngân sách fall 5, nhưng đó chỉ là 2 lớp và là outfit mùa thu chuẩn.
+>    Nên đếm SỐ LỚP theo trần mỗi mùa, hoặc miễn/giảm giá lớp ngoài cùng.
+> 3. Test unit xanh hết (319 pass) mà vẫn lọt sạch mấy regression này — vì chúng chỉ
+>    assert luật mới bắn trúng đích, không assert outfit chuẩn giữ nguyên điểm. Đổi
+>    RANKING thì bài test phải là **A/B sweep outfit known-good với engine trước khi
+>    sửa, chạy TRƯỚC khi deploy.**
+
+- [ ] 🔴 **`scoreSeasonMatch` tính TRUNG BÌNH theo món ⇒ mù hoàn toàn với số lớp mặc**
+  (2026-08-12) — `engine/scoring.ts:1020`: `seasons.reduce((s, x) => s + SEASON_COMPAT[
+  targetSeason][x], 0) / seasons.length`. Là trung bình, không phải tổng. Hệ quả: một look
+  3 lớp thân trên (base + mid + outer) và một look 2 lớp cùng chất vải cho ĐIỂM SEASON Y
+  HỆT NHAU. FIXED 2026-08-12 (đã chọn Option A ở trên, kết hợp thêm hard skip): thêm
+  `torsoInsulation`/`LAYER_INSULATION`/`SEASON_INSULATION_BUDGET`/`scoreLayerLoad` trong
+  `engine/scoring.ts` — cộng dồn insulation theo `fabricWeight` trên các lớp thân trên
+  (`top`/`outwear`/`onepiece`), so với ngân sách theo `Season` (engine không có input
+  Celsius, xem `plan.md` 2026-08-12). Wire multiplicative penalty trên `totalScore` trong
+  `ranking.ts` (không phải một scoring dimension mới — trọng số `season` quá nhẹ để tự
+  đẩy ranking) + hard skip khi lệch ngân sách ≥3. Cả hai ngưỡng đều CALIBRATION-PENDING.
+  Test: `mid-layer.test.ts` (3 lớp bị loại ở mùa hè, được phép ở mùa đông;
+  `scoreLayerLoad` no-op khi không có `targetSeason`).
+- [ ] 🟠 **Base có cổ/nẹp khuy không được nằm dưới cả mid + outer** (2026-08-12, sửa lại
+  tiêu chí sau khi bản "tay ngắn/tay dài" bị revert — xem block ⚠ đầu section) —
+  `POLO: 'base'` trong `LAYER_ROLE_BY_TYPE` (`enrichment.ts:284`), chung rổ với
+  TEE/SHIRT/HENLEY/BLOUSE. Grep `sleeve` toàn engine: chỉ xuất hiện như KEY ĐO
+  (`sleeves` cm trong FIT_THRESHOLDS/KEY_EASE_WEIGHT của fit scoring), KHÔNG có attribute
+  độ dài tay áo. FIXED 2026-08-12: KHÔNG cần cột DB/ingest mới — suy luận
+  `FitItem.sleeveLength` ('short'|'long') trong `engine/enrichment.ts` bằng keyword tên
+  món (ưu tiên) rồi fallback `TYPE_DEFAULT_SLEEVE` theo `typeName`, cùng lối rule-derived
+  như `inferPattern`/`deriveFabricName`. Gate: base ngắn tay không được nằm dưới ĐỒNG THỜI
+  cả mid và outer thật (dưới một trong hai vẫn OK) — áp cả ở nơi sinh (`generation.ts`, 2
+  builder mid) lẫn choke point (`ranking.ts:310`, cùng chỗ với rule mid-nặng). Undefined
+  fail-open. Test: `layering.test.ts` (name keyword thắng type default) +
+  `mid-layer.test.ts` (generation + ranking choke point).
+- [ ] 🟡 **Card không thể hiện thứ tự lớp mặc** (2026-08-12) — collage + meta strip bày 5
+  món ngang hàng, user không biết polo mặc TRONG sweater mặc TRONG overshirt. Với outfit
+  1 lớp thì không sao, nhưng từ khi slot `mid` tồn tại (2026-08-10) thì một look có thể có
+  3 lớp thân trên. Collage đã biết z-order (OUTER→MID→INNER trong `collageLayout.ts`),
+  chỉ là chưa nói ra thành chữ. UI work, ngoài phạm vi fix engine 2026-08-12 ở trên.
+
+## AG. Phát hiện từ screenshot feed 2026-08-12
+
+- [ ] 🟡 **Collage lệch trái, trống hẳn góc dưới-phải** (2026-08-12) — sau khi thu nhỏ
+  scale (`COLLAGE` trong `src/components/outfit/collageLayout.ts`), bố cục đọc thành hình
+  chữ L: anchor cột trái (9–39 wu) + cột phụ bên phải (~56–82 wu) + hàng phụ kiện dồn hết
+  về trái vì `centerX = anchorBox.left + anchorBox.w / 2` — mọi hàng accessory căn theo
+  centerline của anchor. Với anchor ở cột trái thì cả 3 tầng đều nặng bên trái, để lại một
+  mảng trống lớn ở góc dưới-phải và một "rãnh" dọc ~17 wu giữa hai cột. Chưa sửa: đây là
+  lựa chọn cố ý trước đó (một phụ kiện lẻ căn giữa khung đọc như bị rời khỏi anchor — xem
+  comment ~dòng 268), nên đổi sang căn giữa toàn khung / căn giữa bounding-box của cả
+  composition là một trade-off thẩm mỹ, phải hỏi anh Khôi trước.
+- [ ] 🟢 **Header nhiệt độ hiển thị "–" trong khi card ghi "15–22°C"** (2026-08-12) —
+  `app/(tabs)/index.tsx:215` fallback về `t('tabs_home_weatherLabel')` = `"–"` khi
+  `weatherContext` null (weather chưa load / bị từ chối quyền vị trí), còn `outfit.weather`
+  trên meta line là dải nhiệt độ tĩnh của outfit chứ không phải thời tiết thật. Hai con số
+  cạnh nhau mâu thuẫn về mặt đọc. Cần quyết: ẩn hẳn cụm nhiệt độ header khi chưa có dữ
+  liệu, hay retry/hiện lý do.
+- [ ] 🟢 **Chấm xanh lạ giữa vùng trống cột phải** (2026-08-12) — thấy trong screenshot ở
+  ~66% chiều ngang, ngay dưới polo. Không truy được nguồn trong code: card chỉ render 5
+  slot collage (đúng 5 món, đều hiện) + rail action, `buildLayout` lọc `hasImage`, và
+  không có element dot nào trong `app/(tabs)/`. Màu xanh cũng nằm ngoài palette
+  near-monochrome. Nghi overlay hệ thống / artifact screenshot — cần chụp lại để xác nhận.
+
 ## AB. Phát hiện phiên 2026-08-10 (review toàn app + khảo sát engine)
 
 - [x] 🔴 **`app/build.tsx` "Build an Outfit" chạy hoàn toàn trên MOCK** (2026-08-10) —
@@ -2237,10 +2315,99 @@ items below — stopped rather than improvised, per this task's ground rules.
   account is `premium` as requested — and the demo password ships in the public JS bundle, so
   anyone with the app can sign in as demo-woman and permanently delete it. Fix option: extend the
   guard to also protect emails in `DEMO_ACCOUNTS`. Needs a redeploy — not done here.
-- [ ] **All 11 imported womenswear items have NULL `m_*` measurements** (7 from phase 1 + the 4
-  closed above), so the fit engine scores them neutrally; the wardrobe-critic results for this
-  account exercise style/colour but not fit. Would need real size-chart data per SKU (same root
-  cause the source product pages never exposed price/size — see backlog §AD).
+- [ ] **All 32 imported womenswear items have NULL `m_*` measurements and NULL `size`** (7 from
+  phase 1 + 4 from phase 2 + 6 from phase 3 + 15 from phase 4, 2026-08-12), so the fit engine
+  scores them neutrally;
+  the wardrobe-critic results for this account exercise style/colour but not fit. Compare the man
+  demo, which carries `size` on 32/32 and `m_*` on 30/32. Would need real size-chart data per SKU
+  (same root cause the source product pages never exposed price/size — see backlog §AD).
+- [ ] 🔴 **Cardigan renders with its bottom half missing in the feed collage** (2026-08-12, user
+  screenshot of `cardigan_cream` in demo-woman's feed). NOT yet root-caused. Ruled out with
+  evidence, so don't re-investigate these:
+  - The asset is fine — `assets/items/cardigan-cream.png` (1200×1600) contains the whole garment.
+  - The Storage object is fine — 551270 bytes, byte-identical to the local PNG (and all 17 of that
+    wardrobe's objects match their local assets exactly).
+  - `contentBounds.measureContentBounds` does NOT truncate it. Ported verbatim into Node and run
+    over the real bytes through a faithful repro of `contentBoundsUri.ts`'s resize→flatten→JPEG
+    pipeline: measured bottom edge 0.8082 vs true alpha bbox bottom 0.7806 — *generous* by ~2.8%,
+    i.e. the deliberate `PAD`. Same result flattening alpha to white and to black, and with a naive
+    unpremultiplied downscale. Same test over `blouse-white`, `camisole-blush`,
+    `dress-floral-midi`, `skirt-pleated-beige`, `coat-trench-beige`, `sneakers-white-women` — all
+    generous by 1.7–2.9%, none truncated.
+  - `ASPECT` missing a `CARDIGAN` entry (also missing `SWEATER`/`HOODIE`/`VEST`/`PARKA`) cannot
+    crop: `Collage.tsx:34-48` only clips in the `measure` branch, and when an item is measured
+    `item.aspect` is used directly so `ASPECT` is never consulted; unmeasured items render
+    `resizeMode="contain"`, which letterboxes rather than crops. Worth filling in anyway for
+    correct slot sizing, but it is not this bug.
+  - The uncommitted 2026-08-12 `COLLAGE` retune only changes size caps/gaps; `fitTopLeft` and the
+    scale-to-fit pass both preserve aspect, so they can reposition/shrink boxes but never crop.
+  - `Collage.tsx`'s crop maths were re-derived by hand and are correct
+    (`left = -(rect.x/rect.w)*100%` with `width = (1/rect.w)*100%` maps the rect's left edge to 0).
+  - `useItemContentMeasure.ts` has no consumers outside its own feature, so the collage is the only
+    surface that crops — the screenshot must be the feed.
+  Leading remaining hypothesis: a **truncated on-device cache file**. `ensureCloudCached`
+  (`src/services/itemPhotoService.ts:129-138`) returns a cached file on `info.exists` alone — no
+  size check, no checksum, no decode probe, no retry — so a `downloadAsync` interrupted partway
+  (backgrounding, low storage, dropped connection) leaves a partial PNG that is served forever
+  after. PNG being scanline-encoded top-to-bottom, a truncated file renders exactly like this:
+  top intact, bottom gone. NEXT STEP (needs a device — anh Khôi has to launch the emulator):
+  compare the cached file's byte size on the repro device against 551270. If it is short, that
+  confirms it. Fix would be to validate size/decode before trusting the cache and re-download on
+  failure, plus a per-itemId in-flight promise map to stop concurrent remounts racing (the pattern
+  in `contentBoundsUri.ts:35` already does this), plus a one-time cache sweep for devices already
+  holding a corrupted file.
+- [ ] **`TYPE_OPTIONS` offers 10 garment types the DB will reject** (2026-08-12, found while adding
+  `FLATS`; 8 of 10 now closed as of 2026-08-13). `src/features/wardrobe-add/vocab.ts:7` lets the
+  user pick any of 55 types, but `clothing_items.type` has an FK to `garment_types(type_key)` and
+  the live table was missing: `BODYSUIT, CAPE, CORSET, CROP, FLATS, GLOVES, KIMONO, TIGHTS, TUNIC,
+  WEDGES`. A user who adds a croptop/bodysuit/kimono through the picker hit a raw FK violation.
+  `FLATS` was closed 2026-08-12 (migration `20260812000002_garment_type_flats.sql`, needed for the
+  demo-woman import); `CROP, BODYSUIT, TUNIC, CORSET, CAPE, KIMONO, WEDGES` were closed 2026-08-13
+  (migration `20260813000001_garment_types_picker_backfill.sql`) by mechanically mirroring
+  `enrichment.ts`'s `category`/`TYPE_FORMALITY`/`STYLE_AFFINITIES` values into `garment_types` rows,
+  the same way the `FLATS` migration did. `garment_types` is now 61 rows (was 53 before either
+  migration). Only `GLOVES`/`TIGHTS` remain open — the engine has no formality, style-affinity, or
+  layer-role metadata for either (`CATEGORY_MAP` covers them, defaulting both to `accessory`, but
+  that's it), so closing them needs a real product decision, not a mechanical copy.
+  Converse drift, lower severity: `garment_types` has 8 types the picker can't reach —
+  `CARGO, DERBY, GILET, JOGGERS, SLIDES, SOCKS, TANK, WINDBREAKER`.
+- [ ] **7 of those 8 DB-only types are silently misclassified as `accessory` by the engine**
+  (2026-08-13, found while auditing where the type vocabulary comes from). `enrichment.ts:14`
+  `CATEGORY_MAP` covers the 55 picker types, and `categoryOf()` (line 27) ends in
+  `?? 'accessory'` — so an item whose `type` is `TANK` (should be `top`), `CARGO`/`JOGGERS`
+  (`bottom`), `DERBY`/`SLIDES` (`shoes`), or `GILET`/`WINDBREAKER` (`outwear`) enters
+  `toFitItem()` (line 704) as an accessory: wrong slot, wrong layer role, wrong scoring.
+  `SOCKS` is the only one the fallback gets right. Not reachable from the picker today, but
+  reachable from shop/catalog rows and any future importer. Fix is to add the 8 keys to
+  `CATEGORY_MAP` (values are already in `garment_types.category` on live), or better, make
+  the fallback loud instead of silent.
+- [ ] **`garment_types.category` disagrees with the engine on the 4 one-piece types**
+  (2026-08-13). Live has `DRESS, GOWN, JUMPSUIT, OVERALLS` under `category='bottom'`;
+  `enrichment.ts:20` calls them `onepiece`. No runtime effect while the engine keeps its own
+  hardcoded map, but it becomes a real bug the moment the engine reads categories from the DB
+  (the migration `docs/engine-migration-plan.md` plans). Decide which side is canonical before
+  that move.
+- [x] **demo-woman's wardrobe was category-thin, not just measurement-thin.** Closed 2026-08-12
+  (phase 3): 1 footwear item total (`heels_nude`, formality 4.5), 0 bag, and outerwear present but
+  only in one register — the 2 BLAZERs ARE `category='outwear'`/`layer_roles={outer}` (an earlier
+  version of this note wrongly said "0 outerwear" because the audit query filtered
+  `type in ('JACKET','COAT')` and skipped BLAZER), but both at `base_formality 4.5` /
+  `midweight_transitional`. Fetched and imported 6 more: ballet flats (`FLATS`, 3.0), white
+  sneakers (`SNEAKERS`, 1.5), black tote (`BAG`), Uniqlo Pocketable Parka (`PARKA`, 2.0 — casual
+  shell), beige trench (`COAT`), black wool coat (`COAT` — warm shell). Wardrobe 11 → 17, storage
+  17 objects byte-matched. Required closing the `FLATS` `garment_types` gap (see the entry above).
+  Detail in `plan.md` "Demo woman account — phase 3" (2026-08-12).
+- [ ] **The 21 phase-3 + phase-4 items have NULL AI-extracted metadata** (2026-08-12; 6 from
+  phase 3, 15 from phase 4, plus `slides_black_w.material` which the product page never stated): `warmth_season`,
+  `can_layer`, `print_scale`, `drape`, `visual_interest`, `graphics`, `distressed` were left NULL
+  on purpose — those are Gemini-extracted-from-photo fields owned by `backfill-item-metadata`,
+  whose row selector is `.or('fit.is.null,…,visual_interest.is.null')`, so NULL is the correct
+  "not yet extracted" state and these rows self-select on the next run. Hand-filling them would
+  have excluded them permanently. The run was NOT performed: the endpoint requires header
+  `x-admin-secret == BACKFILL_ADMIN_SECRET` and `supabase secrets list` returns only digests, not
+  the plaintext. Needs anh Khôi to supply the secret (or rotate it via `supabase secrets set`,
+  which overwrites production config). Until then the fit engine treats these 6 with
+  fabric-derived fallbacks rather than photo-derived values.
 - [ ] **`profiles.email` for the existing (man) demo user is stale** — it reads `demo@mily.app`
   while `auth.users.email` is `demo@mien.app` (left over from the app rename). Cosmetic drift,
   not fixed here.
@@ -2258,3 +2425,67 @@ items below — stopped rather than improvised, per this task's ground rules.
   (`Acetate`, `Plated`, `Steel`) are likewise absent from all three, so this isn't obviously wrong,
   just undecided. If rayon should read as "elevated"/get a style boost/get a `FabricName`, needs a
   deliberate call.
+
+## AG. Cardigan trong suốt làm base layer trần — gate `opacity` (2026-08-13)
+
+Fix chi tiết ở `plan.md` cùng ngày ("Sheer cardigan worn as the sole torso layer"). Ba việc còn
+treo, ghi lại đây theo đúng yêu cầu của lead khi giao task:
+
+- [ ] **Cần chạy lại `backfill-item-metadata` để thực sự điền `opacity`** (2026-08-13). Cột mới
+  (`20260814000001_item_opacity.sql`) NULL trên mọi row hiện có, và `deriveCanBeSoleTop` đọc NULL
+  y như `'opaque'` (fail-open, không đổi hành vi) — về mặt an toàn cột này "sạch", không có nguy
+  cơ backfill ghi đè giá trị thật đã có (khác case rayon/distressed trước đây, không có gì phải
+  cân nhắc trước khi chạy). Nhưng "sạch" không có nghĩa là "xong": tới khi endpoint đó thật sự
+  chạy (cần header `x-admin-secret`, anh Khôi phải cung cấp), MỌI item sheer thật trong wardrobe —
+  kể cả `cardigan_cream` (`3D Knit Mesh Cardigan`) chính là item gây ra bug — vẫn đọc
+  `canBeSoleTop: true` như trước khi có fix này, vì opacity của nó chưa từng được trích xuất.
+- [ ] **Cardigan oversized + quần ống rộng trên thân hình đồng hồ cát xoá mất vòng eo, trong khi
+  card vẫn hiển thị "SHAPE: HOURGLASS"** (2026-08-13, phát hiện cùng lúc điều tra bug cardigan
+  sheer). Engine không có khái niệm "volume chồng volume xoá silhouette" trong scoring — chỉ
+  render nhãn hình dáng cơ thể tĩnh (`body_shape`) mà không phạt điểm khi outfit thực tế che mất
+  hình dáng đó. Cần thêm một tín hiệu phạt volume-on-volume vào `scoring.ts`, chưa làm ở đây.
+- [ ] **Túi xách dạ hội đính sequin bị ghép với giày sneaker trắng dưới tag `minimalist ·
+  everyday`** (2026-08-13, phát hiện cùng lúc). Accessory hiện không có trục formality riêng trong
+  engine nên một món dạ hội (evening) có thể lọt vào outfit đời thường mà không bị phạt điểm lệch
+  tông formality — cần thêm trục formality cho accessory, chưa làm ở đây.
+- [ ] **Sheer one-piece chưa được gate** (2026-08-13). `deriveCanBeSoleTop` hiện chỉ chặn ở slot
+  top (`generation.ts:590`, `const canBeSole = c.top.canBeSoleTop !== false;`, chỉ được đọc trong
+  nhánh top-slot của `generateFromPool`) — một chiếc váy/dress vải xuyên thấu (`category ===
+  'onepiece'`) vẫn đi thẳng vào feed: `generateOnepieceCandidates` (`generation.ts:652`) build cặp
+  (onepiece, shoe) mà không hề tham chiếu `canBeSoleTop`/`opacity`. Cùng lỗi gốc (sheer làm base
+  layer trần), khác slot — chưa gate ở đây.
+- [ ] **Volume-on-volume xoá eo — mới có ở tầng curator (taste), chưa có ở `scoring.ts`
+  (deterministic)** (2026-08-14, cập nhật cho mục "Cardigan oversized + quần ống rộng..." phía
+  trên). `engine/curator.ts`'s `describeItem` giờ gửi tag `drape` (`structured`/`fluid`) cho model,
+  và `SYSTEM_PROMPT` có thêm câu phạt "fluid top + fluid bottom xoá eo" — nhưng đây CHỈ là tầng LLM
+  curation, best-effort và có fallback khi lỗi/timeout/thiếu API key (`curatorEnabled()` false thì
+  bỏ qua hoàn toàn). Rule engine (`scoring.ts`) vẫn không có tín hiệu phạt volume-on-volume nào —
+  mục gốc phía trên (thêm penalty vào `scoring.ts`) vẫn treo y nguyên, chưa làm ở đây vì đó là
+  thay đổi tầng scoring, ngoài phạm vi task này (chỉ được giao làm giàu candidate line cho curator).
+- [ ] **Bản sao thứ ba của phân loại "món mặc trên thân"** (2026-08-13). Fix sole-torso-layer ở
+  `describe-outfit/prompt.ts` vừa thêm `TORSO_LAYER_TYPES` (`prompt.ts:34-41`) — set các garment
+  type coi là lớp mặc trên thân, dùng bởi `deriveSoleTorsoLayerIndex` (`prompt.ts:50`). Đây là bản
+  sao cục bộ, viết tay, của phân loại đã tồn tại sẵn hai chỗ: `LAYER_ROLE_BY_TYPE`
+  (`generate-outfits/engine/enrichment.ts:282-290`) và `OUTER_TOPS`/`MID_TOPS`/`INNER_TOPS`
+  (`src/components/outfit/collageLayout.ts:46-51`). Comment ở `prompt.ts:9-33` đã tự nhận đây là
+  trùng lặp CỐ Ý — mỗi Supabase Edge Function deploy độc lập theo thư mục riêng nên
+  `describe-outfit` không import chéo được từ `generate-outfits`, và `collageLayout.ts` vốn đã
+  chấp nhận tradeoff này trước đó. Nhưng hệ quả cụ thể: thêm một garment type mới giờ phải sửa
+  ĐÚNG ba chỗ đồng bộ bằng tay, và ba chỗ lệch nhau thì không có gì báo lỗi — chạy im lặng với kết
+  quả sai. Bằng chứng là đã có lệch thật: `PARKA` nằm trong `TORSO_LAYER_TYPES` (outer, `prompt.ts:40`)
+  và trong `LAYER_ROLE_BY_TYPE` (outer, `enrichment.ts:289`), nhưng `OUTER_TOPS` ở `collageLayout.ts:46`
+  KHÔNG có `PARKA`. Chưa rõ ảnh hưởng thực tế của lệch này (collage layout dùng để xếp hình, không
+  liên quan sole-torso-layer), nhưng nó chứng minh rủi ro "ba bản sao lệch nhau, không ai biết" là
+  có thật chứ không phải giả định. Chưa làm gì ở đây — cần cân nhắc có nên gom về một nguồn chung
+  (build-time codegen bơm vào từng bundle, hoặc test đối chiếu ba set) hay chấp nhận rủi ro tiếp.
+- [ ] **One-piece (`DRESS`/`JUMPSUIT`) chưa được tính là sole torso layer** (2026-08-13). Đã kiểm
+  `TORSO_LAYER_TYPES` (`describe-outfit/prompt.ts:34-41`): KHÔNG có `DRESS`, `JUMPSUIT`, `OVERALLS`,
+  hay `GOWN` — dù cả bốn type này đều map vào `category: 'onepiece'` qua `CATEGORY_MAP`
+  (`generate-outfits/engine/enrichment.ts:20`). `deriveSoleTorsoLayerIndex` (`prompt.ts:50-56`) chỉ
+  đánh dấu `sole torso layer` khi đúng MỘT item khớp `TORSO_LAYER_TYPES` — một chiếc váy/jumpsuit
+  mặc một mình đếm ra 0 item torso-layer (không phải 1), nên không bao giờ được gắn note, và câu
+  "đừng bảo mở/layer món là lớp duy nhất" không bảo vệ được ca one-piece xuyên thấu. Rủi ro thấp
+  hơn case cardigan (váy liền thân không có gì để "mở ra" như cardigan), nhưng cùng họ lỗ hổng với
+  mục **"Sheer one-piece chưa được gate"** phía trên (`generation.ts:590`, `generation.ts:652`) —
+  cả hai đều là chỗ pipeline chưa xử lý one-piece xuyên thấu như một ca base-layer-trần thật sự.
+  Chưa làm gì ở đây.

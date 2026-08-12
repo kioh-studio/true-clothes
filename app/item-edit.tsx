@@ -45,6 +45,9 @@ function toEditable(w: WardrobeItem): ExtractedItem {
     // Distressed (2026-08-11): same read-only carry as the hex fields above —
     // no edit UI, and toPatch below deliberately omits it.
     distressed: w.distressed ?? null,
+    // Opacity gate (2026-08-14): same read-only carry as distressed above —
+    // no edit UI, and toPatch below deliberately omits it.
+    opacity: w.opacity ?? null,
     // Visual enrichment đợt 2 (2026-08-11): same read-only carry — no edit UI,
     // and toPatch below deliberately omits these too.
     printScale: w.printScale ?? null,

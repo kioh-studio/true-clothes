@@ -50,7 +50,7 @@ function WardrobeItemCard({ item, cols, onPress }: { item: WardrobeItem; cols: n
       <View style={{ padding: 4, paddingTop: 12 }}>
         <Text style={styles.itemType}>{item.category.toUpperCase()}</Text>
         <View style={{ height: 4 }} />
-        <Text style={styles.itemName} numberOfLines={1}>{item.notes ?? item.category}</Text>
+        <Text style={styles.itemName} numberOfLines={1}>{item.name || item.notes || item.category}</Text>
         <View style={{ height: 4 }} />
         <Text style={styles.itemMeta}>{item.colors.join(', ')}{item.brand ? ` · ${item.brand}` : ''}</Text>
       </View>
@@ -75,6 +75,7 @@ export default function WardrobeScreen() {
   const visible = search
     ? filtered.filter(i =>
       i.category.toLowerCase().includes(search.toLowerCase()) ||
+      (i.name ?? '').toLowerCase().includes(search.toLowerCase()) ||
       (i.notes ?? '').toLowerCase().includes(search.toLowerCase()) ||
       (i.brand ?? '').toLowerCase().includes(search.toLowerCase())
     )

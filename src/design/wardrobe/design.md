@@ -34,6 +34,11 @@
 - Auto-dismisses when the user attempts another action or navigates away (no timer needed).
 - Never modifies `wardrobeItems` state — rejected silently at the store level.
 
+### Grid Tile & Search — Label Source
+- The grid tile's item-name line and the search box both key off `item.name` first, falling back to `item.notes`, then the category word.
+- `notes` stays in the fallback chain for the demo/local catalogue (`src/data/index.ts`), which still derives a label from it.
+- Reason: the live `clothing_items` table has no `notes` column — cloud items always have `notes: null` — so `name` (which the table does have, and which is populated) must come first or the tile always falls through to the category word.
+
 ---
 
 ## Typography & Colour Reference

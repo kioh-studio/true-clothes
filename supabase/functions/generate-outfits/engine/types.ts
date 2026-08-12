@@ -250,6 +250,12 @@ export interface FitItem {
   // top as a layer (overshirt/cardigan/knit-over). Rule-derived in enrichment;
   // optional so hand-built test fixtures stay valid (undefined = false).
   canLayer?: boolean;
+  // Sole-torso-layer gate (2026-08-14) — see enrichment.ts's deriveCanBeSoleTop
+  // doc comment for the three-roles framing. false ONLY for opacity === 'sheer';
+  // undefined/true (incl. unknown opacity) behaves exactly as before this
+  // field existed — generation.ts only excludes an item from being the ONE
+  // torso garment when this is explicitly false, never when it's absent.
+  canBeSoleTop?: boolean;
   // Visual enrichment đợt 2 — only present when the image carried the signal.
   drape?: 'structured' | 'regular' | 'fluid';
   visualInterest?: number; // 0..1 — how striking the piece reads
@@ -523,4 +529,9 @@ export interface ClothingItemRow {
   // above for the definition. null/undefined = unassessed; toFitItem maps
   // both to fabric.distressed === undefined (fail-open in featuresPasses).
   distressed?: boolean | null;
+  // Opacity (2026-08-14) — see generate-item-image/prompt.ts's GarmentMetadata.opacity
+  // for the full definition. 'sheer' | 'semi' | 'opaque' | null/undefined
+  // (unassessed). Drives deriveCanBeSoleTop in enrichment.ts: a sheer garment
+  // may never be the ONLY thing on the torso, regardless of its type.
+  opacity?: 'sheer' | 'semi' | 'opaque' | null;
 }

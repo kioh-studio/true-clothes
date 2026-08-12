@@ -7612,3 +7612,628 @@ Other materials/colours the catalogue likely still lacks (`modal`, `lyocell`, `s
 also get a `MATERIAL_STYLE_BOOSTS` entry, a `FabricName`/`FABRIC_NAME_MAP` value, or a
 `deriveFormality` luxury bump; the three items already open from phase 1 (`delete-user` guard, NULL
 `m_*`, stale `profiles.email`).
+
+## Engine can't tell a 3-layer torso stack from a 2-layer one — total insulation + sleeve length (010-wardrobe-critic follow-up, 2026-08-12)
+
+> **⚠ REVERTED 2026-08-12 — this shipped, regressed, and was rolled back the same
+> session. Everything below describes an implementation that is NO LONGER in the
+> tree.** It was deployed (fn version 64), A/B-tested against baseline, found to
+> break canonical outfits, and reverted (`git checkout HEAD --
+> supabase/functions/generate-outfits/engine/`, redeployed as version 65).
+> The two `backlog.md` items it claimed to close were REOPENED — see §AH.
+> Working patch preserved for the retry, but NOT in the repo (session scratchpad
+> `engine-layering.patch`, 451 lines). Read the post-mortem below before retrying.
+>
+> **A/B result (baseline HEAD vs shipped change, identical inputs):**
+>
+> | outfit | summer | fall | winter |
+> |---|---|---|---|
+> | tee + jeans (1 layer) | 0.906 → 0.906 | 0.906 → 0.906 | 0.906 → 0.906 |
+> | tee + denim jacket | 0.873 → **0.611** | unchanged | unchanged |
+> | wool sweater + wool coat | 0.731 → **killed** | 0.794 → **0.556** | unchanged |
+> | TEE + sweater + jacket | 0.856 → **killed** | 0.837 → **killed** | 0.829 → **killed** |
+> | SHIRT + sweater + jacket | 0.824 → **0.330** | unchanged | unchanged |
+> | POLO + sweater + jacket *(target bug)* | 0.866 → **killed** | 0.847 → **killed** | 0.839 → **killed** |
+>
+> **Why Part B was wrong.** It gated on SLEEVE LENGTH, but sleeve length is not
+> what made the polo look wrong — under a sweater and a jacket the arms are
+> covered and invisible. The real defect is the polo's COLLAR + placket riding up
+> out of the crewneck. Keying on sleeves swept up `TEE`, whose short sleeves are
+> irrelevant under two layers: a tee under a sweater under a jacket is the single
+> most canonical menswear stack there is, and is the exact example
+> `generation.ts`'s own mid-slot comment cites ("blazer over a thin hoodie over a
+> tee"). The retry must key on a COLLARED/plackets base (POLO, and a buttoned
+> SHIRT worn as the innermost layer) — never on sleeve length.
+>
+> **Why Part A was wrong.** `LAYER_INSULATION` charged an OUTER shell the same
+> per-layer cost as an inner layer, so wool sweater + wool coat (3 + 3 = 6) blew
+> the `fall` budget of 5 — but that is 2 layers, and is the standard autumn
+> outfit. A coat being heavy is the coat doing its job, not evidence of
+> over-layering. The retry should either count LAYERS over a per-season cap
+> rather than summing raw `fabricWeight`, or exempt/discount the outermost shell.
+> `summer: 2` was also too tight — it rejected a light jacket over a tee, a
+> normal cool-evening look.
+>
+> **Process lesson.** The unit tests all passed (319 green) and still missed
+> every one of these: they asserted the new rules fired on their target, never
+> that untouched canonical outfits kept their score. For a change that alters
+> RANKING, the test that matters is an A/B sweep of known-good outfits against
+> the pre-change engine — run that BEFORE deploying, not after.
+
+### The bug (`backlog.md` §AD, both now closed)
+
+Live evidence: the feed suggested polo + sweater + overshirt + chinos + clogs for a 15–22°C day —
+a 3-layer torso stack for mild weather. Two independent root causes:
+
+1. **`scoreSeasonMatch` (`scoring.ts:1002`) averages season compatibility PER ITEM**
+   (`seasons.reduce(...) / seasons.length`) instead of summing. A 3-layer look and a 2-layer look
+   built from the identical fabrics score IDENTICALLY — nothing anywhere in the engine had a
+   concept of `layerCount`/`totalWarmth`/`insulation`; `fabricWeight` was only ever read per-item.
+   The only existing 3-layer gate, `midFitsUnderOuter` (`generation.ts:560`, re-asserted at
+   `ranking.ts:310`), just bans a `heavy` mid under a true outer — it doesn't look at temperature
+   at all. And `season`'s own scoring weight is only 0.05–0.20 across styles (`DEFAULT_WEIGHTS`,
+   `ranking.ts:23` / per-style overrides in `filtering.ts`), far too small to move ranking even if
+   the average did carry a signal.
+2. **`POLO` is `layerRole: 'base'`** (`enrichment.ts:284`), the same bucket as TEE/SHIRT/HENLEY/
+   BLOUSE. The word `sleeve` appeared in the engine ONLY as a fit MEASUREMENT key (`sleeves` cm in
+   `FIT_THRESHOLDS`/`KEY_EASE_WEIGHT`) — there was no garment sleeve-LENGTH attribute anywhere, so
+   the engine had no way to tell a short-sleeve polo from a long-sleeve shirt when filling the base
+   slot under a mid+outer stack.
+
+**Hard constraint respected throughout:** the engine receives **no Celsius temperature anywhere**.
+`EngineContext.weatherSeason?: Season` (`'spring'|'summer'|'fall'|'winter'|'allSeason'`), derived
+from calendar month + hemisphere in `index.ts:242` and overridable by `intent.seasonOverride`, is
+the *only* weather signal that reaches the engine. Everything below is keyed to `Season`, not a
+temperature that doesn't exist as an input — there was no dev-cost reason to invent one, and doing
+so would have required plumbing a new field through the entire request path for no benefit over the
+existing 5-bucket season signal.
+
+### Part A — total torso insulation (`scoring.ts`, `ranking.ts`)
+
+New in `scoring.ts`:
+
+```ts
+export const LAYER_INSULATION: Record<FabricWeight, number> = { light: 1, medium: 2, heavy: 3 };
+const TORSO_CATEGORIES: ReadonlySet<ItemCategory> = new Set(['top', 'outwear', 'onepiece']);
+export const SEASON_INSULATION_BUDGET: Record<Season, number> = {
+  summer: 2, spring: 4, fall: 5, winter: 8, allSeason: 5,
+};
+export function torsoInsulation(items: FitItem[]): number { /* sum LAYER_INSULATION over torso items */ }
+export function scoreLayerLoad(items: FitItem[], targetSeason?: Season): number { /* over-budget → 1.0/0.7/0.4/0.15 */ }
+```
+
+`torsoInsulation` sums the per-item insulation cost over `top`/`outwear`/`onepiece` categories only
+(bottoms/shoes/accessories contribute 0). A one-piece (DRESS/JUMPSUIT/OVERALLS/GOWN, category
+`onepiece`) IS the torso layer even though `CATEGORY_MAP` files it under its own bucket rather than
+`top` — it's counted once because the SAME item id fills both `slots.top` and `slots.bottom` (see
+`OutfitSlots`'s dedupe comment) and the deduped `FitItem[]` passed in has exactly one entry for it.
+`scoreLayerLoad` returns `1.0` unconditionally when `targetSeason` is `undefined` — a strict no-op
+guarantee for any caller with no weather signal resolved, pinned by a dedicated test.
+
+Wired into `ranking.ts` as a **multiplicative penalty on the final `totalScore`**, not a new
+weighted scoring dimension — `season`'s own weight is too small (see root cause 1 above) for the
+weighted average to ever move ranking on its own, the same reason `scoreTasteAdjustment`'s
+fatal-flaw veto (`taste.multiplier`) is multiplicative rather than folded into the average:
+
+```ts
+const layerLoadMultiplier = scoreLayerLoad(fitItems, targetSeason);
+const totalScore = Math.max(0, Math.min(1,
+  ((base + taste.bonus) * taste.multiplier + genderDelta + tasteDelta - dismissPenalty + houseDelta + shapeGoalBonus)
+  * layerLoadMultiplier));
+```
+
+Also added a **hard skip** in the candidate loop, next to the existing heavy-mid rule
+(`ranking.ts:310`): `if (targetSeason && torsoInsulation(fitItems) - SEASON_INSULATION_BUDGET[targetSeason] >= 3) continue;`
+— an outfit ≥3 insulation points over its season's budget (e.g. the exact polo+sweater+overshirt
+case: light+medium+medium = 5, summer budget 2, over by 3) never surfaces at all, same tier as the
+mid-under-heavy-outer rule it sits beside. `targetSeason` is computed once per candidate as
+`ctx.intent?.seasonOverride ?? ctx.weatherSeason` (the same expression `scoreSeasonMatch` was
+already called with) and reused for both the hard skip and the multiplier.
+
+**Both the per-weight insulation values and the per-season budgets are CALIBRATION-PENDING** —
+hand-picked to make the reported bug case fail loudly, not derived from real stylist data. Same
+status as the mid/outer weight rule they sit next to.
+
+### Part B — sleeve length (`enrichment.ts`, `types.ts`, `generation.ts`, `ranking.ts`)
+
+No DB migration, no change to `extract-garments` — `FitItem.sleeveLength?: 'short' | 'long'` is
+inferred in `enrichment.ts`, same rule/name-keyword-inference precedent as `inferPattern`/
+`deriveFabricName`: an explicit keyword in the item name (`long sleeve`/`longsleeve`/`long-sleeve` →
+`'long'`; `short sleeve`/`shortsleeve`/`short-sleeve`/`sleeveless`/`tank` → `'short'`) wins over a
+`TYPE_DEFAULT_SLEEVE` table (POLO/TEE/CROP/CAMISOLE/BODYSUIT/CORSET/VEST → `'short'`;
+SHIRT/BLOUSE/HENLEY/TUNIC/SWEATER/KNIT/CARDIGAN/HOODIE and all outerwear types → `'long'`), which
+in turn falls back to `undefined` for anything without a torso-garment default (bottoms, shoes,
+accessories). Optional field, mirroring `canLayer`'s own "hand-built test fixtures stay valid"
+comment — and undefined **fails OPEN** everywhere it's consumed (same philosophy as
+`fabric.distressed`'s fail-open note): an unclassifiable garment never blocks layering.
+
+**Gate:** a base top with `sleeveLength === 'short'` must not sit under BOTH a mid and a true outer
+at once — under only one of the two (tee under jacket, polo under a cardigan alone) is unaffected,
+only the FULL 3-layer stack is banned. Applied at both places the physical heavy-mid rule already
+lives, same defense-in-depth shape:
+- `generation.ts` — both mid-variant builders (the outerwear-anchored core's mid-add, and the
+  bare-core's outer+mid-together variant) now also require `c.top.sleeveLength !== 'short'` before
+  adding the variant at all (there's no safe mid choice to filter down to once the base is
+  short-sleeved — the whole variant is skipped).
+- `ranking.ts:310` — the same `if (c.slots.mid && c.slots.outwear)` choke point that re-asserts the
+  heavy-mid rule now also re-asserts this one, so it holds regardless of which generator produced
+  the candidate.
+
+### Tests
+
+`engine/mid-layer.test.ts` (+10) and `engine/layering.test.ts` (+2): a 3-layer torso stack rejected
+outright in summer but allowed in the identical form in winter; `scoreLayerLoad(items, undefined)`
+returns exactly `1.0` regardless of insulation; a short-sleeve POLO base never generates/survives a
+mid+outer full stack (both at `generation.ts` and the `ranking.ts` choke point, tested
+independently by hand-building the candidate) while the identical wardrobe with a long-sleeve SHIRT
+base does; a short-sleeve base under only an outer (no mid) is still generated; a SHIRT explicitly
+named "Short Sleeve Shirt" resolves `'short'` despite SHIRT's own type default being `'long'`
+(name-keyword-beats-type-default), alongside the reverse (POLO named "Long Sleeve Polo" → `'long'`).
+
+### Verify
+
+`deno test --allow-read --allow-env supabase/functions/generate-outfits/engine/`: **319 passed, 0
+failed** (309 baseline + 10 new, 0 regressions). `npx tsc --noEmit`: clean — note this project's
+`tsconfig.json` excludes `supabase/functions` entirely, so this command never actually covers the
+engine; `deno check` on the five touched files (`scoring.ts`/`ranking.ts`/`generation.ts`/
+`enrichment.ts`/`types.ts`) was run directly as the real type-check for this change, also clean.
+`deno test` itself type-checks by default (no `--no-check`), so the 319-passed run above already
+proves the engine type-checks too. No Supabase deploy, no `expo`/`eas build`, no commit — per
+instruction.
+
+### Out of scope — logged to `backlog.md`
+
+The 🟡 item in `backlog.md` §AD (collage/meta strip doesn't show layer ORDER — user can't tell polo
+is worn inside sweater inside overshirt) is UI work, left open; this session only touched the
+engine's scoring/generation logic.
+
+## Demo woman account — phase 3: shoes / outerwear / bag, and the `FLATS` type gap (2026-08-12)
+
+Wardrobe went 11 → **17 items**. Phase 2 left the account complete against its *planned* list but
+category-thin against reality: exactly **one** pair of shoes (`heels_nude`, `base_formality` 4.5),
+**no bag**, and outerwear only in a single register — the two BLAZERs *are* `category='outwear'` /
+`layer_roles={outer}` (an earlier note in `backlog.md` wrongly read "0 outerwear" because the audit
+query filtered `type in ('JACKET','COAT')` and skipped BLAZER), but both sit at `base_formality`
+4.5 with `warmth_season='midweight_transitional'`. So: shells existed, casual shells and warm
+shells did not.
+
+**Six items imported** (all Uniqlo / Zara / Mango / Charles & Keith, flat-lay or ghost-mannequin
+sources, background cut with `rembg`, every final PNG opened and eyeballed — no model/mannequin
+parts, which is the acceptance bar in `.claude/skills/fetch-items/SKILL.md`):
+
+| item | type | colour | measured primary/secondary hex | fills |
+|---|---|---|---|---|
+| Leather Ballet Flats (Mango) | `FLATS` | Black | `#19181d` / `#27262a` | mid-casual shoe (formality 3.0) |
+| Leather Sneakers (Zara) | `SNEAKERS` | White | `#c9c8c2` / `#dbdad5` | casual shoe (1.5) |
+| Leather Tote Bag (Charles & Keith) | `BAG` | Black | `#262626` / `#171717` | the missing accessory |
+| Pocketable Parka (Uniqlo) | `PARKA` | Charcoal | `#35353a` / — | casual outer shell (2.0) |
+| Trench Coat (Uniqlo:C) | `COAT` | Beige | `#b7a793` / `#ad9c88` | midweight outer (3.5) |
+| Wool-Blend Coat (Uniqlo U) | `COAT` | Black | `#242324` / `#181718` | warm outer |
+
+**Two labels came out different from the fetch spec, decided from measurement not intent.** The
+parka was specified as `JACKET`/Black; the source is literally Uniqlo's *Pocketable Parka* and the
+`PARKA` row (`nylon`, formality 2.0, `layer_roles={outer}`) matches the garment better than
+`JACKET` (cotton, 3.0) — and `JACKET`'s 3.0 would not have filled the casual-outer gap that
+motivated it. Its measured hex `#35353a` is HSL L=21.8%, above the 15% cut for Black, so it is
+`Charcoal`. The trench was specified as `Stone`; measured `#b7a793` is HSL S=20.0%, a warm beige,
+so it is `Beige` and the asset was renamed `coat-trench-stone.png` → `coat-trench-beige.png`. A
+warm beige is off-axis for this account's True Winter palette — kept anyway, because it is the
+garment's real colour and the wardrobe critic having something genuine to flag is the point (same
+reasoning as the cream cardigan in phase 1).
+
+**Hexes** were measured, not picked: `engine/colorCluster.ts`'s `dominantHexes` re-ported
+line-for-line to a throwaway Pillow script (same stride, same near-white/near-black skips, same
+16-bucket histogram + Manhattan clustering, same 15%-share secondary rule), exactly as phase 1 did.
+
+**Deliberately left NULL on all 6 rows:** `warmth_season`, `can_layer`, `print_scale`, `drape`,
+`visual_interest`, `graphics`, `distressed`, plus `fit`/`size`/`price`/`m_*`. The first group is
+**not** rule-derived — it is Gemini-extracted from the photo by `backfill-item-metadata`, whose row
+selector is `.or('fit.is.null,material.is.null,...,visual_interest.is.null')`. NULL is therefore
+the correct "not yet extracted" state and makes these 6 rows self-selecting on the next backfill
+run; writing plausible values by hand would have permanently excluded them. That run was not
+performed here — `supabase secrets list` returns only digests, not the plaintext
+`BACKFILL_ADMIN_SECRET` the endpoint requires. Logged in `backlog.md`.
+
+### `FLATS` — a garment_types gap, not new vocabulary
+
+`clothing_items.type` FKs to `garment_types(type_key)` and the live table had no `FLATS` row, so
+the ballet flats could not be inserted. `FLATS` was already first-class everywhere else — the
+app's picker (`vocab.ts` `TYPE_OPTIONS`), the footwear bucket maps, `itemTypeMap.ts`'s
+`ballet|espadrille|mary-jane` regex, `collageLayout.ts`'s `ASPECT`, and the engine's
+`GARMENT_CATEGORY`/`STYLE_AFFINITY`/`BASE_FORMALITY` + 11 `taste-data.ts` combos. Migration
+`20260812000002_garment_type_flats.sql` adds the one missing row with values copied from
+`enrichment.ts` (`shoes`, 3.0, `{minimalist,oldmoney,preppy,smartcasual}`), `default_material`
+`leather` and `layer_roles {base}` following the sibling shoe rows. Applied to live via the
+Management API; `garment_types` 53 → 54.
+
+Auditing that turned up a wider drift: **10 types the picker offers that the FK rejects** —
+`BODYSUIT, CAPE, CORSET, CROP, FLATS, GLOVES, KIMONO, TIGHTS, TUNIC, WEDGES`. Only `FLATS` was
+closed (it blocked this import); the other 9 are in `backlog.md`.
+
+### 7 more picker types closed — `CROP, BODYSUIT, TUNIC, CORSET, CAPE, KIMONO, WEDGES`
+
+2026-08-13. Follow-up to the `FLATS` gap above. Migration
+`20260813000001_garment_types_picker_backfill.sql` adds the 7 rows, values copied verbatim from
+`enrichment.ts`: `category` from `CATEGORY_MAP` (line ~14-25), `base_formality` from
+`TYPE_FORMALITY` (line ~536-548), `style_affinities` from `STYLE_AFFINITIES` (line ~345-385). All
+8 style tags used are valid `styles.id` values already present on other rows.
+`default_material`/`layer_roles` aren't engine-tracked, so — same as the `FLATS` migration — they
+follow sibling rows already on live: the 4 tops (`CROP`, `BODYSUIT`, `TUNIC`, `CORSET`) get
+`cotton`/`{base}` like `TEE`/`HENLEY`/`POLO`; `CAPE` gets `wool`/`{outer}` like `BLAZER`/`COAT`;
+`KIMONO` gets `silk`/`{mid,outer}` — `LAYER_ROLE_BY_TYPE` puts it at `mid`, but every other
+mid-capable outwear row on live (`HOODIE`, `JACKET`, `WINDBREAKER`, `GILET`) is `{mid,outer}`, so
+it followed that pattern rather than the narrower `{mid}`; `WEDGES` gets `leather`/`base` like the
+other leather shoes (`BOOTS`, `FLATS`, `HEELS`, `LOAFERS`).
+
+Applied to live via the Management API; `garment_types` **54 → 61**. Verified: count is 61, and
+all 7 new rows match the intended values exactly (spot-checked `style_affinities::text` and
+`layer_roles::text`).
+
+`GLOVES` and `TIGHTS` are deliberately still open — the engine has no formality, style-affinity, or
+layer-role metadata for either (only a `CATEGORY_MAP` entry, defaulting both to `accessory`), so
+closing them needs a real product decision, not a mechanical copy. Only that pair remains of the
+original 9; tracked in `backlog.md`.
+
+### Verify
+
+`clothing_items` for wardrobe `4cc7dcbd-…-b9879e9ab77e` = **17**; `photo_url is null` 0,
+`photo_storage <> 'cloud'` 0, `primary_hex` failing the hex regex 0, and 0 rows whose `photo_url`
+differs from `<uid>/<id>.png`. Storage: **17 objects** under the uid prefix, and each of the 6 new
+objects' `storage.objects.metadata->>'size'` matches its local PNG byte-for-byte (300223 / 618559 /
+1799763 / 786892 / 1101147 / 698384, all `image/png`). Bucket root holds only the 3 legitimate uid
+prefixes — an intermediate upload had landed under a bogus `197610/` prefix (a bash loop assigned
+to `UID`, which is a readonly builtin, so the variable never took); `supabase storage rm` returned
+`{"deleted":[]}` with no error and no effect, `storage mv` fixed it, and the stray prefix is gone.
+Type distribution: BAG 1, BLAZER 2, BLOUSE 1, CAMISOLE 1, CARDIGAN 1, COAT 2, DRESS 2, FLATS 1,
+HEELS 1, PARKA 1, SKIRT 2, SNEAKERS 1, TROUSERS 1. `npx tsc --noEmit` clean; `npx jest` 44 suites /
+594 tests passed, 0 failed. No `expo`/`eas build` run, no edge function deployed.
+
+`src/data/index.ts` mirrors all 6 into the bundled catalog (`flats_ballet_blk`, `sneakers_white_w`,
+`bag_tote_blk_w`, `parka_light_blk`, `coat_trench_beige`, `coat_wool_blk`), same no-price/no-size
+style as the 2026-08-11 block. No type union needed widening — that file types `type` as `string`,
+and `FLATS`/`PARKA` were already handled by every consumer.
+
+## Demo woman account — phase 4: base tops, knits, jeans, and a real shoe rack (2026-08-12)
+
+Wardrobe 17 → **32 items**, matching the man demo's size. Phase 3 fixed the outerwear/footwear
+*categories* but the closet was still a work-clothes-only wardrobe: two base tops total (blouse +
+camisole), one mid layer (the cream cardigan), no jeans at all, and — after anh Khôi asked for more
+shoe variety — only three pairs of shoes.
+
+**Fifteen items imported**, all flat-lay or product-only sources, `rembg`-cut, every final PNG
+opened and inspected:
+
+| group | items |
+|---|---|
+| base tops | Crew Neck Tee ×2 (White, Black — same Uniqlo SKU), Cotton Oxford Shirt (White) |
+| mid | Extra Fine Merino Crew Neck ×2 (Black, Grey — same SKU) |
+| bottoms | Stretch Slim Straight Jeans (Indigo), Straight Jeans (Black) |
+| footwear | Chelsea Boots, Knee-High Block-Heel Boots, Leather Sneakers (Black), Strappy Slide Sandals, Woven Open-Toe Slides, Day Mule, Penny Loafers |
+| accessory | Leather Belt |
+
+**Footwear now spans the whole formality range** — `SANDALS`/`SLIDES` 1.0, `SNEAKERS` 1.5,
+`BOOTS`/`FLATS`/`MULES` 3.0, `LOAFERS` 4.0, `HEELS` 4.5 — where before phase 3 the wardrobe had a
+single pair at 4.5. `OXFORDS` (4.5) and `DERBY` (4.0) were deliberately skipped: they duplicate the
+HEELS/LOAFERS band and read masculine against this persona.
+
+**Two type calls, both made from evidence rather than the fetch spec.** The black and grey merino
+jumpers are the *same Uniqlo SKU in two colourways*, so tagging one `KNIT` and one `SWEATER` would
+have been inconsistent data for identical garments — both are `KNIT` (formality 3.0,
+oldmoney/minimalist/smartcasual/preppy), which also matches how the bundled catalog already labels
+crewnecks; `SWEATER` (2.5) reads as the chunkier garment. Conversely the strappy sandals and the
+woven slides are genuinely *different products* despite sharing a slide silhouette, and their
+engine affinities differ (`SANDALS` bohemian/athleisure vs `SLIDES` athleisure/streetwear), so they
+kept distinct types.
+
+**`slides-black-women.material` is NULL on purpose** — the product page never states the material
+and the repo policy is blank over guessed. It is also the one field `backfill-item-metadata`
+selects on, so the row self-selects for extraction later. Same reasoning as the rest of the
+deliberately-NULL set (`warmth_season`, `can_layer`, `print_scale`, `drape`, `visual_interest`,
+`graphics`, `distressed`, plus `fit`/`size`/`price`/`m_*`), unchanged from phase 3.
+
+**Hexes** measured with the same verbatim `colorCluster.ts::dominantHexes` port used in phases 1
+and 3 (re-checked against the source: `MAX_SAMPLES` 4000, `MIN_KEPT_SAMPLES` 50,
+`SECONDARY_MIN_SHARE` 0.15, `CLUSTER_TOLERANCE` 32, `ALPHA_MIN` 200, `NEAR_WHITE_MIN` 238,
+`NEAR_BLACK_MAX` 18). Notable results: indigo jeans `#2c4567`, grey merino `#b9b4b3`/`#a8a4a2`,
+white tee `#eaeaeb`, and the black leather cluster landing between `#242424` and `#393539`.
+
+### Cutout quality — what the fetch round actually caught
+
+Worth recording because it changed the process. First-pass `rembg` left a visible leftover
+background halo on several dark-on-light items (black tee, knee-high boots) that is **invisible
+against the default white preview canvas**. The fix that worked was re-cutting from a fresh copy
+with alpha matting (`rembg i -a -ae 15`) and verifying by compositing the transparent PNG onto a
+MID-GREY background. White-on-white erosion was checked the same way, plus a numeric cross-check:
+the white and black tees are the same SKU, so their alpha bounding boxes should match — 1033×1122
+vs 1016×1120 confirmed no erosion. That grey-composite + same-SKU-bbox pair check should be the
+default for future `/fetch-items` rounds.
+
+### Verify
+
+`clothing_items` for the wardrobe = **32**. Independently re-queried: `photo_url is null` 0,
+`photo_storage <> 'cloud'` 0, `primary_hex` failing the hex regex 0, `photo_url <> '<uid>/<id>.png'`
+0, and a reverse join against `storage.objects` found **0 rows without a matching object**. Storage:
+32 objects under the uid prefix; all 15 new objects' `metadata->>'size'` match their local PNGs
+exactly (418084 / 802942 / 468860 / 677933 / 1871326 / 1672751 / 501774 / 905311 / 408316 / 579057 /
+209821 / 953472 / 242595 / 177127 / 602962). Bucket root holds only the 3 legitimate uid prefixes.
+23 distinct types; exactly 1 NULL `material` (the slides, by design). Type distribution: BAG 1,
+BELT 1, BLAZER 2, BLOUSE 1, BOOTS 2, CAMISOLE 1, CARDIGAN 1, COAT 2, DRESS 2, FLATS 1, HEELS 1,
+JEANS 2, KNIT 2, LOAFERS 1, MULES 1, PARKA 1, SANDALS 1, SHIRT 1, SKIRT 2, SLIDES 1, SNEAKERS 2,
+TEE 2, TROUSERS 1. `npx tsc --noEmit` clean (re-run independently); `npx jest` 44 suites / 594
+tests passed, 0 failed. No `expo`/`eas build`, no edge function deployed.
+
+`src/data/index.ts` mirrors all 15 under a "Womenswear round 3" block, same no-price/no-size style.
+
+## Sheer cardigan worn as the sole torso layer — the ungated base role (2026-08-13)
+
+The engine produced an outfit whose only torso garment was `3D Knit Mesh Cardigan` — a see-through
+mesh cardigan — worn over bare skin. Root cause: a cardigan has THREE possible roles
+(`enrichment.ts`'s `LAYER_ROLE_BY_TYPE`) — base (the sole torso garment), mid (worn over a real
+base top), outer (the shell). `deriveCanLayer` gates the mid/outer roles: CARDIGAN/VEST return
+`true` unconditionally ("born to be worn open"), which is correct — a cardigan buttoned up IS a
+genuinely valid standalone top, that must keep working. But the BASE role — being the only thing
+on the torso — was never gated at all: `CATEGORY_MAP` (`enrichment.ts:16`) lists `CARDIGAN: 'top'`,
+which grants base-role eligibility unconditionally, with no check of any kind.
+
+Same lesson as `deriveCanLayer`'s own history (commit `687c403`, "judge a shirt by its closure, not
+its fabric weight"): gate on the physical property that actually decides the outcome, not on the
+type name. The property here is opacity, and it is deliberately type-agnostic — a sheer blouse or
+lace camisole is exactly as unwearable alone as a sheer cardigan, and the fix must catch those too,
+not just cardigans.
+
+**1. New extraction field `opacity`** (`generate-item-image/prompt.ts`). Added to
+`GarmentMetadata` next to `can_layer`/`distressed`: `'sheer' | 'semi' | 'opaque' | null`. `sheer` =
+skin/what's underneath is visible through the fabric (mesh, open-knit/loose-gauge knit, lace,
+chiffon, organza, voile, fishnet); `semi` = light show-through that wants a layer in some contexts
+but isn't see-through on its own (thin white cotton, fine jersey); `opaque` = covers fully, the
+default read for most garments; `null` = unsure. New `snapOpacity` sanitiser (same coercion style
+as `snapDistressed`/`snapPrintScale`) accepts only the 3 literals, else `null`. Added to
+`snapGarment`'s output and to the `EXTRACTION_SYSTEM` prompt text with the same positive/negative
+examples.
+
+**2. DB column** (`supabase/migrations/20260814000001_item_opacity.sql`, NOT applied — anh Khôi
+applies it himself). `clothing_items.opacity text`, `check (opacity in ('sheer','semi','opaque'))`,
+nullable, `add column if not exists` (migration files here are known to drift from the live DB —
+see `project_schema_drift` memory — so this is defensive, not assumed-correct). Column comment
+documents the vocabulary and that NULL reads as opaque.
+
+**3. The gate** (`generate-outfits/engine/enrichment.ts`, `types.ts`, `generation.ts`).
+`ClothingItemRow.opacity` and `FitItem.opacity`/`canBeSoleTop` added (mirrors how `can_layer`
+threads through). New `deriveCanBeSoleTop(opacity)`: returns `false` only when
+`opacity === 'sheer'` — `null`/`undefined`/`'semi'`/`'opaque'` are all `true` (fail-open, matches
+`distressed`'s precedent: unknown never excludes). `toFitItem` sets
+`canBeSoleTop: deriveCanBeSoleTop(item.opacity)` unconditionally (no stored-value override exists
+yet — `opacity` has no user-facing toggle the way `can_layer` does).
+
+In `generation.ts`'s `variantsFor` (the non-outerwear-anchored core branch), the two "nothing else
+on the torso" variants — bare, and bare+accessory (an accessory doesn't cover the torso) — are now
+gated on `c.top.canBeSoleTop !== false`. Every OTHER variant (+outwear, +layer via
+`layerOptionsFor`, +mid+outer) is left ungated: a sheer top stays fully selectable whenever a real
+layer covers it, so the item is never excluded from the wardrobe outright, only from being emitted
+as the sole torso garment.
+
+**4. Ingest-time threading.** `wardrobe-critic/index.ts` and `backfill-item-metadata/index.ts` both
+already carried `can_layer`/`distressed` end-to-end (SELECT columns, row mapping, `needsGemini`
+gate, NULL-only patch fill, the `.or(...)` staleness selector) — `opacity` was added to every one of
+those same points, plus `generate-outfits/index.ts`'s own wardrobe SELECT/row-map and
+`pinItemToRow` (the Mix & Match scanned-item bridge), which weren't explicitly named in the
+originating instruction but sit on the identical path and would otherwise have silently never
+delivered `opacity` to the live engine at all.
+
+**5. Local demo data — NOT changed.** `src/data/index.ts`'s `ClothingItem` interface (the bundled
+demo/offline catalog) carries no engine-metadata fields at all — no `can_layer`, no `distressed`,
+nothing `toFitItem` reads beyond type/color/material/fit. `cardigan_cream` (`3D Knit Mesh Cardigan`,
+line 200) could not be marked sheer without inventing a field the rest of that file doesn't have;
+left alone rather than guessed, per repo policy.
+
+**6. NOT done — client-side ingest write path.** `src/services/wardrobeService.ts`,
+`imageGenerationService.ts`, and `types/fitEngine.ts` carry `can_layer`/`distressed` from the
+extraction response through to the DB insert/update payload (`WardrobeItem.canLayer`,
+`ExtractedItem.canLayer`, `dbPatch.can_layer`, etc.) — `opacity` was NOT threaded through this
+client path; it was outside the explicit scope handed down for this task. Until it is, a freshly
+added item's `opacity` extracted by `generate-item-image` never reaches the `clothing_items` row
+from the app's own add-item flow — only `backfill-item-metadata`'s separate admin pass would ever
+populate it. Logged to `backlog.md`.
+
+**Verify:** `deno test supabase/functions/generate-outfits/engine/` 321/321 (309 prior in this working
+tree + 7 new sole-top-gate tests in `layering.test.ts`, plus the 5 `curator.test.ts` tests from the
+next entry below); `deno test supabase/functions/wardrobe-critic/` 11/11; `deno test
+supabase/functions/evaluate-item/` 37/37; `npx tsc --noEmit` clean; `npx jest` 44 suites / 594
+tests, 0 failed (unchanged — no client file touched). No `expo`/`eas build`, no edge function
+deployed, migration not applied.
+
+## Curator writes garment advice by TYPE, not by the ROLE it's playing in THIS outfit (2026-08-13)
+
+Second, independent defect found while investigating the sheer-cardigan bug above: the outfit's
+`stylistNote` told the user to "open the cardigan" — while the cardigan was the ONLY garment on the
+torso (`OutfitSlots.top`, no `outwear`, no `mid`). Fixing `deriveCanBeSoleTop` (previous entry) stops
+a sheer cardigan from ever landing in that exact state, but it does nothing about the underlying
+authoring defect: `curator.ts` (the Gemini LLM curation pass that writes `stylistNote`) is handed
+candidate lines that describe each garment by name/type/color/material/fit only. It sees "cardigan"
+and knows cardigans are worn open, so it writes styling advice that can be physically impossible for
+the specific outfit it is describing — an OPAQUE cardigan legitimately worn buttoned as the sole top
+would trigger the exact same bad advice.
+
+This is the same gap `docs/redesign-outfit-completion.md:38` already names in the domain vocabulary
+research: "the domain's own vocabulary is role-based... and does not speak in regions and depths...
+it also names the exact gap: the vocabulary names the garment, never the function the garment is
+currently performing. A shirt worn open changes role and the language just re-describes the
+outfit." The curator is exactly that failure mode, live in production copy.
+
+**Fix, scoped to the deterministic input construction (not the LLM's output):**
+
+1. `engine/curator.ts` gained `isSoleTorsoLayer(slots: OutfitSlots): boolean` — `true` when both
+   `outwear` and `mid` are undefined, i.e. nothing else is on the torso. Exported so both the
+   candidate-line builder (`generate-outfits/index.ts`) and its test can use the exact same
+   definition `generation.ts`'s new sole-torso gate uses conceptually (no shared import — `index.ts`
+   is outside the engine boundary — but the same "outwear undefined && mid undefined" condition).
+2. `generate-outfits/index.ts`'s `describe` callback (the per-outfit candidate-line builder passed
+   into `curateOutfits`) now computes `isSoleTorsoLayer(o.slots)` and, when true, appends `sole
+   torso layer` into the top/one-piece item's parenthetical via `describeItem`'s new optional
+   `extra` param — e.g. `top: 3D Knit Mesh Cardigan (cardigan, Cream, Cotton, sole torso layer)`.
+   Compact by design: one clause, only on the affected line, only when true.
+3. `curator.ts`'s `SYSTEM_PROMPT` gained one sentence in the existing note-writing paragraph: "A
+   candidate line marked 'sole torso layer' has NOTHING else on the torso — never tell the user to
+   wear that garment open, unbuttoned, or layered over something; it is being worn closed, full
+   stop."
+4. New `engine/curator.test.ts` (5 deno tests) — tests `isSoleTorsoLayer` directly across bare top,
+   +outwear, +mid, +both, and a one-piece with nothing over it. Does not attempt to test the LLM's
+   actual output (non-deterministic); tests only the deterministic input construction, per this
+   task's own ground rule.
+
+**Verify:** included in the `deno test supabase/functions/generate-outfits/engine/` 321/321 run
+above — the 5 new `curator.test.ts` tests. `npx tsc --noEmit` clean; `npx jest` unaffected (no
+client file touched). No deploy.
+
+## Curator's TEXT description of each garment was impoverished — pattern/drape/opacity/etc. never reached it (2026-08-14)
+
+Follow-on to the previous two entries. `curator.ts` (the Gemini taste pass) already receives item
+PHOTOS (multimodal, capped at `MAX_CURATOR_IMAGES = 12`) but the TEXT candidate line — the thing
+that actually binds a photo to a slot label and carries context the photo alone doesn't (which slot,
+which formula) — was `name (type, color[, material][, fit fit])`. The DB has held `pattern`,
+`print_scale`, `drape`, `distressed`, `visual_interest`, `warmth_season`, and (as of the previous
+entry) `opacity` for a while, none of it reaching the model. `SYSTEM_PROMPT` already instructs the
+curator to penalise "two statement pieces competing" while handing it no data to detect a statement
+piece at all.
+
+**Fix:**
+
+1. `describeItem` — previously a closure inside `generate-outfits/index.ts`'s request handler — is
+   now an exported pure function in `engine/curator.ts`, next to `isSoleTorsoLayer`, taking a
+   `ClothingItemRow` and a slot label (plus the pre-existing optional `extra` for the sole-torso-
+   layer marker). `index.ts`'s `describeItem` closure is now a thin id→row lookup that calls it.
+2. Seven new fields folded into the parenthetical, each **suppressed by default** — printed ONLY
+   when it carries information, never unconditionally:
+   - `pattern` — omitted when `'solid'`/null; `print_scale` rides along ONLY with a real pattern
+     (meaningless on a solid garment), e.g. `large floral`.
+   - `drape` — only `structured`/`fluid` print; `'regular'`/null (the unremarkable middle) is
+     omitted.
+   - `opacity` — only `sheer`/`semi` print; `'opaque'`/null (the default read for most garments) is
+     omitted.
+   - `distressed` — prints only when `true`.
+   - `warmth_season` — prints as-is when set, omitted when null.
+   - `visual_interest` — never printed as a raw number (meaningless to the model without the 0..1
+     scale in front of it). Converted to the word **`statement`**, printed only at/above **0.8**.
+     That threshold isn't invented: `generate-item-image/prompt.ts`'s own field definition for this
+     column already documents the scale as "0.2 = plain basic, 0.5 = solid everyday piece, 0.8+ =
+     the piece that makes an outfit" — 0.8 is the codebase's own line into hero-piece territory, and
+     the word `statement` reuses `SYSTEM_PROMPT`'s existing "statement piece" vocabulary so the two
+     connect instead of introducing a synonym the model has to bridge itself.
+   - Example, everything present: `top: Classic Tee (tee, white, Silk, loose fit, medium floral,
+     fluid, semi, distressed, lightweight_summer, statement, sole torso layer)`. Same item with
+     nothing remarkable: `top: Classic Tee (tee, white)` — byte-identical to the pre-existing shape.
+3. **Explicitly excluded: `size`, any `m_*` measurement, `brand`.** Fit/season/formality validity is
+   already decided deterministically before the curator ever runs (rule engine, not this layer —
+   `SYSTEM_PROMPT` says so explicitly). Sending raw measurements would invite the model to
+   re-litigate a check code already does better and more reliably; `brand` would invite label bias
+   into what's supposed to be a judgment about the garment, not who made it. `ClothingItemRow` (the
+   type `describeItem` takes) doesn't even carry `size`/`brand` fields — there's nothing to
+   accidentally thread through.
+4. Suppression-by-default, not "send everything": the alternative (print every field, defaulted or
+   not) was rejected because the parenthetical would run for 24 candidate lines and the one signal
+   that matters (a real pattern, an unusual drape, a statement piece) would drown in nulls/defaults
+   like `regular fit, regular drape, opaque, not distressed, unassessed`. An omitted attribute here
+   means "unremarkable or unknown" — genuinely ambiguous between "checked and found ordinary" and
+   "never assessed" — and that ambiguity is accepted as the right tradeoff for a taste judgment,
+   which is explicitly NOT the deterministic layer.
+5. `SYSTEM_PROMPT` gained two additions in its existing voice: a short paragraph naming the new
+   parenthetical vocabulary and stating that an absent tag means unremarkable/unknown, never "no";
+   and a new penalty bullet — a fluid/voluminous top over a fluid/voluminous bottom erases the waist
+   (a silhouette fault the curator previously had no data to see), sitting next to the pre-existing
+   "two statement pieces competing" bullet which the new `statement` tag now actually backs with
+   data.
+6. New tests in `engine/curator.test.ts` (26 added, on top of the 5 pre-existing `isSoleTorsoLayer`
+   tests): each attribute appears when meaningful and vanishes at its default/null, `visual_interest`
+   crosses cleanly at the 0.8 threshold with the raw number never printed, a guard test confirms
+   `size`/`brand`/`measurements` never leak even from a deliberately "dirty" row shape, and a
+   regression test confirms the pre-existing `name (type, color, material, fit)` output is
+   byte-identical when nothing new applies.
+
+**Not done / left open:** the deterministic volume-on-volume waist-erasure penalty tracked in
+`backlog.md`'s `## AG. Cardigan trong suốt làm base layer trần` entry (2026-08-13, "Cardigan
+oversized + quần ống rộng...") is still open — this task only gives the curator (a non-deterministic
+taste pass, subject to model failure/timeout/fallback) VISIBILITY into drape via the prompt bullet
+above; it does not add a `scoring.ts` penalty, so the rule engine's own ranking still can't see or
+act on the fault deterministically. Left as its own item since it's a scoring-layer change, out of
+this task's scope.
+
+**Verify:** `deno test supabase/functions/generate-outfits/` 347/347 (321 prior + 26 new
+`curator.test.ts` tests). `npx tsc --noEmit` clean. `npx jest` 44 suites / 595 tests, 0 failed (no
+client file touched). No `expo`/`eas build`, no edge function deployed, no migration applied, no
+commit made.
+
+## `describe-outfit`'s "HOW TO WEAR" told the user to open a cardigan with nothing under it (2026-08-13)
+
+Third sighting of the same root cause as the two entries above, in a DIFFERENT producer of "how to
+wear" copy than either of them. **There are two independent producers of this copy, and it matters
+which one a bug report is about:**
+
+1. `engine/styling-tips.ts`'s `deriveStylingTips` — deterministic, renders on the FEED card. Its
+   `layer_open` rule (line 32) only fires when the item occupying the `outwear` SLOT differs from the
+   item occupying `top` — i.e. it already requires a second, distinct torso garment. **Checked in
+   this investigation and confirmed correct; it did not fire on the reported outfit, correctly.**
+   Nothing here was changed. (Logged so a future reader doesn't re-investigate it.)
+2. `supabase/functions/describe-outfit/index.ts`'s Gemini call — the AI-authored `wayToWear` shown on
+   the outfit DETAIL screen (`app/outfit/[id].tsx:201-204`, via `useOutfitDescription`). This is the
+   defective one: it told the user to "open the cardigan" on an outfit where the cardigan was the
+   ONLY garment on the torso — confirmed from a real screenshot.
+
+Same gap as the curator entries above (`docs/redesign-outfit-completion.md:38`: "the vocabulary names
+the garment, never the function the garment is currently performing"), but a separate defect to fix
+because `describe-outfit` is a wholly separate prompt/request path with no shared code with
+`curator.ts` — fixing the curator did nothing for this screen. The prompt listed `leaving outerwear
+open` as a technique and only guarded it with soft prose ("only mention layering when there genuinely
+is outerwear or multiple layers"); the model overrode that guard because the garment is *called* a
+cardigan and cardigans are layering pieces by nature — the type name argued louder than the prose.
+
+**Fix, scoped to the deterministic input construction (not the LLM's output):**
+
+1. New `supabase/functions/describe-outfit/prompt.ts` — pulled `OutfitItem` and the item-list builder
+   out of `index.ts` (which calls `Deno.serve()` at module load, so it can't be imported from a test
+   without starting a listener) into their own module. Added `deriveSoleTorsoLayerIndex(items)`: the
+   client sends a flat item list, not the engine's `OutfitSlots`, and `isSoleTorsoLayer` lives in
+   `generate-outfits/engine/curator.ts` — a different Edge Function directory, not importable across
+   the deploy boundary (same constraint `collageLayout.ts` already documents for its own duplicate of
+   `LAYER_ROLE_BY_TYPE`). Rather than extend the client payload, this derives the identical fact
+   server-side from data the client ALREADY sends — each item's `type` — via a local
+   `TORSO_LAYER_TYPES` set mirroring `enrichment.ts`'s `LAYER_ROLE_BY_TYPE`: when exactly one item in
+   the outfit is a torso-layer garment type, it's the only thing on the torso, since nothing else in
+   the outfit occupies that region; two or more means real layering and neither gets marked.
+2. `buildItemLines(items)` appends `sole torso layer` into that garment's line, e.g. `1. Grey Cardigan
+   (cardigan) — Grey, Wool, oversized fit, sole torso layer` — same shape as `curator.ts`'s `extra`
+   param, so the fact sits right next to the garment in the text the model actually reads, not just
+   in prose it can override.
+3. Both `SYSTEM_PROMPT.en` and `SYSTEM_PROMPT.vi` (independent full translations, both edited in their
+   own natural voice, not translated word-for-word) — the CRITICAL/QUAN TRỌNG guard list gained:
+   - A sharpened replacement for the too-weak "only mention layering when there genuinely is
+     outerwear or multiple layers" bullet — EN: *"A garment's TYPE (cardigan, kimono, vest,
+     overshirt, etc.) is NEVER by itself grounds to suggest layering, opening, or unbuttoning — only
+     the actual presence of another garment on the torso is. Being called a cardigan does not mean
+     anything is worn under it."* VI: *"Tên loại áo (cardigan, kimono, vest, áo khoác mỏng mặc
+     ngoài...) KHÔNG bao giờ là lý do đủ để gợi ý layer, mở áo hay cởi cúc — chỉ khi thực sự có một
+     món áo khác đang mặc trên phần thân thì mới được nhắc tới việc layer. Một chiếc cardigan không
+     đồng nghĩa với việc bên trong còn áo khác."*
+   - A new hard rule keying off the marker itself — EN: *"Never suggest opening, unbuttoning, or
+     layering a garment marked 'sole torso layer' in the outfit list below — there is nothing under
+     it to reveal; it is worn closed, on its own, like any single top."* VI: *"Đừng bao giờ gợi ý mở,
+     cởi cúc, hoặc layer một món được đánh dấu 'sole torso layer' trong danh sách trang phục bên dưới
+     — bên trong nó không có gì để lộ ra cả; nó đang được mặc kín, một mình, như bất kỳ áo đơn nào
+     khác."*
+4. New `supabase/functions/describe-outfit/prompt.test.ts` (13 Deno tests): `deriveSoleTorsoLayerIndex`
+   across a single torso item, the exact reported bug shape (cardigan + trousers + loafers), two
+   torso items present (real layering → null), an outer-shell + base top pair (also real layering),
+   zero torso-family items, case-insensitive type matching, items missing `type`, and the marked
+   index not always being 0; `buildItemLines` across marker placement, absence when layering is real,
+   comma-join ordering after the existing attrs, and a byte-identical-output regression when nothing
+   applies. Does not attempt to test the LLM's actual output (non-deterministic), per this task's own
+   ground rule.
+
+**Not done:** none — payload extension wasn't needed (derived server-side from `type`, already sent);
+nothing left open for this bug. General follow-ups (if any surface later) go in `backlog.md`'s `## AG.`
+section per the standing convention.
+
+**Verify:** `deno test --allow-all supabase/functions/describe-outfit/` 13/13 passed. `deno test
+--allow-all supabase/functions/generate-outfits/` 347/347 passed (untouched — confirms no
+interference with the concurrent curator work above). `npx tsc --noEmit` clean. `npx jest` 44 suites
+/ 595 tests, 0 failed. No `expo`/`eas build`, no edge function deployed, no migration applied, no
+commit made.

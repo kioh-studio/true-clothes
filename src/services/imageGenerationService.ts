@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { sb } from './supabase';
-import { LogoSignal, MKey, PrintScale, Drape } from '../types/fitEngine';
+import { LogoSignal, MKey, PrintScale, Drape, Opacity } from '../types/fitEngine';
 import i18n from '../i18n';
 
 // ─── Contract types (camelCase mirror of the generate-item-image output) ──────
@@ -32,6 +32,11 @@ export interface GarmentMetadata {
   // construction sites (try-on scan, test fixtures) stay valid; absent/null
   // → the column stays NULL and the backfill run fills it later.
   distressed?: boolean | null;
+  // Opacity gate (2026-08-14) — see types/fitEngine.ts WardrobeItem.opacity
+  // for the exact definition. Optional for the same construction-site
+  // reasons as distressed above; on-device extract-by-item has no
+  // visual-judgment source → stays null.
+  opacity?: Opacity | null;
   // Dual-role layering (2026-07-03 schema) — the AI's own can-be-worn-open/
   // over estimate, server field `can_layer`. Previously extracted server-side
   // but never carried past this client boundary (2026-08-11 fix): every
@@ -70,6 +75,7 @@ interface RawMetadata {
   brand: string | null; graphics: LogoSignal | null; tags?: string[]; confidence?: number;
   primary_hex?: string | null; secondary_hex?: string | null;
   distressed?: boolean | null;
+  opacity?: Opacity | null;
   can_layer?: boolean | null;
   print_scale?: PrintScale | null;
   drape?: Drape | null;
@@ -94,6 +100,7 @@ function toDomain(m: RawMetadata): GarmentMetadata {
     primaryHex: m.primary_hex ?? null,
     secondaryHex: m.secondary_hex ?? null,
     distressed: m.distressed ?? null,
+    opacity: m.opacity ?? null,
     canLayer: m.can_layer ?? null,
     printScale: m.print_scale ?? null,
     drape: m.drape ?? null,

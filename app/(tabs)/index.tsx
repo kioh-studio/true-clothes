@@ -648,8 +648,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24, paddingTop: 14, paddingBottom: 14,
     backgroundColor: T.color.canvas,
   },
-  metaTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  metaStyle: { ...type.ui, fontSize: 10, color: T.color.tertiary },
+  // `metaStyle` MUST keep flexShrink — RN defaults flexShrink to 0 (unlike
+  // web's 1), so without it the meta line claims the full row width, wraps
+  // onto a second line, and shoves "DETAILS →" off the right edge of the
+  // screen (seen 2026-08-12: it rendered clipped to "DE"). flexShrink lets
+  // the text give way; `metaDetails.flexShrink: 0` keeps the CTA whole.
+  metaTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  metaStyle: { ...type.ui, fontSize: 10, color: T.color.tertiary, flexShrink: 1 },
   stylistNote: {
     fontFamily: T.font.serifLight,
     fontSize: 13,
@@ -658,7 +663,7 @@ const styles = StyleSheet.create({
     color: T.color.secondary,
     marginBottom: 8,
   },
-  metaDetails: { ...type.ui, fontSize: 10, color: T.color.primary, textDecorationLine: 'underline' },
+  metaDetails: { ...type.ui, fontSize: 10, color: T.color.primary, textDecorationLine: 'underline', flexShrink: 0 },
   thumbnails: { flexDirection: 'row', gap: 8, marginTop: 8 },
   thumb: {
     width: 44, height: 56, backgroundColor: T.color.elevated,

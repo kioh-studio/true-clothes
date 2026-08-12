@@ -327,6 +327,26 @@ function deriveCanLayer(
   return false;
 }
 
+// Can this garment be the ONLY thing on the torso (the base role — no layer
+// underneath, no layer on top)? A cardigan/vest has THREE possible roles:
+// base (sole torso garment), mid (worn over a base top), outer (worn as the
+// shell). deriveCanLayer above gates mid/outer — "born to be worn open" — but
+// the base role was previously granted unconditionally, purely from
+// CATEGORY_MAP listing CARDIGAN/VEST as 'top' with no gate at all. That let a
+// see-through mesh cardigan be selected as the sole torso layer, worn over
+// bare skin. A cardigan buttoned up IS a genuinely valid standalone top —
+// that must keep working — so the fix is not "cardigans can't be a base",
+// it's the same lesson as deriveCanLayer's own history (687c403, "judge a
+// shirt by its closure, not its fabric weight"): gate on the physical
+// property that actually decides the outcome, not on the type name. Opacity
+// is that property, and it is type-agnostic on purpose — a sheer blouse or
+// lace camisole is exactly as unwearable alone as a sheer cardigan.
+// null/undefined opacity (unassessed item) keeps today's behaviour: allowed.
+// Not gated on type at all — deliberately callable for any category.
+function deriveCanBeSoleTop(opacity: 'sheer' | 'semi' | 'opaque' | null | undefined): boolean {
+  return opacity !== 'sheer';
+}
+
 const fabricProfileOf = (material: string | undefined, category: ItemCategory): FabricProfile => {
   const mat = primaryMaterial(material);
   const def: Partial<FabricDefaults> = mat ? (FABRIC_DEFAULTS[mat] ?? {}) : {};
@@ -749,6 +769,7 @@ export function toFitItem(item: ClothingItemRow): FitItem {
     fabric: { ...fabric, pattern, layerRole, distressed: item.distressed ?? undefined },
     // Stored can_layer (AI-extracted or user-set) wins over the rule derivation.
     canLayer: item.canLayer ?? deriveCanLayer(item.type, fabricName, fabric.fabricWeight, fit, fitReal),
+    canBeSoleTop: deriveCanBeSoleTop(item.opacity),
     garmentMeasurements: parseMeasurements(item.measurements, category),
     styleTags: styleTagsOf(item.type, item.color, item.material),
     fit,

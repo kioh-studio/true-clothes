@@ -55,7 +55,7 @@ function PickerCard({ item, selected, cardSize, onPress }: {
       )}
       <View style={{ padding: 8 }}>
         <Text style={styles.pickerItemLabel} numberOfLines={1}>
-          {item.notes ?? item.category.toUpperCase()}
+          {item.name || item.notes || item.category.toUpperCase()}
         </Text>
       </View>
     </Pressable>

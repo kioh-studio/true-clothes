@@ -20,6 +20,9 @@ export type MKey =
 export type PrintScale = 'micro' | 'medium' | 'large'
 export type Drape = 'structured' | 'regular' | 'fluid'
 
+// Opacity gate (feature 010 follow-up, 2026-08-14) — see WardrobeItem.opacity below.
+export type Opacity = 'sheer' | 'semi' | 'opaque'
+
 // Logo / statement-strength signals captured at ingest (feature 006).
 // Stored in clothing_items.graphics (jsonb); NOT read by the engine yet.
 export interface LogoSignal {
@@ -69,6 +72,14 @@ export interface WardrobeItem {
   // assessed — the engine's featuresPasses treats null as "unknown", never
   // as a rejection (fail-open).
   distressed: boolean | null
+  // Opacity gate (2026-08-14) — how much skin/what's underneath shows through
+  // the fabric (sheer/semi/opaque). Type-agnostic: a sheer garment may never
+  // be the sole torso layer, regardless of type. Read-only here: set at
+  // ingest (AI extraction) or by the backfill-item-metadata admin tool; null
+  // until assessed — the engine's deriveCanBeSoleTop treats null the same as
+  // 'opaque' (fail-open, unchanged behaviour). See generate-item-image/
+  // prompt.ts's GarmentMetadata.opacity for the full field definition.
+  opacity: Opacity | null
   // Visual enrichment đợt 2 (2026-07-03 schema, 2026-08-11 client threading) —
   // pattern/graphic scale AS WORN, how the fabric drapes, and how visually
   // striking the piece reads. Consumed server-side by the engine

@@ -579,8 +579,17 @@ function generateFromPool(pool: FormulaPool, rand: () => number, target?: Target
       }
       return shuffle(vs, rand);
     }
-    const vs: OutfitSlots[] = [{ ...base }];
-    if (accs.length > 0)                       vs.push({ ...base, accessory: pick(accs).id });
+    // Sole-torso gate (2026-08-14) — a bare top (no outwear, no mid) is the
+    // ONLY garment on the torso, so it must be able to stand alone; see
+    // enrichment.ts's deriveCanBeSoleTop for why this is an opacity check,
+    // not a type check. Only the two "nothing else on the torso" variants
+    // below are gated (bare, and bare+accessory — an accessory like a belt
+    // or bag doesn't cover the torso) — every OTHER variant adds a real
+    // outerwear/layer/mid piece over the top, so a sheer top stays fully
+    // selectable there, per "not excluded from the wardrobe outright".
+    const canBeSole = c.top.canBeSoleTop !== false;
+    const vs: OutfitSlots[] = canBeSole ? [{ ...base }] : [];
+    if (canBeSole && accs.length > 0)          vs.push({ ...base, accessory: pick(accs).id });
     if (outwear.length > 0)                    vs.push({ ...base, outwear: pick(outwear).id });
     if (outwear.length > 0 && accs.length > 0) vs.push({ ...base, outwear: pick(outwear).id, accessory: pick(accs).id });
     const layers = layerOptionsFor(c.top);

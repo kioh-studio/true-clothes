@@ -15,6 +15,8 @@
 //   (empty string / empty array on any AI failure — caller falls back to its own
 //    item-list text; this never 500s on AI issues.)
 
+import { OutfitItem, buildItemLines } from './prompt.ts';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -42,10 +44,6 @@ const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 // with no redeploy — no code change needed, just set the env var below.
 const DEFAULT_MODEL = Deno.env.get('GEMINI_FLASH_LITE_MODEL') || 'gemini-2.5-flash-lite';
 const TIMEOUT_MS = 8000;   // one description + tips ≈ 1–2s; generous headroom, detail screen shows a loader
-
-interface OutfitItem {
-  name?: string; type?: string; color?: string; material?: string; fit?: string;
-}
 
 type Locale = 'en' | 'vi';
 function resolveLocale(l?: string): Locale {
@@ -76,7 +74,8 @@ wayToWear: 3–5 SHORT imperative styling tips (each ≤ ~80 characters) telling
 CRITICAL — only suggest a technique when it is genuinely VALID for the actual garments present:
 - Never suggest tucking a cropped or oversized top.
 - Never suggest rolling short sleeves.
-- Only mention layering when there genuinely is outerwear or multiple layers.
+- A garment's TYPE (cardigan, kimono, vest, overshirt, etc.) is NEVER by itself grounds to suggest layering, opening, or unbuttoning — only the actual presence of another garment on the torso is. Being called a cardigan does not mean anything is worn under it.
+- Never suggest opening, unbuttoning, or layering a garment marked "sole torso layer" in the outfit list below — there is nothing under it to reveal; it is worn closed, on its own, like any single top.
 - Only mention a belt if an accessory belt is actually in the outfit.
 Make the tips weather-aware when weather is given (e.g. roll the sleeves when it is warm). Write each tip in natural, idiomatic English, imperative voice, with no numbering and no preamble inside the string.`,
   vi: `Bạn là một stylist thời trang, viết nội dung hiển thị ở màn hình chi tiết của một bộ trang phục. Bạn trả về một đối tượng JSON gồm hai trường: "description" và "wayToWear".
@@ -87,7 +86,8 @@ wayToWear: 3–5 mẹo phối đồ NGẮN GỌN, dạng mệnh lệnh (mỗi m�
 QUAN TRỌNG — chỉ gợi ý một kỹ thuật khi nó thực sự PHÙ HỢP với các món đồ thực tế:
 - Đừng bao giờ gợi ý sơ vin áo croptop hoặc áo dáng rộng (oversized).
 - Đừng bao giờ gợi ý xắn tay áo ngắn.
-- Chỉ nhắc đến việc layer/lớp áo khi thực sự có áo khoác hoặc nhiều lớp.
+- Tên loại áo (cardigan, kimono, vest, áo khoác mỏng mặc ngoài...) KHÔNG bao giờ là lý do đủ để gợi ý layer, mở áo hay cởi cúc — chỉ khi thực sự có một món áo khác đang mặc trên phần thân thì mới được nhắc tới việc layer. Một chiếc cardigan không đồng nghĩa với việc bên trong còn áo khác.
+- Đừng bao giờ gợi ý mở, cởi cúc, hoặc layer một món được đánh dấu "sole torso layer" trong danh sách trang phục bên dưới — bên trong nó không có gì để lộ ra cả; nó đang được mặc kín, một mình, như bất kỳ áo đơn nào khác.
 - Chỉ nhắc đến thắt lưng nếu trong bộ thực sự có phụ kiện thắt lưng.
 Hãy để các mẹo phù hợp thời tiết khi có thông tin thời tiết (ví dụ xắn tay áo khi trời nóng). Viết mỗi mẹo bằng tiếng Việt tự nhiên, dạng mệnh lệnh, không đánh số và không lời dẫn bên trong chuỗi.`,
 };
@@ -144,10 +144,11 @@ Deno.serve(async (req) => {
 
     const locale = resolveLocale(body.locale);
     const L = LABELS[locale];
-    const itemLines = items.map((i, n) => {
-      const attrs = [i.color, i.material, i.fit ? `${i.fit} fit` : null].filter(Boolean).join(', ');
-      return `${n + 1}. ${i.name ?? i.type}${i.type && i.name ? ` (${i.type.toLowerCase()})` : ''}${attrs ? ` — ${attrs}` : ''}`;
-    }).join('\n');
+    // buildItemLines (prompt.ts) also derives and inlines the `sole torso
+    // layer` marker on whichever garment is the only thing on the torso —
+    // see prompt.ts for why the fact is computed here rather than sent by
+    // the client.
+    const itemLines = buildItemLines(items);
     const stylesLine = body.styles?.length ? `${L.styles}: ${body.styles.join(', ')}.` : '';
     const occasionLine = body.occasion ? `${L.occasion}: ${body.occasion}.` : '';
     const weatherLine = body.weather ? `${L.weather}: ${body.weather}.` : '';

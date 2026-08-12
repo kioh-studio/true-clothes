@@ -404,6 +404,7 @@ export const useTryOnStore = create<TryOnState>((set, get) => {
       // shape the add-wizard gets — no on-device "no source" case to worry
       // about on this path.
       distressed: meta.distressed ?? null,
+      opacity: meta.opacity ?? null,
       canLayer: meta.canLayer ?? null,
       printScale: meta.printScale ?? null,
       drape: meta.drape ?? null,
