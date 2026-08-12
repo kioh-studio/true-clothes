@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
           // (evaluate-item phase 2, 2026-08-06) — mirrors generate-outfits/index.ts
           // so both endpoints run enrichment.ts's hex refinement and structured-
           // graphics preference the same way instead of always seeing undefined.
-          .select('id, type, name, color, material, fit, pattern, warmth_season, can_layer, print_scale, drape, visual_interest, opacity, primary_hex, secondary_hex, graphics, distressed, m_chest, m_shoulder_width, m_sleeves, m_body_length, m_upper_arm, m_waist, m_hip, m_inseam, m_thigh, m_rise')
+          .select('id, type, name, color, material, fit, pattern, warmth_season, can_layer, print_scale, drape, visual_interest, primary_hex, secondary_hex, graphics, distressed, m_chest, m_shoulder_width, m_sleeves, m_body_length, m_upper_arm, m_waist, m_hip, m_inseam, m_thigh, m_rise')
           .eq('wardrobe_id', wardrobeId)
       : { data: [] as Record<string, unknown>[], error: null };
 
@@ -116,7 +116,6 @@ Deno.serve(async (req) => {
         secondary_hex: row.secondary_hex as string | null | undefined,
         graphics: row.graphics as ClothingItemRow['graphics'],
         distressed: row.distressed as boolean | null | undefined,
-        opacity: row.opacity as ClothingItemRow['opacity'],
         measurements: measurements.length > 0 ? measurements : undefined,
       };
     });

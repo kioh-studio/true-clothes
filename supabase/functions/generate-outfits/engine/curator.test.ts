@@ -10,7 +10,7 @@
 // index.ts's `describe` callback receives).
 //
 // Also covers describeItem (2026-08-14) — the pure candidate-line formatter
-// extracted from index.ts so the pattern/print_scale/drape/opacity/
+// extracted from index.ts so the pattern/print_scale/drape/
 // distressed/warmth_season/visual_interest suppression rules are directly
 // testable: each new attribute appears only when it's informative, vanishes
 // at its default/null, and size/brand/measurements never appear at all.
@@ -103,22 +103,6 @@ Deno.test('describeItem: drape null is omitted', () => {
   assertEquals(describeItem(row({ drape: null }), 'top'), 'top: Classic Tee (tee, white)');
 });
 
-Deno.test('describeItem: opacity sheer is printed', () => {
-  assertStringIncludes(describeItem(row({ opacity: 'sheer' }), 'top'), 'sheer');
-});
-
-Deno.test('describeItem: opacity semi is printed', () => {
-  assertStringIncludes(describeItem(row({ opacity: 'semi' }), 'top'), 'semi');
-});
-
-Deno.test('describeItem: opacity opaque is omitted (default read)', () => {
-  assertEquals(describeItem(row({ opacity: 'opaque' }), 'top'), 'top: Classic Tee (tee, white)');
-});
-
-Deno.test('describeItem: opacity null is omitted', () => {
-  assertEquals(describeItem(row({ opacity: null }), 'top'), 'top: Classic Tee (tee, white)');
-});
-
 Deno.test('describeItem: distressed true is printed', () => {
   assertStringIncludes(describeItem(row({ distressed: true }), 'top'), 'distressed');
 });
@@ -190,13 +174,12 @@ Deno.test('describeItem: all attributes together stay in the documented order an
     pattern: 'floral',
     printScale: 'medium',
     drape: 'fluid',
-    opacity: 'semi',
     distressed: true,
     warmthSeason: 'lightweight_summer',
     visualInterest: 0.9,
   }), 'top', 'sole torso layer');
   assertEquals(
     out,
-    'top: Classic Tee (tee, white, Silk, loose fit, medium floral, fluid, semi, distressed, lightweight_summer, statement, sole torso layer)',
+    'top: Classic Tee (tee, white, Silk, loose fit, medium floral, fluid, distressed, lightweight_summer, statement, sole torso layer)',
   );
 });

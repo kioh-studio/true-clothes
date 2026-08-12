@@ -2369,18 +2369,40 @@ items below — stopped rather than improvised, per this task's ground rules.
   migration). Only `GLOVES`/`TIGHTS` remain open — the engine has no formality, style-affinity, or
   layer-role metadata for either (`CATEGORY_MAP` covers them, defaulting both to `accessory`, but
   that's it), so closing them needs a real product decision, not a mechanical copy.
-  Converse drift, lower severity: `garment_types` has 8 types the picker can't reach —
-  `CARGO, DERBY, GILET, JOGGERS, SLIDES, SOCKS, TANK, WINDBREAKER`.
-- [ ] **7 of those 8 DB-only types are silently misclassified as `accessory` by the engine**
-  (2026-08-13, found while auditing where the type vocabulary comes from). `enrichment.ts:14`
-  `CATEGORY_MAP` covers the 55 picker types, and `categoryOf()` (line 27) ends in
-  `?? 'accessory'` — so an item whose `type` is `TANK` (should be `top`), `CARGO`/`JOGGERS`
-  (`bottom`), `DERBY`/`SLIDES` (`shoes`), or `GILET`/`WINDBREAKER` (`outwear`) enters
-  `toFitItem()` (line 704) as an accessory: wrong slot, wrong layer role, wrong scoring.
-  `SOCKS` is the only one the fallback gets right. Not reachable from the picker today, but
-  reachable from shop/catalog rows and any future importer. Fix is to add the 8 keys to
-  `CATEGORY_MAP` (values are already in `garment_types.category` on live), or better, make
-  the fallback loud instead of silent.
+  Converse drift — **NOT lower severity, this one ships wrong outfits** (corrected 2026-08-12
+  after it bit us live): `garment_types` has 8 types nothing else knows about —
+  `CARGO, DERBY, GILET, JOGGERS, SLIDES, SOCKS, TANK, WINDBREAKER`. Verified: all 8 are absent from
+  the engine's `CATEGORY_MAP` (`enrichment.ts:15-26`) AND from `collageLayout.ts`'s `ASPECT` and
+  `ACCESSORY_TYPES`. `categoryOf` (`enrichment.ts:27`) falls back to `?? 'accessory'`, so such an
+  item silently becomes an ACCESSORY in outfit generation.
+  **Live proof:** the woven `SLIDES` imported in phase 4 filled the accessory slot of a
+  `layering_stack` outfit that already had Chelsea `BOOTS` in the shoes slot — the feed served a
+  5-item look with TWO pairs of footwear (screenshot 2026-08-12). It also rendered at clothing size
+  in the collage rather than in the accessory row, because `SLIDES` is missing from
+  `ACCESSORY_TYPES`/`ASPECT` too.
+  Fix for `SLIDES` specifically needs 4 layers + a redeploy of the 3 engine-importing edge
+  functions: `CATEGORY_MAP` `'shoes'`, `BASE_FORMALITY` (DB says 1.0), `STYLE_AFFINITY` (DB says
+  athleisure/streetwear), `TYPE_FIT_DEFAULT`, plus `collageLayout`'s `ACCESSORY_TYPES` + `ASPECT`,
+  plus `vocab.ts` `TYPE_OPTIONS`. The other 7 need real formality/affinity calls first.
+  **`SLIDES` CLOSED 2026-08-13** — wired through every list `SANDALS` appears in (`enrichment.ts`'s
+  `CATEGORY_MAP`/`STYLE_AFFINITIES`/`TYPE_DEFAULT_FIT`/`TYPE_FORMALITY`, `collageLayout.ts`'s
+  `ACCESSORY_TYPES`/`ASPECT`, `vocab.ts`/`measureSchema.ts`/`buckets.ts`/`wardrobeService.ts`/
+  `itemTypeMap.ts`/`generate-item-image/prompt.ts`/`map-measurements/prompt.ts`, plus the two engine
+  test files' type-set copies), regression test added, all 3 engine-importing functions +
+  `generate-item-image` + `backfill-item-metadata` + `map-measurements` redeployed. See `plan.md`
+  "`SLIDES` garment type missing from the fit engine" for the full list and verify numbers. The other
+  7 (`CARGO, DERBY, GILET, JOGGERS, SOCKS, TANK, WINDBREAKER`) remain open below — still need real
+  formality/affinity/category decisions, not a mechanical copy.
+- [ ] **6 of the remaining 7 DB-only types are silently misclassified as `accessory` by the engine**
+  (2026-08-13, found while auditing where the type vocabulary comes from; `SLIDES` closed
+  2026-08-13, see the entry above and `plan.md`). `enrichment.ts:14` `CATEGORY_MAP` covers the 56
+  picker types (55 + `SLIDES`), and `categoryOf()` (line 27) ends in `?? 'accessory'` — so an item
+  whose `type` is `TANK` (should be `top`), `CARGO`/`JOGGERS` (`bottom`), `DERBY` (`shoes`), or
+  `GILET`/`WINDBREAKER` (`outwear`) enters `toFitItem()` (line 704) as an accessory: wrong slot,
+  wrong layer role, wrong scoring. `SOCKS` is the only one of the remaining 7 the fallback gets
+  right. Not reachable from the picker today, but reachable from shop/catalog rows and any future
+  importer. Fix is to add the 6 keys to `CATEGORY_MAP` (values are already in
+  `garment_types.category` on live), or better, make the fallback loud instead of silent.
 - [ ] **`garment_types.category` disagrees with the engine on the 4 one-piece types**
   (2026-08-13). Live has `DRESS, GOWN, JUMPSUIT, OVERALLS` under `category='bottom'`;
   `enrichment.ts:20` calls them `onepiece`. No runtime effect while the engine keeps its own
@@ -2431,29 +2453,39 @@ items below — stopped rather than improvised, per this task's ground rules.
 Fix chi tiết ở `plan.md` cùng ngày ("Sheer cardigan worn as the sole torso layer"). Ba việc còn
 treo, ghi lại đây theo đúng yêu cầu của lead khi giao task:
 
-- [ ] **Cần chạy lại `backfill-item-metadata` để thực sự điền `opacity`** (2026-08-13). Cột mới
-  (`20260814000001_item_opacity.sql`) NULL trên mọi row hiện có, và `deriveCanBeSoleTop` đọc NULL
-  y như `'opaque'` (fail-open, không đổi hành vi) — về mặt an toàn cột này "sạch", không có nguy
-  cơ backfill ghi đè giá trị thật đã có (khác case rayon/distressed trước đây, không có gì phải
-  cân nhắc trước khi chạy). Nhưng "sạch" không có nghĩa là "xong": tới khi endpoint đó thật sự
-  chạy (cần header `x-admin-secret`, anh Khôi phải cung cấp), MỌI item sheer thật trong wardrobe —
-  kể cả `cardigan_cream` (`3D Knit Mesh Cardigan`) chính là item gây ra bug — vẫn đọc
-  `canBeSoleTop: true` như trước khi có fix này, vì opacity của nó chưa từng được trích xuất.
+- [x] **[HUỶ TOÀN BỘ — 2026-08-13, xem plan.md "Reversal: `opacity` garment attribute abandoned"]
+  Cần chạy lại `backfill-item-metadata` để thực sự điền `opacity`.** Lead đã quyết định bỏ hẳn
+  thuộc tính `opacity` — mục TODO này không còn ý nghĩa, không cần chạy backfill nữa vì
+  `deriveCanBeSoleTop`/gate `opacity` đã bị xoá khỏi code. Lý do bỏ: `opacity` trích xuất từ ảnh
+  sản phẩm/ảnh mặc tĩnh không đáng tin — món đồ chụp phẳng/gấp lại không lộ ra tính xuyên thấu như
+  khi mặc lên người; và luồng on-device "extract by item" (`src/services/extractByItemService.ts`)
+  không bao giờ gọi cloud extractor, nên item thêm qua đường đó KHÔNG BAO GIỜ có giá trị `opacity`
+  dù chạy backfill bao nhiêu lần. Thực tế: toàn bộ 102 row sống đều NULL — tính năng chưa từng có
+  tác dụng thật trên production. Cột `opacity` trên DB (`20260814000001_item_opacity.sql`) vẫn giữ
+  nguyên (migration đã stamp, không xoá), chỉ là không còn ai đọc/ghi nó nữa.
 - [ ] **Cardigan oversized + quần ống rộng trên thân hình đồng hồ cát xoá mất vòng eo, trong khi
   card vẫn hiển thị "SHAPE: HOURGLASS"** (2026-08-13, phát hiện cùng lúc điều tra bug cardigan
   sheer). Engine không có khái niệm "volume chồng volume xoá silhouette" trong scoring — chỉ
   render nhãn hình dáng cơ thể tĩnh (`body_shape`) mà không phạt điểm khi outfit thực tế che mất
   hình dáng đó. Cần thêm một tín hiệu phạt volume-on-volume vào `scoring.ts`, chưa làm ở đây.
-- [ ] **Túi xách dạ hội đính sequin bị ghép với giày sneaker trắng dưới tag `minimalist ·
-  everyday`** (2026-08-13, phát hiện cùng lúc). Accessory hiện không có trục formality riêng trong
-  engine nên một món dạ hội (evening) có thể lọt vào outfit đời thường mà không bị phạt điểm lệch
-  tông formality — cần thêm trục formality cho accessory, chưa làm ở đây.
-- [ ] **Sheer one-piece chưa được gate** (2026-08-13). `deriveCanBeSoleTop` hiện chỉ chặn ở slot
-  top (`generation.ts:590`, `const canBeSole = c.top.canBeSoleTop !== false;`, chỉ được đọc trong
-  nhánh top-slot của `generateFromPool`) — một chiếc váy/dress vải xuyên thấu (`category ===
-  'onepiece'`) vẫn đi thẳng vào feed: `generateOnepieceCandidates` (`generation.ts:652`) build cặp
-  (onepiece, shoe) mà không hề tham chiếu `canBeSoleTop`/`opacity`. Cùng lỗi gốc (sheer làm base
-  layer trần), khác slot — chưa gate ở đây.
+- [ ] **[Đã sửa lại 2026-08-13, evidence gốc sai] Accessory có thể thiếu trục formality — nhưng
+  CHƯA có ca lỗi thật nào chứng minh.** Mục gốc ghi "túi xách dạ hội đính sequin bị ghép với giày
+  sneaker trắng dưới tag `minimalist · everyday`" — đó là đọc nhầm từ thumbnail render nhỏ trên
+  màn hình. Đối chiếu lại DB thật: item đó là `Leather Tote Bag`, màu Black, id `2fb20c62…`, trong
+  wardrobe của `demo-woman@mien.app` — một cái túi tote da đen trơn, không sequin, không dạ hội.
+  Túi tote da đen đi với sneaker trắng dưới tag minimalist là một cặp hoàn toàn hợp lý, không phải
+  bug. Bằng chứng ban đầu của mục này không tồn tại. Ý tưởng "accessory không có trục formality
+  riêng trong engine" tự nó có thể vẫn đúng về mặt kỹ thuật (chưa kiểm tra lại), nhưng giờ chỉ còn
+  là một đề xuất CHƯA CHỨNG MINH, không có ca lỗi quan sát được đứng sau — cần tìm một
+  counter-example thật (một accessory formality rõ ràng bị ghép sai tông trong outfit thật) trước
+  khi ai bỏ công làm trục formality cho accessory. Đừng coi đây là bug đã xác nhận.
+- [x] **[HUỶ, thay bằng mục "Bug gốc chưa fix" bên dưới — 2026-08-13] Sheer one-piece chưa được
+  gate.** Mục gốc đề xuất mở rộng `deriveCanBeSoleTop`/`canBeSoleTop` sang cả nhánh one-piece
+  (`generateOnepieceCandidates`, `generation.ts:652`), nhưng toàn bộ cơ chế đó (`deriveCanBeSoleTop`,
+  `canBeSoleTop`, gate `opacity` ở slot top trong `variantsFor`) đã bị xoá khỏi code khi lead huỷ
+  `opacity` — không còn gì để "mở rộng" nữa. Vấn đề gốc (garment xuyên thấu làm base layer trần)
+  vẫn CHƯA có cơ chế chặn nào ở cả hai slot (top lẫn one-piece) — xem mục mới bên dưới ghi nhận đây
+  là bug đã biết, chấp nhận chưa sửa.
 - [ ] **Volume-on-volume xoá eo — mới có ở tầng curator (taste), chưa có ở `scoring.ts`
   (deterministic)** (2026-08-14, cập nhật cho mục "Cardigan oversized + quần ống rộng..." phía
   trên). `engine/curator.ts`'s `describeItem` giờ gửi tag `drape` (`structured`/`fluid`) cho model,
@@ -2486,6 +2518,19 @@ treo, ghi lại đây theo đúng yêu cầu của lead khi giao task:
   mặc một mình đếm ra 0 item torso-layer (không phải 1), nên không bao giờ được gắn note, và câu
   "đừng bảo mở/layer món là lớp duy nhất" không bảo vệ được ca one-piece xuyên thấu. Rủi ro thấp
   hơn case cardigan (váy liền thân không có gì để "mở ra" như cardigan), nhưng cùng họ lỗ hổng với
-  mục **"Sheer one-piece chưa được gate"** phía trên (`generation.ts:590`, `generation.ts:652`) —
-  cả hai đều là chỗ pipeline chưa xử lý one-piece xuyên thấu như một ca base-layer-trần thật sự.
-  Chưa làm gì ở đây.
+  mục **"Bug gốc chưa fix"** bên dưới — cả hai đều là chỗ pipeline chưa xử lý one-piece xuyên thấu
+  như một ca base-layer-trần thật sự (và giờ engine không còn gate `opacity` ở slot nào cả, kể cả
+  top). Chưa làm gì ở đây.
+
+- [ ] **Bug gốc CHƯA ĐƯỢC SỬA, chấp nhận tạm thời (2026-08-13, ghi lại khi huỷ `opacity`).** Sau khi
+  huỷ toàn bộ gate `opacity`/`deriveCanBeSoleTop`, bug gốc mục này từng nhắm tới vẫn còn nguyên:
+  engine có thể chọn một chiếc cardigan lưới xuyên thấu (`951ad59f-3152-46a8-bffb-423c4571b702`)
+  làm garment DUY NHẤT trên thân — xác nhận trực tiếp trong log production của `generate-outfits`
+  lúc 19:25:53, item này được chọn làm sole torso garment ở HAI outfit riêng biệt trong cùng lần
+  chạy. Phần copy ("HOW TO WEAR") không còn tự mâu thuẫn nữa — `describe-outfit`'s
+  `deriveSoleTorsoLayerIndex`/`TORSO_LAYER_TYPES` (dựa trên TYPE, không phụ thuộc `opacity`) vẫn
+  hoạt động, nên app sẽ không còn bảo người dùng "mở cúc" một món đang là lớp duy nhất — nhưng bản
+  thân OUTFIT vẫn sai: một cardigan xuyên thấu vẫn bị gợi ý mặc một mình, không có gì che bên
+  trong. Không sửa ở đây theo yêu cầu — cột `opacity` (không dùng) vẫn còn trên DB
+  (`clothing_items.opacity`, migration `20260814000001_item_opacity.sql`) nếu sau này cần một
+  hướng tiếp cận khác cho vấn đề này.

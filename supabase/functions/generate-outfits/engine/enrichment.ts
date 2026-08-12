@@ -18,7 +18,7 @@ const CATEGORY_MAP: Record<string, ItemCategory> = {
   JACKET: 'outwear', BLAZER: 'outwear', COAT: 'outwear', HOODIE: 'outwear', PARKA: 'outwear', OVERCOAT: 'outwear', CAPE: 'outwear', KIMONO: 'outwear',
   JEANS: 'bottom', TROUSERS: 'bottom', CHINOS: 'bottom', SHORTS: 'bottom', SKIRT: 'bottom', LEGGINGS: 'bottom',
   DRESS: 'onepiece', JUMPSUIT: 'onepiece', OVERALLS: 'onepiece', GOWN: 'onepiece',
-  LOAFERS: 'shoes', SNEAKERS: 'shoes', BOOTS: 'shoes', HEELS: 'shoes', SANDALS: 'shoes', OXFORDS: 'shoes', MULES: 'shoes', FLATS: 'shoes', WEDGES: 'shoes',
+  LOAFERS: 'shoes', SNEAKERS: 'shoes', BOOTS: 'shoes', HEELS: 'shoes', SANDALS: 'shoes', OXFORDS: 'shoes', MULES: 'shoes', FLATS: 'shoes', WEDGES: 'shoes', SLIDES: 'shoes',
   BAG: 'accessory', BELT: 'accessory', SCARF: 'accessory', WATCH: 'accessory', CAP: 'accessory',
   NECKLACE: 'accessory', SUNGLASSES: 'accessory', HAT: 'accessory', RING: 'accessory', BRACELET: 'accessory',
   EARRINGS: 'accessory', GLOVES: 'accessory', TIGHTS: 'accessory', TIE: 'accessory',
@@ -327,26 +327,6 @@ function deriveCanLayer(
   return false;
 }
 
-// Can this garment be the ONLY thing on the torso (the base role — no layer
-// underneath, no layer on top)? A cardigan/vest has THREE possible roles:
-// base (sole torso garment), mid (worn over a base top), outer (worn as the
-// shell). deriveCanLayer above gates mid/outer — "born to be worn open" — but
-// the base role was previously granted unconditionally, purely from
-// CATEGORY_MAP listing CARDIGAN/VEST as 'top' with no gate at all. That let a
-// see-through mesh cardigan be selected as the sole torso layer, worn over
-// bare skin. A cardigan buttoned up IS a genuinely valid standalone top —
-// that must keep working — so the fix is not "cardigans can't be a base",
-// it's the same lesson as deriveCanLayer's own history (687c403, "judge a
-// shirt by its closure, not its fabric weight"): gate on the physical
-// property that actually decides the outcome, not on the type name. Opacity
-// is that property, and it is type-agnostic on purpose — a sheer blouse or
-// lace camisole is exactly as unwearable alone as a sheer cardigan.
-// null/undefined opacity (unassessed item) keeps today's behaviour: allowed.
-// Not gated on type at all — deliberately callable for any category.
-function deriveCanBeSoleTop(opacity: 'sheer' | 'semi' | 'opaque' | null | undefined): boolean {
-  return opacity !== 'sheer';
-}
-
 const fabricProfileOf = (material: string | undefined, category: ItemCategory): FabricProfile => {
   const mat = primaryMaterial(material);
   const def: Partial<FabricDefaults> = mat ? (FABRIC_DEFAULTS[mat] ?? {}) : {};
@@ -392,6 +372,7 @@ const STYLE_AFFINITIES: Record<string, string[]> = {
   BOOTS:      ['streetwear', 'bohemian', 'oldmoney'],
   FLATS:      ['minimalist', 'oldmoney', 'preppy', 'smartcasual'],
   WEDGES:     ['bohemian', 'smartcasual', 'preppy'],
+  SLIDES:     ['athleisure', 'streetwear'],
   BAG:        ['minimalist', 'oldmoney', 'streetwear'],
   BELT:       ['oldmoney', 'preppy', 'smartcasual'],
   SCARF:      ['oldmoney', 'bohemian', 'preppy'],
@@ -533,7 +514,7 @@ const TYPE_DEFAULT_FIT: Record<string, ItemFit> = {
   SHORTS: 'regular', SKIRT: 'regular', LEGGINGS: 'slim', DRESS: 'regular',
   LOAFERS: 'regular', SNEAKERS: 'regular', BOOTS: 'regular',
   HEELS: 'slim', SANDALS: 'regular', OXFORDS: 'regular', MULES: 'regular',
-  FLATS: 'regular', WEDGES: 'regular',
+  FLATS: 'regular', WEDGES: 'regular', SLIDES: 'regular',
 };
 
 // Returns the derived fit AND whether it came from a real signal (stored `fit`
@@ -561,7 +542,7 @@ const TYPE_FORMALITY: Record<string, number> = {
   PARKA: 2.0, OVERCOAT: 4.0, CAPE: 3.5, KIMONO: 3.0,
   JEANS: 2.0, TROUSERS: 4.0, CHINOS: 3.0, SHORTS: 1.5, SKIRT: 3.0, LEGGINGS: 1.5, DRESS: 3.5,
   LOAFERS: 4.0, SNEAKERS: 1.5, BOOTS: 3.0, HEELS: 4.5, SANDALS: 1.0,
-  OXFORDS: 4.5, MULES: 3.0, FLATS: 3.0, WEDGES: 3.0,
+  OXFORDS: 4.5, MULES: 3.0, FLATS: 3.0, WEDGES: 3.0, SLIDES: 1.0,
   BAG: 2.5, BELT: 3.5, SCARF: 3.0, WATCH: 3.5, CAP: 1.5,
   NECKLACE: 3.0, SUNGLASSES: 2.0, HAT: 2.5,
   EARRINGS: 3.0, GLOVES: 3.0, TIGHTS: 3.0, TIE: 3.5,
@@ -769,7 +750,6 @@ export function toFitItem(item: ClothingItemRow): FitItem {
     fabric: { ...fabric, pattern, layerRole, distressed: item.distressed ?? undefined },
     // Stored can_layer (AI-extracted or user-set) wins over the rule derivation.
     canLayer: item.canLayer ?? deriveCanLayer(item.type, fabricName, fabric.fabricWeight, fit, fitReal),
-    canBeSoleTop: deriveCanBeSoleTop(item.opacity),
     garmentMeasurements: parseMeasurements(item.measurements, category),
     styleTags: styleTagsOf(item.type, item.color, item.material),
     fit,

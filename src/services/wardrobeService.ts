@@ -2,7 +2,7 @@
 // wardrobe-photos storage bucket. Screens and stores MUST NOT import `sb` directly.
 
 import { sb } from './supabase';
-import { WardrobeItem, PhotoStorageKind, MKey, LogoSignal, PrintScale, Drape, Opacity } from '../types/fitEngine';
+import { WardrobeItem, PhotoStorageKind, MKey, LogoSignal, PrintScale, Drape } from '../types/fitEngine';
 import { genId } from '../utils/genId';
 
 // Garment measurement columns the engine reads (cm). Kept in one place so the
@@ -64,10 +64,6 @@ export interface AddItemInput {
   // WardrobeItem.distressed for the definition. Absent/null → the column
   // stays NULL and the backfill-item-metadata admin run fills it later.
   distressed?: boolean | null;
-  // Opacity gate (2026-08-14) — see types/fitEngine.ts WardrobeItem.opacity
-  // for the definition. Absent/null → the column stays NULL and the
-  // backfill-item-metadata admin run fills it later.
-  opacity?: Opacity | null;
   // Visual enrichment đợt 2 (2026-07-03 schema, 2026-08-11 client threading) —
   // see types/fitEngine.ts WardrobeItem.printScale/drape/visualInterest for
   // definitions. Absent/null → the columns stay NULL and the
@@ -132,7 +128,6 @@ interface ClothingItemRow {
   primary_hex: string | null;
   secondary_hex: string | null;
   distressed: boolean | null;
-  opacity: string | null;
   print_scale: string | null;
   drape: string | null;
   visual_interest: number | null;
@@ -159,21 +154,16 @@ interface ClothingItemRow {
 
 const PRINT_SCALES: readonly PrintScale[] = ['micro', 'medium', 'large'];
 const DRAPES: readonly Drape[] = ['structured', 'regular', 'fluid'];
-const OPACITIES: readonly Opacity[] = ['sheer', 'semi', 'opaque'];
 
 // Narrow a DB text column back to its controlled union, defensively — the
-// column is always written from snapPrintScale/snapDrape/snapOpacity
-// server-side, but a row read shouldn't trust that blindly (matches the
-// no-`any` strict-mode house style: a validating narrow instead of an
-// unchecked `as` cast).
+// column is always written from snapPrintScale/snapDrape server-side, but a
+// row read shouldn't trust that blindly (matches the no-`any` strict-mode
+// house style: a validating narrow instead of an unchecked `as` cast).
 function toPrintScale(v: string | null): PrintScale | null {
   return (PRINT_SCALES as string[]).includes(v ?? '') ? (v as PrintScale) : null;
 }
 function toDrape(v: string | null): Drape | null {
   return (DRAPES as string[]).includes(v ?? '') ? (v as Drape) : null;
-}
-function toOpacity(v: string | null): Opacity | null {
-  return (OPACITIES as string[]).includes(v ?? '') ? (v as Opacity) : null;
 }
 
 function inferCategory(type: string | null): WardrobeItem['category'] {
@@ -183,7 +173,7 @@ function inferCategory(type: string | null): WardrobeItem['category'] {
   if (['JEANS', 'CHINOS', 'TROUSERS', 'SHORTS', 'SKIRT', 'LEGGINGS'].includes(t)) return 'bottom';
   if (['JACKET', 'COAT', 'BLAZER', 'OVERCOAT', 'PARKA', 'HOODIE', 'CAPE', 'KIMONO'].includes(t)) return 'outerwear';
   if (['SNEAKERS', 'LOAFERS', 'BOOTS', 'SHOES', 'MULES', 'HEELS', 'SANDALS', 'OXFORDS',
-       'FLATS', 'WEDGES'].includes(t))                                   return 'footwear';
+       'FLATS', 'WEDGES', 'SLIDES'].includes(t))                         return 'footwear';
   if (['DRESS', 'JUMPSUIT', 'OVERALLS', 'GOWN'].includes(t))             return 'dress';
   if (['HAT', 'CAP'].includes(t))                                        return 'headwear';
   return 'accessory';
@@ -232,7 +222,6 @@ function rowToItem(row: ClothingItemRow, userId: string): WardrobeItem {
     primaryHex: row.primary_hex ?? null,
     secondaryHex: row.secondary_hex ?? null,
     distressed: row.distressed ?? null,
-    opacity: toOpacity(row.opacity),
     printScale: toPrintScale(row.print_scale),
     drape: toDrape(row.drape),
     visualInterest: row.visual_interest ?? null,
@@ -406,7 +395,6 @@ export async function addItem(input: AddItemInput, tier: StorageTier = 'free'): 
       primary_hex:  input.primaryHex ?? null,
       secondary_hex: input.secondaryHex ?? null,
       distressed:   input.distressed ?? null,
-      opacity:      input.opacity ?? null,
       print_scale:  input.printScale ?? null,
       drape:        input.drape ?? null,
       visual_interest: input.visualInterest ?? null,

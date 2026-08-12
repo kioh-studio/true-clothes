@@ -8237,3 +8237,134 @@ section per the standing convention.
 interference with the concurrent curator work above). `npx tsc --noEmit` clean. `npx jest` 44 suites
 / 595 tests, 0 failed. No `expo`/`eas build`, no edge function deployed, no migration applied, no
 commit made.
+
+## `SLIDES` garment type missing from the fit engine — two pairs of footwear in one outfit (2026-08-13)
+
+**Bug:** `garment_types` has a live `SLIDES` row (`category='shoes'`, `base_formality=1.0`,
+`style_affinities=['athleisure','streetwear']`) that nothing outside the DB ever learned about.
+`categoryOf` (`supabase/functions/generate-outfits/engine/enrichment.ts:27`) is
+`CATEGORY_MAP[type.toUpperCase()] ?? 'accessory'`, and `CATEGORY_MAP` had no `SLIDES` key, so every
+SLIDES item silently became an `accessory`. Live consequence: demo-woman's feed served a 5-item
+outfit with both Chelsea `BOOTS` (shoes slot) and woven `SLIDES` (accessory slot) — two pairs of
+footwear in one look — and the slides rendered at clothing size in the collage instead of the small
+accessory row (`collageLayout.ts`'s `ACCESSORY_TYPES`/`ASPECT` had the same gap). First flagged in
+`backlog.md` (2026-08-12/13) alongside 7 sibling DB-only types (`CARGO, DERBY, GILET, JOGGERS, SOCKS,
+TANK, WINDBREAKER`) that need real formality/affinity product decisions — out of scope here; `SLIDES`
+alone had authoritative DB values and a direct sibling (`SANDALS`, same flat/open/1.0-formality
+footwear) to mirror mechanically.
+
+**Fix — wired `SLIDES` through every list that already carries `SANDALS`:**
+1. `supabase/functions/generate-outfits/engine/enrichment.ts` — `CATEGORY_MAP` (`'shoes'`),
+   `STYLE_AFFINITIES` (`['athleisure','streetwear']`), `TYPE_DEFAULT_FIT` (`'regular'`, same as
+   SANDALS), `TYPE_FORMALITY` (`1.0`). `LAYER_ROLE_BY_TYPE` needs no entry — shoes fall through to
+   `LAYER_BY_CATEGORY`'s `'base'`, same as every other shoe type.
+2. `src/components/outfit/collageLayout.ts` — `ACCESSORY_TYPES` (added `'SLIDES'`) and `ASPECT`
+   (`SLIDES: 1.45`, matching SANDALS' flat/wide silhouette ratio) — these two are what stopped it
+   rendering at clothing size.
+3. Picker/schema/builder plumbing so a SLIDES item is addable and classifies correctly end-to-end:
+   `src/features/wardrobe-add/vocab.ts` (`TYPE_OPTIONS`, `CATEGORY_BY_TYPE → 'footwear'`),
+   `src/features/wardrobe-add/measureSchema.ts` (`SHOE_TYPES`), `src/features/wardrobe-build/buckets.ts`
+   (`SHOES` bucket), `src/services/wardrobeService.ts` (`inferCategory`'s footwear list).
+4. `src/services/itemTypeMap.ts` — split the `flip-flop` keyword out of the `SANDALS` regex into its
+   own rule: `[/\bsandal/i, 'SANDALS']` then `[/\b(slide|flip.?flop)/i, 'SLIDES']` (a flip-flop is a
+   slide, not a strapped sandal — mapping it to SANDALS was itself a small taxonomy error this fix
+   also corrects).
+5. `supabase/functions/generate-item-image/prompt.ts` — `TYPES` list (the AI-extraction controlled
+   vocabulary).
+6. `supabase/functions/map-measurements/prompt.ts` — its own `SHOE_TYPES` copy (found via the
+   SANDALS grep sweep, not in the original known-hits list; it mirrors `measureSchema.ts`'s set 1:1
+   per its own header comment, so left out of sync it would keep routing a SLIDES item's measurements
+   to the wrong group. Fixed and redeployed alongside the others even though it doesn't import
+   `enrichment.ts` — it carries its own duplicate list, so the same class of bug applies).
+7. Two engine test files that keep their own type-set copies, kept in sync so the suite doesn't
+   silently drift from `enrichment.ts`: `style-catalog-consistency.test.ts`'s `VALID_TYPE_NAMES`,
+   `taste-data.test.ts`'s `SHOE_TYPES`.
+8. New `supabase/functions/generate-outfits/engine/slides-category.test.ts` (2 Deno tests, precedent:
+   `rayon-fabric.test.ts`): `categoryOf('SLIDES') === 'shoes'` with a control assertion that a
+   genuinely-unknown type still falls back to `'accessory'` (proves the map entry, not the fallback);
+   a `toFitItem()` round-trip on a `type: 'SLIDES'` row resolving `category: 'shoes'`, `formality:
+   1.0`, and the athleisure/streetwear affinities.
+
+**Deliberately out of scope:** the other 7 DB-only types (need real formality/affinity decisions, not
+a mechanical copy); `taste-data.ts` outfit-combo entries for SLIDES (taste data, a separate judgement
+call); any DB row change; demo-woman's wardrobe data.
+
+**Verify:** `deno test --allow-env supabase/functions/generate-outfits/engine/` 349/349 passed (318
+pre-existing + the new file's 2, plus `curator.test.ts`'s 29 which need `--allow-env` for
+`GEMINI_FLASH_MODEL` — a pre-existing harness requirement unrelated to this change; without the flag
+the same 318 pass and only `curator.test.ts` errors on the missing permission). `npx tsc --noEmit`
+clean. `npx jest` 44 suites / 595 tests, 0 failed.
+
+**Deployed** (CLI, no `--no-verify-jwt`, `verify_jwt` unchanged before/after on all six):
+`generate-outfits` (v65→66), `wardrobe-critic` (v21→22), `evaluate-item` (v31→32) — import
+`enrichment.ts`; `generate-item-image` (v24→25), `backfill-item-metadata` (v13→14,
+`verify_jwt=false` unchanged — admin endpoint, gated by its own secret) — import
+`generate-item-image/prompt.ts`; `map-measurements` (v9→10) — the extra fix from point 6 above. No
+migration applied, no demo-woman data touched, no `expo`/`eas build`, no commit made.
+
+## Reversal: `opacity` garment attribute abandoned (2026-08-13)
+
+**Decision:** the `opacity` attribute introduced in b492c44 (2026-08-14 dated entries above, "Sheer
+cardigan worn as the sole torso layer" and "Curator's TEXT description... opacity") is dropped from
+the codebase. This is a straight reversal, not a redesign — the property itself is not being
+replaced with anything.
+
+**What was built:** a `sheer | semi | opaque | null` field extracted by the vision model at ingest
+(`generate-item-image/prompt.ts`), threaded through `ClothingItemRow`/`FitItem`
+(`generate-outfits/engine/types.ts`), used by `deriveCanBeSoleTop` (`enrichment.ts`) to gate a
+garment out of the two "nothing else on the torso" variants in `generation.ts`'s `variantsFor`
+whenever `opacity === 'sheer'`, surfaced in the curator's candidate lines (`curator.ts`'s
+`describeItem`), and carried through the full client ingest path (add-wizard, Try-On's scan, the
+edit screen) plus `backfill-item-metadata`.
+
+**Why it's dropped:** it never worked. `opacity` is extracted from a static product/worn photo — a
+garment photographed flat or folded does not reveal see-through-ness the way it reads on a body, so
+even a confident extraction call is guessing at a property the photo often doesn't show. Worse, the
+on-device "extract by item" path (`src/services/extractByItemService.ts`) never calls the cloud
+extractor at all, so any item added that way could never get a value no matter how long the feature
+ran — a permanent, silent blind spot in the ingest path, not a transient backfill gap. Confirming
+this in production: all 102 live `clothing_items` rows have `opacity IS NULL` — the backfill was
+never run and the gate never fired for a single real item. The feature shipped code but never once
+changed the engine's behavior for an actual user.
+
+**What was removed:** the `opacity` field from `GarmentMetadata`/`snapOpacity`/the extraction prompt
+paragraph (`generate-item-image/prompt.ts`); `opacity` from `ClothingItemRow` and `opacity` +
+`canBeSoleTop` from `FitItem` (`generate-outfits/engine/types.ts`); `deriveCanBeSoleTop` and its call
+in `toFitItem` (`enrichment.ts`); the `canBeSole` gate in `generation.ts`'s `variantsFor` — the bare
+and bare+accessory variants are emitted unconditionally again, exactly as before b492c44; the
+`opacity` line in `curator.ts`'s `describeItem` (the other six attributes it added in the same commit
+— `pattern`, `print_scale`, `drape`, `distressed`, `visual_interest`, `warmth_season` — are untouched);
+the `opacity` column from every SELECT/row-map/insert in `generate-outfits/index.ts`,
+`wardrobe-critic/index.ts`, and `wardrobeService.ts`; `Opacity` the type from `types/fitEngine.ts`;
+and the corresponding fields from `imageGenerationService.ts`, `wardrobe-add/types.ts`,
+`useAddWizard.ts`, `tryOnStore.ts`, and `app/item-edit.tsx`. In `backfill-item-metadata/index.ts`,
+`opacity` also came out of `ItemRow`/`SELECT_COLS`, the `needsGemini` predicate, the NULL-only patch
+fill, and — the one that actually mattered for cost — the `.or(...)` staleness selector; leaving
+`opacity.is.null` there would have made the next backfill run re-pay for a Gemini pass over all 102
+items to populate a column nothing reads anymore.
+
+**What was kept, deliberately:** the sole-torso-layer role marker is independent of `opacity` and
+stays exactly as it was. `isSoleTorsoLayer()` in `curator.ts` and its use in `generate-outfits/index.ts`'s
+candidate lines, the `SYSTEM_PROMPT` rule against advising to open/unbutton/layer a garment marked
+"sole torso layer", and everything in `describe-outfit/` (`prompt.ts`, its tests, both hardened
+`SYSTEM_PROMPT.en`/`.vi`) derive the sole-torso fact from garment TYPE (is this a torso-family
+garment with nothing else in the outfit on the torso?), not from opacity — that logic was correct on
+its own and never depended on the abandoned field. `deriveCanLayer` and the pre-existing `can_layer`/
+`distressed` fields are also untouched.
+
+**What was NOT touched:** the DB. `clothing_items.opacity` stays on the live schema and
+`supabase/migrations/20260814000001_item_opacity.sql` stays in the repo — the column is applied and
+stamped in `supabase_migrations.schema_migrations`, so deleting the migration file would leave a
+ledger entry pointing at nothing. A nullable, unused, all-NULL column is harmless to leave in place.
+
+**Consequence, logged in backlog.md:** removing `opacity` does not fix the original defect it was
+meant to fix — the engine can still select a see-through mesh cardigan as the sole torso garment,
+confirmed live in production logs. The gate never worked (0 of 102 rows populated), so behaviorally
+nothing changes for users; what changes is that the code no longer claims to have a fix it never
+actually delivered.
+
+**Verify:** `npx tsc --noEmit` clean. `npx jest` 44 suites / 594 tests, 0 failed. `deno test
+--allow-all supabase/functions/generate-outfits/` 338/338 passed. `deno test --allow-all
+supabase/functions/describe-outfit/` 13/13 passed (untouched, confirmed still green). `deno test
+--allow-all supabase/functions/wardrobe-critic/` 11/11 passed. No deploy — the lead reviews and
+redeploys separately.

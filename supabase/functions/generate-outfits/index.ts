@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
     const wardrobeRes = wardrobeId
       ? await supabase
           .from('clothing_items')
-          .select('id, type, name, color, material, fit, pattern, warmth_season, can_layer, print_scale, drape, visual_interest, opacity, photo_url, photo_storage, primary_hex, secondary_hex, graphics, distressed, m_chest, m_shoulder_width, m_sleeves, m_body_length, m_upper_arm, m_waist, m_hip, m_inseam, m_thigh, m_rise')
+          .select('id, type, name, color, material, fit, pattern, warmth_season, can_layer, print_scale, drape, visual_interest, photo_url, photo_storage, primary_hex, secondary_hex, graphics, distressed, m_chest, m_shoulder_width, m_sleeves, m_body_length, m_upper_arm, m_waist, m_hip, m_inseam, m_thigh, m_rise')
           .eq('wardrobe_id', wardrobeId)
       : { data: [] as Record<string, unknown>[], error: null };
 
@@ -293,7 +293,6 @@ Deno.serve(async (req) => {
         secondary_hex: row.secondary_hex as string | null | undefined,
         graphics: row.graphics as ClothingItemRow['graphics'],
         distressed: row.distressed as boolean | null | undefined,
-        opacity: row.opacity as ClothingItemRow['opacity'],
         measurements: measurements.length > 0 ? measurements : undefined,
       };
     });
@@ -574,7 +573,7 @@ Deno.serve(async (req) => {
       // used to flag when this garment is the sole torso layer (see
       // engine/curator.ts's isSoleTorsoLayer) so the curator's note-writing rule
       // has the fact right there in the candidate line, not just in the system prompt.
-      // The actual line formatting (including pattern/drape/opacity/etc.
+      // The actual line formatting (including pattern/drape/etc.
       // suppression) lives in engine/curator.ts's describeItem — a pure
       // function, extracted so it's directly testable — this wrapper only
       // resolves `id` to a row (or bails to null when the slot is empty).
@@ -857,10 +856,6 @@ function pinItemToRow(pin: Record<string, unknown>): ClothingItemRow {
     // distressed (2026-08-11): mirrors the hex fields just above — a scanned
     // Mix & Match item can carry this from its own extraction pass.
     distressed: typeof pin.distressed === 'boolean' ? pin.distressed : undefined,
-    // opacity (2026-08-14): same idea — a scanned Mix & Match item can carry
-    // its own extraction's opacity read; only trust the 3 controlled values.
-    opacity: pin.opacity === 'sheer' || pin.opacity === 'semi' || pin.opacity === 'opaque'
-      ? pin.opacity : undefined,
     measurements: measurements && measurements.length > 0 ? measurements : undefined,
   };
 }

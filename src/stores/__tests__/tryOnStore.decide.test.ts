@@ -117,7 +117,7 @@ describe('tryOnStore.addToWardrobe()', () => {
     });
   });
 
-  it('threads distressed/canLayer/printScale/drape/visualInterest/opacity into AddItemInput (2026-08-11, 2026-08-14)', async () => {
+  it('threads distressed/canLayer/printScale/drape/visualInterest into AddItemInput (2026-08-11)', async () => {
     _isAvailable = false;
     mockExtractItemsWithImages.mockResolvedValueOnce([{
       ...EXTRACTED,
@@ -128,7 +128,6 @@ describe('tryOnStore.addToWardrobe()', () => {
         printScale: 'medium',
         drape: 'fluid',
         visualInterest: 0.7,
-        opacity: 'sheer',
       },
     }]);
     await getState().scan('file://photo.jpg', 'ai');
@@ -141,11 +140,10 @@ describe('tryOnStore.addToWardrobe()', () => {
       printScale: 'medium',
       drape: 'fluid',
       visualInterest: 0.7,
-      opacity: 'sheer',
     });
   });
 
-  it('leaves distressed/canLayer/printScale/drape/visualInterest/opacity null when the scan never produced them', async () => {
+  it('leaves distressed/canLayer/printScale/drape/visualInterest null when the scan never produced them', async () => {
     await seedScan(); // META has none of these fields set
     await getState().addToWardrobe();
 
@@ -156,7 +154,6 @@ describe('tryOnStore.addToWardrobe()', () => {
       printScale: null,
       drape: null,
       visualInterest: null,
-      opacity: null,
     });
   });
 

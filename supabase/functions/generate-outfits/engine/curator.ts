@@ -39,7 +39,7 @@ export function isSoleTorsoLayer(slots: OutfitSlots): boolean {
 //
 // Before this, the curator's TEXT description of each garment was
 // `name (type, color[, material][, fit fit])` — the DB holds pattern,
-// print_scale, drape, opacity, distressed, warmth_season, and visual_interest,
+// print_scale, drape, distressed, warmth_season, and visual_interest,
 // none of which reached the model. That's why SYSTEM_PROMPT could ask it to
 // penalise "two statement pieces competing" or judge silhouette while having
 // no data to detect either.
@@ -73,9 +73,6 @@ export function describeItem(row: ClothingItemRow, slot: string, extra?: string)
   // (does it hold its own shape, or skim the body); 'regular'/null is the
   // unremarkable middle and is omitted.
   if (row.drape === 'structured' || row.drape === 'fluid') bits.push(row.drape);
-  // opacity: only the two non-default states; 'opaque'/null is the default
-  // read for most garments and carries no information.
-  if (row.opacity === 'sheer' || row.opacity === 'semi') bits.push(row.opacity);
   if (row.distressed === true) bits.push('distressed');
   if (row.warmthSeason) bits.push(row.warmthSeason);
   // visual_interest → the word "statement", matching SYSTEM_PROMPT's existing
@@ -160,7 +157,7 @@ const SYSTEM_PROMPT = `You are MIEN's house stylist making the final call on tod
 
 You receive a numbered list of outfit candidates that have ALREADY passed validity checks (color rules, fit, season, formality). Your job is pure taste judgment.
 
-Candidate lines may carry extra parenthetical tags when they're informative: a pattern (with its scale), drape (structured/fluid), opacity (sheer/semi), distressed, a warmth/season tag, and "statement" for a strong visual-interest piece. An ABSENT tag means unremarkable or simply unassessed — never read it as "no" or hold it against the item.
+Candidate lines may carry extra parenthetical tags when they're informative: a pattern (with its scale), drape (structured/fluid), distressed, a warmth/season tag, and "statement" for a strong visual-interest piece. An ABSENT tag means unremarkable or simply unassessed — never read it as "no" or hold it against the item.
 
 Rank the ${PICK_COUNT} best candidates, best first. Judge like a stylist, not a checklist:
 - Reward outfits that read as intentional: a clear hero piece, deliberate light/dark contrast between top and bottom, classic combinations (oxford shirt + tailored trousers + loafers; tee + jeans + clean sneakers).

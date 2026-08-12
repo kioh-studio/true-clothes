@@ -71,69 +71,6 @@ Deno.test('canLayer: knits layer unless slim', () => {
   assertEquals(toFitItem(row({ type: 'KNIT', fit: 'slim' })).canLayer, false);
 });
 
-// ─── canBeSoleTop: opacity gate on the BASE role (2026-08-14) ───────────────
-// A cardigan has THREE roles: base (sole torso garment), mid, outer.
-// deriveCanLayer above gates mid/outer ("born to be worn open") but the base
-// role was previously ungated (CATEGORY_MAP grants 'top' unconditionally),
-// which let a see-through mesh cardigan be selected as the ONLY thing on the
-// torso. The fix is opacity, not type — proven here by also blocking a
-// non-cardigan sheer top (a blouse).
-
-Deno.test('canBeSoleTop: a sheer cardigan cannot be a sole top', () => {
-  assertEquals(toFitItem(row({ type: 'CARDIGAN', opacity: 'sheer' })).canBeSoleTop, false);
-});
-
-Deno.test('canBeSoleTop: the same cardigan marked opaque CAN be a sole top', () => {
-  assertEquals(toFitItem(row({ type: 'CARDIGAN', opacity: 'opaque' })).canBeSoleTop, true);
-});
-
-Deno.test('canBeSoleTop: semi opacity still counts as sole-top-capable (only sheer is blocked)', () => {
-  assertEquals(toFitItem(row({ type: 'CARDIGAN', opacity: 'semi' })).canBeSoleTop, true);
-});
-
-Deno.test('canBeSoleTop: unknown/unassessed opacity keeps the old behaviour (allowed)', () => {
-  assertEquals(toFitItem(row({ type: 'CARDIGAN' })).canBeSoleTop, true);
-  assertEquals(toFitItem(row({ type: 'CARDIGAN', opacity: null })).canBeSoleTop, true);
-});
-
-Deno.test('canBeSoleTop: type-agnostic — a sheer BLOUSE (non-cardigan) is also blocked', () => {
-  assertEquals(toFitItem(row({ type: 'BLOUSE', opacity: 'sheer' })).canBeSoleTop, false);
-  assertEquals(toFitItem(row({ type: 'BLOUSE', opacity: 'opaque' })).canBeSoleTop, true);
-});
-
-// ─── generation.ts: the gate applied where the top slot is filled ──────────
-
-Deno.test('generation: a sheer top is NOT emitted as a bare (sole-torso) outfit', () => {
-  const bareWardrobe = (canBeSoleTop: boolean) => {
-    const cardigan = fi('cardigan', 'top', { canLayer: true, fabricWeight: 'light', fit: 'relaxed', layerRole: 'base' });
-    cardigan.canBeSoleTop = canBeSoleTop;
-    return [cardigan, fi('jeans', 'bottom', {}), fi('sneakers', 'shoes', {})];
-  };
-  const isBareTop = (c: { slots: { top: string; outwear?: string; mid?: string } }) =>
-    c.slots.top === 'cardigan' && c.slots.outwear === undefined && c.slots.mid === undefined;
-
-  // Control: an opaque cardigan with nothing to layer with DOES reach the bare slot.
-  const opaqueCandidates = generateCandidates(bareWardrobe(true), RULE_OF_THIRDS, 'seed-layer');
-  assert(opaqueCandidates.some(isBareTop), 'expected an opaque sole cardigan to be emitted bare');
-
-  // A sheer cardigan in the identical wardrobe never reaches the bare slot.
-  const sheerCandidates = generateCandidates(bareWardrobe(false), RULE_OF_THIRDS, 'seed-layer');
-  assert(sheerCandidates.every(c => !isBareTop(c)));
-});
-
-Deno.test('generation: a sheer top IS still usable when a real outerwear layer covers it', () => {
-  const cardigan = fi('sheer-cardigan', 'top', { canLayer: true, fabricWeight: 'light', fit: 'relaxed', layerRole: 'base' });
-  cardigan.canBeSoleTop = false;
-  const wardrobe = [
-    cardigan,
-    fi('real-coat', 'outwear', { fabricWeight: 'heavy', fit: 'relaxed', layerRole: 'outer' }),
-    fi('jeans', 'bottom', {}),
-    fi('sneakers', 'shoes', {}),
-  ];
-  const candidates = generateCandidates(wardrobe, LAYERING_STACK, 'seed-layer');
-  assert(candidates.some(c => c.slots.top === 'sheer-cardigan' && c.slots.outwear === 'real-coat'));
-});
-
 // ─── dual-role variants in generation (hand-built items for precise control) ─
 
 function fi(
@@ -167,11 +104,6 @@ function fi(
 }
 
 const RULE_OF_THIRDS = ['rule_of_thirds'] as Parameters<typeof generateCandidates>[1];
-// poolRuleOfThirds always sets outwear: [] (see generation.ts) — fine for the
-// dual-role canLayer-via-pool.tops tests above, but the sole-torso-layer gate
-// test below needs a REAL outwear-category item to reach pool.outwear, so it
-// uses the one formula whose pool actually populates that field.
-const LAYERING_STACK = ['layering_stack'] as Parameters<typeof generateCandidates>[1];
 
 function layeringWardrobe(): FitItem[] {
   return [

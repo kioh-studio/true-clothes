@@ -1,6 +1,6 @@
 // Wizard domain types (feature 006-ai-item-extraction).
 
-import { LogoSignal, MKey, PrintScale, Drape, Opacity } from '../../types/fitEngine';
+import { LogoSignal, MKey, PrintScale, Drape } from '../../types/fitEngine';
 
 export type WizardStep = 'upload' | 'analyse' | 'review' | 'done';
 export type ExtractMethod = 'ai' | 'item';
@@ -44,9 +44,6 @@ export interface ExtractedItem {
   // Distressed/worn-in finish (2026-08-11) — no edit UI in MVP, carried
   // through to the insert like primaryHex/secondaryHex above.
   distressed: boolean | null;
-  // Opacity gate (2026-08-14) — no edit UI in MVP, carried through to the
-  // insert like distressed above.
-  opacity: Opacity | null;
   // Visual enrichment đợt 2 (2026-08-11 client threading) — no edit UI in MVP,
   // carried through to the insert like primaryHex/secondaryHex/distressed
   // above. null when the extraction method has no visual-judgment source

@@ -1,6 +1,6 @@
-// Ingest-threading for print_scale/drape/visual_interest/can_layer (2026-08-11)
-// and opacity (2026-08-14). The server extraction schema (generate-item-image/
-// prompt.ts) already returns these fields, but AddItemInput never carried them
+// Ingest-threading for print_scale/drape/visual_interest/can_layer (2026-08-11).
+// The server extraction schema (generate-item-image/prompt.ts) already
+// returns these fields, but AddItemInput never carried them
 // into the insert, so a fresh item's columns stayed NULL until
 // backfill-item-metadata re-derived them (a second paid Gemini pass for data
 // already extracted). This suite verifies addItem() writes the columns and
@@ -45,7 +45,6 @@ jest.mock('../supabase', () => {
             print_scale: lastInsert?.print_scale ?? null,
             drape: lastInsert?.drape ?? null,
             visual_interest: lastInsert?.visual_interest ?? null,
-            opacity: lastInsert?.opacity ?? null,
             photo_url: lastInsert?.photo_url ?? null,
             photo_storage: lastInsert?.photo_storage ?? 'none',
             times_worn: 0, added_at: '2026-01-01', updated_at: '2026-01-01',
@@ -72,21 +71,19 @@ const baseInput = { localPhotoUri: null, category: 'top' as const, colors: ['Whi
 beforeEach(() => jest.clearAllMocks());
 
 describe('wardrobeService.addItem — visual enrichment threading', () => {
-  it('writes print_scale/drape/visual_interest/can_layer/opacity to the insert and reads them back', async () => {
+  it('writes print_scale/drape/visual_interest/can_layer to the insert and reads them back', async () => {
     const item = await addItem({
       ...baseInput,
       canLayer: true,
       printScale: 'large',
       drape: 'structured',
       visualInterest: 0.82,
-      opacity: 'sheer',
     });
 
     expect(item.canLayer).toBe(true);
     expect(item.printScale).toBe('large');
     expect(item.drape).toBe('structured');
     expect(item.visualInterest).toBe(0.82);
-    expect(item.opacity).toBe('sheer');
   });
 
   it('omits the fields (writes NULL) when the caller has no value — never fabricates one', async () => {
@@ -96,18 +93,16 @@ describe('wardrobeService.addItem — visual enrichment threading', () => {
     expect(item.printScale).toBeNull();
     expect(item.drape).toBeNull();
     expect(item.visualInterest).toBeNull();
-    expect(item.opacity).toBeNull();
   });
 
   it('narrows an unexpected DB string back to null instead of trusting it blindly', async () => {
-    // Simulates a row whose print_scale/drape/opacity somehow holds a value
-    // outside the controlled vocabulary (e.g. legacy data) — toPrintScale/
-    // toDrape/toOpacity must not pass it through unchecked.
+    // Simulates a row whose print_scale/drape somehow holds a value outside
+    // the controlled vocabulary (e.g. legacy data) — toPrintScale/toDrape
+    // must not pass it through unchecked.
     const item = await addItem({
-      ...baseInput, printScale: 'huge' as never, drape: 'silky' as never, opacity: 'translucent' as never,
+      ...baseInput, printScale: 'huge' as never, drape: 'silky' as never,
     });
     expect(item.printScale).toBeNull();
     expect(item.drape).toBeNull();
-    expect(item.opacity).toBeNull();
   });
 });
