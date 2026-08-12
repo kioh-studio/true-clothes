@@ -21,7 +21,7 @@ export const BUILDER_BUCKETS = [
   { key: 'BOTTOMS',     types: ['JEANS', 'TROUSERS', 'CHINOS', 'SHORTS', 'SKIRT', 'LEGGINGS'] },
   { key: 'DRESS',       types: ['DRESS', 'JUMPSUIT', 'OVERALLS', 'GOWN'] },
   { key: 'OUTERWEAR',   types: ['JACKET', 'BLAZER', 'COAT', 'OVERCOAT', 'HOODIE', 'PARKA', 'CAPE', 'KIMONO'] },
-  { key: 'SHOES',       types: ['LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES', 'FLATS', 'WEDGES'] },
+  { key: 'SHOES',       types: ['LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES', 'FLATS', 'WEDGES', 'SLIDES'] },
   { key: 'ACCESSORIES', types: ['BAG'] },
 ] as const;
 

@@ -10,7 +10,7 @@ export const TYPE_OPTIONS = [
   'JACKET', 'BLAZER', 'COAT', 'HOODIE', 'PARKA', 'OVERCOAT', 'CAPE', 'KIMONO',
   'JEANS', 'TROUSERS', 'CHINOS', 'SHORTS', 'SKIRT', 'LEGGINGS',
   'DRESS', 'JUMPSUIT', 'OVERALLS', 'GOWN',
-  'LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES', 'FLATS', 'WEDGES',
+  'LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES', 'FLATS', 'WEDGES', 'SLIDES',
   'BAG', 'BELT', 'SCARF', 'WATCH', 'CAP', 'NECKLACE', 'SUNGLASSES', 'HAT', 'RING', 'BRACELET',
   'EARRINGS', 'GLOVES', 'TIGHTS', 'TIE',
 ];
@@ -69,7 +69,7 @@ const CATEGORY_BY_TYPE: Record<string, WardrobeItem['category']> = {
   JEANS: 'bottom', TROUSERS: 'bottom', CHINOS: 'bottom', SHORTS: 'bottom', SKIRT: 'bottom', LEGGINGS: 'bottom',
   DRESS: 'dress', JUMPSUIT: 'dress', OVERALLS: 'dress', GOWN: 'dress',
   LOAFERS: 'footwear', SNEAKERS: 'footwear', BOOTS: 'footwear', HEELS: 'footwear',
-  SANDALS: 'footwear', OXFORDS: 'footwear', MULES: 'footwear', FLATS: 'footwear', WEDGES: 'footwear',
+  SANDALS: 'footwear', OXFORDS: 'footwear', MULES: 'footwear', FLATS: 'footwear', WEDGES: 'footwear', SLIDES: 'footwear',
   CAP: 'headwear', HAT: 'headwear',
   BAG: 'accessory', BELT: 'accessory', SCARF: 'accessory', WATCH: 'accessory',
   NECKLACE: 'accessory', SUNGLASSES: 'accessory', RING: 'accessory', BRACELET: 'accessory',

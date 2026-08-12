@@ -6,7 +6,7 @@ import { MKey } from '../../types/fitEngine';
 export type MeasureGroup = 'top' | 'bottom' | 'shoe' | 'other';
 
 const BOTTOM_TYPES = new Set(['JEANS', 'TROUSERS', 'CHINOS', 'SHORTS', 'SKIRT', 'LEGGINGS']);
-const SHOE_TYPES = new Set(['LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES', 'FLATS', 'WEDGES']);
+const SHOE_TYPES = new Set(['LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES', 'FLATS', 'WEDGES', 'SLIDES']);
 // Accessories carry no useful body measurements.
 const NO_MEASURE_TYPES = new Set([
   'BAG', 'BELT', 'SCARF', 'WATCH', 'CAP', 'NECKLACE', 'SUNGLASSES', 'HAT', 'RING', 'BRACELET',

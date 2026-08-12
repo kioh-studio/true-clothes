@@ -16,7 +16,7 @@ const TOP_TYPES = new Set([
 // Outerwear that can LEAD a triple (matched against the outwear slot).
 const OUTER_LEAD_TYPES = new Set(['HOODIE', 'BLAZER', 'JACKET', 'COAT', 'PARKA', 'OVERCOAT']);
 const BOTTOM_TYPES = new Set(['JEANS', 'TROUSERS', 'CHINOS', 'SHORTS', 'SKIRT', 'LEGGINGS']);
-const SHOE_TYPES = new Set(['LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES', 'FLATS', 'WEDGES']);
+const SHOE_TYPES = new Set(['LOAFERS', 'SNEAKERS', 'BOOTS', 'HEELS', 'SANDALS', 'OXFORDS', 'MULES', 'FLATS', 'WEDGES', 'SLIDES']);
 const ALL_TYPES = new Set([
   ...TOP_TYPES, ...BOTTOM_TYPES, ...SHOE_TYPES,
   'JACKET', 'BLAZER', 'COAT', 'HOODIE', 'PARKA', 'OVERCOAT', 'CAPE', 'KIMONO',
