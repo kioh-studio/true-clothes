@@ -169,10 +169,13 @@
   dòng logcat. Ghi chú: deep link `mien://onboarding/personal-color` KHÔNG hoạt động
   (route group không nằm trong URL), phải dùng `mien://personal-color`.
 
-- [ ] **Sentry: cần DSN + cân nhắc thêm lại Gradle plugin** (2026-08-10) —
-  `EXPO_PUBLIC_SENTRY_DSN` đang RỖNG ở `.env` + cả 3 profile `eas.json`; code guard sẵn
-  nên chạy im lặng, nhưng chưa thu được crash nào cho tới khi anh Khôi tạo project Sentry
-  và dán DSN. `expo install` tự thêm config plugin vào `app.json` và agent đã GỠ RA có
+- [ ] **Sentry: cần DSN + cân nhắc thêm lại Gradle plugin** (2026-08-10, cập nhật 2026-08-13) —
+  `EXPO_PUBLIC_SENTRY_DSN` vẫn RỖNG trong `.env`, nhưng đã bị XOÁ hẳn khỏi cả 3 profile
+  `eas.json` (2026-08-13) vì EAS reject giá trị `env` rỗng chuỗi khi validate. Code guard
+  (`app/_layout.tsx` — `if (dsn) {...}`) vẫn im lặng như cũ vì `undefined` cũng falsy như
+  `""`. Khi anh Khôi tạo project Sentry và có DSN thật, phải THÊM LẠI key
+  `EXPO_PUBLIC_SENTRY_DSN` vào cả 3 profile `eas.json` (không chỉ set giá trị — key đang
+  không tồn tại). `expo install` tự thêm config plugin vào `app.json` và agent đã GỠ RA có
   chủ đích: plugin đó chain `sentry-cli` upload vào Android release bundle và FAIL nếu
   thiếu `SENTRY_AUTH_TOKEN` → sẽ làm gãy pipeline Gradle release local (dự án không dùng
   EAS build cho Android). Thêm lại khi đã có project + token, nếu muốn source map.
