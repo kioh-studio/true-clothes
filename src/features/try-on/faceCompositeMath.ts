@@ -6,7 +6,43 @@
 // All points here are in PIXEL space (the caller converts from normalised
 // 0..1 landmark coords before calling into this module).
 
+import type { DetectFailureKind } from './faceDetectMath';
+
 export type Pt = { x: number; y: number };
+
+// Diagnostics (2026-08-14): the specific CompositeReason a face-detector
+// failure should surface as. Kept here (not in faceComposite.ts) so it's
+// pure and jest-testable without pulling in native modules — see
+// faceComposite.ts's CompositeReason for the full reason union this feeds
+// into (its return type is a subset literal union, structurally compatible).
+export type DetectorFailureReason =
+  | 'detector_unavailable' | 'decode_failed' | 'no_face_source' | 'no_face_generated';
+
+/**
+ * Map a face-detector failure kind onto the CompositeReason the caller
+ * should fall back with:
+ *  - 'model_unavailable' always becomes 'detector_unavailable' — the tflite
+ *    model itself never loaded / the native module threw. This is an
+ *    infrastructure failure and must not be confused with "ran fine, found
+ *    no face" — that confusion is exactly what this diagnostics change
+ *    exists to remove (see faceComposite.ts module comment).
+ *  - 'decode_failed' reuses the existing 'decode_failed' CompositeReason:
+ *    both mean "could not process image pixels", just at a different
+ *    pipeline stage (the detector's own resize/decode vs compositeFace's
+ *    own downscale/decode) — that distinction isn't actionable to a human
+ *    reading the diagnostic line.
+ *  - 'no_face' maps to whichever of 'no_face_source' / 'no_face_generated'
+ *    the caller specifies, since only the caller knows which image
+ *    (source photo vs generated image) was being detected.
+ */
+export function failureToReason(
+  failure: DetectFailureKind,
+  noFaceReason: 'no_face_source' | 'no_face_generated',
+): DetectorFailureReason {
+  if (failure === 'model_unavailable') return 'detector_unavailable';
+  if (failure === 'decode_failed') return 'decode_failed';
+  return noFaceReason;
+}
 
 /**
  * 2D similarity transform: [[a, -b], [b, a]] * p + [tx, ty].

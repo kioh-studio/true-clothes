@@ -3,8 +3,9 @@
 // guaranteed regardless of how faithfully the generative model rendered it.
 //
 // Pipeline:
-//   1. detectFace (BlazeFace, on-device) on both the source photo and the
-//      generated image → 4 landmarks each (eyes, nose, mouth).
+//   1. detectFaceDetailed (BlazeFace, on-device) on both the source photo
+//      and the generated image → 4 landmarks each (eyes, nose, mouth), or a
+//      tagged failure kind (model/decode/no-face — see faceDetect.ts).
 //   2. estimateSimilarity (faceCompositeMath) fits a scale+rotation+
 //      translation mapping source→generated face space. isAlignmentPlausible
 //      gates out bad mismatches (wrong face size/angle) — the composite is
@@ -26,9 +27,13 @@
 // alignment, decode/encode error, etc.) — the caller falls back to the raw
 // generated image, which is the pre-existing behaviour. This never throws.
 // The specific failure cause is reported via CompositeOutcome.reason (see
-// below) — previously all ~6 distinct causes collapsed into a single `null`,
+// below) — previously every distinct cause collapsed into a single `null`,
 // so nobody could tell WHY the composite fell back, or whether it had ever
-// once succeeded on-device.
+// once succeeded on-device. 2026-08-14: 'no_face_source'/'no_face_generated'
+// used to ALSO cover "the detector's tflite model never loaded" — now split
+// out as 'detector_unavailable' (see CompositeReason), because that's an
+// infrastructure failure, not a statement about either photo, and the two
+// need to read differently during the on-device face-composite test.
 //
 // CALIBRATION-PENDING: the mask ellipse size/feather, alignment plausibility
 // thresholds, and BlazeFace input normalisation all need on-device tuning
@@ -37,10 +42,11 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import jpeg from 'jpeg-js';
-import { detectFace, type Pt } from './faceDetect';
+import { detectFaceDetailed, type Pt } from './faceDetect';
 import {
   estimateSimilarity, invertSim, applySim, isAlignmentPlausible,
   ellipseAlpha, channelStats, colorTransfer, bilinearSample, faceMaskRadii,
+  failureToReason,
 } from './faceCompositeMath';
 
 // Specific cause of a compositeFace() outcome. 'ok' = pasted successfully;
@@ -48,9 +54,10 @@ import {
 // generated image (see CompositeOutcome below).
 export type CompositeReason =
   | 'ok'
-  | 'no_face_source'          // detectFace found nothing in the SOURCE photo
-  | 'no_face_generated'       // source face was found, but not in the GENERATED image
-  | 'decode_failed'           // pixel decode of either image failed
+  | 'no_face_source'          // detector ran, found nothing in the SOURCE photo
+  | 'no_face_generated'       // source face was found, but detector found nothing in the GENERATED image
+  | 'detector_unavailable'    // the face detector model failed to load / native-module error — NOT "no face", an infra failure (2026-08-14)
+  | 'decode_failed'           // pixel decode of either image failed (detector's own decode, or compositeFace's own downscale/decode)
   | 'implausible_alignment'   // source→generated similarity fit was rejected
   | 'degenerate_mask'         // mask geometry collapsed (zero-size / no core pixels)
   | 'encode_failed'           // JPEG re-encode or file write failed
@@ -147,21 +154,38 @@ const STATS_ALPHA_THRESHOLD = 0.6;
  * CompositeOutcome: `uri` is the composited image's local file uri, or null
  * if compositing wasn't possible/safe (no face detected in either image,
  * implausible alignment, or any error) — the caller should use
- * `generatedUri` as-is in that case. `reason` reports which of the ~6
+ * `generatedUri` as-is in that case. `reason` reports which of the
  * distinct failure causes applied (or 'ok'), for diagnostics. Never throws.
  */
 export async function compositeFace(sourceUri: string, generatedUri: string): Promise<CompositeOutcome> {
   try {
-    const [srcLandmarks, genLandmarks] = await Promise.all([
-      detectFace(sourceUri),
-      detectFace(generatedUri),
+    const [srcOutcome, genOutcome] = await Promise.all([
+      detectFaceDetailed(sourceUri),
+      detectFaceDetailed(generatedUri),
     ]);
-    // Distinguish which image's detection missed — a source-photo miss
-    // (bad angle/lighting on the user's own upload) is a very different
-    // signal from a generated-image miss (the model rendered something
-    // face-detector-unfriendly).
-    if (!srcLandmarks) return { uri: null, reason: 'no_face_source' };
-    if (!genLandmarks) return { uri: null, reason: 'no_face_generated' };
+    // Distinguish which image's detection missed — a source-photo miss (bad
+    // angle/lighting on the user's own upload) is a very different signal
+    // from a generated-image miss (the model rendered something
+    // face-detector-unfriendly) — and BOTH are different again from the
+    // detector never having run at all ('detector_unavailable'), which is an
+    // infrastructure failure that says nothing about either photo. The
+    // infra case is also console.warn'd (not just returned as `reason`) so
+    // `adb logcat` catches it during on-device testing even if the on-screen
+    // __DEV__ line is missed.
+    if (!srcOutcome.ok) {
+      if (srcOutcome.failure === 'model_unavailable') {
+        console.warn('[faceComposite] face detector unavailable — model failed to load', srcOutcome.error);
+      }
+      return { uri: null, reason: failureToReason(srcOutcome.failure, 'no_face_source') };
+    }
+    if (!genOutcome.ok) {
+      if (genOutcome.failure === 'model_unavailable') {
+        console.warn('[faceComposite] face detector unavailable — model failed to load', genOutcome.error);
+      }
+      return { uri: null, reason: failureToReason(genOutcome.failure, 'no_face_generated') };
+    }
+    const srcLandmarks = srcOutcome.landmarks;
+    const genLandmarks = genOutcome.landmarks;
 
     const [srcImg, genImg] = await Promise.all([
       decodeDownscaled(sourceUri, WORK_MAX),
@@ -261,10 +285,10 @@ export async function compositeFace(sourceUri: string, generatedUri: string): Pr
       return { uri: null, reason: 'encode_failed' };
     }
   } catch {
-    // Anything unexpected not already caught above (e.g. detectFace/decode
-    // throwing instead of returning null) → the caller uses the raw
-    // generated image; identity is not guaranteed but the flow is never
-    // broken.
+    // Anything unexpected not already caught above (e.g. detectFaceDetailed/
+    // decode throwing instead of returning a tagged outcome) → the caller
+    // uses the raw generated image; identity is not guaranteed but the flow
+    // is never broken.
     return { uri: null, reason: 'error' };
   }
 }

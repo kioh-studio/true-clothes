@@ -1,6 +1,6 @@
 import {
   estimateSimilarity, applySim, invertSim, similarityScaleRot, isAlignmentPlausible,
-  ellipseAlpha, channelStats, colorTransfer, bilinearSample, faceMaskRadii,
+  ellipseAlpha, channelStats, colorTransfer, bilinearSample, faceMaskRadii, failureToReason,
   type Pt, type Similarity,
 } from '../faceCompositeMath';
 
@@ -199,5 +199,22 @@ describe('bilinearSample', () => {
     const data = new Uint8Array(w * h * 4);
     data[0] = 42; // (0,0) red
     expect(bilinearSample(data, w, h, -5, -5, 0)).toBeCloseTo(42, 5);
+  });
+});
+
+describe('failureToReason', () => {
+  test('model_unavailable always becomes detector_unavailable, regardless of which image', () => {
+    expect(failureToReason('model_unavailable', 'no_face_source')).toBe('detector_unavailable');
+    expect(failureToReason('model_unavailable', 'no_face_generated')).toBe('detector_unavailable');
+  });
+
+  test('decode_failed passes through unchanged, regardless of which image', () => {
+    expect(failureToReason('decode_failed', 'no_face_source')).toBe('decode_failed');
+    expect(failureToReason('decode_failed', 'no_face_generated')).toBe('decode_failed');
+  });
+
+  test('no_face defers to the caller-supplied reason (which image was being detected)', () => {
+    expect(failureToReason('no_face', 'no_face_source')).toBe('no_face_source');
+    expect(failureToReason('no_face', 'no_face_generated')).toBe('no_face_generated');
   });
 });

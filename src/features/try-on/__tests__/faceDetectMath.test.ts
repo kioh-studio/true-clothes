@@ -1,6 +1,6 @@
 import {
   interEyeDistancePx, isWeakDetection, mapPointCropToFull, mapLandmarksCropToFull,
-  selectFaceDetection, WEAK_INTER_EYE_FRACTION, FACE_CROP_REGION,
+  selectFaceDetection, combineFailureKinds, WEAK_INTER_EYE_FRACTION, FACE_CROP_REGION,
   type FaceLandmarks, type CropRegion,
 } from '../faceDetectMath';
 
@@ -139,5 +139,34 @@ describe('selectFaceDetection', () => {
   test('only the weak first pass exists (second pass also missed): keeps first rather than discarding it', () => {
     const first = makeLandmarks(0.01, 0.9);
     expect(selectFaceDetection(first, null, srcW, srcH)).toBe(first);
+  });
+});
+
+describe('combineFailureKinds', () => {
+  test('model_unavailable on either pass always wins, regardless of order', () => {
+    expect(combineFailureKinds('model_unavailable', 'no_face')).toBe('model_unavailable');
+    expect(combineFailureKinds('no_face', 'model_unavailable')).toBe('model_unavailable');
+    expect(combineFailureKinds('model_unavailable', 'decode_failed')).toBe('model_unavailable');
+    expect(combineFailureKinds('decode_failed', 'model_unavailable')).toBe('model_unavailable');
+  });
+
+  test('decode_failed wins over no_face when model_unavailable is absent', () => {
+    expect(combineFailureKinds('decode_failed', 'no_face')).toBe('decode_failed');
+    expect(combineFailureKinds('no_face', 'decode_failed')).toBe('decode_failed');
+  });
+
+  test('both no_face: reports no_face', () => {
+    expect(combineFailureKinds('no_face', 'no_face')).toBe('no_face');
+  });
+
+  test('a null argument (pass did not fail) does not override a real failure on the other pass', () => {
+    expect(combineFailureKinds('model_unavailable', null)).toBe('model_unavailable');
+    expect(combineFailureKinds(null, 'model_unavailable')).toBe('model_unavailable');
+    expect(combineFailureKinds('decode_failed', null)).toBe('decode_failed');
+    expect(combineFailureKinds(null, 'decode_failed')).toBe('decode_failed');
+  });
+
+  test('both null: defaults to no_face', () => {
+    expect(combineFailureKinds(null, null)).toBe('no_face');
   });
 });

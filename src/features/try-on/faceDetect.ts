@@ -15,18 +15,34 @@
 // coords. See faceDetectMath.ts for the (pure, jest-tested) crop-mapping and
 // pass-selection logic.
 //
-// Every step is wrapped in try/catch → returns null on any failure so the
-// caller (faceComposite.ts) degrades gracefully to the raw generated image.
+// Every step is wrapped in try/catch → detectFace() never throws, and
+// degrades to null on any failure so existing callers (analyzeFace in
+// personal-color) keep working unchanged.
+//
+// Diagnostics (2026-08-14): `detectFace` alone collapses three very
+// different situations into the same `null` — model failed to load, image
+// decode failed, or the detector ran fine and found no face. For
+// faceComposite.ts, which needs to tell these apart during on-device
+// testing, use `detectFaceDetailed` instead — it reports a DetectFailureKind
+// (faceDetectMath.ts) on failure while returning the identical landmarks
+// shape on success. `detectFace` is now a thin wrapper around it.
 
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import jpeg from 'jpeg-js';
 import { loadTensorflowModel, type TensorflowModel } from 'react-native-fast-tflite';
 import {
-  isWeakDetection, mapLandmarksCropToFull, selectFaceDetection, FACE_CROP_REGION,
-  type Pt, type FaceBox, type FaceLandmarks,
+  isWeakDetection, mapLandmarksCropToFull, selectFaceDetection, combineFailureKinds, FACE_CROP_REGION,
+  type Pt, type FaceBox, type FaceLandmarks, type DetectFailureKind,
 } from './faceDetectMath';
 
-export type { Pt, FaceBox, FaceLandmarks };
+export type { Pt, FaceBox, FaceLandmarks, DetectFailureKind };
+
+/** Outcome of `detectFaceDetailed` — same landmarks shape as before on
+ *  success; on failure, which DetectFailureKind applied (plus the raw caught
+ *  error, if any, for logging — never for control flow). */
+export type DetectOutcome =
+  | { ok: true; landmarks: FaceLandmarks }
+  | { ok: false; failure: DetectFailureKind; error?: unknown };
 
 const MODEL_SIZE = 128;
 const SCORE_THRESHOLD = 0.5;
@@ -108,6 +124,17 @@ function sigmoid(x: number): number {
 // Returns landmarks normalised to THAT region's own frame (0..1) — when
 // `cropPx` is set, the caller is responsible for mapping the result back to
 // full-image coords (mapLandmarksCropToFull in faceDetectMath.ts).
+//
+// Diagnostics (2026-08-14): split into two try/catch stages so a failure can
+// be attributed to the right cause — this is a pure control-flow change,
+// none of the math/thresholds below moved or changed. Stage 1 (resize/
+// decode/tensor-build) never touches the model, so any failure there is
+// 'decode_failed'. Stage 2 (runSync + SSD decode) is the model/native-module
+// call, so a failure there is 'model_unavailable'; a clean run that simply
+// finds no anchor above SCORE_THRESHOLD is 'no_face' (not a failure at all).
+type PassResult =
+  | { ok: true; landmarks: FaceLandmarks }
+  | { ok: false; failure: DetectFailureKind; error?: unknown };
 
 async function detectFacePass(
   model: TensorflowModel,
@@ -115,7 +142,10 @@ async function detectFacePass(
   regionW: number,
   regionH: number,
   cropPx?: { originX: number; originY: number; width: number; height: number },
-): Promise<FaceLandmarks | null> {
+): Promise<PassResult> {
+  let img: { width: number; height: number; data: Uint8Array };
+  let offX: number, offY: number;
+  let input: Uint8Array | Float32Array;
   try {
     // 1. Scale uniformly so the LONG side is MODEL_SIZE; letterbox-pad the rest.
     const scale = MODEL_SIZE / Math.max(regionW, regionH);
@@ -130,19 +160,19 @@ async function detectFacePass(
       actions,
       { base64: true, format: SaveFormat.JPEG, compress: 0.95 },
     );
-    if (!resized.base64) return null;
+    if (!resized.base64) return { ok: false, failure: 'decode_failed' };
 
-    const img = decodeJpegBase64(resized.base64);
+    img = decodeJpegBase64(resized.base64);
     const pixelCount = MODEL_SIZE * MODEL_SIZE;
 
-    const offX = (MODEL_SIZE - img.width) >> 1;
-    const offY = (MODEL_SIZE - img.height) >> 1;
+    offX = (MODEL_SIZE - img.width) >> 1;
+    offY = (MODEL_SIZE - img.height) >> 1;
 
     // 2. Build the [1,128,128,3] input tensor (float32 vs uint8, same branch
     //    pattern as poseEstimate/silhouette).
     const inputDataType = model.inputs[0]?.dataType ?? 'float32';
     const isFloat = inputDataType === 'float32';
-    const input: Uint8Array | Float32Array = isFloat
+    input = isFloat
       ? new Float32Array(pixelCount * 3)
       : new Uint8Array(pixelCount * 3);
 
@@ -171,13 +201,20 @@ async function detectFacePass(
         }
       }
     }
+  } catch (err) {
+    // Model file missing is handled by the caller (loadFaceModel, before
+    // this pass ever runs) — anything thrown here is the image itself
+    // (manipulator/jpeg-js/native decode error), not the model.
+    return { ok: false, failure: 'decode_failed', error: err };
+  }
 
+  try {
     // 3. Run inference. BlazeFace short-range outputs two tensors:
     //    regressors [1,896,16] and classificators [1,896,1]. Order in
     //    `model.runSync` output follows the model's own output order — try
     //    both slots defensively by checking each tensor's flat length.
     const outputs = model.runSync([input]);
-    if (!outputs || outputs.length < 2) return null;
+    if (!outputs || outputs.length < 2) return { ok: false, failure: 'model_unavailable' };
 
     const anchors = getAnchors();
     const expectedReg = anchors.length * 16;
@@ -190,7 +227,7 @@ async function detectFacePass(
       if (out.length === expectedReg) regressors = out as unknown as ArrayLike<number>;
       else if (out.length === expectedCls) classificators = out as unknown as ArrayLike<number>;
     }
-    if (!regressors || !classificators) return null;
+    if (!regressors || !classificators) return { ok: false, failure: 'model_unavailable' };
 
     // 4. Decode: find the single highest-scoring anchor (argmax). We only
     //    need one face for try-on (single subject), so a full NMS pass isn't
@@ -204,7 +241,7 @@ async function detectFacePass(
         bestIdx = i;
       }
     }
-    if (bestIdx < 0 || bestScore < SCORE_THRESHOLD) return null;
+    if (bestIdx < 0 || bestScore < SCORE_THRESHOLD) return { ok: false, failure: 'no_face' };
 
     const anchor = anchors[bestIdx];
     const regBase = bestIdx * 16;
@@ -247,18 +284,22 @@ async function detectFacePass(
     };
 
     return {
-      rightEye: toDisplay(kp(0)),
-      leftEye: toDisplay(kp(1)),
-      nose: toDisplay(kp(2)),
-      mouth: toDisplay(kp(3)),
-      rightEar: toDisplay(kp(4)),
-      leftEar: toDisplay(kp(5)),
-      box,
-      score: bestScore,
+      ok: true,
+      landmarks: {
+        rightEye: toDisplay(kp(0)),
+        leftEye: toDisplay(kp(1)),
+        nose: toDisplay(kp(2)),
+        mouth: toDisplay(kp(3)),
+        rightEar: toDisplay(kp(4)),
+        leftEar: toDisplay(kp(5)),
+        box,
+        score: bestScore,
+      },
     };
-  } catch {
-    // Model file missing, decode failure, or native error → degrade to null.
-    return null;
+  } catch (err) {
+    // model.runSync (or the anchor decode immediately around it) threw —
+    // this IS the model/native-module invocation failing.
+    return { ok: false, failure: 'model_unavailable', error: err };
   }
 }
 
@@ -267,44 +308,88 @@ async function detectFacePass(
 /**
  * Detect a single face in `photoUri` and return 4 landmarks (both eyes, nose,
  * mouth) in SOURCE-IMAGE normalised coords (0..1, letterbox undone — same
- * convention as poseEstimate's `display` coords). Returns null on any failure
- * (model missing, decode error, no face above threshold, native error).
+ * convention as poseEstimate's `display` coords), plus which of
+ * `DetectFailureKind` applied on failure — see the module comment at the top
+ * of this file for why that distinction exists. Never throws.
  *
  * Runs a first pass on the full image; if that pass misses or the detected
  * face is "weak" (small inter-eye distance — typical of a full-length
  * head-to-toe photo where BlazeFace's 128×128 input leaves only ~8-10px for
  * the face), a second pass re-runs detection on a crop of the upper portion
- * of the frame and prefers a confident hit there. See faceDetectMath.ts.
+ * of the frame and prefers a confident hit there. See faceDetectMath.ts. This
+ * 2-pass rescue logic is unchanged from before the diagnostics split below.
+ */
+export async function detectFaceDetailed(
+  photoUri: string,
+  origW?: number,
+  origH?: number,
+): Promise<DetectOutcome> {
+  let model: TensorflowModel;
+  try {
+    model = await loadFaceModel();
+  } catch (err) {
+    return { ok: false, failure: 'model_unavailable', error: err };
+  }
+
+  // 0. Resolve source dimensions (probe with a no-op manipulate if needed).
+  let sW = origW, sH = origH;
+  try {
+    if (!sW || !sH || !isFinite(sW) || !isFinite(sH)) {
+      const probe = await manipulateAsync(photoUri, []);
+      sW = probe.width;
+      sH = probe.height;
+    }
+  } catch (err) {
+    return { ok: false, failure: 'decode_failed', error: err };
+  }
+
+  try {
+    const firstPass = await detectFacePass(model, photoUri, sW, sH);
+    const first = firstPass.ok ? firstPass.landmarks : null;
+
+    if (!isWeakDetection(first, sW, sH) && first) {
+      return { ok: true, landmarks: first };
+    }
+
+    // Second pass: crop to the upper portion of the frame where a
+    // full-length shot's face lives, and re-run detection there.
+    const cropH = Math.max(1, Math.round(sH * FACE_CROP_REGION.heightNorm));
+    const cropPx = { originX: 0, originY: 0, width: Math.round(sW), height: cropH };
+    const secondPass = await detectFacePass(model, photoUri, sW, cropH, cropPx);
+    const second = secondPass.ok ? mapLandmarksCropToFull(secondPass.landmarks, FACE_CROP_REGION) : null;
+
+    const selected = selectFaceDetection(first, second, sW, sH);
+    if (selected) return { ok: true, landmarks: selected };
+
+    // Both passes missed a usable face — report the most actionable failure
+    // kind (infra failure beats decode failure beats genuine "no face"), see
+    // combineFailureKinds in faceDetectMath.ts.
+    const firstFailure = firstPass.ok ? null : firstPass.failure;
+    const secondFailure = secondPass.ok ? null : secondPass.failure;
+    const error = (!firstPass.ok && firstPass.error !== undefined) ? firstPass.error
+      : (!secondPass.ok ? secondPass.error : undefined);
+    return { ok: false, failure: combineFailureKinds(firstFailure, secondFailure), error };
+  } catch (err) {
+    // Belt-and-braces: detectFacePass/isWeakDetection/selectFaceDetection
+    // already report their own failures via tagged returns rather than
+    // throwing, so this should not normally trigger. If something
+    // unexpected does slip through, treat it as the loudest signal
+    // (model/infra) rather than silently mislabeling it as "no face found".
+    return { ok: false, failure: 'model_unavailable', error: err };
+  }
+}
+
+/**
+ * Back-compat wrapper around `detectFaceDetailed` for callers that only ever
+ * cared about success/null (e.g. analyzeFace in personal-color) — collapses
+ * every failure kind back to `null`, same contract as before this file's
+ * 2026-08-14 diagnostics split.
  */
 export async function detectFace(
   photoUri: string,
   origW?: number,
   origH?: number,
 ): Promise<FaceLandmarks | null> {
-  try {
-    const model = await loadFaceModel();
-
-    // 0. Resolve source dimensions (probe with a no-op manipulate if needed).
-    let sW = origW, sH = origH;
-    if (!sW || !sH || !isFinite(sW) || !isFinite(sH)) {
-      const probe = await manipulateAsync(photoUri, []);
-      sW = probe.width;
-      sH = probe.height;
-    }
-
-    const first = await detectFacePass(model, photoUri, sW, sH);
-    if (!isWeakDetection(first, sW, sH)) return first;
-
-    // Second pass: crop to the upper portion of the frame where a
-    // full-length shot's face lives, and re-run detection there.
-    const cropH = Math.max(1, Math.round(sH * FACE_CROP_REGION.heightNorm));
-    const cropPx = { originX: 0, originY: 0, width: Math.round(sW), height: cropH };
-    const secondRaw = await detectFacePass(model, photoUri, sW, cropH, cropPx);
-    const second = secondRaw ? mapLandmarksCropToFull(secondRaw, FACE_CROP_REGION) : null;
-
-    return selectFaceDetection(first, second, sW, sH);
-  } catch {
-    // Model file missing, decode failure, or native error → degrade to null.
-    return null;
-  }
+  const outcome = await detectFaceDetailed(photoUri, origW, origH);
+  return outcome.ok ? outcome.landmarks : null;
 }

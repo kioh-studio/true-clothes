@@ -36,6 +36,41 @@ export interface CropRegion {
   heightNorm: number;
 }
 
+// Diagnostics (2026-08-14, ahead of the on-device face-composite test): why a
+// detection pass produced no usable landmarks. Previously every one of these
+// collapsed into a plain `null`, so a device tester couldn't tell "the tflite
+// model never loaded" from "the detector ran fine and genuinely found no
+// face" — the former is an infrastructure bug, the latter is a real signal
+// about the photo. See faceDetect.ts for where each is produced.
+export type DetectFailureKind =
+  | 'model_unavailable' // tflite model load, or the native-module inference call itself, threw / returned nothing
+  | 'decode_failed'     // image resize/decode/tensor-build failed before the model ever ran
+  | 'no_face';           // the detector ran to completion but no anchor cleared SCORE_THRESHOLD
+
+/**
+ * Combine the failure kinds of the first (full-image) and second (crop-
+ * rescue) detection passes into a single kind, for when NEITHER pass
+ * produced a usable detection (see selectFaceDetection below — this is only
+ * meaningful once that returns null for both).
+ *
+ * Priority: an infra failure (model_unavailable) on EITHER pass wins first —
+ * it means detection couldn't even run, which is a far more urgent signal
+ * for on-device diagnostics than "no face found". Next, a decode failure on
+ * either pass. Only when both passes ran cleanly and simply found no
+ * qualifying face do we report 'no_face'. A `null` argument means that pass
+ * wasn't a failure at all (i.e. is unreachable in the current caller, since
+ * this is only invoked when both passes failed — kept nullable so the
+ * function's contract doesn't assume that invariant).
+ */
+export function combineFailureKinds(
+  first: DetectFailureKind | null,
+  second: DetectFailureKind | null,
+): DetectFailureKind {
+  if (first === 'model_unavailable' || second === 'model_unavailable') return 'model_unavailable';
+  if (first === 'decode_failed' || second === 'decode_failed') return 'decode_failed';
+  return 'no_face';
+}
+
 // CALIBRATION-PENDING: minimum inter-eye distance, as a fraction of the
 // source image's larger dimension, below which a detection is treated as
 // "weak" — the face is small enough (typically a full-length head-to-toe

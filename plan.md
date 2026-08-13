@@ -8461,3 +8461,51 @@ rewrite). `npx tsc --noEmit` clean (no `src/` consumer reads `EngineContext.prof
 RN side is unaffected — this is an edge-function-only change). `deno check` clean on
 `generate-outfits/index.ts`, `wardrobe-critic/analyze.ts`, `evaluate-item/scoring.ts`. No commit,
 no Supabase deploy — implementation + tests + docs only, per instruction.
+
+## 2026-08-14 — Face composite: tách "model chưa load" khỏi "không thấy mặt" (chuẩn bị test device)
+
+Diagnostics-only, không đổi compositing math/threshold/mask/2-pass rescue. Mục đích: sắp test
+try-on face composite trên máy thật — trước đây `faceDetect.ts` gom 3 tình huống rất khác nhau
+vào chung 1 `null`: (a) tflite model load lỗi/native module lỗi, (b) resize/decode ảnh lỗi, (c)
+detector chạy xong nhưng không có anchor nào vượt `SCORE_THRESHOLD`. `faceComposite.ts` map cả 3
+vào `no_face_source`/`no_face_generated` như nhau → người test trên device nhìn `no_face_source`
+không thể biết là "ảnh chụp góc xấu" hay "model chưa bao giờ load được" — làm test vô nghĩa.
+
+- **`src/features/try-on/faceDetectMath.ts`** (pure, có test): thêm `DetectFailureKind =
+  'model_unavailable' | 'decode_failed' | 'no_face'` và `combineFailureKinds(first, second)` —
+  ưu tiên `model_unavailable` > `decode_failed` > `no_face` khi kết hợp kết quả 2 pass detect.
+- **`src/features/try-on/faceDetect.ts`**: `detectFacePass` tách thành 2 try/catch (decode/tensor-
+  build vs model.runSync/SSD-decode) để gắn đúng nguyên nhân lỗi — KHÔNG đổi 1 dòng math nào, chỉ
+  đổi cấu trúc control-flow. Thêm `detectFaceDetailed()` trả `DetectOutcome = {ok:true, landmarks}
+  | {ok:false, failure, error?}`, giữ nguyên hệt logic 2-pass rescue cũ (isWeakDetection/
+  selectFaceDetection không đổi). `detectFace()` cũ giữ nguyên signature `FaceLandmarks | null`,
+  giờ chỉ là wrapper mỏng quanh `detectFaceDetailed` — caller khác (`analyzeFace` trong
+  personal-color) không cần sửa gì.
+- **`src/features/try-on/faceCompositeMath.ts`** (pure, có test): thêm `failureToReason(failure,
+  noFaceReason)` — map `model_unavailable` → `detector_unavailable` (mới), `decode_failed` → tái
+  dùng `decode_failed` cũ (cùng nghĩa "không đọc được pixel", chỉ khác giai đoạn — không tách
+  thêm giá trị), `no_face` → `no_face_source`/`no_face_generated` tuỳ caller.
+- **`src/features/try-on/faceComposite.ts`**: `CompositeReason` thêm `detector_unavailable`
+  (infra failure — model chưa từng load được, KHÔNG phải "không thấy mặt"). `compositeFace()`
+  gọi `detectFaceDetailed` thay vì `detectFace`, và khi gặp `model_unavailable` thì
+  `console.warn('[faceComposite] face detector unavailable — model failed to load', err)` — log
+  to, greppable qua `adb logcat` phòng khi dòng `__DEV__` trên màn hình bị bỏ lỡ. Vẫn KHÔNG BAO
+  GIỜ throw.
+- `faceCompositeStats.ts` không cần sửa: `byReason` đã là `Record<string, number>` (keyed by
+  string, không phải union type) nên reason mới tự động cộng dồn được, không có vấn đề schema
+  migration. `app/try-on/wear.tsx` (dòng dev-diagnostic ~382-396) và `useWearOnYou.ts` cũng không
+  cần sửa — cả hai đều xử lý `reason`/`CompositeReason` như string chung chung, không có switch
+  cứng theo từng giá trị.
+
+**Judgment calls:** (1) `decode_failed` từ detector được TÁI DÙNG chung giá trị `decode_failed`
+cũ của `compositeFace` (không tách riêng) vì cùng nghĩa "không xử lý được pixel ảnh", chỉ khác
+giai đoạn pipeline — sự khác biệt đó không actionable với người đọc dòng diagnostic. (2) khi
+outer catch-all của `detectFaceDetailed` bắt phải lỗi không lường trước (không nên xảy ra vì mọi
+nhánh bên trong đã tự trả tagged failure), map về `model_unavailable` thay vì `no_face` — thà
+báo "nghi ngờ hạ tầng" hơi quá còn hơn gắn nhầm nhãn "không thấy mặt" cho một lỗi thật.
+
+**Tests:** `combineFailureKinds` (`faceDetectMath.test.ts`, +5 tests) và `failureToReason`
+(`faceCompositeMath.test.ts`, +3 tests) — cả hai đều pure, không đụng native module. 2 file này
+từ 36 lên 44 test (tất cả cũ vẫn pass nguyên). `npx jest src/features/try-on/__tests__/` (cả 3
+suite, gồm `wardrobeFit.test.ts` không liên quan) → 3 suites, 57/57 passed. `npx tsc --noEmit`
+sạch. Không chạy expo/eas build, không deploy, không commit — theo đúng yêu cầu.
