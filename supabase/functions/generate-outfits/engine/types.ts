@@ -368,6 +368,15 @@ export interface EngineContext {
   // turned the setting on AND their profile gender is a binary value; NON-BINARY /
   // PREFER NOT TO SAY / unset leave this undefined so scoring stays gender-blind.
   gender?: 'WOMAN' | 'MAN';
+  // Raw profile gender (010-wardrobe-critic follow-up, 2026-08-13) — used ONLY
+  // by the auto shape-tier table (ranking.ts autoShapeTierDelta), NOT by
+  // genderStylingDelta above. Deliberately NOT gated on the gender_aware opt-in
+  // that `gender` requires: the auto shape-tier feature is a product decision
+  // to always account for the user's own profile gender when no explicit
+  // shapeGoal is set (2026-08-13), independent of whether they opted into the
+  // separate gender_aware styling nudge. NON-BINARY / PREFER NOT TO SAY / unset
+  // leave this undefined so autoShapeTierDelta falls back to its neutral table.
+  profileGender?: 'WOMAN' | 'MAN';
   // Per-user taste vector learned from saved/worn outfits (lever L2). Undefined
   // until the user has positive history; the bonus is confidence-scaled so a tiny
   // sample barely nudges and zero samples is a no-op.

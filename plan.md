@@ -8368,3 +8368,96 @@ actually delivered.
 supabase/functions/describe-outfit/` 13/13 passed (untouched, confirmed still green). `deno test
 --allow-all supabase/functions/wardrobe-critic/` 11/11 passed. No deploy — the lead reviews and
 redeploys separately.
+
+## Auto shape-tier ranking — the default 'auto' shapeGoal path had NO resulting-shape preference (2026-08-13)
+
+**The gap.** `resultingBodySilhouette(items, bodyShape)` (`silhouette.ts`) tags every outfit with
+the geometric shape the user's body reads as once dressed. `ranking.ts`'s `shapeGoalDelta` rewards
+an outfit whose resulting shape matches the user's *standing* `ctx.shapeGoal` — but returns `0`
+whenever `shapeGoal` is `undefined`/`'auto'`/`'natural'`. Since `'auto'` is the default for almost
+every user (nobody has visited the shape-goal setting), the DEFAULT ranking path carried no
+preference at all over which resulting shape an outfit produces. Measured consequence: ~42–50% of
+ranked outfits tagged `'rectangle'`/straight, regardless of the user's own `body_shape` or what
+actually flatters it — the engine had no opinion, so outfits drifted toward the flattest, laziest
+read available in a wardrobe.
+
+**Fix: a graded 4-tier delta for the `'auto'` path, `autoShapeTierDelta` (`ranking.ts`).** Mirrors
+`shapeGoalDelta`'s shape (same file section, same unreachable-goal guard technique) but fires in
+the OPPOSITE condition — only when `shapeGoal` is `undefined`/`'auto'` — and is keyed by
+`(ctx.profileGender, ctx.bodyMeasurements.body_shape)` instead of an explicit goal. Four tiers,
+CALIBRATION-PENDING magnitudes (never tuned against real feed data): tier A `+0.06` (actively
+flattering for this body/gender), tier B `+0.02` (a safe straight/columnar fallback), tier C `0`
+(reads as the user's own natural shape — no bonus, no penalty), tier D `−0.04` (amplifies the
+least-flattering trait, or works against the tailoring target). A shape not listed anywhere in a
+row's A/B/D falls to tier C by construction — the tables never invent a penalty for an unlisted
+shape. Three tables (`AUTO_SHAPE_WOMAN`, `AUTO_SHAPE_MAN`, `AUTO_SHAPE_NEUTRAL_TABLE`), each keyed
+by `BodyShape`, plus two unknown-body-shape rows (one per WOMAN/NEUTRAL vs MAN bucket) for when
+`body_shape` itself is unset — see `ranking.ts`'s block comment above `autoShapeTierDelta` for the
+full tables and the per-shape rationale (hourglass near-universally tier A for the WOMAN/NEUTRAL
+tables; the MAN table's target is the V/inverted-triangle, not a defined waist, so a bottom-heavy
+or waist-nipped read is tier D on almost every male `body_shape`).
+
+Same unreachable-goal guard as `shapeGoalDelta`: if NEITHER any tier-A NOR any tier-B shape is
+reachable for the (gender, body_shape) pair per `isShapeGoalReachable`, the delta returns `0`
+rather than levying a permanent, unearnable tier-C/D read. In practice this guard never actually
+fires for the current tables — every row pairs its tier-B `'rectangle'` entry (the one shape that's
+ever structurally unreachable, for `apple`/`hourglass` baselines) with an always-reachable tier-A/B
+companion (`hourglass`/`triangle`/`inverted-triangle` can be produced for every baseline). Verified
+directly against `isShapeGoalReachable` rather than assumed — see
+`auto-shape-tier.test.ts`'s "unreachable-goal guard is a NO-OP" test, which documents this finding
+rather than hardcoding it.
+
+Wired into `rankCandidates`'s `totalScore` on the same line as `shapeGoalBonus`
+(`+ autoShapeBonus`), inside the same `Math.max(0, Math.min(1, …))` clamp — the two deltas can
+never both be non-zero for the same outfit (`autoShapeTierDelta` returns `0` immediately for any
+`shapeGoal` other than `undefined`/`'auto'`; `'natural'` explicitly returns `0` too — the user
+asked not to be reshaped, so it must not silently earn the auto-tier bonus either).
+
+**Gender source (deliberate product decision): `ctx.profileGender`, a NEW field, NOT the existing
+opt-in `ctx.gender`.** `ctx.gender` only populates when the user has turned on the separate
+`gender_aware` request flag AND their profile gender is binary — it stays exactly as-is, still
+gating `genderStylingDelta` alone. `ctx.profileGender` (`types.ts` `EngineContext`) is the RAW
+profile gender (`'WOMAN'|'MAN'`, else `undefined` for NON-BINARY/PREFER_NOT_TO_SAY/unset),
+populated in `index.ts` from the same `rawGender` value the `gender_aware` gate already computes,
+but WITHOUT the `genderAware &&` condition — `autoShapeTierDelta` always accounts for the user's
+own profile gender when no explicit `shapeGoal` is set, independent of whether they opted into the
+separate gender-aware styling nudge. Two different gender sources feed two different deltas in the
+same scoring pass; logged as a deliberate-but-worth-revisiting item in `backlog.md`.
+
+Other `EngineContext` builders checked and left untouched (the field is optional, so all three
+compile unchanged and simply fall back to `AUTO_SHAPE_NEUTRAL_TABLE`, having never set
+`profileGender`): `supabase/functions/wardrobe-critic/analyze.ts` (calls `rankCandidates` for its
+gap report), `scripts/eval-feed/run.ts` (all 5 fixtures — none sets `profileGender`), and
+`scripts/sim/body-shape-sim.ts` (doesn't call `rankCandidates` at all). `evaluate-item/scoring.ts`
+does NOT import the engine's `EngineContext` type — its own local scoring context happens to share
+a `gender?: string` field name but is unrelated.
+
+**`genderStylingDelta`'s MAN branch was fighting the new table (`scoring.ts` ~line 907–912).** The
+old MAN branch rewarded `Math.abs(topVol - bottomVol) <= 1` — a BALANCED top/bottom volume read,
+which IS the straight/rectangle silhouette the new auto-tier table scores as merely tier B (safe,
+not the goal) for a menswear V-target. Fixed to reward the V-shape directly: `topVol - bottomVol
+>= 1` → `+0.03`, `bottomVol - topVol >= 1` → `−0.03`, equal → no change. The WOMAN branch and the
+`ctx.gender` opt-in gate are both untouched.
+
+**Tests:** new `supabase/functions/generate-outfits/engine/auto-shape-tier.test.ts` (7 Deno tests) —
+zero-regression for an explicit `shapeGoal` and for `'natural'` (both disable
+`autoShapeTierDelta`, verified by showing `profileGender` no longer moves `totalScore`); MAN +
+rectangle body tier ordering (`inverted-triangle` > `rectangle` > `oval`); WOMAN + rectangle body
+(`hourglass` > `rectangle`); the same outfit diverging tier A (WOMAN) vs tier D (MAN) on an
+identical `body_shape`; undefined `profileGender` falling back to the neutral table; the
+unreachable-guard no-op finding for MAN + apple. `shape-goal.test.ts` updated: `'natural'` is no
+longer byte-identical to unset/`'auto'` in the general case (unset now earns the auto-tier bonus,
+`'natural'` deliberately opts out) — the old "natural == unset" test was narrowed to a
+`(profileGender: 'MAN', body_shape: 'hourglass')` pair where the auto-tier delta itself also reads
+tier C (so the two states genuinely coincide there), a new test documents the general-case
+divergence, and the two "unreachable shapeGoal" tests switched their baseline from unset to
+`shapeGoal: 'natural'` (the only state that's unconditionally `0` from both deltas, so it's the
+correct baseline for isolating `shapeGoalDelta` alone now that unset also runs through the new
+mechanism).
+
+**Verify:** `deno test --allow-read --allow-env supabase/functions/generate-outfits/engine/` 346
+passed / 0 failed (was 339 — +7 new tests, `shape-goal.test.ts` net +1 after the natural-baseline
+rewrite). `npx tsc --noEmit` clean (no `src/` consumer reads `EngineContext.profileGender`, so the
+RN side is unaffected — this is an edge-function-only change). `deno check` clean on
+`generate-outfits/index.ts`, `wardrobe-critic/analyze.ts`, `evaluate-item/scoring.ts`. No commit,
+no Supabase deploy — implementation + tests + docs only, per instruction.

@@ -329,8 +329,16 @@ Deno.serve(async (req) => {
 
     if (genderAware) console.log(`[generate-outfits] gender-aware styling: requested, applied=${gender ?? 'none'}`);
 
+    // Auto shape-tier source (2026-08-13): raw profile gender, NOT gated on the
+    // gender_aware opt-in above — see EngineContext.profileGender's own comment
+    // in types.ts for why this is a deliberate second gender source.
+    const profileGender = (rawGender === 'WOMAN' || rawGender === 'MAN')
+      ? (rawGender as 'WOMAN' | 'MAN')
+      : undefined;
+
     let ctx: EngineContext = {
       bodyMeasurements, styleProfile, colorPreferences, colorSeason, colorTone12, weatherSeason, intent, gender,
+      profileGender,
       suggestByStyle, suggestByMeasurements, shapeGoal,
     };
     let effectiveFormulas: FormulaId[] | undefined = resolvedFormulaSlug

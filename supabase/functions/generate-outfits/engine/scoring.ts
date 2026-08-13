@@ -905,10 +905,18 @@ export function genderStylingDelta(items: FitItem[], gender: 'WOMAN' | 'MAN'): n
     if (topVol !== undefined && bottomVol !== undefined && Math.abs(topVol - bottomVol) >= 1) delta += 0.03;
     if (items.some(i => i.category === 'onepiece')) delta += 0.02;
   } else {
-    // MAN: reward a balanced, structured silhouette; gently discourage an
-    // all-tight (bodycon) read.
+    // MAN: reward a V-shaped read (top wider than bottom — broader shoulders/
+    // chest tapering to a slimmer leg line), penalize the inverse (bottom-heavy),
+    // and gently discourage an all-tight (bodycon) read. Fixed 2026-08-13: this
+    // branch previously rewarded topVol≈bottomVol (a BALANCED read), which IS the
+    // straight/rectangle silhouette — directly opposing the V/inverted-triangle
+    // target the new auto shape-tier table (ranking.ts) rewards for menswear.
+    // Equal volumes (neither >= 1 apart) earn neither bonus nor penalty.
     if (visible.every(i => VOLUME[i.fit] <= 3)) delta += 0.02;
-    if (topVol !== undefined && bottomVol !== undefined && Math.abs(topVol - bottomVol) <= 1) delta += 0.03;
+    if (topVol !== undefined && bottomVol !== undefined) {
+      if (topVol - bottomVol >= 1) delta += 0.03;
+      else if (bottomVol - topVol >= 1) delta -= 0.03;
+    }
     if (visible.filter(i => i.fit === 'slim').length >= 2) delta -= 0.02;
   }
 

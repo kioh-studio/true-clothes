@@ -4,6 +4,7 @@
 import {
   OutfitCandidate, ScoredOutfit, EngineContext, FitItem, OutfitSlots,
   IntentContext, ScoringWeights, ColorScheme, BodyGoal, OccasionTag, Season,
+  BodyShape,
 } from './types.ts';
 import {
   scoreColorHarmony, scoreStyleCoherence, computeUserAttributes,
@@ -14,7 +15,7 @@ import {
 } from './scoring.ts';
 import { tasteAffinityDelta, tasteDismissPenalty } from './taste.ts';
 import { FormulaId } from './generation.ts';
-import { resultingBodySilhouette, isShapeGoalReachable } from './silhouette.ts';
+import { resultingBodySilhouette, isShapeGoalReachable, OutfitSilhouetteShape } from './silhouette.ts';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INTENT RESOLVER
@@ -250,6 +251,145 @@ function shapeGoalDelta(items: FitItem[], ctx: EngineContext): number {
   return resulting === goal ? SHAPE_GOAL_MATCH_BONUS : -SHAPE_GOAL_MISS_PENALTY;
 }
 
+// ─── Auto shape-tier delta (2026-08-13) ──────────────────────────────────────
+// shapeGoalDelta above only fires for an EXPLICIT ctx.shapeGoal ('hourglass',
+// 'rectangle', …). When shapeGoal is unset or 'auto' — the default for nearly
+// every user, since almost nobody has visited the shape-goal setting —
+// shapeGoalDelta is a hard no-op, which meant the DEFAULT ranking path carried
+// NO preference at all over which resulting body silhouette an outfit
+// produces. In practice that let outfits drift toward the flattest, laziest
+// read available in a wardrobe: measured ~42-50% of ranked outfits tagging
+// 'rectangle'/straight, regardless of the user's own body_shape or what
+// actually flatters it.
+//
+// This delta fills that gap with a graded, 4-tier preference over the SAME
+// resultingBodySilhouette read shapeGoalDelta uses, keyed by the user's
+// body_shape AND profile gender (ctx.profileGender — the RAW profile gender,
+// NOT the gender_aware-gated ctx.gender genderStylingDelta reads; see
+// types.ts's EngineContext.profileGender comment for why these are
+// deliberately two different sources feeding two different deltas in the same
+// scoring pass). Tier A = actively flattering for this body/gender pairing;
+// B = a safe straight/columnar fallback (never wrong, just not the goal);
+// C = reads as the user's own natural shape (neutral — no bonus, no penalty,
+// since we're not telling anyone their own body is a problem); D = a
+// resulting shape that amplifies the least-flattering trait of that body, or
+// (for menswear) actively works against the tailoring target.
+//
+// The MAN table's target is deliberately different IN KIND from the WOMAN
+// table's, not just reshuffled: menswear's flattering read is the
+// V/inverted-triangle (broad shoulder tapering to a slim leg line), not a
+// nipped/defined waist — a bottom-heavy (triangle) or waist-defined
+// (hourglass) read is tier D for almost every male body_shape, only relaxing
+// to tier C where it's already that body's own natural/neutral read. This is
+// also why the MAN branch of genderStylingDelta (scoring.ts, fixed alongside
+// this table) mattered: it previously rewarded a BALANCED top/bottom volume
+// read — which IS the straight/rectangle silhouette this table scores as only
+// tier B (acceptable, not the goal) — so the two deltas would otherwise have
+// been pulling every menswear outfit in opposite directions.
+//
+// CALIBRATION-PENDING: the four tier magnitudes below (+0.06/+0.02/0/-0.04)
+// are a first-pass ordering (A > B > C > D, spaced in the same band as the
+// existing shapeGoal/gender/house deltas), never tuned against real feed
+// data — see backlog.md.
+const AUTO_SHAPE_FLATTER  = 0.06;   // tier A - tôn dáng
+const AUTO_SHAPE_STRAIGHT = 0.02;   // tier B - straight/columnar
+const AUTO_SHAPE_NEUTRAL  = 0;      // tier C - reads as the user's own shape
+const AUTO_SHAPE_COUNTER  = -0.04;  // tier D - amplifies / works against
+
+// A shape listed in more than one tier for the same row would take the
+// HIGHEST tier (A > B > C > D) — see tierDeltaFor below, which checks A then
+// B then D in that order and only falls through to the implicit C otherwise.
+// None of the tables below actually have that overlap (each shape appears in
+// at most one tier per row); the precedence still holds defensively.
+interface ShapeTierRow {
+  A?: OutfitSilhouetteShape[];
+  B?: OutfitSilhouetteShape[];
+  D?: OutfitSilhouetteShape[];
+  // Tier C is implicit: any resulting shape not listed in A/B/D above falls
+  // here (delta 0) — never invent a penalty for an unlisted shape.
+}
+
+function tierDeltaFor(row: ShapeTierRow, shape: OutfitSilhouetteShape): number {
+  if (row.A?.includes(shape)) return AUTO_SHAPE_FLATTER;
+  if (row.B?.includes(shape)) return AUTO_SHAPE_STRAIGHT;
+  if (row.D?.includes(shape)) return AUTO_SHAPE_COUNTER;
+  return AUTO_SHAPE_NEUTRAL;
+}
+
+// WOMAN table — tôn dáng: hourglass is near-universally flattering; a
+// straight/rectangle read is always an acceptable fallback (tier B); 'oval'
+// (all-over volume) is the one read that's never a goal for a female body.
+const AUTO_SHAPE_WOMAN: Record<BodyShape, ShapeTierRow> = {
+  triangle:          { A: ['hourglass', 'inverted-triangle'], B: ['rectangle'], D: ['oval'] },
+  inverted_triangle: { A: ['hourglass', 'triangle'],          B: ['rectangle'], D: ['oval'] },
+  rectangle:         { A: ['hourglass'], B: ['rectangle', 'triangle', 'inverted-triangle'], D: ['oval'] },
+  hourglass:         { A: ['hourglass'], B: ['rectangle'], D: ['oval', 'triangle', 'inverted-triangle'] },
+  apple:             { A: ['hourglass', 'inverted-triangle'], B: ['rectangle', 'triangle'] }, // oval falls to C
+};
+
+// MAN table — the male target is the V-silhouette (inverted-triangle), NOT a
+// defined waist. A bottom-heavy (triangle) or waist-nipped (hourglass) read is
+// tier D for every body_shape except the one where it's already that body's
+// own natural/neutral read.
+const AUTO_SHAPE_MAN: Record<BodyShape, ShapeTierRow> = {
+  rectangle:         { A: ['inverted-triangle'], B: ['rectangle'], D: ['oval', 'triangle', 'hourglass'] },
+  triangle:          { A: ['inverted-triangle'], B: ['rectangle'], D: ['oval', 'hourglass'] }, // triangle itself falls to C
+  inverted_triangle: { A: ['inverted-triangle'], B: ['rectangle'], D: ['oval', 'triangle', 'hourglass'] },
+  apple:             { A: ['inverted-triangle'], B: ['rectangle'], D: ['triangle', 'hourglass'] }, // oval falls to C
+  hourglass:         { A: ['inverted-triangle'], B: ['rectangle'], D: ['oval', 'triangle'] }, // hourglass itself falls to C
+};
+
+// NEUTRAL table — used when ctx.profileGender is undefined (non-binary,
+// prefer-not-to-say, or unset profile gender). Mirrors WOMAN's overall shape
+// (hourglass as the universal tier A) but without WOMAN's extra tier-B
+// breadth on a rectangle body — kept deliberately narrower/more conservative
+// since no gender signal is available to lean on.
+const AUTO_SHAPE_NEUTRAL_TABLE: Record<BodyShape, ShapeTierRow> = {
+  rectangle:         { A: ['hourglass', 'inverted-triangle'], B: ['rectangle'], D: ['oval', 'triangle'] },
+  triangle:          { A: ['hourglass', 'inverted-triangle'], B: ['rectangle'], D: ['oval'] }, // triangle itself falls to C
+  inverted_triangle: { A: ['hourglass', 'triangle'],          B: ['rectangle'], D: ['oval'] }, // inverted-triangle itself falls to C
+  hourglass:         { A: ['hourglass'], B: ['rectangle'], D: ['oval', 'triangle', 'inverted-triangle'] },
+  apple:             { A: ['hourglass', 'inverted-triangle'], B: ['rectangle', 'triangle'] }, // oval falls to C
+};
+
+// Unknown-body-shape columns (ctx.bodyMeasurements.body_shape undefined) — one
+// row per gender bucket, not keyed by BodyShape at all.
+const AUTO_SHAPE_UNKNOWN_WOMAN_NEUTRAL: ShapeTierRow = { A: ['hourglass', 'inverted-triangle'], B: ['rectangle'], D: ['oval', 'triangle'] };
+const AUTO_SHAPE_UNKNOWN_MAN: ShapeTierRow = { A: ['inverted-triangle'], B: ['rectangle'], D: ['oval', 'triangle', 'hourglass'] };
+
+function autoShapeTierRow(profileGender: EngineContext['profileGender'], bodyShape?: BodyShape): ShapeTierRow {
+  if (!bodyShape) return profileGender === 'MAN' ? AUTO_SHAPE_UNKNOWN_MAN : AUTO_SHAPE_UNKNOWN_WOMAN_NEUTRAL;
+  const table = profileGender === 'WOMAN' ? AUTO_SHAPE_WOMAN : profileGender === 'MAN' ? AUTO_SHAPE_MAN : AUTO_SHAPE_NEUTRAL_TABLE;
+  return table[bodyShape];
+}
+
+/**
+ * Graded 4-tier ranking-time nudge for the AUTO (unset/'auto') shapeGoal path
+ * — see the block comment above for the full rationale. Returns 0 immediately
+ * for any OTHER shapeGoal state ('natural' or a specific desired shape),
+ * since shapeGoalDelta above already owns that case; the two deltas must
+ * never both be non-zero for the same outfit.
+ */
+function autoShapeTierDelta(items: FitItem[], ctx: EngineContext): number {
+  if (ctx.shapeGoal !== undefined && ctx.shapeGoal !== 'auto') return 0;
+
+  const bodyShape = ctx.bodyMeasurements.body_shape;
+  const row = autoShapeTierRow(ctx.profileGender, bodyShape);
+
+  // Unreachable-goal guard (mirrors shapeGoalDelta's own guard above): if NO
+  // tier-A or tier-B shape can ever be produced for this (gender, body_shape)
+  // pair, every outfit would take a permanent, unearnable tier-C/D read no
+  // matter how the wardrobe is styled — neutralise to 0 instead of penalizing
+  // a target the engine itself made impossible (e.g. 'rectangle' is
+  // unreachable for an 'apple' or 'hourglass' body per isShapeGoalReachable's
+  // own comment in silhouette.ts).
+  const goalShapes = [...(row.A ?? []), ...(row.B ?? [])];
+  if (!goalShapes.some(shape => isShapeGoalReachable(bodyShape, shape))) return 0;
+
+  const resulting = resultingBodySilhouette(items, bodyShape);
+  return tierDeltaFor(row, resulting);
+}
+
 function classifyTier(slots: OutfitSlots, itemMap: Map<string, FitItem>, userStyles: Set<string>): 1 | 2 {
   if (userStyles.size === 0) return 1;
   const coreIds = [slots.top, slots.bottom];
@@ -384,7 +524,12 @@ export function rankCandidates(
     // Shape-goal nudge (2026-08-10): 0 when the user hasn't set a specific
     // shapeGoal (or set 'auto'/'natural') — see shapeGoalDelta above.
     const shapeGoalBonus = shapeGoalDelta(fitItems, ctx);
-    const totalScore = Math.max(0, Math.min(1, (base + taste.bonus) * taste.multiplier + genderDelta + tasteDelta - dismissPenalty + houseDelta + shapeGoalBonus));
+    // Auto shape-tier nudge (2026-08-13): the default-path counterpart to
+    // shapeGoalBonus above — fires exactly when shapeGoalBonus is 0 because the
+    // user has no explicit shapeGoal (or 'auto'), never both. See
+    // autoShapeTierDelta's own block comment above for the full rationale.
+    const autoShapeBonus = autoShapeTierDelta(fitItems, ctx);
+    const totalScore = Math.max(0, Math.min(1, (base + taste.bonus) * taste.multiplier + genderDelta + tasteDelta - dismissPenalty + houseDelta + shapeGoalBonus + autoShapeBonus));
 
     scored.push({
       slots: c.slots,

@@ -2537,3 +2537,33 @@ treo, ghi lại đây theo đúng yêu cầu của lead khi giao task:
   trong. Không sửa ở đây theo yêu cầu — cột `opacity` (không dùng) vẫn còn trên DB
   (`clothing_items.opacity`, migration `20260814000001_item_opacity.sql`) nếu sau này cần một
   hướng tiếp cận khác cho vấn đề này.
+
+## AI. Auto shape-tier ranking follow-ups (2026-08-13)
+
+Fix chi tiết ở `plan.md` cùng ngày ("Auto shape-tier ranking — the default 'auto' shapeGoal path
+had NO resulting-shape preference"). Bốn việc chủ động hoãn lại khi làm task này, ghi lại đây theo
+đúng yêu cầu của lead khi giao task:
+
+- [ ] **Bốn hệ số tier (`AUTO_SHAPE_FLATTER=+0.06` / `AUTO_SHAPE_STRAIGHT=+0.02` /
+  `AUTO_SHAPE_NEUTRAL=0` / `AUTO_SHAPE_COUNTER=-0.04`) là CALIBRATION-PENDING** (2026-08-13) —
+  `engine/ranking.ts`. Đây là thứ tự A>B>C>D hợp lý về mặt logic, đặt trong cùng biên độ với các
+  delta khác đã có (`shapeGoal`/`gender`/`house`), nhưng CHƯA từng đối chiếu với dữ liệu feed thật
+  (CTR/save/worn theo tier). Cần một lượt calibration thực tế trước khi coi các con số này là
+  đúng, không chỉ "hợp lý".
+- [ ] **Cả 5 fixture của `scripts/eval-feed/` đều dùng `body_shape='rectangle'`** (2026-08-13) —
+  `scripts/eval-feed/fixture.ts:22`. Nghĩa là mọi hàng KHÁC 'rectangle' trong cả ba bảng tier
+  (`AUTO_SHAPE_WOMAN`/`AUTO_SHAPE_MAN`/`AUTO_SHAPE_NEUTRAL_TABLE`) — tức phần lớn nội dung ba bảng
+  — CHƯA từng được harness offline chạy qua, dù unit test (`auto-shape-tier.test.ts`) đã cover
+  đúng-sai logic. Cần thêm ít nhất 1 fixture cho mỗi `body_shape` còn lại (`triangle`,
+  `inverted_triangle`, `hourglass`, `apple`) để đo movement thật trên feed.
+- [ ] **Fixture `resort` cho ra 100% outfit đọc là rectangle/straight** (2026-08-13) — wardrobe
+  của fixture này toàn item `relaxed`-fit nên mọi outfit compose ra đều rơi vào cùng một
+  silhouette, không có candidate nào chạm được tier A/B khác — tier delta mới thêm không thể giúp
+  gì khi wardrobe tự nó không có lựa chọn khác để xếp hạng lên trên. Không phải bug của tier
+  table, nhưng là giới hạn cần biết khi đọc kết quả eval của fixture này.
+- [ ] **`genderStylingDelta` vẫn đọc `ctx.gender` (opt-in `gender_aware`) trong khi bảng tier mới
+  đọc `ctx.profileGender` (raw profile, không opt-in)** (2026-08-13) — `scoring.ts` +
+  `ranking.ts`. Hai nguồn gender khác nhau cùng chạy trong một lượt scoring, là quyết định có chủ
+  đích (xem `types.ts` comment ở `EngineContext.profileGender`) nhưng đáng xem lại: một user tắt
+  `gender_aware` vẫn bị bảng tier tự động áp dụng theo gender hồ sơ của họ, trong khi
+  `genderStylingDelta` thì không. Nếu sau này quyết định gộp lại một nguồn, đây là chỗ cần sửa.
