@@ -8509,3 +8509,89 @@ báo "nghi ngờ hạ tầng" hơi quá còn hơn gắn nhầm nhãn "không th�
 từ 36 lên 44 test (tất cả cũ vẫn pass nguyên). `npx jest src/features/try-on/__tests__/` (cả 3
 suite, gồm `wardrobeFit.test.ts` không liên quan) → 3 suites, 57/57 passed. `npx tsc --noEmit`
 sạch. Không chạy expo/eas build, không deploy, không commit — theo đúng yêu cầu.
+
+## 2026-08-21 — Three independent Edge Function fixes: backfill self-starving filter, 7 DB-only garment types, one-piece sole-torso-layer
+
+Three verified-root-cause fixes, no scope beyond the named files. Implementation + tests only, no
+deploy (separate step).
+
+**Fix 1 — `backfill-item-metadata/index.ts` (`.or()` selector, ~line 415).** Root cause: the
+selector included `secondary_hex.is.null`, but a monochrome garment legitimately has no second
+colour — `dominantHexes()` returns a falsy `secondaryHex` for it, so `patch.secondary_hex` is
+never set and the column stays NULL forever. Combined with `.order('id').range(offset, offset +
+limit - 1)`, those permanently-matching rows squat at the head of the page window and starve the
+genuinely-unfilled rows behind them (observed live: `limit:18` repeated gave 16 → 5 → 2 → 1 → 1
+updated then stalled with dozens of rows still unfilled). Fix: dropped `secondary_hex.is.null`
+from the `.or()` string; nothing else changed, including the unrelated hex-layer trigger at
+~line 329. No coverage lost: `primary_hex`/`secondary_hex` are produced together by one
+`dominantHexes()` call, so a row that never went through hex extraction still has `primary_hex`
+NULL and is still selected by `primary_hex.is.null`; the existing hex-layer trigger still fills
+`secondary_hex` once selected. The only rows dropped from the selector are ones where extraction
+already ran and found no second colour — re-selecting those would be a guaranteed no-op. No test
+added — one-line selector change, no branching logic.
+
+**Fix 2 — `generate-outfits/engine/enrichment.ts` (`CATEGORY_MAP`, ~line 14).** Root cause: the
+live `garment_types` table carries 8 type_keys the engine never learned; `SLIDES` was closed
+2026-08-13, leaving 7 (`TANK, CARGO, JOGGERS, DERBY, GILET, WINDBREAKER, SOCKS`) falling through
+`categoryOf()`'s `?? 'accessory'` fallback — wrong slot, wrong layer role, wrong scoring (this
+already shipped a live defect: a woven SLIDES filled the accessory slot of an outfit that already
+had Chelsea BOOTS in shoes). Fix: added all 7 to `CATEGORY_MAP`, grouped with their real category
+per the file's existing formatting (`TANK` → top, `CARGO`/`JOGGERS` → bottom, `DERBY` → shoes,
+`GILET`/`WINDBREAKER` → outwear, `SOCKS` → accessory — explicit even though the fallback already
+landed there, so the map now covers every known `garment_types` row). Deliberately did NOT extend
+`TYPE_FORMALITY`, `TYPE_DEFAULT_FIT`, `STYLE_AFFINITIES`, or `LAYER_ROLE_BY_TYPE` — those fall
+back neutrally (`?? 2.5`, `?? 'regular'`, `?? []`, and the category map itself) and need a real
+product decision, tracked in `backlog.md`'s `TYPE_OPTIONS` entry. New test
+`generate-outfits/engine/db-only-types-category.test.ts` (mirrors `slides-category.test.ts`):
+`categoryOf()` for all 7 keys, plus a lowercase-input case. Grepped the two engine test files that
+keep hardcoded type-set copies (`style-catalog-consistency.test.ts`'s `VALID_TYPE_NAMES`,
+`taste-data.test.ts`'s `SHOE_TYPES`, both touched by the `SLIDES` fix) — neither references any of
+the 7 new type keys anywhere in `taste-data.ts` or `filtering.ts`'s `STYLE_CONFIGS`, so no update
+needed.
+
+**Fix 3 — `describe-outfit/prompt.ts` (`TORSO_LAYER_TYPES`, ~line 34).** Root cause: the set
+listed base/mid/outer torso types but no one-piece types (`DRESS`, `JUMPSUIT`, `OVERALLS`,
+`GOWN`), even though all four map to `category: 'onepiece'` in `enrichment.ts`'s `CATEGORY_MAP`.
+`deriveSoleTorsoLayerIndex` marks an item only when exactly one item matches the set, causing two
+bugs: (a) a dress worn alone counted 0 torso-layer items, never earning the `sole torso layer`
+note; (b) — the more damaging one — dress + blazer counted exactly 1 (the blazer), falsely
+marking the BLAZER as the sole torso layer, which SUPPRESSES the "open it" suggestion the
+marker exists to gate (`describe-outfit/index.ts:78`/`:90`: "Never suggest opening... a garment
+marked 'sole torso layer'"). With a dress underneath, "open the blazer" is actually good advice
+— the false positive silently deleted it. The file's own header comment names its canonical source,
+`isSoleTorsoLayer(slots)` in `generate-outfits/engine/curator.ts:32` — verified as
+`slots.outwear === undefined && slots.mid === undefined`, under which a dress alone IS a sole
+torso layer and dress + blazer is NOT, confirming both bugs were one divergence from that
+definition. Fix: added a fourth group, `// one-piece — occupies the torso by itself` /
+`'DRESS', 'JUMPSUIT', 'OVERALLS', 'GOWN'`, and extended the header comment to record the source
+(`CATEGORY_MAP`'s `onepiece` group) and the false-positive it prevents. Tests added to the
+existing `prompt.test.ts` (matched its idiom, no existing case modified): dress alone → its
+index; dress + blazer → `null` (regression for the false positive); jumpsuit alone → its index;
+tee + cardigan → `null` (existing two-torso-layer behaviour unaffected).
+
+**Fixture fix — one pre-existing `prompt.test.ts` case, corrected with authorization.** The
+case-insensitivity test (`type match is case-insensitive`, fixture `kimono` + `dress`) asserted
+index `0` under the old (buggy) `TORSO_LAYER_TYPES`, where `dress` didn't count — it silently
+depended on the bug. Under the fixed set, `kimono` (mid-layer) + `dress` (now a real torso
+occupant) is genuine layering, so the fixture's premise broke. Rather than change the assertion
+to `null` (which would just duplicate the new "dress + blazer → null" case and delete the
+lowercase coverage), the second fixture item was swapped to a lowercase non-torso garment —
+`{ name: 'Black Jeans', type: 'jeans', color: 'Black' }` — preserving the test's actual intent
+(case-insensitive matching) with the assertion unchanged at `0`. A one-line comment on the test
+records why the fixture changed. Coordinator explicitly authorized this edit, overriding the
+earlier "do not modify existing test cases" instruction for this one case.
+
+**Verify:** `npx jest` 44 suites / 602 tests, 0 failed. `deno test --allow-env
+supabase/functions/generate-outfits/engine/` 348/348 passed (was 346, +2 new). `deno test
+--allow-env supabase/functions/evaluate-item/` 37/37 passed. `deno test --allow-env
+supabase/functions/wardrobe-critic/` 11/11 passed. `deno test --allow-all
+supabase/functions/describe-outfit/` 17/17 passed (13 pre-existing incl. the fixture fix above +
+4 new). `npx tsc --noEmit` clean, but `tsconfig.json` excludes `supabase/functions` entirely, so
+this does not typecheck any of the three changed files — Deno's own type-checking (`deno test`
+compiles via `deno check` first) is the real signal for those. No commit, no Supabase deploy.
+
+Edge functions that import `generate-outfits/engine/enrichment.ts` via a real `import` (need
+redeploy for Fix 2 once this ships): `generate-outfits` (`index.ts`, `engine/scoring.ts`),
+`evaluate-item` (`index.ts`, `scoring.ts`), `wardrobe-critic` (`index.ts`, `analyze.ts`). Fix 1
+(`backfill-item-metadata`) and Fix 3 (`describe-outfit`) are each self-contained in their own
+function directory.

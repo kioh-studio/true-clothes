@@ -31,6 +31,18 @@ export interface OutfitItem {
 // enrichment.ts and OUTER_TOPS/MID_TOPS/INNER_TOPS in
 // src/components/outfit/collageLayout.ts — same duplication tradeoff as
 // those two already accept (documented at collageLayout.ts:30-39).
+//
+// The one-piece group (2026-08-21) is sourced from CATEGORY_MAP's `onepiece`
+// group in generate-outfits/engine/enrichment.ts. Its absence was a second,
+// more damaging divergence from the canonical isSoleTorsoLayer(slots) in
+// generate-outfits/engine/curator.ts:32 (`slots.outwear === undefined &&
+// slots.mid === undefined`): a dress worn alone counted 0 torso-layer items
+// (never got the marker), and dress + blazer counted exactly 1 — the BLAZER
+// — falsely marking IT the sole torso layer, which SUPPRESSES the "open it"
+// suggestion (index.ts's system prompt bans suggesting that for a marked
+// item). With a dress underneath, "open the blazer" is actually good advice
+// — the false positive silently deleted it. Do not remove this group
+// thinking one-pieces are irrelevant to a "layer" set.
 const TORSO_LAYER_TYPES = new Set([
   // base — worn next to skin
   'TEE', 'CAMISOLE', 'HENLEY', 'BLOUSE', 'POLO', 'BODYSUIT', 'CROP', 'TUNIC', 'CORSET', 'SHIRT',
@@ -38,6 +50,8 @@ const TORSO_LAYER_TYPES = new Set([
   'SWEATER', 'KNIT', 'CARDIGAN', 'VEST', 'HOODIE', 'KIMONO',
   // outer — the shell
   'JACKET', 'BLAZER', 'COAT', 'PARKA', 'OVERCOAT', 'CAPE',
+  // one-piece — occupies the torso by itself
+  'DRESS', 'JUMPSUIT', 'OVERALLS', 'GOWN',
 ]);
 
 export const SOLE_TORSO_LAYER_NOTE = 'sole torso layer';

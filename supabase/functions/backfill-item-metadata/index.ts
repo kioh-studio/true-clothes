@@ -408,11 +408,26 @@ Deno.serve(async (req) => {
     // set in small fresh-worker chunks — without ordering, LIMIT keeps returning
     // the same head rows (e.g. shoes/bags whose missing col the model never fills),
     // starving the fillable garments behind them and risking an OOM on a big limit.
+    //
+    // TRAP (2026-08-21): do NOT add `secondary_hex.is.null` back to this list.
+    // A monochrome garment legitimately has no second colour — dominantHexes()
+    // returns a falsy secondaryHex for it, so patch.secondary_hex is never set
+    // and the column stays NULL forever. Selecting on that NULL re-matches the
+    // same already-processed row on every page, starving the genuinely-unfilled
+    // rows behind it in the `.range()` window (observed: limit:18 repeated gave
+    // 16 → 5 → 2 → 1 → 1 then stalled). This drops no real coverage: primary_hex
+    // and secondary_hex are produced together by one dominantHexes() call, so a
+    // row that never went through hex extraction still has primary_hex NULL and
+    // is still selected by `primary_hex.is.null`; the unchanged hex-layer
+    // trigger below (`row.primary_hex == null || row.secondary_hex == null`)
+    // still fills secondary_hex once selected. Only rows where extraction
+    // already ran and found no second colour are excluded — re-selecting those
+    // would be a guaranteed no-op.
     let query = admin
       .from('clothing_items')
       .select(SELECT_COLS)
       .not('photo_url', 'is', null)
-      .or('fit.is.null,material.is.null,pattern.is.null,warmth_season.is.null,can_layer.is.null,drape.is.null,visual_interest.is.null,primary_hex.is.null,secondary_hex.is.null,distressed.is.null')
+      .or('fit.is.null,material.is.null,pattern.is.null,warmth_season.is.null,can_layer.is.null,drape.is.null,visual_interest.is.null,primary_hex.is.null,distressed.is.null')
       .order('id', { ascending: true })
       .range(offset, offset + limit - 1);
     if (wardrobeId) query = query.eq('wardrobe_id', wardrobeId);

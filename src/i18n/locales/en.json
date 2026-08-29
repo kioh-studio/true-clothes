@@ -31,7 +31,6 @@
   "fitEngineStore_syncFailed": "Couldn't save your changes. Please try again.",
   "authStore_invalidPhoneOrEmail": "Please enter a valid phone number or email.",
   "authStore_noVerificationInProgress": "No verification in progress.",
-  "authStore_demoNotConfigured": "Demo account is not configured.",
   "authStore_demoSignInFailed": "Demo sign-in failed.",
   "authStore_verifiedNoSession": "Verified but no session — please retry.",
   "authStore_notSignedIn": "Not signed in.",

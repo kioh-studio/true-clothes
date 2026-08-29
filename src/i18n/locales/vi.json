@@ -31,7 +31,6 @@
   "fitEngineStore_syncFailed": "Không thể lưu thay đổi của bạn. Vui lòng thử lại.",
   "authStore_invalidPhoneOrEmail": "Vui lòng nhập số điện thoại hoặc email hợp lệ.",
   "authStore_noVerificationInProgress": "Không có yêu cầu xác minh nào đang diễn ra.",
-  "authStore_demoNotConfigured": "Tài khoản demo chưa được cấu hình.",
   "authStore_demoSignInFailed": "Đăng nhập demo thất bại.",
   "authStore_verifiedNoSession": "Đã xác minh nhưng chưa có phiên đăng nhập — vui lòng thử lại.",
   "authStore_notSignedIn": "Chưa đăng nhập.",

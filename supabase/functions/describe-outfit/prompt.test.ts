@@ -60,9 +60,13 @@ Deno.test('deriveSoleTorsoLayerIndex: null when there are zero torso-family garm
 });
 
 Deno.test('deriveSoleTorsoLayerIndex: type match is case-insensitive (client may send lowercase)', () => {
+  // Fixture changed 2026-08-21: the second item used to be lowercase 'dress',
+  // which only passed because DRESS was absent from TORSO_LAYER_TYPES at the
+  // time (a bug, fixed below) — this test's intent is case-insensitivity
+  // only, so the second item is now a genuine non-torso garment instead.
   const items: OutfitItem[] = [
     { name: 'Kimono Jacket', type: 'kimono', color: 'Navy' },
-    { name: 'Slip Dress', type: 'dress', color: 'Black' },
+    { name: 'Black Jeans', type: 'jeans', color: 'Black' },
   ];
   assertEquals(deriveSoleTorsoLayerIndex(items), 0);
 });
@@ -135,4 +139,41 @@ Deno.test('buildItemLines: item with no name falls back to type, marker still ap
     { type: 'VEST', color: 'Olive' },
   ];
   assertEquals(buildItemLines(items), '1. VEST — Olive, sole torso layer');
+});
+
+// ─── one-piece coverage (2026-08-21 — DRESS/JUMPSUIT/OVERALLS/GOWN were
+// missing from TORSO_LAYER_TYPES, diverging from the canonical
+// isSoleTorsoLayer(slots) in generate-outfits/engine/curator.ts) ──────────
+
+Deno.test('deriveSoleTorsoLayerIndex: a dress worn alone is the sole torso layer (was bug (a): missing marker)', () => {
+  const items: OutfitItem[] = [
+    { name: 'Slip Dress', type: 'DRESS', color: 'Black' },
+    { name: 'Heels', type: 'HEELS', color: 'Black' },
+    { name: 'Clutch Bag', type: 'BAG', color: 'Black' },
+  ];
+  assertEquals(deriveSoleTorsoLayerIndex(items), 0);
+});
+
+Deno.test('deriveSoleTorsoLayerIndex: dress + blazer is null, not the blazer (was bug (b): false positive)', () => {
+  const items: OutfitItem[] = [
+    { name: 'Slip Dress', type: 'DRESS', color: 'Black' },
+    { name: 'Cream Blazer', type: 'BLAZER', color: 'Cream' },
+    { name: 'Heels', type: 'HEELS', color: 'Black' },
+  ];
+  assertEquals(deriveSoleTorsoLayerIndex(items), null);
+});
+
+Deno.test('deriveSoleTorsoLayerIndex: a jumpsuit worn alone is the sole torso layer', () => {
+  const items: OutfitItem[] = [
+    { name: 'Wide-leg Jumpsuit', type: 'JUMPSUIT', color: 'Navy' },
+  ];
+  assertEquals(deriveSoleTorsoLayerIndex(items), 0);
+});
+
+Deno.test('deriveSoleTorsoLayerIndex: tee + cardigan still resolves null (existing two-torso-layer behaviour unaffected)', () => {
+  const items: OutfitItem[] = [
+    { name: 'White Tee', type: 'TEE', color: 'White' },
+    { name: 'Grey Cardigan', type: 'CARDIGAN', color: 'Grey' },
+  ];
+  assertEquals(deriveSoleTorsoLayerIndex(items), null);
 });

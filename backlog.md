@@ -527,7 +527,7 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   để nhìn — xem mục section Z (`photo_storage='local'`, file không tồn tại trong bucket).
   Ghi nhận: `distressed = true` cho **đúng 0/67 item**, nên 14 style cấm `distressed` hiện
   chưa loại được món nào trong tủ này — signal đã có dữ liệu, chỉ là không có positive.
-- [ ] **Bộ lọc của `backfill-item-metadata` tự chặn chính nó khi `limit` nhỏ** (2026-08-12,
+- [x] **Bộ lọc của `backfill-item-metadata` tự chặn chính nó khi `limit` nhỏ** (2026-08-12,
   phát hiện khi chạy backfill thật) — mệnh đề `.or()` chứa `secondary_hex.is.null`, mà rất
   nhiều item **không có màu phụ thật**, nên chúng khớp bộ lọc VĨNH VIỄN kể cả sau khi đã điền
   xong. Vì query `order by id` + `range(offset, offset+limit-1)`, phần đầu danh sách bị nghẽn
@@ -536,6 +536,9 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   đuôi (và `limit:45` thì 504 vì vượt wall-clock của edge function). Sửa đúng: bỏ
   `secondary_hex.is.null` khỏi bộ lọc (nó không phải tín hiệu "thiếu dữ liệu"), hoặc thêm cột
   đánh dấu "đã backfill" thay vì suy ra từ NULL.
+  FIXED 2026-08-21: xoá `secondary_hex.is.null` khỏi `.or()` trong `backfill-item-metadata/index.ts`;
+  `primary_hex.is.null` vẫn chọn đúng mọi row chưa qua hex extraction (cùng một lần gọi
+  `dominantHexes()` set cả hai cột), nên không mất coverage thật.
 - [x] **Thread `primary_hex`/`secondary_hex` qua ingest client** — DONE 2026-07-06 (follow-up
   cùng phiên measured-hex, theo yêu cầu gốc "extract by item cũng có colour"): cả 3 đường
   ingest giờ có hex ngay lúc lưu — (1) extract-by-item on-device tự đo bằng client port
@@ -1313,6 +1316,12 @@ published so no store-side migration needed, but three things are still open:
   pause (INACTIVE) do khong co traffic — toan bo backend offline cho toi khi restore
   thu cong. Can quyet: nang plan Pro hoac dat cron ping giu project active truoc khi
   co user that.
+  2026-08-21: paused lai, xac nhan that. Chan ca 1 DB query (Management API
+  `/database/query`: "Connection terminated due to connection timeout" roi HTTP 544 x3) lan
+  1 lan deploy 5 function (xem muc "2026-08-21 fixes implemented + tested, NOT deployed" o
+  tren). Da thu `POST /v1/projects/{ref}/restore` (body rong) — FAIL, error body rong, status
+  check sau do van INACTIVE. Ket luan: /restore qua Management API KHONG dung duoc — nguoi sau
+  di thang vao dashboard bam "Restore project" thay vi ton thoi gian qua API.
 
 ## Body-shape engine — findings tu sim (2026-08-03)
 
@@ -2372,6 +2381,9 @@ items below — stopped rather than improvised, per this task's ground rules.
   migration). Only `GLOVES`/`TIGHTS` remain open — the engine has no formality, style-affinity, or
   layer-role metadata for either (`CATEGORY_MAP` covers them, defaulting both to `accessory`, but
   that's it), so closing them needs a real product decision, not a mechanical copy.
+  UPDATE 2026-08-21: the `CATEGORY_MAP` half of the 7 DB-only types (`CARGO, DERBY, GILET, JOGGERS,
+  SOCKS, TANK, WINDBREAKER`) is now closed — see the "6 of the remaining 7 DB-only types" entry
+  below — but their formality/style-affinity values remain undecided, same as `GLOVES`/`TIGHTS` here.
   Converse drift — **NOT lower severity, this one ships wrong outfits** (corrected 2026-08-12
   after it bit us live): `garment_types` has 8 types nothing else knows about —
   `CARGO, DERBY, GILET, JOGGERS, SLIDES, SOCKS, TANK, WINDBREAKER`. Verified: all 8 are absent from
@@ -2396,7 +2408,7 @@ items below — stopped rather than improvised, per this task's ground rules.
   "`SLIDES` garment type missing from the fit engine" for the full list and verify numbers. The other
   7 (`CARGO, DERBY, GILET, JOGGERS, SOCKS, TANK, WINDBREAKER`) remain open below — still need real
   formality/affinity/category decisions, not a mechanical copy.
-- [ ] **6 of the remaining 7 DB-only types are silently misclassified as `accessory` by the engine**
+- [x] **6 of the remaining 7 DB-only types are silently misclassified as `accessory` by the engine**
   (2026-08-13, found while auditing where the type vocabulary comes from; `SLIDES` closed
   2026-08-13, see the entry above and `plan.md`). `enrichment.ts:14` `CATEGORY_MAP` covers the 56
   picker types (55 + `SLIDES`), and `categoryOf()` (line 27) ends in `?? 'accessory'` — so an item
@@ -2406,6 +2418,12 @@ items below — stopped rather than improvised, per this task's ground rules.
   right. Not reachable from the picker today, but reachable from shop/catalog rows and any future
   importer. Fix is to add the 6 keys to `CATEGORY_MAP` (values are already in
   `garment_types.category` on live), or better, make the fallback loud instead of silent.
+
+  FIXED 2026-08-21: added all 7 remaining keys (`TANK, CARGO, JOGGERS, DERBY, GILET, WINDBREAKER,
+  SOCKS`) to `CATEGORY_MAP` in `enrichment.ts` — `SOCKS` was already correct via the `?? 'accessory'`
+  fallback and is now explicit too, so this item is fully closed. `TYPE_FORMALITY`/`TYPE_DEFAULT_FIT`/
+  `STYLE_AFFINITIES`/`LAYER_ROLE_BY_TYPE` deliberately NOT extended — that's a separate product
+  decision, tracked in the `TYPE_OPTIONS` entry below.
 - [ ] **`garment_types.category` disagrees with the engine on the 4 one-piece types**
   (2026-08-13). Live has `DRESS, GOWN, JUMPSUIT, OVERALLS` under `category='bottom'`;
   `enrichment.ts:20` calls them `onepiece`. No runtime effect while the engine keeps its own
@@ -2513,7 +2531,7 @@ treo, ghi lại đây theo đúng yêu cầu của lead khi giao task:
   liên quan sole-torso-layer), nhưng nó chứng minh rủi ro "ba bản sao lệch nhau, không ai biết" là
   có thật chứ không phải giả định. Chưa làm gì ở đây — cần cân nhắc có nên gom về một nguồn chung
   (build-time codegen bơm vào từng bundle, hoặc test đối chiếu ba set) hay chấp nhận rủi ro tiếp.
-- [ ] **One-piece (`DRESS`/`JUMPSUIT`) chưa được tính là sole torso layer** (2026-08-13). Đã kiểm
+- [x] **One-piece (`DRESS`/`JUMPSUIT`) chưa được tính là sole torso layer** (2026-08-13). Đã kiểm
   `TORSO_LAYER_TYPES` (`describe-outfit/prompt.ts:34-41`): KHÔNG có `DRESS`, `JUMPSUIT`, `OVERALLS`,
   hay `GOWN` — dù cả bốn type này đều map vào `category: 'onepiece'` qua `CATEGORY_MAP`
   (`generate-outfits/engine/enrichment.ts:20`). `deriveSoleTorsoLayerIndex` (`prompt.ts:50-56`) chỉ
@@ -2524,6 +2542,30 @@ treo, ghi lại đây theo đúng yêu cầu của lead khi giao task:
   mục **"Bug gốc chưa fix"** bên dưới — cả hai đều là chỗ pipeline chưa xử lý one-piece xuyên thấu
   như một ca base-layer-trần thật sự (và giờ engine không còn gate `opacity` ở slot nào cả, kể cả
   top). Chưa làm gì ở đây.
+  FIXED 2026-08-21: thêm nhóm `DRESS, JUMPSUIT, OVERALLS, GOWN` vào `TORSO_LAYER_TYPES`. Việc này
+  còn sửa một bug nặng hơn bug đã ghi ở trên: trước fix, "váy + blazer" đếm ra đúng 1 item khớp
+  (blazer) → engine đánh dấu NHẦM blazer là sole torso layer → model bị CẤM gợi ý mở blazer (system
+  prompt cấm gợi ý mở món mang marker này) — trong khi bên trong còn nguyên chiếc váy nên "mở blazer
+  ra" mới là lời khuyên đúng, và false positive này đã âm thầm xóa mất lời khuyên đúng đó. Giờ khớp đúng
+  định nghĩa canonical `isSoleTorsoLayer` ở `generate-outfits/engine/curator.ts:32`.
+
+- [ ] **2026-08-21 fixes implemented + tested, NOT deployed — blocked by paused project.** All
+  three fixes above (backfill self-starving filter, 7 DB-only garment types, one-piece sole-torso-
+  layer) are code-complete and green (`deno test`/`npx jest`), commit-ready, but deploy failed:
+  `npx supabase functions deploy <fn> --project-ref trtjcsxcowqecsebvyme` uploaded assets fine then
+  every one 404'd with `"Cannot retrieve service for project trtjcsxcowqecsebvyme with currect
+  status 'INACTIVE'."` (typo theirs) — project `trtjcsxcowqecsebvyme` is paused, see the
+  auto-pause item above. Need deploying once restored: `backfill-item-metadata` and `describe-outfit` (each
+  self-contained, own fix); `generate-outfits`, `evaluate-item`, `wardrobe-critic` (all three
+  `import` the changed `generate-outfits/engine/enrichment.ts`, Fix 2). Once the project is
+  restored, the deploy command above for all 5 is the only remaining step.
+
+- [ ] **`tsc --noEmit` gives ZERO type coverage for edge-function code.** Discovered 2026-08-21
+  while verifying the three fixes above. `tsconfig.json`'s `exclude` lists `supabase/functions`
+  entirely, so `npx tsc --noEmit` never touches any edge function — "tsc clean" reported as
+  evidence for an edge-function change is reporting nothing. `deno test` (which runs `deno check`
+  first) is the only real type gate today. Suggestion, not implemented: either a separate
+  `tsconfig.json` scoped to `supabase/functions`, or a `deno check` step in the verify routine.
 
 - [ ] **Bug gốc CHƯA ĐƯỢC SỬA, chấp nhận tạm thời (2026-08-13, ghi lại khi huỷ `opacity`).** Sau khi
   huỷ toàn bộ gate `opacity`/`deriveCanBeSoleTop`, bug gốc mục này từng nhắm tới vẫn còn nguyên:
@@ -2567,3 +2609,76 @@ had NO resulting-shape preference"). Bốn việc chủ động hoãn lại khi 
   đích (xem `types.ts` comment ở `EngineContext.profileGender`) nhưng đáng xem lại: một user tắt
   `gender_aware` vẫn bị bảng tier tự động áp dụng theo gender hồ sơ của họ, trong khi
   `genderStylingDelta` thì không. Nếu sau này quyết định gộp lại một nguồn, đây là chỗ cần sửa.
+- [ ] **Cân nhắc migrate ảnh (wardrobe-photos + ảnh try-on AI) từ Supabase Storage sang Cloudflare
+  R2 + Cloudflare Images** (2026-08-29) — đề xuất chưa duyệt, phát sinh khi khảo sát chương trình
+  Cloudflare for Startups (tier bootstrapped = $10k credit/1 năm, R2 cap $10k). Lý do: Supabase
+  Storage tính egress $0.09/GB còn R2 egress = $0, và Cloudflare Images tự sinh variant nên không
+  cần lưu nhiều size. Chỗ phải sửa: `src/services/itemPhotoService.ts` (upload/getPublicUrl) và
+  các edge function ghi ảnh (`generate-item-image`, `tryon-generate`, `backfill-item-metadata`).
+  Timing: app (đổi tên thành **The MIEN**, `tech.kioh.mien`) CHƯA release nên DB chưa có ảnh
+  thật — đổi bây giờ gần như free, đổi sau release phải move file + rewrite URL đã lưu trong DB.
+  Đây là lập luận nên làm SỚM, ngược với thói quen hoãn. R2 có free tier riêng (10GB, egress $0)
+  nên không cần chờ credit Cloudflare mới làm được. Điều kiện kích hoạt: trước mốc release.
+
+## Chặn release (rà 2026-08-29)
+
+- [ ] **Supabase project `trtjcsxcowqecsebvyme` vẫn PAUSED** (2026-08-29) — backend chết, không
+  release được gì cho tới khi restore. Đây cũng là thứ đang chặn deploy 5 edge function đã fix
+  xong ở mục trên (`backfill-item-metadata`, `describe-outfit`, `generate-outfits`,
+  `evaluate-item`, `wardrobe-critic`). Việc đầu tiên phải làm, mọi thứ khác xếp sau.
+- [x] ~~**`app.json` -> `ios.infoPlist` thiếu usage description**~~ (2026-08-30) — BÁO ĐỘNG SAI,
+  đóng. Các chuỗi này đã có sẵn dưới dạng config-plugin props trong `expo.plugins`
+  (`expo-image-picker.photosPermission`/`cameraPermission`, `expo-camera.cameraPermission`,
+  `expo-location.locationWhenInUsePermission`), và đều là chuỗi viết tay đúng mục đích chứ không
+  phải mặc định generic. Expo prebuild sinh Info.plist từ props này nên không cần khai lại trong
+  `ios.infoPlist`. Lần rà 2026-08-29 grep `ios.infoPlist` rồi kết luận thiếu — sai.
+- [ ] **`NSCameraUsageDescription` bị ghi đè: hai plugin cùng khai `cameraPermission`**
+  (2026-08-30) — `expo-image-picker` khai "photograph clothing items", `expo-camera` khai "analyse
+  your skin undertone and hair colour". Plugin chạy sau ghi đè plugin trước, mà `expo-camera`
+  đứng sau trong mảng `plugins` -> chuỗi về da/tóc nhiều khả năng là chuỗi DUY NHẤT còn lại, nên
+  người dùng chụp ảnh QUẦN ÁO lại đọc được lời xin quyền nói về phân tích da. Kiểm chứng bằng
+  `npx expo prebuild -p ios --clean` rồi đọc `ios/*/Info.plist`; nếu đúng thì viết MỘT chuỗi bao
+  cả hai mục đích. Không phải blocker cứng, nhưng là lý do bị hỏi 5.1.1.
+- [x] ~~**`expo-location` xin GPS không rõ lý do**~~ (2026-08-30) — BÁO ĐỘNG SAI, đóng. Dùng đúng
+  một chỗ (`app/(onboarding)/location.tsx`), foreground-only, low-accuracy, optional, có fallback
+  nhập tay, và đã có usage string giải thích đúng ("tailor outfit suggestions to your local
+  weather and season"). Không có gì phải sửa.
+- [x] ~~**`RECORD_AUDIO` thừa trong `android.permissions`**~~ (2026-08-30) — ĐÃ XÓA. Grep toàn
+  `src/` + `app/` không có chỗ nào dùng mic (các hit cũ chỉ là từ "recording"/"micro" trong
+  comment và tên style). Anh Khôi xác nhận không dùng mic. `tsc --noEmit` vẫn sạch sau khi xóa.
+- [x] ~~**`EXPO_PUBLIC_DEMO_PASSWORD` = lỗ hổng đốt tiền AI**~~ (2026-08-30) — BÁO ĐỘNG SAI Ở PHẦN
+  TIỀN, đóng. Đã được vá từ 2026-08-11: demo có tier riêng `DEMO_LIMITS` 50/50, meter
+  server-side qua RPC `consume_usage_credit` giống mọi tier khác, worst case ~$13.4/tháng đúng
+  mức đã duyệt. Comment ở `usageCreditService.ts:32` mà lần rà trước đọc thành "lỗ hổng chưa
+  sửa" thực ra đang GIẢI THÍCH cách nó đã được sửa. Rủi ro còn lại xem mục dưới.
+- [ ] **Chuyển đăng nhập demo sang edge function `demo-signin`** (2026-08-30) — anh Khôi chốt
+  hướng: bỏ `EXPO_PUBLIC_DEMO_PASSWORD` khỏi client bundle, đẩy việc sign-in sang edge function
+  giữ secret. Lưu ý MIEN hiện KHÔNG có edge function auth nào (OTP thật đi thẳng Supabase Auth
+  qua `verifyEmailOtp`/`verifyPhoneOtp`; nhánh demo bypass hoàn toàn client-side trong
+  `authStore.ts:verifyOtp`). Rủi ro còn lại KHÔNG phải tiền mà là: nhiều người lạ dùng chung một
+  uid demo -> ghi đè wardrobe seeded (32 items) và profile của nhau, phá trải nghiệm demo của
+  Apple reviewer. **Phạm vi mở rộng 2026-08-30 theo anh Khôi chốt:** không làm riêng function
+  demo nữa mà gom TOÀN BỘ login/OTP về một edge function `auth`; function chỉ gọi lại đúng các
+  hàm Supabase Auth client đang gọi, khác duy nhất là email/phone trong demo whitelist thì auto
+  pass. Instruction đầy đủ ở `docs/auth-edge-function-instruction.md`, sẵn sàng giao Sonnet.
+  Rào cản quan trọng nhất đã tra ra: Supabase Auth rate-limit `verifyOtp` 360/giờ mỗi IP (burst
+  30, KHÔNG chỉnh được), nên khi proxy qua edge function tất cả user chung một IP — phải gửi
+  header `Sb-Forwarded-For` (Supabase KHÔNG honor `X-Forwarded-For`), và header này phải bật
+  riêng + cần secret key.
+  **2026-08-30 — ĐÃ IMPLEMENT** (`supabase/functions/auth/index.ts` + `index_test.ts`,
+  `authService.ts`, `demo.ts`, `authStore.ts`, `eas.json`, `.env`, 2 file i18n). Kiểm tra:
+  `tsc --noEmit` sạch, `npx jest` 602/602 (44 suite), `deno test` 17/17. CHƯA deploy, CHƯA
+  commit. Còn lại của anh Khôi: (a) `supabase secrets set DEMO_PASSWORD=... DEMO_WHITELIST=
+  'demo@mien.app:<otp1>,demo-woman@mien.app:<otp2>'`; (b) `supabase functions deploy auth
+  --no-verify-jwt`; (c) **bật `Sb-Forwarded-For` trên dashboard trước khi có user thật** —
+  chưa bật thì rate limit 360/giờ gộp chung mọi user vào IP của edge function.
+- [ ] **`markOnboardingComplete` + `updateMyProfile` vẫn ghi đè profile demo mỗi lần login**
+  (2026-08-30) — `authStore.verifyOtp` nhánh `isDemo`. Nhiều người lạ cùng dùng một uid demo
+  sẽ ghi đè profile của nhau, và Apple reviewer có thể mở app thấy tủ đồ đã bị người khác
+  sửa. Chưa làm vì cần quyết trước: seed sẵn profile trong DB rồi bỏ hẳn hai lệnh ghi này,
+  hay reset wardrobe về bản seeded mỗi phiên demo. Không chặn release.
+- [ ] **Kiểm tra `app.json` `owner: "brian-k"` khớp với Apple Team `ZXWAPGR9XP`** (2026-08-29) —
+  eas.json `submit.production.ios` dùng team này, sai owner là fail lúc submit.
+
+Trạng thái code lúc rà: `npx jest` 602/602 pass (44 suite), `npx tsc --noEmit` sạch. Chất lượng
+code KHÔNG phải thứ đang chặn release.

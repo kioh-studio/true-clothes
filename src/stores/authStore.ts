@@ -14,7 +14,7 @@
 import { create } from 'zustand';
 import {
   sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp,
-  toE164, getCurrentUserId, signOut, signInWithPassword,
+  toE164, getCurrentUserId, signOut,
   type AuthResult,
 } from '../services/authService';
 import {
@@ -31,7 +31,7 @@ import {
 import type { ColorSeason } from '../types/profile';
 import type { ColorTone12 } from '../features/personal-color/tone12';
 import { sb } from '../services/supabase';
-import { DEMO_PHONE, DEMO_EMAIL, DEMO_OTP, DEMO_PASSWORD, DEMO_ACCOUNTS, findDemoAccount } from '../config/demo';
+import { DEMO_PHONE, DEMO_ACCOUNTS, findDemoAccount } from '../config/demo';
 import { useFitEngineStore } from './fitEngineStore';
 import { useAppStore } from './appStore';
 import { withTimeout, HYDRATE_TIMEOUT_MS } from '../utils/withTimeout';
@@ -156,12 +156,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   sendOtp: async (phoneInput, email) => {
     const e164 = toE164(phoneInput);
 
-    // Demo account — skip real SMS/email, just store pending state.
-    if (e164 === DEMO_PHONE) {
-      set({ pendingPhone: e164, pendingEmail: '', pendingAuthMethod: 'phone' });
-      return { ok: true };
-    }
-
+    // No client-side demo branch here either: the `auth` edge function holds
+    // the whitelist and short-circuits send-otp for demo accounts itself
+    // (returns ok without sending anything). Deciding it here too would make
+    // the client a second source of truth — adding a demo email to the server
+    // secret would then silently send that address a real OTP that verify-otp
+    // would never accept.
     if (e164) {
       const res = await sendPhoneOtp(e164);
       if (res.ok) set({ pendingPhone: e164, pendingEmail: email.trim(), pendingAuthMethod: 'phone' });
@@ -169,10 +169,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     const trimmedEmail = email.trim();
     if (trimmedEmail) {
-      if (findDemoAccount(trimmedEmail)) {
-        set({ pendingPhone: '', pendingEmail: trimmedEmail, pendingAuthMethod: 'email' });
-        return { ok: true };
-      }
       const res = await sendEmailOtp(trimmedEmail);
       if (res.ok) set({ pendingPhone: '', pendingEmail: trimmedEmail, pendingAuthMethod: 'email' });
       return res;
@@ -184,45 +180,39 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { pendingPhone, pendingEmail, pendingAuthMethod } = get();
     if (!pendingPhone && !pendingEmail) return { ok: false, message: i18n.t('authStore_noVerificationInProgress') };
 
-    // Demo account — sign into a fixed demo user (stable uid) via password.
-    // That uid owns a pre-seeded wardrobe (cloud images), so the OTP "000000"
-    // UX maps to a real, persistent account rather than a fresh anonymous
-    // user. (Anonymous sign-in is disabled on the project.) Phone always
-    // resolves to the first (man) account; email resolves via lookup so a
-    // second demo email (e.g. demo-woman@mien.app) routes to its own uid.
-    const demoAcct = pendingPhone === DEMO_PHONE
-      ? DEMO_ACCOUNTS[0]
-      : findDemoAccount(pendingEmail);
-    const isDemo = !!demoAcct && code === DEMO_OTP;
-    if (isDemo && demoAcct) {
-      if (!DEMO_PASSWORD) return { ok: false, message: i18n.t('authStore_demoNotConfigured') };
-      const demoRes = await signInWithPassword(demoAcct.email, DEMO_PASSWORD);
-      if (!demoRes.ok) return { ok: false, message: i18n.t('authStore_demoSignInFailed') };
-      const userId = await getCurrentUserId();
-      if (!userId) return { ok: false, message: i18n.t('authStore_demoSignInFailed') };
-      await Promise.all([
-        markOnboardingComplete(userId),
-        updateMyProfile(userId, demoAcct.profile),
-      ]);
-      await hydrateProfile(set, userId);
-      set({ pendingPhone: '', pendingEmail: '', pendingAuthMethod: '' });
-      return { ok: true };
-    }
-
+    // No client-side demo bypass — the `auth` edge function decides demo vs.
+    // real OTP for every request (it holds the whitelist secret) and tells
+    // us via `isDemo` on success. Demo resolves to a fixed, email-confirmed
+    // Supabase user (stable uid) that owns a pre-seeded wardrobe, so the OTP
+    // UX maps to a real persistent account rather than a fresh one. (Phone
+    // always resolves to the first/man account; email resolves via lookup so
+    // a second demo email, e.g. demo-woman@mien.app, routes to its own uid.)
     const res = pendingAuthMethod === 'email'
       ? await verifyEmailOtp(pendingEmail, code)
       : await verifyPhoneOtp(pendingPhone, code);
     if (!res.ok) return res;
 
-    // Session is live — persist phone (+ email if provided) and hydrate profile.
     const userId = await getCurrentUserId();
     if (!userId) return { ok: false, message: i18n.t('authStore_verifiedNoSession') };
-    await updateMyProfile(userId, {
-      // Email-OTP login must never touch `phone` — sending `phone: ''` maps
-      // to `null` in profileService and would wipe an already-saved number.
-      ...(pendingAuthMethod === 'email' ? {} : { phone: pendingPhone }),
-      ...(pendingEmail ? { email: pendingEmail } : {}),
-    });
+
+    if (res.isDemo) {
+      const demoAcct = pendingPhone === DEMO_PHONE
+        ? DEMO_ACCOUNTS[0]
+        : findDemoAccount(pendingEmail);
+      if (!demoAcct) return { ok: false, message: i18n.t('authStore_demoSignInFailed') };
+      await Promise.all([
+        markOnboardingComplete(userId),
+        updateMyProfile(userId, demoAcct.profile),
+      ]);
+    } else {
+      // Session is live — persist phone (+ email if provided).
+      await updateMyProfile(userId, {
+        // Email-OTP login must never touch `phone` — sending `phone: ''` maps
+        // to `null` in profileService and would wipe an already-saved number.
+        ...(pendingAuthMethod === 'email' ? {} : { phone: pendingPhone }),
+        ...(pendingEmail ? { email: pendingEmail } : {}),
+      });
+    }
     await hydrateProfile(set, userId);
     set({ pendingPhone: '', pendingEmail: '', pendingAuthMethod: '' });
     return { ok: true };

@@ -11,17 +11,36 @@ import {
 
 // ─── Category mapping ─────────────────────────────────────────────────────────
 
+// The 7 entries below (2026-08-21) close the DB-only-types gap: `garment_types`
+// carries 8 type_keys the engine never learned (SLIDES fixed 2026-08-13
+// separately), so such an item fell through `categoryOf`'s `?? 'accessory'`
+// fallback — wrong slot, wrong layer role, wrong scoring (live defect: a woven
+// SLIDES filled the accessory slot of an outfit that already had BOOTS in
+// shoes). SOCKS is listed explicitly even though `?? 'accessory'` already
+// lands there, so the map now covers every known garment_types row and a
+// future audit doesn't have to re-derive which fallbacks were accidental vs
+// intended.
+//
+// Deliberate boundary: TYPE_FORMALITY, TYPE_DEFAULT_FIT, STYLE_AFFINITIES, and
+// LAYER_ROLE_BY_TYPE are NOT extended for these 7 types. Those three fall back
+// neutrally (`?? 2.5`, `?? 'regular'`, `?? []`) and LAYER_ROLE_BY_TYPE falls
+// back to this category map — category is the only lookup whose fallback was
+// actively wrong. Per-type formality/style-affinity values need a real
+// product decision and stay open in backlog.md.
 const CATEGORY_MAP: Record<string, ItemCategory> = {
   TEE: 'top', POLO: 'top', KNIT: 'top', SHIRT: 'top', BLOUSE: 'top', VEST: 'top',
-  SWEATER: 'top', CARDIGAN: 'top', HENLEY: 'top',
+  SWEATER: 'top', CARDIGAN: 'top', HENLEY: 'top', TANK: 'top',
   CAMISOLE: 'top', CROP: 'top', BODYSUIT: 'top', TUNIC: 'top', CORSET: 'top',
   JACKET: 'outwear', BLAZER: 'outwear', COAT: 'outwear', HOODIE: 'outwear', PARKA: 'outwear', OVERCOAT: 'outwear', CAPE: 'outwear', KIMONO: 'outwear',
+  GILET: 'outwear', WINDBREAKER: 'outwear',
   JEANS: 'bottom', TROUSERS: 'bottom', CHINOS: 'bottom', SHORTS: 'bottom', SKIRT: 'bottom', LEGGINGS: 'bottom',
+  CARGO: 'bottom', JOGGERS: 'bottom',
   DRESS: 'onepiece', JUMPSUIT: 'onepiece', OVERALLS: 'onepiece', GOWN: 'onepiece',
   LOAFERS: 'shoes', SNEAKERS: 'shoes', BOOTS: 'shoes', HEELS: 'shoes', SANDALS: 'shoes', OXFORDS: 'shoes', MULES: 'shoes', FLATS: 'shoes', WEDGES: 'shoes', SLIDES: 'shoes',
+  DERBY: 'shoes',
   BAG: 'accessory', BELT: 'accessory', SCARF: 'accessory', WATCH: 'accessory', CAP: 'accessory',
   NECKLACE: 'accessory', SUNGLASSES: 'accessory', HAT: 'accessory', RING: 'accessory', BRACELET: 'accessory',
-  EARRINGS: 'accessory', GLOVES: 'accessory', TIGHTS: 'accessory', TIE: 'accessory',
+  EARRINGS: 'accessory', GLOVES: 'accessory', TIGHTS: 'accessory', TIE: 'accessory', SOCKS: 'accessory',
 };
 
 export const categoryOf = (type: string): ItemCategory =>
