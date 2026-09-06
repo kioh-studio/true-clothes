@@ -2682,3 +2682,15 @@ had NO resulting-shape preference"). Bốn việc chủ động hoãn lại khi 
 
 Trạng thái code lúc rà: `npx jest` 602/602 pass (44 suite), `npx tsc --noEmit` sạch. Chất lượng
 code KHÔNG phải thứ đang chặn release.
+
+- [ ] **Supabase project đang INACTIVE (auto-pause)** (2026-09-02) — Management API
+  `/database/query` timeout, `GET /v1/projects/{ref}` trả `status: INACTIVE`. Không query được
+  wardrobe demo live để dựng landing page, phải lấy data từ `assets/items/` +
+  `docs/fetched-items.json`. Chỉ anh Khôi bấm tay "Restore project" trên dashboard mới un-pause
+  được. Chặn mọi việc đọc/ghi DB live.
+- [ ] **Landing page MIEN — bản artifact chỉ có tủ đồ nam** (2026-09-02) — 22 item, closet nữ
+  (`*-women.png`, đã có sẵn trong `assets/items/`) chưa đưa vào; chưa có bản copy tiếng Việt;
+  metadata material/fit/warmth của các item ngoài `docs/fetched-items.json` là tự điền tay chứ
+  không đọc từ DB (vì DB đang pause). Artifact:
+  https://claude.ai/code/artifact/f7bb4297-611e-4cd8-bd73-c210f5ea938c
+  Nguồn: scratchpad `page.tpl.html` + `mien-closet.html` — chưa commit vào repo.
