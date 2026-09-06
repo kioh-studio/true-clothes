@@ -2694,3 +2694,12 @@ code KHÔNG phải thứ đang chặn release.
   không đọc từ DB (vì DB đang pause). Artifact:
   https://claude.ai/code/artifact/f7bb4297-611e-4cd8-bd73-c210f5ea938c
   Nguồn: scratchpad `page.tpl.html` + `mien-closet.html` — chưa commit vào repo.
+
+- [ ] **Đổi password Apple ID trước khi make repo public** (2026-09-06) — `***REMOVED-CREDENTIAL***` từng nằm
+  plaintext trong `.claude/settings.local.json` (permission allow-list của EAS build). Đã purge
+  khỏi git history bằng `git filter-repo` + force push, nhưng GitHub vẫn giữ commit mồ côi:
+  `https://github.com/kioh-studio/true-clothes/commit/a08a978` còn đọc được file đó. Repo private
+  nên hiện chỉ anh Khôi thấy — public là cả thế giới thấy. Fix: đổi password trên appleid.apple.com
+  (nhanh, dứt điểm) hoặc mở ticket GitHub Support xin GC dangling objects.
+- [ ] **`main` chậm 61 commit so với `010-wardrobe-critic`** (2026-09-06) — repo public thì `main`
+  là thứ người ta thấy đầu tiên, đang là code cũ. Merge/fast-forward `main` lên trước khi public.
