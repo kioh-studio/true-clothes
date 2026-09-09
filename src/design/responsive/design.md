@@ -57,10 +57,40 @@ idea as a max-width reading column on the web. Wraps the primary scrolling
 content column (forms, text, item-detail rows, settings lists) on:
 
 - Onboarding: basics (personal info), measurements, style quiz, complete,
-  and the welcome screen's brand/CTA block (not its full-bleed hero photo).
+  account, location, OTP, wardrobe intro (text/CTA block only — the closet
+  illustration stays full-bleed), personal colour (step content only), and the
+  welcome screen's brand/CTA block (not its full-bleed hero photo).
 - Outfit detail (content below the hero — breakdown/tags/items; the hero
-  itself is capped separately, see below), item detail, outfit builder,
+  itself is sized separately, see below), item detail, outfit builder,
   profile, settings.
+- Edit screens: formulas, measurements, item, profile, shape goal, personal
+  colour.
+- Utility screens: help, notifications, paywall, wardrobe report, try-on wear,
+  measurements scan (guidance/message blocks only).
+- Add-to-wardrobe wizard (`src/features/wardrobe-add/components/`): the
+  stepper (`AddWizard`'s header stays full-bleed) and each step's content —
+  upload, processing, review, done. `MethodChooser`'s bottom sheet is capped
+  via `width/maxWidth/alignSelf` on its `sheet` style instead of `<Bounded>`,
+  since it isn't a scrolling content column.
+- Try-on scan and result screens (`src/features/try-on/components/`):
+  `ScanScreen` (content below the close button) and `ResultScreen` (body +
+  sticky decide bar). `MatchFeedCard`'s bottom meta strip is likewise capped
+  via style props on `styles.meta`, not `<Bounded>`. The Mix & Match feed
+  itself (`MixMatchFeed`) stays full-bleed, same as the home feed — only its
+  bottom "back to result" bar is bounded.
+
+Screens with a **sticky footer CTA** wrap the footer's *inner* row in `Bounded`
+and leave the footer `View` itself full-bleed, so the bar still spans the screen
+while the button stops at 640. Where the footer style carried
+`flexDirection: 'row'` those props moved onto the `Bounded` — `alignSelf:
+'center'` centres on the cross axis, so inside a row-flex parent it would
+otherwise centre vertically instead of horizontally.
+
+**Anything inside a `Bounded` must size off the bounded width, not the window.**
+`useWindowDimensions()` still reports 1024 on an iPad while the column is 640, so
+components that compute tile widths take `Math.min(width, CONTENT_MAX)` at the
+call site (personal-colour intro + hair steps in both the onboarding and edit
+flows).
 
 It does **not** wrap full-bleed backgrounds, sticky nav/headers, the bottom
 tab bar, or FABs — only the scrolling content column itself. Grid screens
@@ -68,20 +98,47 @@ already made responsive via adaptive columns (see above) are intentionally
 left unwrapped, since a 640pt cap would fight the grid's own tablet-width
 scaling.
 
-## Capped media width
+## Media sizing — no fixed pt cap (2026-09-08)
 
-`MEDIA_MAX` (520pt) bounds full-bleed photo/collage content that would
-otherwise stretch into a very wide, sparse image on a large tablet:
+`MEDIA_MAX` (a hard 520pt) is **gone**. It left the feed's outfit collage as a
+narrow strip stranded in dead space on a 1024pt-wide iPad. Media is now sized
+from the viewport it lives in:
 
-- Home feed card (`app/(tabs)/index.tsx`): the outfit collage and the meta
-  block beneath it (style/tags/thumbnails) are each centered at `MEDIA_MAX`
-  inside the still-full-bleed card background.
-- Outfit detail hero (`app/outfit/[id].tsx`): hero width is
-  `Math.min(windowWidth, MEDIA_MAX)`, height keeps the original 5:4 aspect
-  ratio off that capped width, and the hero is centered.
+- **Home feed card** (`app/(tabs)/index.tsx`): the collage is **full-bleed at
+  every width** — each card owns the whole screen, TikTok-style, and the collage
+  slots are percentage-based so they simply widen (item photos keep their own
+  measured aspect inside their slot; nothing stretches). Only the bottom meta
+  block (stylist note / tags / thumbnails) stays centered, now at `CONTENT_MAX`
+  (640) so a one-line meta row doesn't span 1024pt end to end.
+- **Outfit detail hero** (`app/outfit/[id].tsx`): full-bleed in width, height is
+  a **share of the viewport** — `HERO_H = winH * 0.58`. No aspect ratio, no pt
+  cap: the hero occupies the same proportion of the screen on every device
+  (iPhone 15 393 × 494, iPhone SE 375 × 387, iPad Pro 13 1024 × 792), which is
+  what a fixed 4:5 portrait could not do — it made the hero dominate a phone and
+  shrink into dead space on a tablet. 0.58 is what the old phone hero already
+  worked out to (491 / 852). The collage lays out on percentage slots, so it
+  simply fills whatever box it is given.
+- **Item detail hero** (`app/item/[id].tsx`): same rule — moved *out* of
+  `<Bounded>` and given `height: winH * 0.58` instead of a 4:5 box capped at
+  `CONTENT_MAX`. Inside `Bounded` it sat at 640 × 800 on an iPad Pro, leaving
+  the photo stranded with 190pt of empty canvas either side. The image is
+  `resizeMode="contain"`, so widening the box never crops or stretches it.
+
+Card art inside **grids** (wardrobe, saved, history, schedule, builder, try-on
+match cards) keeps its fixed `aspectRatio` — a grid card's width already comes
+from the column count, so the aspect is what keeps rows even. The camera and
+processing previews (`ScanScreen`, `ProcessingStep`, `ItemOnWhite`, the
+`CameraView` + pose overlay in measurements-scan, `FaceScanStep`/`WristScanStep`,
+and try-on's `photoZone`) keep theirs too: those match the capture/model aspect,
+and forcing a viewport share would just letterbox them.
+
+`DrapeSession`'s 12-tone grid is the one full-screen grid outside the tab
+screens: it now uses `useGridColumns(3, 4, 4)` + `useGridCardWidth(cols,
+GRID_PAD, GRID_GAP)`. At three fixed columns off a 1024pt screen each swatch came
+out 320pt and the four rows ran off the bottom of the iPad.
 
 ## Files
 
 - `src/design/layout.ts` — `BP`, `useResponsive`, `useGridColumns`,
-  `useGridCardWidth`, `CONTENT_MAX`, `MEDIA_MAX`.
+  `useGridCardWidth`, `CONTENT_MAX`.
 - `src/components/ui/Bounded.tsx` — the bounded/centered column primitive.

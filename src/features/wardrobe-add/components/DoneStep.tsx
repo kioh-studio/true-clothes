@@ -3,6 +3,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { T, type } from '../../../design/tokens';
+import { Bounded } from '../../../components/ui/Bounded';
 import { PrimaryButton } from '../../../components/ui/PrimaryButton';
 import { SecondaryButton } from '../../../components/ui/SecondaryButton';
 import { IconCheck } from '../../../components/icons';
@@ -19,34 +20,36 @@ export function DoneStep({ savedCount, photoCount, onViewWardrobe, onDone }: Pro
   const { t } = useTranslation();
   return (
     <View style={styles.container}>
-      <View style={styles.body}>
-        {/* check circle */}
-        <View style={styles.circle}>
-          <IconCheck size={32} color={T.color.canvas} strokeWidth={1.6} />
+      <Bounded style={{ flex: 1 }}>
+        <View style={styles.body}>
+          {/* check circle */}
+          <View style={styles.circle}>
+            <IconCheck size={32} color={T.color.canvas} strokeWidth={1.6} />
+          </View>
+
+          <View style={{ height: 28 }} />
+
+          <Text style={styles.label}>{t('doneStep_addedLabel')}</Text>
+          <View style={{ height: 12 }} />
+          <Text style={styles.hero}>
+            {t('doneStep_pieceCount', { count: savedCount, suffix: savedCount === 1 ? '' : 's' })}
+          </Text>
+
+          <Text style={styles.bodyText}>
+            {t('doneStep_bodyText', { count: photoCount, suffix: photoCount === 1 ? '' : 's' })}
+          </Text>
         </View>
 
-        <View style={{ height: 28 }} />
-
-        <Text style={styles.label}>{t('doneStep_addedLabel')}</Text>
-        <View style={{ height: 12 }} />
-        <Text style={styles.hero}>
-          {t('doneStep_pieceCount', { count: savedCount, suffix: savedCount === 1 ? '' : 's' })}
-        </Text>
-
-        <Text style={styles.bodyText}>
-          {t('doneStep_bodyText', { count: photoCount, suffix: photoCount === 1 ? '' : 's' })}
-        </Text>
-      </View>
-
-      <View style={styles.actions}>
-        <PrimaryButton onPress={onViewWardrobe}>
-          {t('doneStep_viewWardrobe')}
-        </PrimaryButton>
-        <View style={{ height: 14 }} />
-        <SecondaryButton onPress={onDone}>
-          {t('stepper_done')}
-        </SecondaryButton>
-      </View>
+        <View style={styles.actions}>
+          <PrimaryButton onPress={onViewWardrobe}>
+            {t('doneStep_viewWardrobe')}
+          </PrimaryButton>
+          <View style={{ height: 14 }} />
+          <SecondaryButton onPress={onDone}>
+            {t('stepper_done')}
+          </SecondaryButton>
+        </View>
+      </Bounded>
     </View>
   );
 }

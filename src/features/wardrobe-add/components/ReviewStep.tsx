@@ -6,6 +6,7 @@ import {
   View, Text, Image, ScrollView, StyleSheet,
 } from 'react-native';
 import { T, type } from '../../../design/tokens';
+import { Bounded } from '../../../components/ui/Bounded';
 import { PrimaryButton } from '../../../components/ui/PrimaryButton';
 import { IconSparkle, IconDashedSquare } from '../../../components/icons';
 import type { ExtractedItem, PhotoEntry, ExtractMethod } from '../types';
@@ -59,6 +60,7 @@ export function ReviewStep({ items, photos, onEditItem, onRemoveItem, onConfirm,
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        <Bounded>
         <Text style={styles.h1}>{t('reviewStep_reviewCount', { count: items.length, suffix: items.length === 1 ? '' : 's' })}</Text>
         <Text style={styles.caption}>
           {t('reviewStep_fromPhotos', { count: groups.length, suffix: groups.length === 1 ? '' : 's' })}
@@ -116,9 +118,11 @@ export function ReviewStep({ items, photos, onEditItem, onRemoveItem, onConfirm,
           ))
         )}
         <View style={{ height: 16 }} />
+        </Bounded>
       </ScrollView>
 
       <View style={styles.cta}>
+        <Bounded>
         {untypedCount > 0 && items.length > 0 && (
           <Text style={styles.ctaHint}>
             {t('reviewStep_chooseCategoryHint', { count: untypedCount, suffix: untypedCount === 1 ? '' : 's' })}
@@ -136,6 +140,7 @@ export function ReviewStep({ items, photos, onEditItem, onRemoveItem, onConfirm,
                 ? t('reviewStep_chooseCategoryButton')
                 : t('reviewStep_confirmAll', { count: items.length })}
         </PrimaryButton>
+        </Bounded>
       </View>
     </View>
   );

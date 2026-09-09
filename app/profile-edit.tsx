@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
 import { IconChevronLeft } from '../src/components/icons';
+import { Bounded } from '../src/components/ui';
 import { useAuthStore } from '../src/stores/authStore';
 import { useProfileEdit } from '../src/features/profile/useProfileEdit';
 import { useAvatarUri } from '../src/features/profile/useAvatarUri';
@@ -61,6 +62,7 @@ export default function ProfileEditScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        <Bounded>
         {/* Avatar */}
         <View style={styles.avatarSection}>
           <Pressable onPress={pickAvatar} style={styles.avatarWrap}>
@@ -107,6 +109,7 @@ export default function ProfileEditScreen() {
         </View>
 
         {error && <Text style={styles.errorText}>{error}</Text>}
+        </Bounded>
       </ScrollView>
     </View>
   );

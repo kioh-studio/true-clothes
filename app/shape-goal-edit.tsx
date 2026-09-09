@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
-import { PrimaryButton } from '../src/components/ui';
+import { PrimaryButton, Bounded } from '../src/components/ui';
 import { IconChevronLeft } from '../src/components/icons';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { ShapeGoal } from '../src/services/styleProfileService';
@@ -74,6 +74,7 @@ export default function ShapeGoalEditScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
       >
+        <Bounded>
         <Text style={styles.h1}>{t('shapeGoalEdit_title')}</Text>
         <Text style={styles.caption}>{t('shapeGoalEdit_caption')}</Text>
 
@@ -92,12 +93,15 @@ export default function ShapeGoalEditScreen() {
             {selected === opt.id && <View style={styles.checkDot} />}
           </Pressable>
         ))}
+        </Bounded>
       </ScrollView>
 
       <View style={[styles.saveBar, { paddingBottom: insets.bottom + 12 }]}>
+        <Bounded>
         <PrimaryButton onPress={hydrated && dirty && !saving ? handleSave : undefined} disabled={!hydrated || !dirty || saving}>
           {!hydrated ? t('common_loadingPreferences') : dirty ? t('profileEdit_saveButton') : t('common_noChanges')}
         </PrimaryButton>
+        </Bounded>
       </View>
     </View>
   );

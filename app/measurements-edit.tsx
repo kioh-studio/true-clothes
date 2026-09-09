@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from 'react-nati
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
-import { Field, PrimaryButton, Tag, Segmented, TextLink } from '../src/components/ui';
+import { Field, PrimaryButton, Tag, Segmented, TextLink, Bounded } from '../src/components/ui';
 import { IconChevronLeft } from '../src/components/icons';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { validateMeasurements } from '../src/features/measurements/useMeasurements';
@@ -265,6 +265,7 @@ export default function MeasurementsEditScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
       >
+        <Bounded>
         <Text style={styles.h1}>{t('measurementsEdit_title')}</Text>
         <Text style={styles.caption}>{t('measurementsEdit_caption')}</Text>
 
@@ -371,10 +372,12 @@ export default function MeasurementsEditScreen() {
             {t('measurementsEdit_reestimateCaption')}
           </Text>
         </View>
+        </Bounded>
       </ScrollView>
 
       {/* Sticky save bar */}
       <View style={[styles.saveBar, { paddingBottom: insets.bottom + 12 }]}>
+        <Bounded style={{ flexDirection: 'row', alignItems: 'center', gap: 12, width: '100%' }}>
         {saveError ? (
           <Text style={[styles.saveError, { position: 'absolute', top: -28, left: 24, right: 24 }]}>{saveError}</Text>
         ) : null}
@@ -396,6 +399,7 @@ export default function MeasurementsEditScreen() {
             {!hydrated ? t('common_loadingPreferences') : saving ? t('addItem_savingText') : dirty ? t('profileEdit_saveButton') : t('common_noChanges')}
           </PrimaryButton>
         </View>
+        </Bounded>
       </View>
     </View>
   );
@@ -428,9 +432,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 0.5,
     borderTopColor: T.color.hairline,
     backgroundColor: T.color.canvas,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
     paddingHorizontal: 24,
     paddingTop: 12,
   },

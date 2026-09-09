@@ -11,6 +11,7 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet, Pressable } from 'react-native';
 import { T, type } from '../../../design/tokens';
+import { CONTENT_MAX } from '../../../design/layout';
 import { OutfitItemThumb } from '../../../components/outfit/Collage';
 import type { ScannedItem } from '../../../types/tryOn';
 import type { ScoredOutfit } from '../../../types/fitEngine';
@@ -223,6 +224,9 @@ const styles = StyleSheet.create({
     lineHeight: 46,
   },
   meta: {
+    width: '100%',
+    maxWidth: CONTENT_MAX,
+    alignSelf: 'center',
     height: '24%',
     backgroundColor: T.color.canvas,
     borderTopWidth: 0.5,

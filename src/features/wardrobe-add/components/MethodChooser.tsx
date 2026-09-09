@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { T, type } from '../../../design/tokens';
+import { CONTENT_MAX } from '../../../design/layout';
 import { IconChevronLeft, IconChevronRight, IconCamera, IconImage, IconSparkle, IconDashedSquare, IconX } from '../../../components/icons';
 import type { ExtractMethod } from '../types';
 import { isExtractByItemAvailable } from '../../../services/extractByItemService';
@@ -219,6 +220,9 @@ const styles = StyleSheet.create({
     backgroundColor: T.color.sheetDim,
   },
   sheet: {
+    width: '100%',
+    maxWidth: CONTENT_MAX,
+    alignSelf: 'center',
     backgroundColor: T.color.canvas,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,

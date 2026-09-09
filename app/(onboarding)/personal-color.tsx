@@ -8,7 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Brightness from 'expo-brightness';
 import { T, type } from '../../src/design/tokens';
-import { PrimaryButton } from '../../src/components/ui';
+import { CONTENT_MAX } from '../../src/design/layout';
+import { PrimaryButton, Bounded } from '../../src/components/ui';
 import { IconChevronLeft, IconCheck } from '../../src/components/icons';
 import { usePersonalColorDetection } from '../../src/features/personal-color/usePersonalColorDetection';
 import {
@@ -128,9 +129,10 @@ export default function PersonalColorScreen() {
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
           showsVerticalScrollIndicator={false}
         >
+          <Bounded>
           {step === 'intro' && (
             <IntroStep
-              width={W}
+              width={Math.min(W, CONTENT_MAX)}
               onCamera={handleCameraStart}
               onManual={startManualPath}
               onSkip={handleSkip}
@@ -151,7 +153,7 @@ export default function PersonalColorScreen() {
             <HairStep
               selected={hairKey}
               onSelect={setHair}
-              width={W}
+              width={Math.min(W, CONTENT_MAX)}
               photoUri={path === 'camera' ? facePhotoUri : null}
               isFallback={path === 'camera'}
             />
@@ -192,6 +194,7 @@ export default function PersonalColorScreen() {
               <PrimaryButton onPress={next} disabled={!canAdvance()}>{t('onboardingPersonalColor_nextButton')}</PrimaryButton>
             </View>
           )}
+          </Bounded>
         </ScrollView>
       )}
     </View>
@@ -527,7 +530,10 @@ function HairStep({
 }) {
   const { t } = useTranslation();
   const lang = useLang();
-  const swatchSize = (width - PAD * 2 - 12 * 3) / 4;
+  // width is the raw window width, but HairStep now renders inside a
+  // <Bounded> column capped at CONTENT_MAX on tablet — size swatches off
+  // the same effective width so they don't overflow that cap.
+  const swatchSize = (Math.min(width, CONTENT_MAX) - PAD * 2 - 12 * 3) / 4;
   return (
     <View>
       <View style={{ height: 32 }} />

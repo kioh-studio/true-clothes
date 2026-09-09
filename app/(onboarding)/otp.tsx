@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, Pressable, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PrimaryButton } from '../../src/components/ui';
+import { PrimaryButton, Bounded } from '../../src/components/ui';
 import { IconChevronLeft } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAuthStore } from '../../src/stores/authStore';
@@ -94,6 +94,7 @@ export default function OTPScreen() {
       </View>
 
       <View style={styles.content}>
+        <Bounded style={{ flex: 1 }}>
         <View style={{ height: 32 }} />
         <Text style={styles.h2}>{t('onboardingOtp_title')}</Text>
         <Text style={styles.caption}>
@@ -144,6 +145,7 @@ export default function OTPScreen() {
         <PrimaryButton onPress={handleVerify} disabled={verifying || !filled}>
           {verifying ? t('onboardingOtp_verifying') : t('onboardingOtp_verifyButton')}
         </PrimaryButton>
+        </Bounded>
       </View>
     </View>
     </TouchableWithoutFeedback>

@@ -16,7 +16,7 @@ import type { PurchasesPackage } from 'react-native-purchases';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
-import { PrimaryButton, TextLink } from '../src/components/ui';
+import { PrimaryButton, TextLink, Bounded } from '../src/components/ui';
 import { IconX } from '../src/components/icons';
 import { usePremium } from '../src/features/monetization/usePremium';
 import { useTranslation } from '../src/i18n';
@@ -207,6 +207,7 @@ export default function PaywallScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
+        <Bounded>
         {/* Eyebrow */}
         <Text style={styles.eyebrow}>{t('paywall_eyebrow')}</Text>
 
@@ -323,10 +324,12 @@ export default function PaywallScreen() {
             </TextLink>
           </View>
         ) : null}
+        </Bounded>
       </ScrollView>
 
       {/* Sticky CTA */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + T.s(4) }]}>
+        <Bounded>
         <PrimaryButton
           onPress={handlePurchase}
           disabled={busy || !selectedPkg || planRelation === 'current'}
@@ -358,6 +361,7 @@ export default function PaywallScreen() {
             {restoring ? t('paywall_restoringLink') : t('paywall_restoreLink')}
           </TextLink>
         </View>
+        </Bounded>
       </View>
     </View>
   );

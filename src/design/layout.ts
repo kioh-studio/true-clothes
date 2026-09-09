@@ -28,9 +28,6 @@ export function useGridColumns(phone = 2, tablet = 3, tabletLg = 4): number {
 /** Max width of a centered reading/form column on wide screens. */
 export const CONTENT_MAX = 640;
 
-/** Max width of the full-bleed feed / hero media column on wide screens. */
-export const MEDIA_MAX = 520;
-
 /** Width of one card in an N-column grid with screen padding and gutters. */
 export function useGridCardWidth(cols = 2, pad = 24, gap = 12): number {
   const { width } = useWindowDimensions();

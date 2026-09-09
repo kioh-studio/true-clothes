@@ -5,7 +5,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
-import { PrimaryButton } from '../src/components/ui';
+import { PrimaryButton, Bounded } from '../src/components/ui';
 import { IconChevronLeft, IconCheck } from '../src/components/icons';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { FormulaCatalogItem } from '../src/services/formulasCatalogService';
@@ -132,6 +132,7 @@ export default function FormulasEditScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
       >
+        <Bounded>
         <Text style={styles.h1}>{t('formulasEdit_title')}</Text>
         <Text style={styles.caption}>
           {t('formulasEdit_caption')}
@@ -176,10 +177,12 @@ export default function FormulasEditScreen() {
             </Text>
           </View>
         )}
+        </Bounded>
       </ScrollView>
 
       {/* Sticky save bar */}
       <View style={[styles.saveBar, { paddingBottom: insets.bottom + 12 }]}>
+        <Bounded style={{ flexDirection: 'row', alignItems: 'center', gap: 12, width: '100%' }}>
         {saveError ? (
           <Text style={[styles.saveError, { position: 'absolute', top: -28, left: 24, right: 24 }]}>{saveError}</Text>
         ) : null}
@@ -196,6 +199,7 @@ export default function FormulasEditScreen() {
             {!hydrated ? t('common_loadingPreferences') : saving ? t('addItem_savingText') : dirty ? t('profileEdit_saveButton') : t('common_noChanges')}
           </PrimaryButton>
         </View>
+        </Bounded>
       </View>
     </View>
   );
@@ -296,9 +300,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 0.5,
     borderTopColor: T.color.hairline,
     backgroundColor: T.color.canvas,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
     paddingHorizontal: 24,
     paddingTop: 12,
   },

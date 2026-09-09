@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Image, Alert, Share } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Image, Alert, Share, useWindowDimensions } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../../src/design/tokens';
@@ -154,6 +154,7 @@ export default function ItemDetailScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const { items, wardrobeItems, removeItem, removeWardrobeItem } = useAppStore();
+  const { height: winH } = useWindowDimensions();
   const [unit, setUnit] = useState('CM');
   const [deleting, setDeleting] = useState(false);
 
@@ -286,9 +287,10 @@ export default function ItemDetailScreen() {
           </View>
         </View>
 
-        <Bounded>
-        {/* Hero */}
-        <View style={styles.hero}>
+        {/* Hero — full-bleed, height is a share of the viewport so it holds the
+            same proportion of the screen on a phone and on an iPad (see
+            src/design/responsive/design.md). */}
+        <View style={[styles.hero, { height: winH * 0.58 }]}>
           {photo.status === 'ready' && photo.source ? (
             <Image source={photo.source} style={styles.heroImg} resizeMode="contain" />
           ) : (
@@ -297,6 +299,7 @@ export default function ItemDetailScreen() {
           <Text style={styles.heroType}>{vm.type}</Text>
         </View>
 
+        <Bounded>
         {/* Title */}
         <View style={{ padding: 24, paddingBottom: 0 }}>
           <Text style={styles.ownedLabel}>
@@ -419,7 +422,7 @@ const styles = StyleSheet.create({
   nav: { height: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 },
   iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   hero: {
-    width: '100%', aspectRatio: 4 / 5, backgroundColor: T.color.canvas,
+    width: '100%', backgroundColor: T.color.canvas,
     alignItems: 'center', justifyContent: 'center', padding: 48,
     borderBottomWidth: 0.5, borderBottomColor: T.color.hairline,
     position: 'relative',

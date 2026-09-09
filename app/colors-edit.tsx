@@ -7,12 +7,15 @@ import { PrimaryButton } from '../src/components/ui';
 import { IconChevronLeft, IconCheck } from '../src/components/icons';
 import { COLORS, ColorOption } from '../src/data';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
+import { useGridCardWidth, useGridColumns } from '../src/design/layout';
 import { useTranslation } from '../src/i18n';
 
 // Light colors that need a dark dot indicator
 const LIGHT_HEXES = ['#F2EDE4', '#D9C9A8', '#C8C5BF'];
 
 export default function ColorsEditScreen() {
+  const cols = useGridColumns(3, 4, 5);
+  const SWATCH = useGridCardWidth(cols);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
@@ -144,11 +147,11 @@ export default function ColorsEditScreen() {
                 const isLight = LIGHT_HEXES.includes(c.hex);
                 const isSelected = selected.includes(c.name);
                 return (
-                  <Pressable key={c.name} onPress={() => toggle(c.name)} style={styles.swatchItem}>
+                  <Pressable key={c.name} onPress={() => toggle(c.name)} style={[styles.swatchItem, { width: SWATCH }]}>
                     <View
                       style={[
                         styles.swatchColor,
-                        { backgroundColor: c.hex },
+                        { width: SWATCH, height: SWATCH, backgroundColor: c.hex },
                         isSelected && styles.swatchSelected,
                       ]}
                     >

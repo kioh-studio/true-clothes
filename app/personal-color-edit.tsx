@@ -8,7 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Brightness from 'expo-brightness';
 import { T, type } from '../src/design/tokens';
-import { PrimaryButton } from '../src/components/ui';
+import { PrimaryButton, Bounded } from '../src/components/ui';
+import { CONTENT_MAX } from '../src/design/layout';
 import { IconChevronLeft, IconCheck } from '../src/components/icons';
 import { usePersonalColorDetection } from '../src/features/personal-color/usePersonalColorDetection';
 import {
@@ -130,6 +131,7 @@ export default function PersonalColorEditScreen() {
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
           showsVerticalScrollIndicator={false}
         >
+          <Bounded>
           {/* Current season badge — intro only */}
           {step === 'intro' && existingSeason && (
             <View style={styles.currentBadge}>
@@ -190,7 +192,7 @@ export default function PersonalColorEditScreen() {
             <HairStep
               selected={hairKey}
               onSelect={setHair}
-              width={W}
+              width={Math.min(W, CONTENT_MAX + PAD * 2)}
               photoUri={path === 'camera' ? facePhotoUri : null}
               auto={autoHair}
               analyzing={analyzing}
@@ -272,6 +274,7 @@ export default function PersonalColorEditScreen() {
               <PrimaryButton onPress={next} disabled={!canAdvance()}>{t('onboardingPersonalColor_nextButton')}</PrimaryButton>
             </View>
           )}
+          </Bounded>
         </ScrollView>
       )}
     </View>

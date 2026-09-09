@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PrimaryButton, Field } from '../../src/components/ui';
+import { PrimaryButton, Field, Bounded } from '../../src/components/ui';
 import { IconChevronLeft, IconPin } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAuthStore } from '../../src/stores/authStore';
@@ -81,6 +81,7 @@ export default function LocationScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
+        <Bounded>
         <View style={{ height: 32 }} />
         <Text style={styles.h1}>{t('onboarding_location_title')}</Text>
         <Text style={styles.caption}>{t('onboardingLocation_subtitle')}</Text>
@@ -108,6 +109,7 @@ export default function LocationScreen() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {error ? <View style={{ height: 12 }} /> : null}
         <PrimaryButton onPress={handleContinue} disabled={saving}>{t('onboarding_location_useButton')}</PrimaryButton>
+        </Bounded>
       </ScrollView>
     </View>
   );

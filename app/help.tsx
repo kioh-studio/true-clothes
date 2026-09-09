@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
 import { IconChevronLeft, IconChevronRight } from '../src/components/icons';
+import { Bounded } from '../src/components/ui';
 import { useTranslation } from '../src/i18n';
 
 const FAQ_KEYS = [
@@ -69,6 +70,7 @@ export default function HelpScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 48 }]}
         showsVerticalScrollIndicator={false}
       >
+        <Bounded>
         <Text style={styles.sectionLabel}>{t('help_faqSection')}</Text>
         <View style={styles.faqList}>
           {FAQS.map((faq, i) => (
@@ -86,6 +88,7 @@ export default function HelpScreen() {
             <IconChevronRight size={12} color={T.color.tertiary} strokeWidth={1.4} />
           </Pressable>
         </View>
+        </Bounded>
       </ScrollView>
     </View>
   );

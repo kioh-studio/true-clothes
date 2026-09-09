@@ -7,7 +7,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable, Image, ActivityIndicator
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OUTFITS, itemById } from '../../src/data';
-import { PrimaryButton, SecondaryButton, TextLink } from '../../src/components/ui';
+import { PrimaryButton, SecondaryButton, TextLink, Bounded } from '../../src/components/ui';
 import { IconX, IconImage } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAppStore } from '../../src/stores/appStore';
@@ -241,6 +241,7 @@ export default function WearOnYouScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
+        <Bounded>
         <View style={styles.body}>
           {/* ── Header copy (hidden on result for a cleaner reveal) ── */}
           {w.phase !== 'result' && (
@@ -470,6 +471,7 @@ export default function WearOnYouScreen() {
             </>
           )}
         </View>
+        </Bounded>
       </ScrollView>
     </View>
   );

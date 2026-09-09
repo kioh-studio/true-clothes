@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { T, type } from '../../../design/tokens';
-import { PrimaryButton, SecondaryButton } from '../../../components/ui';
+import { PrimaryButton, SecondaryButton, Bounded } from '../../../components/ui';
 import { IconCamera, IconImage, IconX } from '../../../components/icons';
 import { useTryOn } from '../useTryOn';
 import { useAuthStore } from '../../../stores/authStore';
@@ -151,6 +151,7 @@ export function ScanScreen() {
         <IconX size={20} strokeWidth={1.4} color={T.color.primary} />
       </Pressable>
 
+      <Bounded>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.eyebrow}>{t('scanScreen_eyebrow')}</Text>
@@ -242,6 +243,7 @@ export function ScanScreen() {
           </Text>
         </>
       )}
+      </Bounded>
     </ScrollView>
   );
 }

@@ -44,7 +44,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { DeviceMotion } from 'expo-sensors';
 import Svg, { Line, Circle } from 'react-native-svg';
 import { T, type } from '../src/design/tokens';
-import { PrimaryButton, SecondaryButton } from '../src/components/ui';
+import { PrimaryButton, SecondaryButton, Bounded } from '../src/components/ui';
 import { IconX } from '../src/components/icons';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { useAuthStore } from '../src/stores/authStore';
@@ -1060,11 +1060,11 @@ export default function MeasurementsScanScreen() {
         <Pressable onPress={() => dismiss()} hitSlop={8} style={styles.closeBtn}>
           <IconX size={20} strokeWidth={1.4} color={T.color.primary} />
         </Pressable>
-        <View style={styles.messageBox}>
+        <Bounded style={styles.messageBox}>
           <Text style={styles.messageText}>{t('measurementsScan_heightRequired')}</Text>
           <View style={{ height: T.s(5) }} />
           <SecondaryButton onPress={() => dismiss()}>{t('measurementsScan_backToForm')}</SecondaryButton>
-        </View>
+        </Bounded>
       </View>
     );
   }
@@ -1076,13 +1076,13 @@ export default function MeasurementsScanScreen() {
         <Pressable onPress={() => dismiss()} hitSlop={8} style={styles.closeBtn}>
           <IconX size={20} strokeWidth={1.4} color={T.color.primary} />
         </Pressable>
-        <View style={styles.messageBox}>
+        <Bounded style={styles.messageBox}>
           <Text style={styles.h1}>{t('measurementsScan_title')}</Text>
           <Text style={[styles.caption, { marginTop: T.s(3) }]}>{t('measurementsScan_permissionMessage')}</Text>
           <Text style={[styles.caption, { marginTop: T.s(4) }]}>{t('measurementsScan_privacy')}</Text>
           <View style={{ height: T.s(6) }} />
           <PrimaryButton onPress={handleStart}>{t('measurementsScan_grant')}</PrimaryButton>
-        </View>
+        </Bounded>
       </View>
     );
   }
@@ -1168,6 +1168,7 @@ export default function MeasurementsScanScreen() {
 
         {/* Bottom controls */}
         <View style={[styles.bottom, { paddingBottom: insets.bottom + T.s(5) }]}>
+          <Bounded>
           {phase === 'error' && (
             <Text style={[styles.hintPill, styles.hintAdjust]}>{t('measurementsScan_lowConfidence')}</Text>
           )}
@@ -1222,6 +1223,7 @@ export default function MeasurementsScanScreen() {
               <Text style={styles.skipPillText}>{t('measurementsScan_skipSide')}</Text>
             </Pressable>
           ) : null}
+          </Bounded>
         </View>
       </View>
     </View>

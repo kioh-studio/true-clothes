@@ -6,7 +6,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OUTFITS, itemById } from '../../src/data';
 import { OutfitCollage } from '../../src/components/outfit/Collage';
 import { PrimaryButton, SecondaryButton, Tag, BottomSheet, Divider, Bounded } from '../../src/components/ui';
-import { MEDIA_MAX } from '../../src/design/layout';
 import { IconX, IconHeart, IconShare, IconSparkle, IconChevronRight } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAppStore } from '../../src/stores/appStore';
@@ -33,7 +32,7 @@ function formatAdded(iso: string): string {
 
 export default function OutfitDetailScreen() {
   const { t } = useTranslation();
-  const { width: W } = useWindowDimensions();
+  const { width: W, height: winH } = useWindowDimensions();
   const { id, data } = useLocalSearchParams<{ id: string; data?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -118,8 +117,11 @@ export default function OutfitDetailScreen() {
 
   const worn = outfit ? wornSet.has(outfit.id) : false;
 
-  const heroW = Math.min(W, MEDIA_MAX);
-  const HERO_H = heroW * (5 / 4);
+  // Hero is full-bleed and sized as a share of the viewport, so it occupies the
+  // same proportion of the screen on every device — a fixed aspect or a pt cap
+  // made it dominate a phone and shrink into dead space on an iPad. 0.58 matches
+  // what the old phone hero worked out to (491 / 852).
+  const HERO_H = winH * 0.58;
 
   // T029: Share outfit via native share sheet
   const shareOutfit = () => {
@@ -166,7 +168,7 @@ export default function OutfitDetailScreen() {
         </View>
 
         {/* Hero collage */}
-        <View style={{ borderBottomWidth: 0.5, borderBottomColor: T.color.hairline, width: '100%', maxWidth: MEDIA_MAX, alignSelf: 'center' }}>
+        <View style={{ borderBottomWidth: 0.5, borderBottomColor: T.color.hairline, width: '100%' }}>
           <OutfitCollage outfit={outfit} compact={false} containerHeight={HERO_H} />
         </View>
 

@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
 import { IconChevronLeft } from '../src/components/icons';
+import { Bounded } from '../src/components/ui';
 import { useAppStore } from '../src/stores/appStore';
 import { useTranslation } from '../src/i18n';
 
@@ -30,6 +31,7 @@ export default function NotificationsScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 48 }]}
         showsVerticalScrollIndicator={false}
       >
+        <Bounded>
         <Text style={styles.sectionLabel}>{t('notifications_sectionLabel')}</Text>
         <View style={styles.section}>
           <View style={styles.row}>
@@ -86,6 +88,7 @@ export default function NotificationsScreen() {
         </View>
 
         <Text style={[type.caption, styles.footerNote]}>{t('notifications_footerNote')}</Text>
+        </Bounded>
       </ScrollView>
     </View>
   );

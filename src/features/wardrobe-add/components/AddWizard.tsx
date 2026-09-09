@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../../../design/tokens';
+import { Bounded } from '../../../components/ui/Bounded';
 import { IconX } from '../../../components/icons';
 import { useAddWizard } from '../useAddWizard';
 import { Stepper } from './Stepper';
@@ -65,7 +66,9 @@ export function AddWizard({ onClose, onDone }: Props) {
 
       {/* Stepper */}
       <View style={styles.stepperWrap}>
-        <Stepper step={wizard.step} />
+        <Bounded>
+          <Stepper step={wizard.step} />
+        </Bounded>
       </View>
 
       {/* Step body */}

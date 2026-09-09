@@ -7,7 +7,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
-import { PrimaryButton, TextLink } from '../src/components/ui';
+import { PrimaryButton, TextLink, Bounded } from '../src/components/ui';
 import { IconChevronLeft } from '../src/components/icons';
 import { useAppStore } from '../src/stores/appStore';
 import { useItemPhoto, photoSourceUri } from '../src/features/wardrobe-photos';
@@ -132,6 +132,7 @@ export default function ItemEditScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        <Bounded>
         {wardrobeError ? (
           <View style={styles.errorBanner}>
             <Text style={styles.errorText}>{wardrobeError}</Text>
@@ -156,6 +157,7 @@ export default function ItemEditScreen() {
         <View style={{ alignItems: 'center' }}>
           <TextLink onPress={() => router.back()} color={T.color.tertiary}>{t('common_cancel')}</TextLink>
         </View>
+        </Bounded>
       </ScrollView>
     </View>
   );

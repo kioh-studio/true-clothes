@@ -22,7 +22,7 @@ import {
   IconHeart, IconCalendar, IconSparkle, IconShare, IconThermometer, IconMenu, IconBook,
 } from '../../src/components/icons';
 import { useTranslation } from '../../src/i18n';
-import { MEDIA_MAX } from '../../src/design/layout';
+import { CONTENT_MAX } from '../../src/design/layout';
 
 // Feed-signals (2026-08-07): one-time swipe-hint caption, shown until the
 // user has seen it once (see HomeScreen's mount effect below).
@@ -456,7 +456,7 @@ function FeedCardInner({ outfit, index, active, cardH, saved, isDemo, topInset, 
         onLayout={e => setCollageH(e.nativeEvent.layout.height)}
         style={[styles.collageArea, { opacity: active ? 1 : 0.7 }]}
       >
-        <View style={{ width: '100%', maxWidth: MEDIA_MAX, alignSelf: 'center', flex: 1 }}>
+        <View style={{ flex: 1 }}>
           <OutfitCollage outfit={outfit} titleTop={topInset + 88} containerHeight={collageH} />
         </View>
 
@@ -498,7 +498,7 @@ function FeedCardInner({ outfit, index, active, cardH, saved, isDemo, topInset, 
 
       {/* Bottom meta — auto-height; collage area above shrinks to make room */}
       <View style={styles.meta}>
-        <View style={{ width: '100%', maxWidth: MEDIA_MAX, alignSelf: 'center' }}>
+        <View style={{ width: '100%', maxWidth: CONTENT_MAX, alignSelf: 'center' }}>
           {outfit.stylistNote ? (
             <Text style={styles.stylistNote} numberOfLines={2}>“{outfit.stylistNote}”</Text>
           ) : null}

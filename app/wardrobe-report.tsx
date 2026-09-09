@@ -9,6 +9,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
 import { IconChevronLeft, IconCheck } from '../src/components/icons';
+import { Bounded } from '../src/components/ui';
 import { GapCard } from '../src/features/wardrobe-critic/components/GapCard';
 import { useWardrobeCriticStore } from '../src/stores/wardrobeCriticStore';
 import { usePremium } from '../src/features/monetization/usePremium';
@@ -77,6 +78,7 @@ export default function WardrobeReportScreen() {
           <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={T.color.primary} />
         }
       >
+        <Bounded>
         {isLoading && (
           <View style={styles.stateBox}>
             <ActivityIndicator size="small" color={T.color.primary} />
@@ -119,6 +121,7 @@ export default function WardrobeReportScreen() {
             {report.mode === 'complete' && <CompleteBody t={t} />}
           </>
         )}
+        </Bounded>
       </ScrollView>
     </View>
   );

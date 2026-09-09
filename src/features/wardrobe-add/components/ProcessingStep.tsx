@@ -6,6 +6,7 @@ import {
   View, Text, Image, StyleSheet, Animated, Easing,
 } from 'react-native';
 import { T, type } from '../../../design/tokens';
+import { Bounded } from '../../../components/ui/Bounded';
 import { IconCheck } from '../../../components/icons';
 import type { PhotoEntry } from '../types';
 import { useTranslation } from '../../../i18n';
@@ -66,6 +67,7 @@ export function ProcessingStep({ photos, processingIndex }: Props) {
 
   return (
     <View style={styles.container}>
+      <Bounded style={{ flex: 1 }}>
       {/* scanning photo */}
       <View style={styles.photoWrap}>
         {current?.uri ? (
@@ -148,6 +150,7 @@ export function ProcessingStep({ photos, processingIndex }: Props) {
           </Animated.View>
         ))}
       </View>
+      </Bounded>
     </View>
   );
 }

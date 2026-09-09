@@ -17,11 +17,12 @@
 // whichever happens first. `FileSystem.deleteAsync` is idempotent so a
 // double-delete across those paths is harmless.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Image, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Image, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system/legacy';
 import { T, type } from '../../../design/tokens';
+import { useGridColumns, useGridCardWidth } from '../../../design/layout';
 import { IconX } from '../../../components/icons';
 import type { DrapeAxis, ColorTone12 } from '../tone12';
 import { TONE12_DRAPE_HEX, TONE12_LABELS } from '../tone12';
@@ -74,7 +75,10 @@ export function DrapeSession({ onDone, applyDrape, onMetal, currentTone, onNudge
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const lang = useLang();
-  const { width: W } = useWindowDimensions();
+  // 12-tone grid gains a column on tablets — 3 fixed columns off a 1024pt
+  // screen made each swatch 320pt, so the four rows ran off the bottom.
+  const gridCols = useGridColumns(GRID_COLS, 4, 4);
+  const cellWidth = useGridCardWidth(gridCols, GRID_PAD, GRID_GAP);
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const requestedRef = useRef(false);
@@ -205,7 +209,6 @@ export function DrapeSession({ onDone, applyDrape, onMetal, currentTone, onNudge
   // ── Step 3: 12-tone grid ─────────────────────────────────────────────────
 
   if (phase === 'grid') {
-    const cellWidth = (W - GRID_PAD * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
     return (
       <View style={[styles.veil, styles.gridVeil, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}>
         <Pressable onPress={handleClose} style={styles.closeBtnStatic}>

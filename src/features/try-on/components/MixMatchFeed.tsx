@@ -11,6 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { T, type } from '../../../design/tokens';
+import { Bounded } from '../../../components/ui/Bounded';
 import { IconChevronLeft } from '../../../components/icons';
 import { useTryOn } from '../useTryOn';
 import { MatchFeedCard, pieceIds } from './MatchFeedCard';
@@ -182,10 +183,12 @@ export function MixMatchFeed() {
 
       {/* Bottom action — back to result */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + T.s(3) }]}>
-        <Pressable onPress={goBack} style={styles.backToResult} hitSlop={6}>
-          <IconChevronLeft size={15} strokeWidth={1.5} color={T.color.primary} />
-          <Text style={styles.backToResultLabel}>{t('mixMatchFeed_backToResult')}</Text>
-        </Pressable>
+        <Bounded>
+          <Pressable onPress={goBack} style={styles.backToResult} hitSlop={6}>
+            <IconChevronLeft size={15} strokeWidth={1.5} color={T.color.primary} />
+            <Text style={styles.backToResultLabel}>{t('mixMatchFeed_backToResult')}</Text>
+          </Pressable>
+        </Bounded>
       </View>
     </View>
   );

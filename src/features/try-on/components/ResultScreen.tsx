@@ -11,7 +11,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { T, type } from '../../../design/tokens';
-import { PrimaryButton } from '../../../components/ui';
+import { CONTENT_MAX } from '../../../design/layout';
+import { PrimaryButton, Bounded } from '../../../components/ui';
 import {
   IconChevronLeft, IconChevronRight, IconX, IconLayers, IconCheck,
 } from '../../../components/icons';
@@ -190,6 +191,7 @@ export function ResultScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        <Bounded>
         {/* AI-isolated item on white */}
         <ItemOnWhite
           localImageUri={scannedItem.localImageUri}
@@ -332,10 +334,12 @@ export function ResultScreen() {
 
         {/* Bottom padding for sticky bar */}
         <View style={styles.bottomSpacer} />
+        </Bounded>
       </ScrollView>
 
       {/* ── Decide · Buy or Pass (US3) ──────────────────────────────────────── */}
       <View style={[styles.stickyBar, { paddingBottom: insets.bottom + T.s(3) }]}>
+        <Bounded>
         {error && !adding ? (
           <Text style={styles.addError}>{error}</Text>
         ) : null}
@@ -345,6 +349,7 @@ export function ResultScreen() {
         <Pressable onPress={handleBack} hitSlop={8} style={styles.passBtn} disabled={adding}>
           <Text style={styles.passLabel}>{t('resultScreen_notForMe')}</Text>
         </Pressable>
+        </Bounded>
       </View>
 
       {/* ── Success affordance after Add (T036) ─────────────────────────────── */}
@@ -610,6 +615,7 @@ const styles = StyleSheet.create({
   },
   successCard: {
     width: '100%',
+    maxWidth: CONTENT_MAX,
     backgroundColor: T.color.canvas,
     borderWidth: 0.5,
     borderColor: T.color.hairline,

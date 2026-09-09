@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PrimaryButton, Field } from '../../src/components/ui';
+import { PrimaryButton, Field, Bounded } from '../../src/components/ui';
 import { IconChevronLeft } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAuthStore } from '../../src/stores/authStore';
@@ -44,6 +44,7 @@ export default function AccountScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
+        <Bounded>
         <View style={{ height: 32 }} />
         <Text style={styles.h1}>{t('onboarding_account_title')}</Text>
         <Text style={styles.caption}>{t('onboardingAccount_subtitle')}</Text>
@@ -67,6 +68,7 @@ export default function AccountScreen() {
         <Text style={styles.terms}>
           {t('onboarding_account_terms')}
         </Text>
+        </Bounded>
       </ScrollView>
     </View>
   );

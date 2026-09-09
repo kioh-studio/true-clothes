@@ -4,7 +4,7 @@ import Svg, { Path, Rect } from 'react-native-svg';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../../src/design/tokens';
-import { PrimaryButton, TextLink } from '../../src/components/ui';
+import { PrimaryButton, TextLink, Bounded } from '../../src/components/ui';
 import { useAuthStore } from '../../src/stores/authStore';
 import { useTranslation } from '../../src/i18n';
 
@@ -84,6 +84,7 @@ export default function WardrobeIntroScreen() {
 
       {/* Content */}
       <View style={[styles.content, { paddingBottom: insets.bottom + 32 }]}>
+        <Bounded style={{ flex: 1 }}>
         <Text style={styles.h1}>{t('onboardingWardrobeIntro_title')}</Text>
         <Text style={styles.body}>
           {t('onboardingWardrobeIntro_body')}
@@ -110,6 +111,7 @@ export default function WardrobeIntroScreen() {
             {t('onboardingCommon_skipForNow')}
           </TextLink>
         </View>
+        </Bounded>
       </View>
     </View>
   );

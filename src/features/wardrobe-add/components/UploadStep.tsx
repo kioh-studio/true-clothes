@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { T, type } from '../../../design/tokens';
+import { Bounded } from '../../../components/ui/Bounded';
 import { PrimaryButton } from '../../../components/ui/PrimaryButton';
 import { IconPlus, IconSparkle, IconDashedSquare, IconX } from '../../../components/icons';
 import { CreditQuotaNote } from '../../monetization/components/CreditQuotaNote';
@@ -98,6 +99,7 @@ export function UploadStep({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        <Bounded>
         <Text style={styles.h1}>{t('uploadStep_title')}</Text>
         <Text style={styles.caption}>
           {t('uploadStep_caption')}
@@ -162,10 +164,12 @@ export function UploadStep({
           {t('uploadStep_hint')}
         </Text>
         <View style={{ height: 16 }} />
+        </Bounded>
       </ScrollView>
 
       {/* sticky CTA */}
       <View style={styles.cta}>
+        <Bounded>
         {/* Monthly AI allowance, right where it gets spent — the paywall no
             longer states any numbers (src/design/paywall/design.md). */}
         <CreditQuotaNote status={quota} creditType="ai_extraction" style={styles.quotaNote} />
@@ -177,6 +181,7 @@ export function UploadStep({
             </Text>
           </View>
         </PrimaryButton>
+        </Bounded>
       </View>
     </View>
   );
