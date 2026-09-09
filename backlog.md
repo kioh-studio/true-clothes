@@ -1426,8 +1426,6 @@ code KHÔNG phải thứ đang chặn release.
   `https://github.com/kioh-studio/true-clothes/commit/a08a978` còn đọc được file đó. Repo private
   nên hiện chỉ anh Khôi thấy — public là cả thế giới thấy. Fix: đổi password trên appleid.apple.com
   (nhanh, dứt điểm) hoặc mở ticket GitHub Support xin GC dangling objects.
-- [ ] **`main` chậm 61 commit so với `010-wardrobe-critic`** (2026-09-06) — repo public thì `main`
-  là thứ người ta thấy đầu tiên, đang là code cũ. Merge/fast-forward `main` lên trước khi public.
 - [ ] **Media full-bleed chưa test trên iPad thật** (2026-09-08) — bỏ `MEDIA_MAX 520` và bỏ luôn
   aspect 4:5 của hero: feed collage full-bleed, detail hero full-bleed × `winH * 0.58` (cùng tỉ lệ
   màn hình trên mọi thiết bị). Mới verify bằng tsc + jest, chưa chạy trên iPad/emulator để xem
