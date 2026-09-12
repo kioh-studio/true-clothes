@@ -1302,6 +1302,8 @@ treo, ghi lại đây theo đúng yêu cầu của lead khi giao task:
   self-contained, own fix); `generate-outfits`, `evaluate-item`, `wardrobe-critic` (all three
   `import` the changed `generate-outfits/engine/enrichment.ts`, Fix 2). Once the project is
   restored, the deploy command above for all 5 is the only remaining step.
+  **2026-09-12: project đã LIVE trở lại** (REST `/rest/v1/styles` -> 200, 12 edge function đều
+  route được). Hết bị chặn — chỉ còn chạy đúng lệnh deploy cho 5 function trên.
 
 - [ ] **`tsc --noEmit` gives ZERO type coverage for edge-function code.** Discovered 2026-08-21
   while verifying the three fixes above. `tsconfig.json`'s `exclude` lists `supabase/functions`
@@ -1365,10 +1367,6 @@ had NO resulting-shape preference"). Bốn việc chủ động hoãn lại khi 
 
 ## Chặn release (rà 2026-08-29)
 
-- [ ] **Supabase project `trtjcsxcowqecsebvyme` vẫn PAUSED** (2026-08-29) — backend chết, không
-  release được gì cho tới khi restore. Đây cũng là thứ đang chặn deploy 5 edge function đã fix
-  xong ở mục trên (`backfill-item-metadata`, `describe-outfit`, `generate-outfits`,
-  `evaluate-item`, `wardrobe-critic`). Việc đầu tiên phải làm, mọi thứ khác xếp sau.
 - [ ] **`NSCameraUsageDescription` bị ghi đè: hai plugin cùng khai `cameraPermission`**
   (2026-08-30) — `expo-image-picker` khai "photograph clothing items", `expo-camera` khai "analyse
   your skin undertone and hair colour". Plugin chạy sau ghi đè plugin trước, mà `expo-camera`
@@ -1408,11 +1406,6 @@ had NO resulting-shape preference"). Bốn việc chủ động hoãn lại khi 
 Trạng thái code lúc rà: `npx jest` 602/602 pass (44 suite), `npx tsc --noEmit` sạch. Chất lượng
 code KHÔNG phải thứ đang chặn release.
 
-- [ ] **Supabase project đang INACTIVE (auto-pause)** (2026-09-02) — Management API
-  `/database/query` timeout, `GET /v1/projects/{ref}` trả `status: INACTIVE`. Không query được
-  wardrobe demo live để dựng landing page, phải lấy data từ `assets/items/` +
-  `docs/fetched-items.json`. Chỉ anh Khôi bấm tay "Restore project" trên dashboard mới un-pause
-  được. Chặn mọi việc đọc/ghi DB live.
 - [ ] **Landing page MIEN — bản artifact chỉ có tủ đồ nam** (2026-09-02) — 22 item, closet nữ
   (`*-women.png`, đã có sẵn trong `assets/items/`) chưa đưa vào; chưa có bản copy tiếng Việt;
   metadata material/fit/warmth của các item ngoài `docs/fetched-items.json` là tự điền tay chứ
@@ -1420,12 +1413,20 @@ code KHÔNG phải thứ đang chặn release.
   https://claude.ai/code/artifact/f7bb4297-611e-4cd8-bd73-c210f5ea938c
   Nguồn: scratchpad `page.tpl.html` + `mien-closet.html` — chưa commit vào repo.
 
-- [ ] **Đổi password Apple ID trước khi make repo public** (2026-09-06) — `***REMOVED-CREDENTIAL***` từng nằm
-  plaintext trong `.claude/settings.local.json` (permission allow-list của EAS build). Đã purge
-  khỏi git history bằng `git filter-repo` + force push, nhưng GitHub vẫn giữ commit mồ côi:
-  `https://github.com/kioh-studio/true-clothes/commit/a08a978` còn đọc được file đó. Repo private
-  nên hiện chỉ anh Khôi thấy — public là cả thế giới thấy. Fix: đổi password trên appleid.apple.com
-  (nhanh, dứt điểm) hoặc mở ticket GitHub Support xin GC dangling objects.
+- [ ] 🔴 **ĐỔI PASSWORD APPLE ID NGAY — đã phơi nhiễm công khai** (2026-09-06, leo thang
+  2026-09-12). Password Apple ID từng nằm plaintext trong `.claude/settings.local.json`
+  (permission allow-list của EAS build). Đã purge khỏi history bằng `git filter-repo` + force
+  push, NHƯNG:
+  - Repo `kioh-studio/true-clothes` **đã là PUBLIC** (verify 2026-09-12 bằng `gh repo view`),
+    không còn private như mục này ghi trước đây.
+  - Commit mồ côi `a08a978` vẫn truy cập được qua GitHub API/web tính đến 2026-09-12.
+  - Mục backlog này TRƯỚC ĐÓ tự nó chép lại password ở dạng plaintext và đã bị commit
+    (`c2547f1`, 2026-09-06) lên repo public. Đã xoá chuỗi khỏi HEAD 2026-09-12, nhưng
+    `c2547f1` trong history vẫn còn.
+  Coi như password ĐÃ LỘ. Xoá khỏi HEAD không cứu được gì — fix duy nhất là đổi password trên
+  appleid.apple.com + rà thiết bị/phiên đăng nhập lạ trong Apple ID. Sau khi đổi xong mới mở
+  ticket GitHub Support xin GC dangling objects (dọn dẹp, không phải biện pháp khắc phục).
+  KHÔNG chép lại giá trị password vào bất kỳ file nào trong repo.
 - [ ] **Media full-bleed chưa test trên iPad thật** (2026-09-08) — bỏ `MEDIA_MAX 520` và bỏ luôn
   aspect 4:5 của hero: feed collage full-bleed, detail hero full-bleed × `winH * 0.58` (cùng tỉ lệ
   màn hình trên mọi thiết bị). Mới verify bằng tsc + jest, chưa chạy trên iPad/emulator để xem
