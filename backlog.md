@@ -1443,6 +1443,24 @@ code KHÔNG phải thứ đang chặn release.
   (password/secret/token/`appl_`/`sk-`/JWT không phải anon key). Phải là hook thật, không phải
   ghi thêm một dòng vào CLAUDE.md.
 
+- [ ] **KHÔNG ai verify được layout iPad từ máy này — máy dev là Windows** (2026-09-13) —
+  ghi lại cho khỏi vòng vo lần sau. iOS simulator không chạy trên Windows, và `expo start --web`
+  cũng không phải đường vòng: `react-native-web` + `react-dom` KHÔNG có trong `package.json`
+  (chỉ có mỗi script `web`), nên bật web target là phải thêm 2 dependency chỉ để xem layout —
+  mà web vẫn không phản ánh đúng native. Kết luận: mọi mục "device verify" liên quan iPad chỉ
+  anh Khôi đóng được, trên Mac hoặc iPad thật.
+
+- [ ] **Audit responsive tĩnh 2026-09-13 — không tìm thấy lỗi cấu trúc, nhưng đó KHÔNG phải
+  bằng chứng đã đúng.** Đã rà: (a) 0 chỗ dùng `Dimensions.get()` ở module scope (đúng luật ghi
+  trong `layout.ts`); (b) 7 màn trong `app/` không có tín hiệu responsive nào hoá ra đều là
+  màn mỏng uỷ quyền xuống `src/features/*` — component thật đã bọc `Bounded`/`useResponsive`;
+  (c) các `aspectRatio` cứng còn lại đều nằm trên card lưới (`width:'100%'` trong ô lưới) nên
+  bề rộng đã do số cột quyết định — đúng như `src/design/responsive/design.md` mô tả, không vi
+  phạm luật media sizing; (d) `maxWidth` số cố định còn lại chỉ nằm trên khối CHỮ (giới hạn độ
+  dài dòng), không nằm trên ảnh; (e) hero `winH * 0.58` lấy từ `useWindowDimensions` nên sống
+  theo xoay màn hình. Cái audit này chỉ chứng minh không có lỗi thuộc loại grep bắt được —
+  giãn thưa, khoảng trắng chết, chữ trôi, sticky footer đè, thì phải nhìn mới biết.
+
 - [ ] **Media full-bleed chưa test trên iPad thật** (2026-09-08) — bỏ `MEDIA_MAX 520` và bỏ luôn
   aspect 4:5 của hero: feed collage full-bleed, detail hero full-bleed × `winH * 0.58` (cùng tỉ lệ
   màn hình trên mọi thiết bị). Mới verify bằng tsc + jest, chưa chạy trên iPad/emulator để xem
