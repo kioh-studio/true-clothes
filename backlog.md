@@ -1378,10 +1378,21 @@ had NO resulting-shape preference"). Bốn việc chủ động hoãn lại khi 
   **2026-08-30 — ĐÃ IMPLEMENT** (`supabase/functions/auth/index.ts` + `index_test.ts`,
   `authService.ts`, `demo.ts`, `authStore.ts`, `eas.json`, `.env`, 2 file i18n). Kiểm tra:
   `tsc --noEmit` sạch, `npx jest` 602/602 (44 suite), `deno test` 17/17. CHƯA deploy, CHƯA
-  commit. Còn lại của anh Khôi: (a) `supabase secrets set DEMO_PASSWORD=... DEMO_WHITELIST=
-  'demo@mien.app:<otp1>,demo-woman@mien.app:<otp2>'`; (b) `supabase functions deploy auth
-  --no-verify-jwt`; (c) **bật `Sb-Forwarded-For` trên dashboard trước khi có user thật** —
-  chưa bật thì rate limit 360/giờ gộp chung mọi user vào IP của edge function.
+  commit. Còn lại của anh Khôi — rà lại 2026-09-12:
+  - (a) secrets `DEMO_PASSWORD` + `DEMO_WHITELIST` — **ĐÃ SET** (`supabase secrets list` cho
+    thấy cả hai, updated 2026-09-07). Xong.
+  - (b) deploy `auth` — **ĐÃ XONG**; `POST /functions/v1/auth` với anon key trả
+    `{"error":"Not found"}` cho action lạ, tức code function đã chạy. Lưu ý: deploy hiện tại
+    BẬT `verify_jwt` (gọi không header -> `UNAUTHORIZED_NO_AUTH_HEADER` từ gateway), và như
+    vậy là ĐÚNG — supabase-js gửi anon key làm bearer nên login vẫn qua được; KHÔNG cần
+    `--no-verify-jwt` như instruction cũ viết.
+  - (c) **CÒN LẠI: bật `Sb-Forwarded-For` trên dashboard/Management API.** Code đã gửi header
+    (`buildAuthClient` trong `auth/index.ts:119-127`, IP lấy từ `x-forwarded-for` phần tử đầu).
+    Chưa bật thì Supabase Auth bỏ qua header đó -> rate limit `verifyOtp` (360/giờ, burst 30,
+    KHÔNG chỉnh được) tính theo IP của edge function, tức TOÀN BỘ user dùng chung một hạn
+    mức. 30 người verify cùng lúc là chạm trần, và triệu chứng trông như "Supabase hỏng" nên
+    rất khó lần ra. Không hỏng gì lúc chưa có user thật — phải bật TRƯỚC khi mở cho user.
+
 - [ ] **`markOnboardingComplete` + `updateMyProfile` vẫn ghi đè profile demo mỗi lần login**
   (2026-08-30) — `authStore.verifyOtp` nhánh `isDemo`. Nhiều người lạ cùng dùng một uid demo
   sẽ ghi đè profile của nhau, và Apple reviewer có thể mở app thấy tủ đồ đã bị người khác
