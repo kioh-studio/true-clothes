@@ -1413,20 +1413,38 @@ code KHÔNG phải thứ đang chặn release.
   https://claude.ai/code/artifact/f7bb4297-611e-4cd8-bd73-c210f5ea938c
   Nguồn: scratchpad `page.tpl.html` + `mien-closet.html` — chưa commit vào repo.
 
-- [ ] 🔴 **ĐỔI PASSWORD APPLE ID NGAY — đã phơi nhiễm công khai** (2026-09-06, leo thang
+- [ ] 🔴 **ĐỔI PASSWORD APPLE ID — đã phơi nhiễm công khai, chưa xoay** (2026-09-06, xử lý
   2026-09-12). Password Apple ID từng nằm plaintext trong `.claude/settings.local.json`
-  (permission allow-list của EAS build). Đã purge khỏi history bằng `git filter-repo` + force
-  push, NHƯNG:
-  - Repo `kioh-studio/true-clothes` **đã là PUBLIC** (verify 2026-09-12 bằng `gh repo view`),
-    không còn private như mục này ghi trước đây.
-  - Commit mồ côi `a08a978` vẫn truy cập được qua GitHub API/web tính đến 2026-09-12.
-  - Mục backlog này TRƯỚC ĐÓ tự nó chép lại password ở dạng plaintext và đã bị commit
-    (`c2547f1`, 2026-09-06) lên repo public. Đã xoá chuỗi khỏi HEAD 2026-09-12, nhưng
-    `c2547f1` trong history vẫn còn.
-  Coi như password ĐÃ LỘ. Xoá khỏi HEAD không cứu được gì — fix duy nhất là đổi password trên
-  appleid.apple.com + rà thiết bị/phiên đăng nhập lạ trong Apple ID. Sau khi đổi xong mới mở
-  ticket GitHub Support xin GC dangling objects (dọn dẹp, không phải biện pháp khắc phục).
-  KHÔNG chép lại giá trị password vào bất kỳ file nào trong repo.
+  (permission allow-list của EAS build), rồi bị chép lại lần hai vào chính mục backlog này và
+  commit lên (`c2547f1`, 2026-09-06) khi repo **đang PUBLIC**.
+  ĐÃ LÀM 2026-09-12:
+  - Xoá chuỗi khỏi HEAD, commit + push.
+  - Chuyển repo `kioh-studio/true-clothes` về **PRIVATE** (`gh repo edit --visibility private`).
+    Muốn public lại thì đổi password xong đã.
+  - `git filter-repo --replace-text` trên toàn bộ history + force push 2 nhánh có dính
+    (`010-wardrobe-critic`, `main`); 4 nhánh cũ không dính nên SHA giữ nguyên. Verify: quét
+    toàn bộ blob của mọi ref -> 0 hit. Backup trước khi rewrite ở scratchpad phiên
+    (`pre-rewrite-backup.bundle`, 143MB) — scratchpad sẽ bị dọn, không phải nơi giữ lâu dài.
+  CÒN LẠI:
+  - **Đổi password trên appleid.apple.com** + rà thiết bị/phiên lạ trong Apple ID. Đây là fix
+    dứt điểm DUY NHẤT: rewrite history không cứu được, vì repo đã public một thời gian và
+    GitHub vẫn giữ commit mồ côi `c2547f1` — verify 2026-09-12 `gh api .../commits/c2547f1`
+    vẫn trả patch chứa password (commit `a08a978` cũng còn tồn tại). Private chỉ chặn người
+    ngoài, không xoá.
+  - Sau khi đổi xong: mở ticket GitHub Support xin GC dangling objects (`c2547f1`, `a08a978`)
+    rồi mới cân nhắc public lại.
+  - KHÔNG chép lại giá trị password vào bất kỳ file nào trong repo, backlog này bao gồm.
+
+- [ ] **Không có cơ chế nào rà credential trước khi commit** (2026-09-12) — phát hiện khi anh
+  Khôi hỏi "sao bảo có rule rà credential rồi mà". Soi lại: `.git/hooks/` rỗng (không có
+  `pre-commit`), `~/.claude/hooks/safe-approver.bash` 24 dòng không đả động secret,
+  `.claude/settings*.json` chỉ có permission allow-list, không có gitleaks/trufflehog/CI scan.
+  Dòng "đánh giá security trước MỌI thay đổi" trong CLAUDE.md là kỳ vọng, không có gì enforce —
+  và nó đã không chặn được vụ `c2547f1`. Đề xuất (chưa làm, chờ anh Khôi duyệt): thêm
+  `.git/hooks/pre-commit` gọi `gitleaks protect --staged` hoặc một regex scan tối thiểu
+  (password/secret/token/`appl_`/`sk-`/JWT không phải anon key). Phải là hook thật, không phải
+  ghi thêm một dòng vào CLAUDE.md.
+
 - [ ] **Media full-bleed chưa test trên iPad thật** (2026-09-08) — bỏ `MEDIA_MAX 520` và bỏ luôn
   aspect 4:5 của hero: feed collage full-bleed, detail hero full-bleed × `winH * 0.58` (cùng tỉ lệ
   màn hình trên mọi thiết bị). Mới verify bằng tsc + jest, chưa chạy trên iPad/emulator để xem
