@@ -1292,19 +1292,6 @@ treo, ghi lại đây theo đúng yêu cầu của lead khi giao task:
   liên quan sole-torso-layer), nhưng nó chứng minh rủi ro "ba bản sao lệch nhau, không ai biết" là
   có thật chứ không phải giả định. Chưa làm gì ở đây — cần cân nhắc có nên gom về một nguồn chung
   (build-time codegen bơm vào từng bundle, hoặc test đối chiếu ba set) hay chấp nhận rủi ro tiếp.
-- [ ] **2026-08-21 fixes implemented + tested, NOT deployed — blocked by paused project.** All
-  three fixes above (backfill self-starving filter, 7 DB-only garment types, one-piece sole-torso-
-  layer) are code-complete and green (`deno test`/`npx jest`), commit-ready, but deploy failed:
-  `npx supabase functions deploy <fn> --project-ref trtjcsxcowqecsebvyme` uploaded assets fine then
-  every one 404'd with `"Cannot retrieve service for project trtjcsxcowqecsebvyme with currect
-  status 'INACTIVE'."` (typo theirs) — project `trtjcsxcowqecsebvyme` is paused, see the
-  auto-pause item above. Need deploying once restored: `backfill-item-metadata` and `describe-outfit` (each
-  self-contained, own fix); `generate-outfits`, `evaluate-item`, `wardrobe-critic` (all three
-  `import` the changed `generate-outfits/engine/enrichment.ts`, Fix 2). Once the project is
-  restored, the deploy command above for all 5 is the only remaining step.
-  **2026-09-12: project đã LIVE trở lại** (REST `/rest/v1/styles` -> 200, 12 edge function đều
-  route được). Hết bị chặn — chỉ còn chạy đúng lệnh deploy cho 5 function trên.
-
 - [ ] **`tsc --noEmit` gives ZERO type coverage for edge-function code.** Discovered 2026-08-21
   while verifying the three fixes above. `tsconfig.json`'s `exclude` lists `supabase/functions`
   entirely, so `npx tsc --noEmit` never touches any edge function — "tsc clean" reported as
