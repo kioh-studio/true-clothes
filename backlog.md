@@ -1354,13 +1354,6 @@ had NO resulting-shape preference"). Bốn việc chủ động hoãn lại khi 
 
 ## Chặn release (rà 2026-08-29)
 
-- [ ] **`NSCameraUsageDescription` bị ghi đè: hai plugin cùng khai `cameraPermission`**
-  (2026-08-30) — `expo-image-picker` khai "photograph clothing items", `expo-camera` khai "analyse
-  your skin undertone and hair colour". Plugin chạy sau ghi đè plugin trước, mà `expo-camera`
-  đứng sau trong mảng `plugins` -> chuỗi về da/tóc nhiều khả năng là chuỗi DUY NHẤT còn lại, nên
-  người dùng chụp ảnh QUẦN ÁO lại đọc được lời xin quyền nói về phân tích da. Kiểm chứng bằng
-  `npx expo prebuild -p ios --clean` rồi đọc `ios/*/Info.plist`; nếu đúng thì viết MỘT chuỗi bao
-  cả hai mục đích. Không phải blocker cứng, nhưng là lý do bị hỏi 5.1.1.
 - [ ] **Chuyển đăng nhập demo sang edge function `demo-signin`** (2026-08-30) — anh Khôi chốt
   hướng: bỏ `EXPO_PUBLIC_DEMO_PASSWORD` khỏi client bundle, đẩy việc sign-in sang edge function
   giữ secret. Lưu ý MIEN hiện KHÔNG có edge function auth nào (OTP thật đi thẳng Supabase Auth
@@ -1386,20 +1379,33 @@ had NO resulting-shape preference"). Bốn việc chủ động hoãn lại khi 
     BẬT `verify_jwt` (gọi không header -> `UNAUTHORIZED_NO_AUTH_HEADER` từ gateway), và như
     vậy là ĐÚNG — supabase-js gửi anon key làm bearer nên login vẫn qua được; KHÔNG cần
     `--no-verify-jwt` như instruction cũ viết.
-  - (c) **CÒN LẠI: bật `Sb-Forwarded-For` trên dashboard/Management API.** Code đã gửi header
-    (`buildAuthClient` trong `auth/index.ts:119-127`, IP lấy từ `x-forwarded-for` phần tử đầu).
-    Chưa bật thì Supabase Auth bỏ qua header đó -> rate limit `verifyOtp` (360/giờ, burst 30,
-    KHÔNG chỉnh được) tính theo IP của edge function, tức TOÀN BỘ user dùng chung một hạn
-    mức. 30 người verify cùng lúc là chạm trần, và triệu chứng trông như "Supabase hỏng" nên
-    rất khó lần ra. Không hỏng gì lúc chưa có user thật — phải bật TRƯỚC khi mở cho user.
-
-- [ ] **`markOnboardingComplete` + `updateMyProfile` vẫn ghi đè profile demo mỗi lần login**
-  (2026-08-30) — `authStore.verifyOtp` nhánh `isDemo`. Nhiều người lạ cùng dùng một uid demo
-  sẽ ghi đè profile của nhau, và Apple reviewer có thể mở app thấy tủ đồ đã bị người khác
-  sửa. Chưa làm vì cần quyết trước: seed sẵn profile trong DB rồi bỏ hẳn hai lệnh ghi này,
-  hay reset wardrobe về bản seeded mỗi phiên demo. Không chặn release.
-- [ ] **Kiểm tra `app.json` `owner: "brian-k"` khớp với Apple Team `ZXWAPGR9XP`** (2026-08-29) —
-  eas.json `submit.production.ios` dùng team này, sai owner là fail lúc submit.
+  - (c) **CÒN LẠI, sửa lại theo docs 2026-09-13** (https://supabase.com/docs/guides/auth/rate-limits):
+    `Sb-Forwarded-For` chỉ được Supabase honor khi ĐỒNG THỜI (i) bật "IP Address Forwarding" ở
+    Dashboard → Authentication → Rate Limits VÀ (ii) request dùng SECRET API key
+    (`sb_secret_...`) — publishable key và anon/service_role key kiểu cũ ĐỀU KHÔNG được hỗ trợ.
+    `supabase/functions/auth/index.ts:30,123` hiện dựng client bằng `SUPABASE_ANON_KEY` -> header
+    đang bị bỏ qua dù có bật setting trên dashboard hay không.
+    Việc còn lại: tạo/dùng một secret key, đổi `buildAuthClient` sang key đó (vẫn giữ
+    `persistSession: false`, không bao giờ trả key ra ngoài), rồi mới bật setting trên dashboard.
+    - ĐÃ XÁC NHẬN 2026-09-13 là giả được: `getClientIp` (`supabase/functions/auth/index.ts:108`)
+      lấy phần tử ĐẦU của `x-forwarded-for`, nhưng Supabase KHÔNG ghi đè header client gửi mà nối
+      IP thật vào sau (`x-forwarded-for: spoofed,68.65.164.215`) — nguồn
+      https://github.com/orgs/supabase/discussions/34647. Header `cf-connecting-ip` chứa IP thật.
+    - Hệ quả: rate limit `/verify` của Supabase CHỈ theo IP, không có khoá theo user
+      (https://github.com/orgs/supabase/discussions/26477) → nếu bật forwarding với code hiện
+      tại, attacker xoay IP giả mỗi request và brute-force OTP 6 số được.
+    - Hiện trạng (chưa bật) có lỗ ngược lại: mọi user chung một bucket IP của function (burst
+      30) → một người spam 30 request sai là chặn login của toàn bộ user (DoS), không mất tài
+      khoản.
+    - Kế hoạch sửa, CHỜ anh Khôi duyệt, làm theo thứ tự:
+      1. Deploy tạm function probe echo headers, gọi với `X-Forwarded-For` giả để xác nhận cấu
+         trúc trên project mình, rồi xoá probe. Chọn `cf-connecting-ip` hoặc phần tử CUỐI của XFF.
+      2. **DONE 2026-09-13** — giới hạn 5 lần/15 phút theo từng phone/email (bucket riêng
+         send/verify), độc lập IP: bảng `public.otp_attempts` + fn `consume_otp_attempt` (migration
+         `20260913000001_otp_attempt_rate_limit.sql`, đã apply lên production), gọi từ
+         `handleSendOtp`/`handleVerifyOtp` trước nhánh demo. `auth` đã deploy version 2. Chi tiết ở
+         `plan.md` 2026-09-13.
+      3. Đổi `buildAuthClient` sang secret key + bật IP Address Forwarding trên dashboard.
 
 Trạng thái code lúc rà: `npx jest` 602/602 pass (44 suite), `npx tsc --noEmit` sạch. Chất lượng
 code KHÔNG phải thứ đang chặn release.
@@ -1477,3 +1483,14 @@ code KHÔNG phải thứ đang chặn release.
   `MethodChooser` sheet capped via style props) và try-on (`ScanScreen`, `ResultScreen`,
   `MixMatchFeed`'s bottom bar, `MatchFeedCard`'s meta strip) cũng đã bọc. Vẫn chỉ verify
   tsc + jest — phần còn lại của mục này thuần là test trên iPad thật.
+
+- [ ] **Test MIEN trên iOS 27 (phát hành 14/09/2026)**: Liquid Glass được chỉnh lại cho dễ
+  đọc, nhiều app hỗ trợ xoay ngang hơn — kiểm tra layout, tab bar, modal. (2026-09-13, iOS 27
+  ra chính thức ngay sau Apple event 09/09)
+- [ ] **Đề xuất: App Intents cho Siri AI trên iOS** (vd "Siri, hôm nay mặc gì?") — iOS 27 bỏ
+  SiriKit, Siri AI chỉ gọi app qua App Intents; app React Native cần native module.
+  (2026-09-13, đề xuất chưa duyệt; nguồn chủ yếu từ blog dev, chưa đối chiếu tài liệu Apple)
+- [ ] **Đề xuất: cân nhắc Apple Foundation Models cho một số tính năng AI trên iOS** — dev
+  trong Small Business Program (dưới 2 triệu lượt tải) được dùng model trên Private Cloud
+  Compute miễn phí; phải so chất lượng với Gemini và giữ tương đương trên Android. (2026-09-13,
+  đề xuất chưa duyệt; thông tin từ blog dev, chưa đối chiếu Apple)

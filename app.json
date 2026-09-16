@@ -44,19 +44,30 @@
         "expo-image-picker",
         {
           "photosPermission": "MIEN needs access to your photos to add clothing items to your wardrobe.",
-          "cameraPermission": "MIEN needs your camera to photograph clothing items."
+          "cameraPermission": "MIEN uses your camera to photograph clothing for your wardrobe, and to scan your face and body for colour analysis, measurements and virtual try-on.",
+          "microphonePermission": false
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "MIEN uses your camera to analyse your skin undertone and hair colour for personalised outfit suggestions."
+          "cameraPermission": "MIEN uses your camera to photograph clothing for your wardrobe, and to scan your face and body for colour analysis, measurements and virtual try-on.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
         }
       ],
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "MIEN uses your location to tailor outfit suggestions to your local weather and season."
+          "locationWhenInUsePermission": "MIEN uses your location to tailor outfit suggestions to your local weather and season.",
+          "locationAlwaysAndWhenInUsePermission": false,
+          "locationAlwaysPermission": false
+        }
+      ],
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "MIEN uses motion sensors to check your phone is held upright while scanning your body measurements."
         }
       ]
     ],

@@ -8595,3 +8595,71 @@ redeploy for Fix 2 once this ships): `generate-outfits` (`index.ts`, `engine/sco
 `evaluate-item` (`index.ts`, `scoring.ts`), `wardrobe-critic` (`index.ts`, `analyze.ts`). Fix 1
 (`backfill-item-metadata`) and Fix 3 (`describe-outfit`) are each self-contained in their own
 function directory.
+
+---
+
+**2026-09-13 — iOS/Android permission purpose strings fixed (`app.json`).** Root cause: three
+Info.plist permission plugins (`expo-image-picker`, `expo-camera`) both declared
+`cameraPermission` with different strings — `@expo/config-plugins`' `applyPermissions` lets the
+later-applied plugin's explicit string win outright, so the camera-usage description shown to
+users was expo-image-picker's ("MIEN needs your camera to photograph clothing items."), silently
+dropping the reason `expo-camera` actually needs it: face/wrist colour scan, body-measurement
+scan, and try-on scan. `expo-sensors` is a direct dependency but was never listed in `app.json`'s
+`plugins`, so Expo autolinked its plugin with no config, leaking the generic default
+`NSMotionUsageDescription` even though `app/measurements-scan.tsx` genuinely uses
+`DeviceMotion`. `expo-location` had no config for `locationAlwaysPermission`/
+`locationAlwaysAndWhenInUsePermission`, leaking generic Info.plist strings for a background
+location capability the app never requests (no `requestBackgroundPermissionsAsync` call
+anywhere). `expo-camera` also added `NSMicrophoneUsageDescription` (generic default) and, via a
+separate `recordAudioAndroid` option (default `true`, independent of `microphonePermission`),
+Android `RECORD_AUDIO` — the app never records audio or video.
+
+Fix: gave `expo-image-picker` and `expo-camera` the same real `cameraPermission` string covering
+both wardrobe photos and colour/measurement/try-on scanning (order no longer matters since both
+plugins agree); set `microphonePermission: false` on both (deletes
+`NSMicrophoneUsageDescription`, and on `expo-image-picker` also force-blocks Android
+`RECORD_AUDIO`) plus `recordAudioAndroid: false` on `expo-camera` (its own, separate switch for
+adding Android `RECORD_AUDIO`); added `expo-location`'s `locationAlwaysPermission: false` /
+`locationAlwaysAndWhenInUsePermission: false` (the plugin deletes the Info.plist key on explicit
+`false`, confirmed in `@expo/config-plugins`' `applyPermissions`); added an explicit
+`["expo-sensors", { "motionPermission": "..." }]` entry to `plugins` with a real string, which
+also stops the bare autolinked default from applying.
+
+**Verify:** `npx expo config --type introspect --json` — `ios.infoPlist`: `NSCameraUsageDescription`
+= new shared string, `NSPhotoLibraryUsageDescription` unchanged, `NSMotionUsageDescription` = new
+string, `NSLocationWhenInUseUsageDescription` unchanged, no `NSMicrophoneUsageDescription`, no
+`NSLocationAlwaysUsageDescription`/`NSLocationAlwaysAndWhenInUseUsageDescription`.
+`android.permissions`: `CAMERA`/location/storage/`INTERNET` present, no `RECORD_AUDIO`. `npx tsc
+--noEmit` clean (unaffected, config-only change). No prebuild/build run, no commit.
+
+---
+
+**2026-09-13 — per-identifier OTP rate limit added to the `auth` edge function.** Why:
+Supabase Auth's own `verifyOtp` rate limit is per-IP only (360/hr, burst 30, not configurable),
+and the IP forwarded via `Sb-Forwarded-For` is spoofable (Supabase appends the real IP after the
+client-supplied value rather than replacing it — confirmed 2026-09-13, see backlog.md). That left
+the 6-digit OTP, and the static/never-expiring `DEMO_WHITELIST` OTPs especially, brute-forceable
+by rotating a fake `x-forwarded-for` per request. Added a second limit keyed by the phone/email
+itself, independent of IP: new table `public.otp_attempts` (key = sha256 hex of
+`<bucket>:<normalized identifier>`, never raw phone/email) + `security definer` function
+`public.consume_otp_attempt(p_key, p_max, p_window_secs)` (migration
+`20260913000001_otp_attempt_rate_limit.sql`), modeled on the existing `rate_limits` /
+`consume_rate_limit` pair but keyed by text since callers are unauthenticated. `EXECUTE` granted
+only to `service_role` (`anon`/`authenticated` explicitly revoked). `supabase/functions/auth/index.ts`
+calls it from both `handleSendOtp` and `handleVerifyOtp`, before their demo branches (the demo
+OTPs need this check most), via a lazily-built service-role client — 5 attempts per 15 minutes,
+independent per `send`/`verify` bucket. Fails OPEN on RPC error (`console.warn`, same convention
+as `describe-outfit`'s rate limit) so a DB outage degrades to "no extra limit," not "nobody can
+log in." On limit: `429 { error: "Too many attempts. Please try again in 15 minutes." }` —
+`authService.ts`'s existing `edgeErrorMessage` already surfaces this to the client unchanged.
+
+**Verify:** `deno test --allow-env supabase/functions/auth/` 23/23 passed (14 pre-existing + new
+coverage for `normalizeIdentifier`/`attemptKey`). Applied migration to production
+(`trtjcsxcowqecsebvyme`, confirmed `ACTIVE_HEALTHY` first) via the Management API `database/query`
+endpoint; verified live `pg_proc.prosecdef = true` and `information_schema.routine_privileges`
+shows only `postgres`/`service_role` with EXECUTE. Deployed `auth` via `supabase functions deploy`
+(no `--no-verify-jwt`) — version bumped 1 → 2, `verify_jwt: true` confirmed via `functions list`.
+Live smoke test against `verify-otp` only (never `send-otp` — real SMS/email): 6 calls with a
+fake phone/code, calls 1–5 returned Supabase's own 403 (`Token has expired or is invalid`), call 6
+returned our 429. Test row deleted from `public.otp_attempts` afterward (confirmed table back to 0
+rows). No commit.

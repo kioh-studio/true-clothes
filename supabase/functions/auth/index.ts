@@ -16,6 +16,12 @@
 // demo account's. This replaces the old client-side DEMO_OTP/DEMO_PASSWORD
 // constants, which shipped the credential inside the public JS bundle.
 //
+// Rate limit: Supabase Auth's own /auth/v1/verify limit is per-IP only
+// (spoofable — see backlog.md 2026-09-13), so send-otp/verify-otp are ALSO capped per
+// phone/email (OTP_MAX_ATTEMPTS per OTP_WINDOW_SECS, independent buckets),
+// via public.consume_otp_attempt (migration 20260913000001). Fails open on
+// RPC error — matches describe-outfit's rate-limit convention.
+//
 // Convention: corsHeaders + Deno.serve + OPTIONS branch + createClient from
 // esm.sh, same as supabase/functions/delete-user/index.ts.
 
@@ -30,6 +36,9 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const DEMO_PASSWORD = Deno.env.get('DEMO_PASSWORD') ?? '';
 const DEMO_PHONE = Deno.env.get('DEMO_PHONE') ?? '+84000000000';
+
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_WINDOW_SECS = 900; // 15 minutes
 
 // ─── Pure helpers (exported for index_test.ts — no HTTP server needed) ──────
 
@@ -99,12 +108,61 @@ export function resolveDemoMatch(
  * Real client IP from `x-forwarded-for` (may carry a proxy chain,
  * "client, proxy1, proxy2" — the client is always the first entry).
  * Forwarded to Supabase Auth via the `Sb-Forwarded-For` header so
- * verifyOtp's per-IP rate limit (360/hr, burst 30, not configurable) is
- * keyed per real user instead of collapsing every user onto this
- * function's own IP. Supabase does NOT honor X-Forwarded-For for this.
+ * verifyOtp's per-IP rate limit (30 requests / 5 min, burst up to 30,
+ * customizable in the dashboard) is keyed per real user instead of
+ * collapsing every user onto this function's own IP. Supabase does NOT
+ * honor X-Forwarded-For for this.
  */
 export function getClientIp(req: Request): string | null {
   return req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null;
+}
+
+/**
+ * Normalize a send-otp/verify-otp request to one stable identifier string for
+ * rate-limit keying. Phone wins when both are present (matches how
+ * resolveDemoMatch/handleSendOtp/handleVerifyOtp treat phone as primary).
+ */
+export function normalizeIdentifier(input: { phone?: string; email?: string }): string {
+  if (input.phone) return `phone:${input.phone.trim()}`;
+  return `email:${(input.email ?? '').trim().toLowerCase()}`;
+}
+
+/**
+ * sha256 hex of "<bucket>:<identifier>" — the DB key never stores a raw phone
+ * or email. Bucket-prefixed so 'send' and 'verify' get independent budgets
+ * for the same identifier.
+ */
+export async function attemptKey(bucket: 'send' | 'verify', identifier: string): Promise<string> {
+  const bytes = new TextEncoder().encode(`${bucket}:${identifier}`);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * True if this identifier has exceeded OTP_MAX_ATTEMPTS in the current
+ * OTP_WINDOW_SECS window, for the given bucket. Fails OPEN on RPC error (same
+ * convention as describe-outfit's rate limit) — an outage on this table must
+ * not lock every user out of login.
+ */
+async function overLimit(bucket: 'send' | 'verify', input: { phone?: string; email?: string }): Promise<boolean> {
+  const key = await attemptKey(bucket, normalizeIdentifier(input));
+  // Service-role client used ONLY for this RPC (anon/authenticated have
+  // EXECUTE revoked on it — see the migration). Built inline, per call, not
+  // at module scope, so importing this file (index_test.ts) never requires
+  // SUPABASE_SERVICE_ROLE_KEY to be set. Never log this key or return it.
+  const sb = createClient(SUPABASE_URL, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { data: ok, error } = await sb.rpc('consume_otp_attempt', {
+    p_key: key,
+    p_max: OTP_MAX_ATTEMPTS,
+    p_window_secs: OTP_WINDOW_SECS,
+  });
+  if (error) {
+    console.warn('[auth] otp rate limit RPC error (fail open):', error.message);
+    return false;
+  }
+  return ok === false;
 }
 
 // ─── Request handling ────────────────────────────────────────────────────────
@@ -150,6 +208,10 @@ async function handleSendOtp(req: Request, whitelist: Map<string, string>): Prom
     return jsonResponse({ error: 'phone or email is required' }, 400);
   }
 
+  if (await overLimit('send', { phone, email })) {
+    return jsonResponse({ error: 'Too many attempts. Please try again in 15 minutes.' }, 429);
+  }
+
   const demoMatch = resolveDemoMatch(whitelist, { phone, email }, DEMO_PHONE);
   if (demoMatch) {
     // Demo accounts have no real OTP to send — the client already knows this.
@@ -184,6 +246,13 @@ async function handleVerifyOtp(req: Request, whitelist: Map<string, string>): Pr
   }
   if (!phone && !email) {
     return jsonResponse({ error: 'phone or email is required' }, 400);
+  }
+
+  // Checked before the demo branch on purpose: the demo OTPs in
+  // DEMO_WHITELIST are static and never expire, so they need this limit the
+  // most.
+  if (await overLimit('verify', { phone, email })) {
+    return jsonResponse({ error: 'Too many attempts. Please try again in 15 minutes.' }, 429);
   }
 
   const authClient = buildAuthClient(req);

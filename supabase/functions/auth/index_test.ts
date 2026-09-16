@@ -6,8 +6,8 @@
 // the demo-whitelist parsing/resolution logic, which is this function's one
 // piece of custom behavior.
 
-import { assertEquals, assert } from 'https://deno.land/std@0.208.0/assert/mod.ts';
-import { parseWhitelist, resolveDemoMatch, getClientIp } from './index.ts';
+import { assertEquals, assert, assertNotEquals } from 'https://deno.land/std@0.208.0/assert/mod.ts';
+import { parseWhitelist, resolveDemoMatch, getClientIp, normalizeIdentifier, attemptKey } from './index.ts';
 
 const DEMO_PHONE = '+84000000000';
 
@@ -112,4 +112,41 @@ Deno.test('getClientIp: takes the first of multiple proxy-chain values', () => {
 Deno.test('getClientIp: missing header returns null', () => {
   const req = new Request('https://example.com');
   assertEquals(getClientIp(req), null);
+});
+
+// ─── normalizeIdentifier ──────────────────────────────────────────────────────
+
+Deno.test('normalizeIdentifier: phone is trimmed and prefixed', () => {
+  assertEquals(normalizeIdentifier({ phone: '  +84999999901  ' }), 'phone:+84999999901');
+});
+
+Deno.test('normalizeIdentifier: email is trimmed, lowercased, and prefixed', () => {
+  assertEquals(normalizeIdentifier({ email: '  Demo@Mien.App  ' }), 'email:demo@mien.app');
+});
+
+Deno.test('normalizeIdentifier: phone wins when both phone and email are given', () => {
+  assertEquals(
+    normalizeIdentifier({ phone: '+84999999901', email: 'demo@mien.app' }),
+    'phone:+84999999901',
+  );
+});
+
+// ─── attemptKey ───────────────────────────────────────────────────────────────
+
+Deno.test('attemptKey: deterministic for the same bucket + identifier', async () => {
+  const a = await attemptKey('send', 'phone:+84999999901');
+  const b = await attemptKey('send', 'phone:+84999999901');
+  assertEquals(a, b);
+});
+
+Deno.test('attemptKey: 64 lowercase hex characters (sha256)', async () => {
+  const key = await attemptKey('send', 'phone:+84999999901');
+  assertEquals(key.length, 64);
+  assert(/^[0-9a-f]{64}$/.test(key));
+});
+
+Deno.test('attemptKey: differs between "send" and "verify" buckets for the same identifier', async () => {
+  const send = await attemptKey('send', 'phone:+84999999901');
+  const verify = await attemptKey('verify', 'phone:+84999999901');
+  assertNotEquals(send, verify);
 });
