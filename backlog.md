@@ -931,13 +931,11 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   R8 warning khi build release. Nhiều khả năng do RevenueCat kéo transitive (hỗ trợ Amazon
   Appstore). MIEN chỉ phát hành Play + App Store → nhiều khả năng loại được để giảm dex.
   Chưa đụng vì chưa verify RevenueCat có gọi tới nó vô điều kiện lúc init không. (2026-08-09)
-- [ ] **Mật khẩu + OTP demo vẫn là giá trị đã lộ trong git history** — từ 2026-09-07
-  chúng đã chuyển server-side thành secret `DEMO_PASSWORD` / `DEMO_WHITELIST` trên fn
-  `auth`, nhưng GIÁ TRỊ vẫn là cái cũ (`eas.json` commit `d779c34^` còn nguyên
-  `EXPO_PUBLIC_DEMO_PASSWORD`, `src/config/demo.ts` cũ còn `DEMO_OTP = '000000'`).
-  Ai đọc git history vẫn đăng nhập được demo. Cần: đổi password 2 user demo trên
-  Supabase Auth → cập nhật secret `DEMO_PASSWORD`, đổi OTP trong `DEMO_WHITELIST`.
-  Vẫn cần verify RLS: tài khoản demo không đọc/ghi được dữ liệu user khác. (2026-09-07)
+- [ ] **OTP demo cũ (`000000`) vẫn lộ trong git history — repo đã PUBLIC** (2026-09-19).
+  Password demo đã rotate 2026-09-19 (`demo@mien.app`, `demo-woman@mien.app`, secret
+  `DEMO_PASSWORD` mới; password cũ verify bị từ chối). OTP trong `DEMO_WHITELIST` CHƯA đổi vì
+  đổi thì phải cập nhật App Review Notes trên ASC. Đường OTP chỉ qua fn `auth` có rate-limit
+  theo email. Vẫn cần verify RLS: tài khoản demo không đọc/ghi được dữ liệu user khác.
 - [ ] **Style catalog (22 style, 2026-08-10): toàn bộ `image_url` là null, kể cả 14 style
   mới** — DB `public.styles.image_url` null cho cả 22 row (đúng như 8 style cũ trước đây).
   8 style cũ còn có ảnh Unsplash qua fallback tĩnh `src/data/index.ts` `STYLES[].img`; 14
