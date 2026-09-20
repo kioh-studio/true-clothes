@@ -686,20 +686,14 @@ Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offlin
   `e7c22fc4-....jpg` identical (cung MD5); cap `00a71162-...(1).jpg` (1284x2791) va
   `00a71162-....jpg` (942x2048) cung 1 screenshot khac scale. Chon 1 ban khi upload.
 
-- [ ] **Paywall — Privacy Policy chưa host + 2 field App Store Connect chưa điền** (mở
-  2026-08-04, RETITLED 2026-08-11: tiêu đề gốc "gãy trong build submit vì thiếu
-  `react-native-purchases`" đã SAI kể từ 2026-08-04 — `react-native-purchases@^10.6.0` +
-  `react-native-purchases-ui@^10.6.0` đã cài (`package.json` + `node_modules`),
-  `app/_layout.tsx` đã wire `Purchases.configure()` + `Purchases.logIn(userId)`, và
-  `app/paywall.tsx` đã render động toàn bộ `availablePackages` kèm đủ disclosure Apple
-  3.1.2 (tên plan, giá, chu kỳ, câu auto-renew/24h, 2 link Terms+Privacy — xem `plan.md`
-  "Paywall: dynamic package list + Apple 3.1.2 disclosures"). Cái THẬT còn treo trước khi
-  submit App Store: (1) `src/config/legal.ts`'s `PRIVACY_URL` vẫn là placeholder chưa host
-  trang nào (chi tiết đầy đủ ở mục "PRIVACY_URL là PLACEHOLDER" cùng section J); (2) 2 field
-  trong App Store Connect — License Agreement (dùng được bản chuẩn của Apple) và Privacy
-  Policy URL — vẫn chưa điền, chỉ làm được trong dashboard ASC, không phải code. Thiếu 1
-  trong 2 → Apple reject Guideline 3.1.2. Còn thiếu RevenueCat key thật (`appl_…`/`goog_…`,
-  hiện chỉ có Test Store key `test_…` dùng để dev-client local) trước khi build submit thật.
+- [ ] **Paywall — 2 field App Store Connect chưa điền** (mở 2026-08-04, RETITLED 2026-08-11,
+  hosting-half DONE 2026-09-20: `src/config/legal.ts`'s `PRIVACY_URL` giờ trỏ về trang thật
+  `https://kiohtechnology.com/products/mien/privacy`, đã live — không còn placeholder). Cái
+  còn treo trước khi submit App Store: 2 field trong App Store Connect — License Agreement
+  (dùng được bản chuẩn của Apple) và Privacy Policy URL (dán `PRIVACY_URL` ở trên vào) — vẫn
+  chưa điền, chỉ làm được trong dashboard ASC, không phải code. Thiếu 1 trong 2 → Apple reject
+  Guideline 3.1.2. Còn thiếu RevenueCat key thật (`appl_…`/`goog_…`, hiện chỉ có Test Store key
+  `test_…` dùng để dev-client local) trước khi build submit thật.
 
 ## J. Kinh te don vi / chi phi bien — audit 2026-08-04 (truoc khi dinh gia subscription)
 
@@ -720,15 +714,6 @@ Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offlin
   ~50-85%). Vẫn cần A/B chất lượng ảnh trước khi đổi. `GEMINI_IMAGE_MODEL` env override
   (mới, 2026-08-11) giờ làm việc thử-rồi-rollback này rẻ hơn nhiều — chỉ cần đổi secret,
   không cần deploy.
-- [ ] **`src/config/legal.ts` `PRIVACY_URL` la PLACEHOLDER, chua phai link that** (2026-08-05,
-  phat sinh khi lam disclosure Apple 3.1.2 cho paywall). Gia tri hien tai la
-  `https://mien.app/privacy` — domain chua host trang nao. Phai thay bang link that, cong khai
-  truy cap duoc, truoc khi submit App Store: Apple reject app neu Privacy Policy URL gay loi
-  hoac khong ton tai, va app nay thu thap ca body measurements lan anh (face selfie cho personal
-  color, anh tu do/try-on) nen reviewer se doc ky trang nay. Can lam ca 2 viec: (1) host mot
-  trang privacy policy that mo ta dung du lieu dang thu thap, (2) dien URL do vao ca
-  `src/config/legal.ts` lan truong "Privacy Policy URL" trong App Store Connect.
-
 - [ ] **Plan switching moi wire cho iOS, chua xu ly Android** (2026-08-05, phat sinh tu viec
   fix hai item tren). Luong upgrade/downgrade goi trong `handlePurchase` -> `purchase(pkg)`
   -> `Purchases.purchasePackage(pkg)` khong truyen them tham so gi, dua vao viec Apple tu

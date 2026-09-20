@@ -6,12 +6,7 @@
 // falls back to when no custom EULA is set).
 export const TERMS_URL = 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
 
-// PLACEHOLDER — THIS IS NOT A REAL PRIVACY POLICY YET.
-// This URL MUST be replaced with a real, publicly reachable privacy policy
-// page before App Store submission. Apple rejects apps with a broken or
-// absent privacy policy link (Guideline 3.1.2 / App Store Connect "Privacy
-// Policy URL" field), and this app collects body measurements and photos
-// (face selfies for personal-color detection, wardrobe/try-on photos), so
-// the page will be read closely by reviewers — it needs to actually
-// describe that collection, not just exist.
-export const PRIVACY_URL = 'https://mien.app/privacy';
+// Live privacy policy, hosted in the brand-landing-page repo (Kioh site).
+// Vietnamese version at /vi/products/mien/privacy. Must match the "Privacy
+// Policy URL" field in App Store Connect.
+export const PRIVACY_URL = 'https://kiohtechnology.com/products/mien/privacy';

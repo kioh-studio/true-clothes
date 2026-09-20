@@ -228,7 +228,7 @@ export default function WearOnYouScreen() {
       userId: email || phone || 'unknown',
       timestamp: new Date().toISOString(),
     });
-    Linking.openURL(`mailto:support@mien.app?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`)
+    Linking.openURL(`mailto:contact@kioh.tech?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`)
       .catch((err: unknown) => {
         console.warn('[wear] openURL failed:', err);
         Alert.alert(t('help_noMailAppTitle'), t('help_noMailAppMessage'));
