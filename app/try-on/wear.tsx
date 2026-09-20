@@ -3,7 +3,7 @@
 // generate the user wearing the outfit → show result + fit score. Thin screen;
 // all logic lives in useWearOnYou. Visual language follows the design artifact.
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Image, ActivityIndicator, Linking, Alert } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OUTFITS, itemById } from '../../src/data';
@@ -89,6 +89,8 @@ export default function WearOnYouScreen() {
   const measurements = useAuthStore(s => s.measurements);
   const gender = useAuthStore(s => s.gender);
   const dob = useAuthStore(s => s.dob);
+  const email = useAuthStore(s => s.email);
+  const phone = useAuthStore(s => s.phone);
 
   // Guard against malformed/truncated nav params — JSON.parse throws on invalid
   // JSON, which would otherwise crash this screen; falling through to the
@@ -216,6 +218,22 @@ export default function WearOnYouScreen() {
   });
 
   const itemCount = (outfit.itemIds as string[]).length + (extraGarment ? 1 : 0);
+
+  // Apple requires a way to flag objectionable AI-generated output. Prefills a
+  // mailto so support can locate the generation — no image data in the body,
+  // just the account identifier (already in the auth store) and a timestamp.
+  const handleReport = () => {
+    const subject = t('wearOnYou_reportResultSubject');
+    const body = t('wearOnYou_reportResultBody', {
+      userId: email || phone || 'unknown',
+      timestamp: new Date().toISOString(),
+    });
+    Linking.openURL(`mailto:support@mien.app?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`)
+      .catch((err: unknown) => {
+        console.warn('[wear] openURL failed:', err);
+        Alert.alert(t('help_noMailAppTitle'), t('help_noMailAppMessage'));
+      });
+  };
 
   // Dev-only face-composite diagnostics (2026-08-07) — plain-English, not
   // user-facing copy, so no i18n keys. Loads the cumulative on-device tally
@@ -468,6 +486,14 @@ export default function WearOnYouScreen() {
               <View style={{ alignItems: 'center' }}>
                 <TextLink onPress={() => router.back()} color={T.color.tertiary}>{t('wearOnYou_done')}</TextLink>
               </View>
+              {w.phase === 'result' && (
+                <>
+                  <View style={{ height: 16 }} />
+                  <View style={{ alignItems: 'center' }}>
+                    <TextLink onPress={handleReport} color={T.color.tertiary}>{t('wearOnYou_reportResult')}</TextLink>
+                  </View>
+                </>
+              )}
             </>
           )}
         </View>

@@ -281,29 +281,33 @@ export default function PaywallScreen() {
           </View>
         )}
 
-        {/* Apple 3.1.2 auto-renewable subscription disclosure — required for
-            any package that involves a real purchase. */}
-        {selectedPkg ? (
-          <View style={styles.disclosure}>
-            <Text style={styles.disclosureText}>
-              {t('paywall_disclosureTerms', {
-                plan: getPlanLabel(selectedPkg),
-                price: selectedPkg.product.priceString,
-              })}
-            </Text>
-            <Text style={styles.disclosureText}>
-              {t('paywall_disclosureRenewal')}
-            </Text>
-            <View style={styles.disclosureLinks}>
-              <TextLink onPress={() => openLink(TERMS_URL)} color={T.color.tertiary}>
-                {t('paywall_termsLink')}
-              </TextLink>
-              <TextLink onPress={() => openLink(PRIVACY_URL)} color={T.color.tertiary}>
-                {t('paywall_privacyLink')}
-              </TextLink>
-            </View>
+        {/* Apple 3.1.2 auto-renewable subscription disclosure. The Terms/Privacy
+            links always show — Apple requires them reachable from the paywall
+            even if offerings fail to load. The plan-specific renewal text only
+            renders once a package is selected. */}
+        <View style={styles.disclosure}>
+          {selectedPkg ? (
+            <>
+              <Text style={styles.disclosureText}>
+                {t('paywall_disclosureTerms', {
+                  plan: getPlanLabel(selectedPkg),
+                  price: selectedPkg.product.priceString,
+                })}
+              </Text>
+              <Text style={styles.disclosureText}>
+                {t('paywall_disclosureRenewal')}
+              </Text>
+            </>
+          ) : null}
+          <View style={styles.disclosureLinks}>
+            <TextLink onPress={() => openLink(TERMS_URL)} color={T.color.tertiary}>
+              {t('paywall_termsLink')}
+            </TextLink>
+            <TextLink onPress={() => openLink(PRIVACY_URL)} color={T.color.tertiary}>
+              {t('paywall_privacyLink')}
+            </TextLink>
           </View>
-        ) : null}
+        </View>
 
         {/* Feedback message */}
         {feedbackMsg ? (

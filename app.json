@@ -18,7 +18,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "tech.kioh.mien",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleDisplayName": "MIEN"
       }
     },
     "android": {

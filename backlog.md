@@ -1492,3 +1492,21 @@ code KHÔNG phải thứ đang chặn release.
   trong Small Business Program (dưới 2 triệu lượt tải) được dùng model trên Private Cloud
   Compute miễn phí; phải so chất lượng với Gemini và giữ tương đương trên Android. (2026-09-13,
   đề xuất chưa duyệt; thông tin từ blog dev, chưa đối chiếu Apple)
+
+- [ ] **App Review note: demo account can't be deleted** (2026-09-20) — `delete-user` returns
+  403 for `account_type` demo/admin. If the reviewer tests Delete Account with the demo login they
+  will see "This account cannot be deleted". Explain this in the ASC App Review notes (or give them
+  a way to create a fresh account) before submitting.
+
+## Pre-submission review findings (2026-09-20)
+
+- [ ] **MEDIUM — no "report this result" on AI try-on output** (`app/try-on/wear.tsx` ~460).
+  Apple asks AI image apps for a way to flag objectionable output. Needs an app build.
+- [ ] **MEDIUM — `expo-constants` missing as direct dep + 3 packages behind SDK** — run
+  `npx expo install expo-constants` and `npx expo install --fix` before the next build.
+- [ ] **LOW — Supabase session stored in AsyncStorage, not SecureStore** (`src/services/supabase.ts`).
+- [ ] **LOW — DB hardening:** policies `TO public` → `TO authenticated`; revoke EXECUTE on
+  `handle_new_user` from anon/authenticated; `set_updated_at()` pin search_path; storage buckets
+  lack UPDATE policy (upsert replace will fail).
+- [ ] **LOW — `react-native-fast-tflite` untested on New Architecture** — smoke-test the scan flow
+  on a real iPhone from TestFlight.

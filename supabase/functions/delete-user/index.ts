@@ -70,6 +70,30 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // 2b. Also guard by email against DEMO_WHITELIST (`email:otp,...`, same secret
+  // as supabase/functions/auth/index.ts). Catches the seeded showcase account
+  // (demo-woman@mien.app), which is deliberately account_type='premium' so it
+  // keeps premium features — the account_type check above alone doesn't cover it.
+  // Only the email keys are used; the OTP values are never read/logged here.
+  const whitelistRaw = Deno.env.get('DEMO_WHITELIST');
+  if (whitelistRaw) {
+    const demoEmails = new Set<string>();
+    for (const pair of whitelistRaw.split(',')) {
+      const sep = pair.indexOf(':');
+      if (sep === -1) continue; // malformed pair, skip (never log — right-hand side is an OTP)
+      const email = pair.slice(0, sep).trim().toLowerCase();
+      if (email) demoEmails.add(email);
+    }
+    if (user.email && demoEmails.has(user.email.trim().toLowerCase())) {
+      return new Response(JSON.stringify({ error: 'This account cannot be deleted' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+  } else {
+    console.warn('[delete-user] DEMO_WHITELIST unset — falling back to account_type-only demo guard');
+  }
+
   // Lists every object under `${userId}/` in a bucket, paginating past the
   // default 100-object page so accounts with >100 photos don't leave orphans.
   async function listAllPaths(bucket: string): Promise<string[]> {

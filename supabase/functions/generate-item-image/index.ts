@@ -469,13 +469,32 @@ async function ensureColors(garments: GarmentMetadata[]): Promise<void> {
   }
 }
 
+// Estimated decoded byte length of a base64 payload — same helper as
+// tryon-generate/index.ts's b64ByteLength (avoids a full atob() decode just
+// to size-check).
+function b64ByteLength(b64: string): number {
+  const len = b64.length;
+  if (len === 0) return 0;
+  const padding = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+  return Math.floor((len * 3) / 4) - padding;
+}
+
+// Same cap as tryon-generate/index.ts's person_uri (MAX_IMAGE_BYTES) —
+// previously ungated, so an oversized photo_uri sailed straight into the
+// Gemini call.
+const MAX_IMAGE_BYTES = 8_000_000;
+
 function parseImage(photoUri: string): GeminiPart {
   if (!photoUri.startsWith('data:')) {
     throw new Error('photo_uri must be a base64 data URI (data:image/...;base64,...)');
   }
   const comma = photoUri.indexOf(',');
   const mimeType = photoUri.slice(0, comma).replace('data:', '').replace(';base64', '');
-  return { inlineData: { mimeType, data: photoUri.slice(comma + 1) } };
+  const data = photoUri.slice(comma + 1);
+  if (b64ByteLength(data) > MAX_IMAGE_BYTES) {
+    throw new Error('photo_uri exceeds max image size (8MB)');
+  }
+  return { inlineData: { mimeType, data } };
 }
 
 function parseGarments(rawJson: string): GarmentMetadata[] {
@@ -590,9 +609,20 @@ async function gateCredit(
 }
 
 // Best-effort refund of a previously consumed credit (generation failed/empty).
-async function refundCredit(supabase: MinimalClient, type: string, period: string): Promise<void> {
+// Refund is server-only (refund_usage_credit_for, SECURITY DEFINER, granted
+// only to service_role — see 20260920000001_close_credit_bypass.sql) so a
+// client can't call it directly in a loop to zero its own usage the way the
+// old auth.uid()-scoped refund_usage_credit RPC allowed. userId must come
+// from the JWT-verified user (auth.getUser()) in the handler, never the
+// request body.
+async function refundCredit(userId: string, type: string, period: string): Promise<void> {
   try {
-    await supabase.rpc('refund_usage_credit', { p_type: type, p_period: period });
+    const admin = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    );
+    await admin.rpc('refund_usage_credit_for', { p_user_id: userId, p_type: type, p_period: period });
   } catch (e) {
     console.warn('[generate-item-image] credit refund failed:', (e as Error).message);
   }
@@ -653,7 +683,7 @@ Deno.serve(async (req) => {
       let garments = parseGarments(rawJson);
       if (garments.length === 0) {
         // Nothing detected → not a result the user can use; don't charge for it.
-        if (gate.consumed) await refundCredit(supabase, 'ai_extraction', period);
+        if (gate.consumed) await refundCredit(user.id, 'ai_extraction', period);
         return jsonResponse({ items: [] }, 200);
       }
 
@@ -716,7 +746,7 @@ Deno.serve(async (req) => {
     } catch (e) {
       // Generation threw after the credit was consumed → refund, then rethrow to
       // the outer handler for the error response.
-      if (gate.consumed) await refundCredit(supabase, 'ai_extraction', period);
+      if (gate.consumed) await refundCredit(user.id, 'ai_extraction', period);
       throw e;
     }
   } catch (err) {

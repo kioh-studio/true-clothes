@@ -504,9 +504,21 @@ async function gateCredit(
 }
 
 // Best-effort refund of a previously consumed credit (generation failed).
-async function refundCredit(supabase: MinimalClient, type: string, period: string): Promise<void> {
+// Refund is server-only (refund_usage_credit_for, SECURITY DEFINER, granted
+// only to service_role — see 20260920000001_close_credit_bypass.sql) so a
+// client can't call it directly in a loop to zero its own usage the way the
+// old auth.uid()-scoped refund_usage_credit RPC allowed. userId must come
+// from the JWT-verified user (auth.getUser()) in the handler, never the
+// request body.
+async function refundCredit(userId: string, type: string, period: string): Promise<void> {
   try {
-    await supabase.rpc('refund_usage_credit', { p_type: type, p_period: period });
+    const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+    const admin = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    );
+    await admin.rpc('refund_usage_credit_for', { p_user_id: userId, p_type: type, p_period: period });
   } catch (e) {
     console.warn('[tryon-generate] credit refund failed:', (e as Error).message);
   }
@@ -566,7 +578,7 @@ Deno.serve(async (req) => {
 
       const img = await generateImage(apiKey, parts);
       if (!img?.data) {
-        if (gate.consumed) await refundCredit(supabase, 'try_on', period);
+        if (gate.consumed) await refundCredit(user.id, 'try_on', period);
         return json({ error: 'Could not generate the try-on image. Please try again.' }, 502);
       }
 
@@ -576,7 +588,7 @@ Deno.serve(async (req) => {
       // user decides whether to keep it or regenerate for free.
       const verifyPassed = await verifyGeneratedImage(apiKey, person, img.data, img.mimeType, garments);
       if (!verifyPassed && gate.consumed) {
-        await refundCredit(supabase, 'try_on', period);
+        await refundCredit(user.id, 'try_on', period);
       }
 
       return json(
@@ -584,7 +596,7 @@ Deno.serve(async (req) => {
         200,
       );
     } catch (e) {
-      if (gate.consumed) await refundCredit(supabase, 'try_on', period);
+      if (gate.consumed) await refundCredit(user.id, 'try_on', period);
       throw e;
     }
   } catch (err) {

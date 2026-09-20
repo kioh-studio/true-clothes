@@ -8663,3 +8663,72 @@ Live smoke test against `verify-otp` only (never `send-otp` — real SMS/email):
 fake phone/code, calls 1–5 returned Supabase's own 403 (`Token has expired or is invalid`), call 6
 returned our 429. Test row deleted from `public.otp_attempts` afterward (confirmed table back to 0
 rows). No commit.
+
+---
+
+**2026-09-20 — closed three server-side AI credit/rate-limit bypasses (pre-submission review
+finding).** All three let a signed-in client sidestep the monthly credit cap or per-bucket rate
+limit without touching the edge functions at all:
+
+1. **`usage_credits` UPDATE policy.** `protect_credits()` (20260811000004) only guards
+   `credits_used`/`credits_limit`; the "usage_credits: update own" policy (20260811000005) still
+   let a client PATCH any other column via PostgREST, including `period_start` — moving the row
+   to an untouched period gave it a fresh `credits_used = 0`. The client only ever SELECTs this
+   table (`usageCreditService.ts`); dropped the UPDATE policy entirely.
+2. **Client-callable refund.** `refund_usage_credit(text, date)` was `auth.uid()`-scoped but
+   granted to `authenticated` — a client could call it directly in a loop to zero its own usage.
+   Replaced with `refund_usage_credit_for(p_user_id, p_type, p_period)`, `EXECUTE` granted only to
+   `service_role`. `tryon-generate`/`generate-item-image`'s `refundCredit()` now take the
+   JWT-verified `user.id` (never the request body) and call it through a service-role client.
+   Old function dropped once both functions were confirmed redeployed and nothing else referenced
+   it (`20260920000002_drop_client_refund.sql`).
+3. **`consume_rate_limit` caller-supplied window.** `p_max`/`p_window_secs` came straight from the
+   RPC call args, so any `authenticated` caller invoking the RPC directly with `p_window_secs=0`
+   made every call look past-window and reset the counter to 1 — the limit never tripped. Now
+   ignores those two params for known buckets and uses a server-side `case` keyed by bucket name
+   (`describe_outfit` 60/60s, `verdict_note` 30/60s, `curate_feed` 30/3600s, `map_measurements`
+   30/60s, `tryon_validate` 30/3600s, `wardrobe_critic` 10/3600s — confirmed complete via grep
+   across `supabase/functions`); an unrecognized bucket fails closed (`false`).
+
+Migrations: `20260920000001_close_credit_bypass.sql` (all three fixes), applied first;
+`20260920000002_drop_client_refund.sql` (drops the old refund RPC), applied only after both edge
+functions were redeployed and grepped clean of any remaining `refund_usage_credit(` callers.
+
+**Verify:** live on `trtjcsxcowqecsebvyme` via the Management API. Policy `"usage_credits: update
+own"` gone (`pg_policies` — only `"usage_credits: select own"` remains). `refund_usage_credit_for`
+ACL is `{postgres=X/postgres,service_role=X/postgres}` (no `authenticated`/`anon`). Old
+`refund_usage_credit(text, date)` confirmed dropped (`pg_proc` empty). `consume_rate_limit`
+`prosrc` confirmed updated (server-side `case`). `deno check` clean on both edited functions;
+`npx tsc --noEmit -p .` clean (functions are outside the app tsconfig). Deployed both via CLI, no
+`--no-verify-jwt`: `tryon-generate` now v20, `generate-item-image` now v29 (both bumped from the
+deploy), both `ACTIVE`, `verify_jwt: true`. Three rolled-back live transactions impersonating
+`demo@mien.app`: (1)
+`UPDATE usage_credits SET period_start = period_start` → 0 rows (RLS blocks it, no UPDATE policy
+left); (2) `refund_usage_credit_for(...)` as `authenticated` → `42501: permission denied for
+function refund_usage_credit_for`; (3) `consume_rate_limit('nonexistent_bucket', 999, 0)` →
+`false`. All three transactions ended in `rollback`; no live data changed. No commit.
+
+---
+
+## 2026-09-20 — delete-user demo-email guard + generate-item-image photo_uri size cap
+
+Two pre-submission review findings, fixed and deployed:
+
+1. **`delete-user` didn't protect `demo-woman@mien.app`.** The seeded showcase account is
+   deliberately `account_type = 'premium'` (keeps premium features for App Review), so the
+   existing `account_type in ('demo','admin')` guard didn't cover it — any client signed in as it
+   could permanently delete it and wipe the seeded wardrobe. Added a second guard: parse the
+   `DEMO_WHITELIST` secret (`email:otp,...`, same format `auth/index.ts`'s `parseWhitelist` reads,
+   split on the FIRST `:` per pair) for its email keys only — OTP values are never read or logged
+   — and refuse (same 403 + message as the account_type branch) if the JWT-verified `user.email`
+   matches, case-insensitively. If `DEMO_WHITELIST` is unset, falls back to the account_type-only
+   behavior and `console.warn`s once rather than failing the whole delete path.
+2. **`generate-item-image`'s `parseImage()` had no byte cap on `photo_uri`** — only checked the
+   `data:` prefix, unlike `tryon-generate`'s `person_uri` (`MAX_IMAGE_BYTES` = 8MB via
+   `b64ByteLength`). Added the same constant/helper/rejection path (400, "photo_uri exceeds max
+   image size (8MB)") to `generate-item-image`, mirroring `tryon-generate/index.ts:99-119`.
+
+**Verify:** `deno check` clean on both edited functions. Deployed both via CLI, no
+`--no-verify-jwt`: `delete-user` now v10, `generate-item-image` now v30 (both bumped), both
+`ACTIVE`, `verify_jwt: true` (confirmed via Management API). Demo-guard behavior verified by
+reading the deployed code path only — did not call `delete-user` against a real account.
