@@ -7,6 +7,7 @@ import { IconChevronLeft, IconPin } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAuthStore } from '../../src/stores/authStore';
 import { detectCurrentLocation } from '../../src/services/locationService';
+import { track } from '../../src/services/analytics';
 import { useTranslation } from '../../src/i18n';
 
 export default function LocationScreen() {
@@ -55,6 +56,7 @@ export default function LocationScreen() {
         Alert.alert(t('onboardingCommon_couldNotSaveAlertTitle'), msg);
         return;
       }
+      track('onboarding_step_completed', { step: 'location' });
       router.push('/(onboarding)/measurements');
     } catch {
       const msg = t('onboardingLocation_saveError');

@@ -1,5 +1,5 @@
 import '../src/i18n'; // initialise i18n before any screen renders
-import { Stack, useRouter, useRootNavigationState } from 'expo-router';
+import { Stack, useRouter, useRootNavigationState, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
 import { useFonts } from 'expo-font';
@@ -22,6 +22,7 @@ import { useAppStore } from '../src/stores/appStore';
 import { useWardrobeCriticStore } from '../src/stores/wardrobeCriticStore';
 import { OfflineBanner } from '../src/components/ui';
 import { getCurrentUserId } from '../src/services/authService';
+import { identify, screen as screenTrack } from '../src/services/analytics';
 import { useTranslation } from '../src/i18n';
 
 SplashScreen.preventAutoHideAsync();
@@ -138,6 +139,19 @@ function RootLayout() {
   // profile row. Without this, RevenueCat uses an anonymous id ($RCAnonymousID:…)
   // the webhook cannot resolve. The webhook is the sole writer of
   // profiles.account_type — entitlement only flips on a store-verified purchase.
+  // Also identify the PostHog distinct id here (same trigger, same user id
+  // source) — analytics.identify() is a guarded no-op until
+  // EXPO_PUBLIC_POSTHOG_KEY is set, so this costs nothing today.
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    (async () => {
+      try {
+        const userId = await getCurrentUserId();
+        if (userId) identify(userId);
+      } catch { /* ignore */ }
+    })();
+  }, [isLoggedIn]);
+
   useEffect(() => {
     if (!Purchases || !isLoggedIn) return;
     const apiKey = process.env['EXPO_PUBLIC_REVENUECAT_API_KEY'];
@@ -150,6 +164,14 @@ function RootLayout() {
       } catch { /* ignore (absent in Expo Go) */ }
     })();
   }, [isLoggedIn]);
+
+  // Screen tracking — route PATTERN (segments), never the resolved pathname,
+  // so no wardrobe/outfit/user id ever reaches analytics (see analytics.ts's
+  // privacy constraint).
+  const segments = useSegments();
+  useEffect(() => {
+    screenTrack(segments.join('/'));
+  }, [segments]);
 
   useEffect(() => {
     if (!appReady || !navReady) return;
@@ -195,6 +217,7 @@ function RootLayout() {
         {/* T030: Settings and Help routes */}
         <Stack.Screen name="settings" options={{ title: t('settings_title'), animation: 'slide_from_right' }} />
         <Stack.Screen name="help" options={{ title: t('help_title'), animation: 'slide_from_right' }} />
+        <Stack.Screen name="feedback" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="notifications" options={{ animation: 'slide_from_right' }} />
         {/* T019: Profile edit */}
         <Stack.Screen name="profile-edit" options={{ headerShown: false, animation: 'slide_from_right' }} />

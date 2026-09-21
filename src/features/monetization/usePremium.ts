@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { hasPremiumAccountType } from '../../services/profileService';
+import { track } from '../../services/analytics';
 
 // RevenueCat types — only available in dev-client builds.
 // We lazy-import to avoid crashing in Expo Go.
@@ -66,6 +67,7 @@ export function usePremium(): PremiumState {
       const active = !!customerInfo.entitlements.active['premium'];
       setIsPremium(active);
       setActiveProductId(customerInfo.entitlements.active['premium']?.productIdentifier ?? null);
+      if (active) track('purchase_completed');
       return active ? 'success' : 'error';
     } catch (err) {
       // RevenueCat SDK marks a user-dismissed purchase sheet with

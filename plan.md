@@ -8732,3 +8732,74 @@ Two pre-submission review findings, fixed and deployed:
 `--no-verify-jwt`: `delete-user` now v10, `generate-item-image` now v30 (both bumped), both
 `ACTIVE`, `verify_jwt: true` (confirmed via Management API). Demo-guard behavior verified by
 reading the deployed code path only — did not call `delete-user` against a real account.
+
+---
+
+## 2026-09-22 — in-app feedback table + PostHog product analytics (no-op until a key is set)
+
+**Feedback.** New `public.feedback` table (`supabase/migrations/20260922000001_feedback.sql`,
+applied live via the Management API — RLS confirmed via `pg_policies`/
+`information_schema.role_table_grants`, not `supabase db push`, per project convention since
+migration files drift from the live DB). `kind` is `bug | idea | other | report_ai`, `message`
+1–2000 chars, plus `screen`/`app_version`/`platform` context. RLS: `authenticated` gets INSERT
+only (`with check (user_id = (select auth.uid()))`, column defaults `auth.uid()` so the client
+never sends it); no SELECT/UPDATE/DELETE grant at all — users write-only, the team reads via the
+dashboard or service role. No per-user rate limit yet (ponytail note in the migration file —
+add a trigger if spam shows up). `src/services/feedbackService.ts` (`submitFeedback`) is the sole
+DB access point, mirroring `collectionsService.ts`'s shape (`FeedbackDbError`). New screen
+`app/feedback.tsx` (logic in `src/features/feedback/useFeedbackForm.ts`) reached from
+`app/help.tsx`'s "Send feedback" row and from `app/try-on/wear.tsx`'s "Report this result" link
+(`kind: 'report_ai'`, replacing the old mailto — Apple's objectionable-AI-content flagging
+requirement is now served by the in-app form instead). Removed the now-dead
+`wearOnYou_reportResultSubject`/`wearOnYou_reportResultBody` i18n keys (en+vi) and the `email`/
+`phone` reads in `wear.tsx` that only existed to build that mailto body.
+
+**Analytics.** `src/services/analytics.ts` is the only file that imports `posthog-react-native`
+— guarded lazy init identical in shape to the Sentry block in `app/_layout.tsx`: `require()` in
+try/catch, a `PostHog` client instance only when `EXPO_PUBLIC_POSTHOG_KEY` is non-empty (empty
+placeholder in `.env` + every `eas.json` build profile today, alongside
+`EXPO_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com`), everything else a silent no-op. Session
+replay is hard-disabled (`enableSessionReplay: false`); touch/text autocapture never runs because
+`PostHogProvider` is never mounted anywhere in the app. Event catalog (string-literal union,
+`AnalyticsEvent`): `onboarding_step_completed`, `onboarding_completed`, `item_added`,
+`outfit_saved`, `outfit_worn`, `try_on_started`, `try_on_completed`, `try_on_failed`,
+`wardrobe_report_opened`, `paywall_viewed`, `purchase_completed`, `feedback_submitted`. Every
+export (`track`, `screen`, `identify`, `resetAnalytics`) is wrapped in try/catch and never throws.
+
+**Privacy scrubber (hard constraint — body data never leaves the device).** `scrubProps()` drops
+any prop key matching `/(body_|measure|photo|uri|image|skin|hair|undertone|email|phone|name|
+message|text)/i` before every `track()` call — defensive by key, not by caller discipline, so a
+future call site that accidentally passes a measurement/photo-URI/free-text prop is silently
+scrubbed rather than shipped. `identify()` only ever receives the Supabase user uuid, never person
+properties. Tested in `src/services/__tests__/analytics.test.ts`: no-key mode never calls PostHog,
+and the scrubber's allow/deny behavior (mocks `posthog-react-native`).
+
+**Wiring.** `app/_layout.tsx`: `identify(userId)` alongside the existing RevenueCat login effect
+(same `isLoggedIn` trigger, same `getCurrentUserId()`); `screen(segments.join('/'))` on route
+change via `useSegments()` — the route *pattern* (e.g. `outfit/[id]`), never the resolved pathname,
+so no id ever reaches analytics. `authStore.ts`: `resetAnalytics()` in both `logout` and
+`deleteAccount`. Events instrumented at their success points (stores/hooks, not JSX):
+`onboarding_step_completed` in each onboarding step screen's `handleContinue` (after the step's
+store write succeeds — `basics.tsx`→`personal_info`, `location.tsx`→`location`,
+`measurements.tsx`→`measurements`, `styles.tsx`→`style_quiz`, `colors.tsx`→`color_palette`); no
+shared store method exists per step (`authStore.setProfile` back both basics and location) so
+per-step naming has to live in the screen handler, not the store — instrumenting inside the shared
+store call would've mislabeled the step. `onboarding_completed` in `authStore.completeOnboarding`,
+deduped against a same-session double-call (`complete.tsx` → "Add wardrobe" → `wardrobe-intro.tsx`
+both call it). `item_added` in `appStore.addWardrobeItem` (`method` = `AddItemInput.source` —
+`'ai'`/`'item'` from the extract wizard, or `'manual'`). `outfit_saved`/`outfit_worn` in
+`appStore.toggleSave`/`toggleWorn`/`markWorn`, only on the add transition (not remove).
+`try_on_started`/`try_on_completed`/`try_on_failed` (`kind` = `TryOnFailureKind`) in
+`useWearOnYou.generate()`. `wardrobe_report_opened` and `paywall_viewed` on mount in
+`app/wardrobe-report.tsx`/`app/paywall.tsx` (neither screen has its own hook; no route param
+carries a `source` for the paywall today, so that prop is omitted rather than invented).
+`purchase_completed` in `usePremium.purchase()` on a confirmed active entitlement.
+`feedback_submitted` (`kind`) in `useFeedbackForm` on a successful submit.
+
+**Verify:** `npx tsc --noEmit` clean; `npx jest` 614/614 (was 602/602 — +12 from
+`analytics.test.ts` plus incidental coverage). Migration applied live via the Management API
+(project confirmed `ACTIVE_HEALTHY` first); `pg_policies` shows exactly one INSERT-only policy for
+`authenticated`; `role_table_grants` shows only `authenticated: INSERT` beyond the default
+`postgres`/`service_role` rows — no `anon` grant at all. `npx expo install posthog-react-native
+expo-device expo-application` (native modules — **app needs a native rebuild before analytics can
+actually run on device**, tracked in backlog).

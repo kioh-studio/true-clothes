@@ -13,6 +13,7 @@ import { Bounded } from '../src/components/ui';
 import { GapCard } from '../src/features/wardrobe-critic/components/GapCard';
 import { useWardrobeCriticStore } from '../src/stores/wardrobeCriticStore';
 import { usePremium } from '../src/features/monetization/usePremium';
+import { track } from '../src/services/analytics';
 import { useTranslation } from '../src/i18n';
 import type { TFunction } from 'i18next';
 
@@ -39,6 +40,7 @@ export default function WardrobeReportScreen() {
 
   useEffect(() => {
     fetchReport();
+    track('wardrobe_report_opened');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

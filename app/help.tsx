@@ -1,7 +1,7 @@
 // Help & Feedback screen — T025 (US8)
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable, Linking, LayoutAnimation, Alert,
+  View, Text, StyleSheet, ScrollView, Pressable, LayoutAnimation,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -49,10 +49,7 @@ export default function HelpScreen() {
   const FAQS = FAQ_KEYS.map((k) => ({ question: t(k.q), answer: t(k.a) }));
 
   const handleFeedback = () => {
-    Linking.openURL('mailto:contact@kioh.tech').catch((err: unknown) => {
-      console.warn('[help] openURL failed:', err);
-      Alert.alert(t('help_noMailAppTitle'), t('help_noMailAppMessage'));
-    });
+    router.push('/feedback');
   };
 
   return (
@@ -83,7 +80,7 @@ export default function HelpScreen() {
           <Pressable style={styles.row} onPress={handleFeedback}>
             <View style={styles.rowBody}>
               <Text style={styles.rowTitle}>{t('help_sendFeedback')}</Text>
-              <Text style={styles.rowDesc}>contact@kioh.tech</Text>
+              <Text style={styles.rowDesc}>{t('help_sendFeedbackDesc')}</Text>
             </View>
             <IconChevronRight size={12} color={T.color.tertiary} strokeWidth={1.4} />
           </Pressable>

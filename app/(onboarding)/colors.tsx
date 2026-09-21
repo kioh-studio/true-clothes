@@ -8,6 +8,7 @@ import { T, type } from '../../src/design/tokens';
 import { COLORS } from '../../src/data';
 import { useFitEngineStore } from '../../src/stores/fitEngineStore';
 import { useGridCardWidth, useGridColumns } from '../../src/design/layout';
+import { track } from '../../src/services/analytics';
 import { useTranslation } from '../../src/i18n';
 
 const PAD = 24;
@@ -31,6 +32,7 @@ export default function ColorsScreen() {
     setSaving(true);
     try {
       await setColorPreferences(selected);
+      track('onboarding_step_completed', { step: 'color_palette' });
       router.push('/(onboarding)/complete');
     } catch {
       Alert.alert(t('onboardingCommon_couldNotSaveAlertTitle'), t('onboardingCommon_pleaseTryAgain'));

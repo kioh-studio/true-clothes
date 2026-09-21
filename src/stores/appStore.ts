@@ -32,6 +32,7 @@ import {
   createdLabel,
 } from '../services/collectionsService';
 import { useAuthStore } from './authStore';
+import { track } from '../services/analytics';
 import i18n from '../i18n';
 
 const STORAGE_KEY = 'app-store';
@@ -328,6 +329,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         const tier = useFitEngineStore.getState().premium ? 'premium' : 'free';
         const item = await addItem(input, tier);
         set(s => ({ wardrobeItems: [item, ...s.wardrobeItems] }));
+        track('item_added', { method: input.source ?? 'manual' });
       } catch (err) {
         if (err instanceof WardrobeStorageError) {
           set({ wardrobeError: i18n.t('wardrobeStore_photoUploadFailed') });
@@ -398,6 +400,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const wasSaved = savedSet.has(id);
       wasSaved ? savedSet.delete(id) : savedSet.add(id);
       save({ ...s, savedSet });
+      if (!wasSaved) track('outfit_saved');
       // Best-effort server sync — guarded by in-flight counter so loadServerState
       // never clobbers the optimistic update while the write is pending.
       _interactionWritesInFlight++;
@@ -428,6 +431,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const wasWorn = wornSet.has(id);
       wasWorn ? wornSet.delete(id) : wornSet.add(id);
       save({ ...s, wornSet });
+      if (!wasWorn) track('outfit_worn');
       _interactionWritesInFlight++;
       const writeP = wasWorn ? unmarkWorn(id) : svcMarkWorn(id);
       writeP.catch(() => {}).finally(() => { _interactionWritesInFlight--; });
@@ -441,6 +445,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const wornHistory = [entry, ...s.wornHistory];
     const wornSet = new Set(s.wornSet);
     wornSet.add(outfitId);
+    track('outfit_worn');
     _interactionWritesInFlight++;
     svcMarkWorn(outfitId).catch(() => {}).finally(() => { _interactionWritesInFlight--; });
     save({ ...s, wornHistory, wornSet });

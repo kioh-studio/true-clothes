@@ -21,6 +21,7 @@ import { hasPremiumAccountType } from '../../services/profileService';
 import { compositeFace, type CompositeReason } from './faceComposite';
 import { recordFaceCompositeOutcome } from './faceCompositeStats';
 import { logTriedOn } from '../../services/outfitInteractionService';
+import { track } from '../../services/analytics';
 import type { WearGarment, WearProfile, WearOnResult } from '../../types/tryOn';
 import i18n from '../../i18n';
 
@@ -185,6 +186,7 @@ export function useWearOnYou({ garments, profile, context, outfitItemIds }: UseW
     // during the premium/credit check (see comment on `generating` above).
     if (generating.current) return;
     generating.current = true;
+    track('try_on_started');
 
     const id = ++runId.current;
     setErrorMsg('');
@@ -283,6 +285,7 @@ export function useWearOnYou({ garments, profile, context, outfitItemIds }: UseW
         }
         setResultTracked(finalResult);
         setPhase('result');
+        track('try_on_completed');
         // Re-check remaining credits so the UI stays up-to-date after the server consumed one.
         try {
           const premium = await hasPremiumAccountType();
@@ -308,6 +311,7 @@ export function useWearOnYou({ garments, profile, context, outfitItemIds }: UseW
               : 'wearOnYou_generationFailed',
         ));
         setPhase('error');
+        track('try_on_failed', { kind });
       }
     } finally {
       generating.current = false;

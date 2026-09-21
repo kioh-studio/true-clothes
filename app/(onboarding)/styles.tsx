@@ -13,6 +13,7 @@ import {
   getInitialVisibleStyles, STYLE_CATALOG_INITIAL_VISIBLE,
 } from '../../src/services/stylesCatalogService';
 import { useGridCardWidth, useGridColumns } from '../../src/design/layout';
+import { track } from '../../src/services/analytics';
 import { useTranslation } from '../../src/i18n';
 
 const RELATED_MAP: Record<string, string[]> = {
@@ -101,6 +102,7 @@ export default function StylesScreen() {
     setSaving(true);
     try {
       await setStyleProfile({ selectedStyles: selected });
+      track('onboarding_step_completed', { step: 'style_quiz' });
       router.push('/(onboarding)/colors');
     } catch {
       Alert.alert(t('onboardingCommon_couldNotSaveAlertTitle'), t('onboardingCommon_pleaseTryAgain'));

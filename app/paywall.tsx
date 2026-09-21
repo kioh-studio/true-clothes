@@ -19,6 +19,7 @@ import { T, type } from '../src/design/tokens';
 import { PrimaryButton, TextLink, Bounded } from '../src/components/ui';
 import { IconX } from '../src/components/icons';
 import { usePremium } from '../src/features/monetization/usePremium';
+import { track } from '../src/services/analytics';
 import { useTranslation } from '../src/i18n';
 import { TERMS_URL, PRIVACY_URL } from '../src/config/legal';
 
@@ -38,6 +39,13 @@ export default function PaywallScreen() {
   const backTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (backTimeoutRef.current) clearTimeout(backTimeoutRef.current);
+  }, []);
+
+  // No route param carries a "source" today (every caller does a bare
+  // router.push('/paywall')) — tracked without that prop rather than
+  // inventing one nobody passes.
+  useEffect(() => {
+    track('paywall_viewed');
   }, []);
 
   // Render every package RevenueCat returns for the current offering — never

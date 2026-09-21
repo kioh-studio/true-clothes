@@ -1485,13 +1485,34 @@ code KHÔNG phải thứ đang chặn release.
 
 ## Pre-submission review findings (2026-09-20)
 
-- [ ] **MEDIUM — no "report this result" on AI try-on output** (`app/try-on/wear.tsx` ~460).
-  Apple asks AI image apps for a way to flag objectionable output. Needs an app build.
-- [ ] **MEDIUM — `expo-constants` missing as direct dep + 3 packages behind SDK** — run
-  `npx expo install expo-constants` and `npx expo install --fix` before the next build.
+- [ ] **LOW — `@react-navigation/native@^7.2.4` ahead of SDK-expected `^7.1.8`** (rà 2026-09-21:
+  `expo-constants` đã là direct dep, `expo install --check` chỉ còn đúng package này).
 - [ ] **LOW — Supabase session stored in AsyncStorage, not SecureStore** (`src/services/supabase.ts`).
 - [ ] **LOW — DB hardening:** policies `TO public` → `TO authenticated`; revoke EXECUTE on
   `handle_new_user` from anon/authenticated; `set_updated_at()` pin search_path; storage buckets
   lack UPDATE policy (upsert replace will fail).
 - [ ] **LOW — `react-native-fast-tflite` untested on New Architecture** — smoke-test the scan flow
   on a real iPhone from TestFlight.
+
+## Product analytics & in-app feedback (2026-09-22)
+
+- [ ] **Tạo Sentry project + set DSN** (EAS env) để có crash report trước khi ra store.
+- [ ] **Tạo project PostHog + set `EXPO_PUBLIC_POSTHOG_KEY` trong EAS env** (2026-09-22) — analytics
+  wrapper (`src/services/analytics.ts`) đã sẵn, event catalog đã instrument đủ 12 event, nhưng
+  đang là no-op hoàn toàn vì key rỗng (`.env` + cả 3 profile `eas.json`). Anh Khôi tạo project
+  trên posthog.com rồi paste key vào — không cần deploy lại, chỉ cần set EAS env + build lại.
+- [ ] **Cập nhật Privacy Policy trên site Kioh + App Privacy label trên ASC** (2026-09-22) — trước
+  khi bật PostHog thật: khai "Usage Data → Product Interaction", linked to user (do có
+  `identify(userId)`), purpose Analytics; not used for tracking (không share cross-app/cross-site).
+  Phải làm trước khi submit build có PostHog key thật.
+- [ ] **delete-user chưa xoá person trên PostHog** (2026-09-22) — `authStore.deleteAccount` gọi
+  `resetAnalytics()` (chỉ xoá state trên máy) nhưng không gọi PostHog API xoá person theo uuid ở
+  server. Cần thêm bước gọi PostHog's delete-person API (hoặc trong edge function `delete-user`)
+  khi tài khoản bị xoá, để không giữ lại dữ liệu người dùng đã yêu cầu xoá.
+- [ ] **Cần native rebuild** (2026-09-22) — thêm `expo-device`/`expo-application` (native modules,
+  do `posthog-react-native` cần) — build hiện tại (nếu có) không có 2 module này, phải rebuild
+  native trước khi analytics chạy thật trên device.
+- [ ] **Chưa có rate-limit insert cho bảng `feedback`** (2026-09-22) — migration
+  `20260922000001_feedback.sql` chỉ có RLS chặn user đọc/sửa/xoá bài của người khác, chưa chặn
+  spam insert (không giới hạn số lượt/ngày). Ghi chú `ponytail` ngay trong file migration — thêm
+  trigger nếu thấy spam thật.

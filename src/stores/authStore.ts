@@ -35,6 +35,7 @@ import { DEMO_PHONE, DEMO_ACCOUNTS, findDemoAccount } from '../config/demo';
 import { useFitEngineStore } from './fitEngineStore';
 import { useAppStore } from './appStore';
 import { withTimeout, HYDRATE_TIMEOUT_MS } from '../utils/withTimeout';
+import { resetAnalytics, track } from '../services/analytics';
 import i18n from '../i18n';
 
 // ─── Module-level listener guard (Bug 1) ─────────────────────────────────────
@@ -303,8 +304,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   completeOnboarding: async () => {
     const userId = await getCurrentUserId();
     if (!userId) return { ok: false, message: i18n.t('authStore_notSignedIn') };
+    // Both complete.tsx and wardrobe-intro.tsx can call this in the same
+    // session ("Add wardrobe" from complete.tsx re-completes at the end of
+    // that flow) — the server call is idempotent, but only fire the analytics
+    // event the first time so a common flow isn't double-counted.
+    const alreadyComplete = get().onboardingComplete;
     const res = await markOnboardingComplete(userId);
-    if (res.ok) set({ onboardingComplete: true });
+    if (res.ok) {
+      set({ onboardingComplete: true });
+      if (!alreadyComplete) track('onboarding_completed');
+    }
     return res;
   },
 
@@ -313,6 +322,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Clear private body/style data and server-sourced app state before wiping auth.
     useFitEngineStore.getState().reset();
     useAppStore.getState().resetUserState();
+    resetAnalytics();
     set({
       isLoggedIn: false, onboardingComplete: false,
       phone: '', email: '', gender: '', dob: '', location: '', locationCountryCode: null,
@@ -331,6 +341,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Clear private body/style data and server-sourced app state before wiping auth.
     useFitEngineStore.getState().reset();
     useAppStore.getState().resetUserState();
+    resetAnalytics();
     // Clear local session after successful deletion
     await signOut();
     set({

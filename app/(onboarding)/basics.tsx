@@ -6,6 +6,7 @@ import { PrimaryButton, Tag, Bounded } from '../../src/components/ui';
 import { IconChevronLeft } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAuthStore } from '../../src/stores/authStore';
+import { track } from '../../src/services/analytics';
 import { useTranslation } from '../../src/i18n';
 
 const GENDERS = ['WOMAN', 'MAN', 'NON-BINARY', 'PREFER NOT TO SAY'] as const;
@@ -81,6 +82,7 @@ export default function BasicsScreen() {
         Alert.alert(t('onboardingCommon_couldNotSaveAlertTitle'), msg);
         return;
       }
+      track('onboarding_step_completed', { step: 'personal_info' });
       router.push('/(onboarding)/location');
     } catch {
       const msg = t('addItem_errorMessage');

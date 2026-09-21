@@ -7,6 +7,7 @@ import { IconChevronLeft } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useMeasurements } from '../../src/features/measurements/useMeasurements';
 import { useFitEngineStore } from '../../src/stores/fitEngineStore';
+import { track } from '../../src/services/analytics';
 import { useTranslation } from '../../src/i18n';
 import type { BodyShape } from '../../src/types/measurements';
 
@@ -80,6 +81,7 @@ export default function MeasurementsScreen() {
       if (result.message) Alert.alert(t('onboardingMeasurements_invalidAlertTitle'), result.message);
       return;
     }
+    track('onboarding_step_completed', { step: 'measurements' });
     router.push('/(onboarding)/styles');
   };
 
