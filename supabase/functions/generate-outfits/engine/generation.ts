@@ -102,6 +102,10 @@ function categorize(items: FitItem[]): ByCategory {
   };
 }
 
+// Onepieces join the TOPS list handed to the pool generators (getFormulaPools),
+// so a pool is viable without any bottoms when a onepiece is among its tops.
+const hasOnepiece = (tops: FitItem[]) => tops.some(i => i.category === 'onepiece');
+
 // ─── Pool generators ────────────────────────────────────────────────────────
 
 function poolMonochrome(cats: ByCategory): FormulaPool[] {
@@ -115,7 +119,7 @@ function poolMonochrome(cats: ByCategory): FormulaPool[] {
     const tops = cats.top.filter(inFamily);
     const bottoms = cats.bottom.filter(inFamily);
     const shoes = cats.shoes.filter(inFamily);
-    if (tops.length > 0 && bottoms.length > 0 && shoes.length > 0) {
+    if (tops.length > 0 && (bottoms.length > 0 || hasOnepiece(tops)) && shoes.length > 0) {
       pools.push({
         formula: 'monochrome', tops, bottoms, shoes,
         outwear: cats.outwear.filter(inFamily),
@@ -130,7 +134,7 @@ function poolNeutralPop(cats: ByCategory): FormulaPool[] {
   const neutralTops = cats.top.filter(isNeutral);
   const neutralBottoms = cats.bottom.filter(isNeutral);
   const neutralShoes = cats.shoes.filter(isNeutral);
-  if (neutralTops.length === 0 || neutralBottoms.length === 0 || neutralShoes.length === 0) return [];
+  if (neutralTops.length === 0 || (neutralBottoms.length === 0 && !hasOnepiece(neutralTops)) || neutralShoes.length === 0) return [];
 
   const popOutwear = cats.outwear.filter(i => !isNeutral(i));
   const popAccessory = cats.accessory.filter(i => !isNeutral(i));
@@ -154,7 +158,7 @@ function poolTonalGradient(cats: ByCategory): FormulaPool[] {
     const inFamily = (item: FitItem) => getColorFamily(item.colorProfile.primaryColor) === family;
     const tops = cats.top.filter(inFamily);
     const bottoms = cats.bottom.filter(inFamily);
-    if (tops.length === 0 || bottoms.length === 0) continue;
+    if (tops.length === 0 || (bottoms.length === 0 && !hasOnepiece(tops))) continue;
     const lightnesses = new Set([
       ...tops.map(i => i.colorProfile.colorLightness),
       ...bottoms.map(i => i.colorProfile.colorLightness),
@@ -200,7 +204,7 @@ function poolPatternSolid(cats: ByCategory): FormulaPool[] {
   const solidTops = cats.top.filter(i => i.fabric.pattern === 'solid');
   const solidBottoms = cats.bottom.filter(i => i.fabric.pattern === 'solid');
   const solidShoes = cats.shoes.filter(i => i.fabric.pattern === 'solid');
-  if (solidTops.length === 0 || solidBottoms.length === 0 || solidShoes.length === 0) return [];
+  if (solidTops.length === 0 || (solidBottoms.length === 0 && !hasOnepiece(solidTops)) || solidShoes.length === 0) return [];
   const hasPattern = patternedTops.length > 0 || patternedOutwear.length > 0;
   if (!hasPattern) return [];
   const pools: FormulaPool[] = [];
@@ -225,7 +229,7 @@ function poolOneTwoThree(cats: ByCategory): FormulaPool[] {
   const statementTops = cats.top.filter(i => i.colorProfile.colorSaturation === 'vivid' || i.fabric.pattern !== 'solid');
   const neutralTops = cats.top.filter(isNeutral);
   const neutralBottoms = cats.bottom.filter(isNeutral);
-  if (neutralBottoms.length === 0) return [];
+  if (neutralBottoms.length === 0 && !hasOnepiece(cats.top)) return [];
   const pools: FormulaPool[] = [];
   if (statementTops.length > 0) {
     pools.push({ formula: 'one_two_three', tops: statementTops, bottoms: neutralBottoms, shoes: cats.shoes, outwear: cats.outwear.filter(isNeutral), accessory: cats.accessory });
@@ -243,7 +247,7 @@ function poolRuleOfThirds(cats: ByCategory): FormulaPool[] {
 }
 
 function poolLayeringStack(cats: ByCategory): FormulaPool[] {
-  if (cats.outwear.length === 0 || cats.top.length === 0 || cats.bottom.length === 0 || cats.shoes.length === 0) return [];
+  if (cats.outwear.length === 0 || cats.top.length === 0 || (cats.bottom.length === 0 && !hasOnepiece(cats.top)) || cats.shoes.length === 0) return [];
   // Base OR mid tops sit under outerwear (tee+coat and sweater+coat are both
   // canonical stacks). Before layerRole was derived by type (2026-07-03) every
   // top was 'base', so this filter was a no-op; keeping mid preserves that
@@ -259,16 +263,16 @@ function poolContrastPairing(cats: ByCategory): FormulaPool[] {
   const lightBottoms = cats.bottom.filter(i => i.fabric.fabricWeight === 'light');
   const heavyBottoms = cats.bottom.filter(i => i.fabric.fabricWeight === 'heavy');
   const pools: FormulaPool[] = [];
-  if (lightTops.length > 0 && heavyBottoms.length > 0) {
+  if (lightTops.length > 0 && (heavyBottoms.length > 0 || hasOnepiece(lightTops))) {
     pools.push({ formula: 'contrast_pairing', tops: lightTops, bottoms: heavyBottoms, shoes: cats.shoes, outwear: cats.outwear, accessory: cats.accessory });
   }
-  if (heavyTops.length > 0 && lightBottoms.length > 0) {
+  if (heavyTops.length > 0 && (lightBottoms.length > 0 || hasOnepiece(heavyTops))) {
     pools.push({ formula: 'contrast_pairing', tops: heavyTops, bottoms: lightBottoms, shoes: cats.shoes, outwear: cats.outwear, accessory: cats.accessory });
   }
   if (pools.length === 0) {
     const mutedTops = cats.top.filter(i => i.colorProfile.colorSaturation === 'muted');
     const vividBottoms = cats.bottom.filter(i => i.colorProfile.colorSaturation === 'vivid');
-    if (mutedTops.length > 0 && vividBottoms.length > 0) {
+    if (mutedTops.length > 0 && (vividBottoms.length > 0 || hasOnepiece(mutedTops))) {
       pools.push({ formula: 'contrast_pairing', tops: mutedTops, bottoms: vividBottoms, shoes: cats.shoes, outwear: cats.outwear, accessory: cats.accessory });
     }
   }
@@ -278,7 +282,9 @@ function poolContrastPairing(cats: ByCategory): FormulaPool[] {
 // ─── Get all formula pools ──────────────────────────────────────────────────
 
 export function getFormulaPools(items: FitItem[], preferredFormulas?: FormulaId[]): FormulaPool[] {
-  const cats = categorize(items);
+  const raw = categorize(items);
+  // Onepieces join TOPS only; cats.bottom is unchanged (a skirt never pairs with a dress).
+  const cats: ByCategory = { ...raw, top: [...raw.top, ...raw.onepiece] };
   const generators: Record<FormulaId, (cats: ByCategory) => FormulaPool[]> = {
     monochrome: poolMonochrome, neutral_pop: poolNeutralPop, tonal_gradient: poolTonalGradient,
     high_low: poolHighLow, texture_stack: poolTextureStack, pattern_solid: poolPatternSolid,
@@ -295,7 +301,15 @@ export function getFormulaPools(items: FitItem[], preferredFormulas?: FormulaId[
     const gen = generators[formulaId];
     if (gen) allPools.push(...gen(cats));
   }
-  return allPools;
+  // Overalls need a base top underneath. generateFromPool only sees one pool, so
+  // enforce it here: if the WARDROBE has a base top, a pool with no base top
+  // among its tops must not offer overalls (they'd come out bare). Wardrobes
+  // with no base top at all keep bare overalls.
+  const isBaseTop = (t: FitItem) => t.category === 'top' && t.fabric.layerRole === 'base';
+  if (!raw.top.some(isBaseTop)) return allPools;
+  return allPools
+    .map(p => p.tops.some(isBaseTop) ? p : { ...p, tops: p.tops.filter(t => t.typeName !== 'OVERALLS') })
+    .filter(p => p.tops.length > 0);
 }
 
 // ─── Candidate generation (from outfitCompositor) ───────────────────────────
@@ -426,7 +440,12 @@ function generateFromPool(pool: FormulaPool, rand: () => number, target?: Target
   const outwear = shuffle(pool.outwear, rand);
   const accs    = shuffle(pool.accessory, rand);
 
-  if (pool.tops.length === 0 || pool.bottoms.length === 0 || pool.shoes.length === 0) return [];
+  if (pool.tops.length === 0 || pool.shoes.length === 0 || (pool.bottoms.length === 0 && !hasOnepiece(pool.tops))) return [];
+
+  // rule_of_thirds / high_low split proportion/register between TWO garments,
+  // which doesn't apply to a one-piece.
+  const onepieceOk = pool.formula !== 'rule_of_thirds' && pool.formula !== 'high_low';
+  const usableTops = onepieceOk ? pool.tops : pool.tops.filter(t => t.category !== 'onepiece');
 
   // Silhouette-first resolution (2026-07-12): degradable — at conf 0 (no
   // target, or a fully-guessed wardrobe) every boost below is exactly 0 and
@@ -441,7 +460,7 @@ function generateFromPool(pool: FormulaPool, rand: () => number, target?: Target
   //    their looks (a statement coat anchors by presence — S2 follow-up,
   //    2026-07-03). Deterministic: statementStrength desc, id tie-break.
   type Core = { top: FitItem; bottom: FitItem; shoe: FitItem; outwear?: FitItem };
-  const anchors = [...pool.tops, ...pool.bottoms, ...pool.outwear]
+  const anchors = [...usableTops, ...pool.bottoms, ...pool.outwear]
     .map(i => ({ s: i.statementStrength + mBoost(i), i }))
     .sort(byScoreThenId)
     .slice(0, ANCHOR_CAP)
@@ -460,11 +479,11 @@ function generateFromPool(pool: FormulaPool, rand: () => number, target?: Target
       // Outerwear leads: it is FIXED into the outwear slot and the whole core
       // is composed under it — best top for the coat, best bottom for that
       // pair, best shoes for the result.
-      const tops = pool.tops
+      const tops = usableTops
         .map(i => ({ s: pairAffinity(anchor, i, pool.formula, target, conf) + mBoost(i), i }))
         .sort(byScoreThenId).slice(0, BRANCH).map(({ i }) => i);
       for (const top of tops) {
-        const bottom = pool.bottoms
+        const bottom = top.category === 'onepiece' ? top : pool.bottoms
           .map(i => ({
             s: (pairAffinity(top, i, pool.formula, target, conf) + pairAffinity(anchor, i, pool.formula, target, conf)) / 2 + mBoost(i),
             i,
@@ -476,9 +495,36 @@ function generateFromPool(pool: FormulaPool, rand: () => number, target?: Target
           .sort(byScoreThenId).slice(0, BRANCH).map(({ i }) => i);
         for (const shoe of shoes) looks.push({ top, bottom, shoe, outwear: anchor });
       }
+    } else if (anchor.category === 'onepiece') {
+      const shoesFor = (top: FitItem, bottom: FitItem) => pool.shoes
+        .map(i => ({ s: (pairAffinity(i, top, pool.formula) + pairAffinity(i, bottom, pool.formula)) / 2, i }))
+        .sort(byScoreThenId).slice(0, BRANCH).map(({ i }) => i);
+      const branchFor = (cands: FitItem[]) => cands
+        .map(i => ({ s: pairAffinity(anchor, i, pool.formula, target, conf) + mBoost(i), i }))
+        .sort(byScoreThenId).slice(0, BRANCH).map(({ i }) => i);
+      const selfPair = () => { for (const shoe of shoesFor(anchor, anchor)) looks.push({ top: anchor, bottom: anchor, shoe }); };
+
+      if (anchor.typeName === 'OVERALLS') {
+        // Overalls need a base top underneath; bare only when the pool has none.
+        const bases = pool.tops.filter(t => t.category === 'top' && t.fabric.layerRole === 'base');
+        if (bases.length === 0) selfPair();
+        for (const tee of branchFor(bases)) {
+          for (const shoe of shoesFor(tee, anchor)) looks.push({ top: tee, bottom: anchor, shoe });
+        }
+      } else {
+        selfPair();
+        if (anchor.typeName === 'DRESS') {
+          // Dress over slim/regular trousers or leggings; never skirt/shorts/wide.
+          const underDress = (b: FitItem) =>
+            b.typeName === 'LEGGINGS' || (b.typeName !== 'SKIRT' && b.typeName !== 'SHORTS' && VOLUME[b.fit] <= 2);
+          for (const pants of branchFor(pool.bottoms.filter(underDress))) {
+            for (const shoe of shoesFor(anchor, pants)) looks.push({ top: anchor, bottom: pants, shoe });
+          }
+        }
+      }
     } else {
       const anchorIsTop = anchor.category !== 'bottom';
-      const counterpartPool = anchorIsTop ? pool.bottoms : pool.tops;
+      const counterpartPool = anchorIsTop ? pool.bottoms : pool.tops.filter(t => t.category !== 'onepiece');
 
       const counterparts = counterpartPool
         .map(i => ({ s: pairAffinity(anchor, i, pool.formula, target, conf) + mBoost(i), i }))
@@ -614,105 +660,6 @@ function generateFromPool(pool: FormulaPool, rand: () => number, target?: Target
         console.log(`[generate-outfits] formula '${pool.formula}' hit PER_FORMULA_CAP=${PER_FORMULA_CAP} (${cores.length} cores, round ${round}/${maxRounds}) — remaining variants dropped`);
         return candidates;
       }
-    }
-  }
-  return candidates;
-}
-
-// One-piece garments (dress/jumpsuit) fill both core slots themselves (Q29):
-// the candidate is onepiece + shoes, optionally layered with outerwear and/or
-// an accessory. slots.top === slots.bottom === the one-piece id — this is
-// DELIBERATE, not a hack: ranking.ts's slotsToIds dedupes the flattened slot
-// list before scoring, so downstream code that resolves "the top item" /
-// "the bottom item" via `.find(i => i.category === 'top' || 'onepiece')`
-// etc. never double-counts a dress. Do not add a separate `onepiece` slot to
-// OutfitSlots.
-//
-// Round-robin matters here for the same reason it does in generateFromPool's
-// coreVariants loop (~601-618): with enough dresses × shoes, the cross
-// product alone can exceed ONEPIECE_CAP, so if every pair's BARE variant were
-// emitted before any pair's dressed-up ones, the cap would exhaust itself on
-// bare looks and outerwear/accessory variants would NEVER be reached — a
-// dress wardrobe would silently lose its entire layered-look category. Round-
-// robin (every pair's Nth variant before any pair's N+1th), combined with
-// shuffling each pair's own variant order, spreads the cap truncation evenly
-// across bare/+accessory/+outerwear/+both instead of exhausting one class
-// first.
-const ONEPIECE_CAP = 60;
-
-function generateOnepieceCandidates(items: FitItem[], rand: () => number): FormulaCandidate[] {
-  const onepieces = shuffle(items.filter(i => i.category === 'onepiece'), rand);
-  const shoes     = shuffle(items.filter(i => i.category === 'shoes'), rand);
-  const outwear   = shuffle(items.filter(i => i.category === 'outwear'), rand);
-  // Same early-out as before this fix (onepieces/shoes/outwear are shuffled
-  // unconditionally either way, exactly as before): a wardrobe with zero
-  // onepieces or zero shoes returns [] here having consumed only those three
-  // shuffles' worth of `rand`. `accs` is shuffled AFTER this check, not
-  // alongside the other three above — every existing fixture (none of which
-  // contain a onepiece) hits this early return, so if `accs` were shuffled
-  // above, its extra `rand` draws would shift the RNG sequence consumed by
-  // every DOWNSTREAM formula-pool call in generateCandidates for wardrobes
-  // that never touch this function's real logic at all, silently changing
-  // unrelated snapshots. Keeping it below preserves byte-identical output
-  // for every onepiece-free wardrobe.
-  if (onepieces.length === 0 || shoes.length === 0) return [];
-  const accs = shuffle(items.filter(i => i.category === 'accessory'), rand);
-
-  const pick = (arr: FitItem[]) => arr[Math.floor(rand() * arr.length)];
-
-  // (onepiece, shoe) pairs — the same cross product as before, but capped at
-  // ONEPIECE_CAP pairs while building it: the worst case is exactly one
-  // candidate per pair (an onepiece pool with no outerwear and no
-  // accessory), so no more than ONEPIECE_CAP pairs can ever be needed, and
-  // capping here keeps a large wardrobe (many dresses × many shoes) from
-  // building an unbounded cross product before truncation.
-  const pairs: { op: FitItem; shoe: FitItem }[] = [];
-  pairLoop:
-  for (const op of onepieces) {
-    for (const shoe of shoes) {
-      pairs.push({ op, shoe });
-      if (pairs.length >= ONEPIECE_CAP) break pairLoop;
-    }
-  }
-
-  // For each pair, its distinct full-outfit variants — bare, +accessory,
-  // +outerwear, +both — only including a variant class whose pool is
-  // non-empty (same idiom as variantsFor in generateFromPool), then
-  // shuffled so no single class systematically leads for every pair.
-  //
-  // Formula tagging: bare and +accessory stay 'one_two_three' — in the core
-  // path a formula is a property of the POOL a core came from, not of which
-  // optional slot got filled (an accessory added to a rule_of_thirds core
-  // stays 'rule_of_thirds'), so the accessory-only onepiece variant follows
-  // its bare sibling rather than getting a formula of its own. Any variant
-  // carrying outerwear stays 'layering_stack', matching the pre-existing tag.
-  const variantsFor = (op: FitItem, shoe: FitItem): FormulaCandidate[] => {
-    const base: OutfitSlots = { top: op.id, bottom: op.id, shoes: shoe.id };
-    const vs: FormulaCandidate[] = [{ slots: { ...base }, formula: 'one_two_three' }];
-    if (accs.length > 0) {
-      vs.push({ slots: { ...base, accessory: pick(accs).id }, formula: 'one_two_three' });
-    }
-    if (outwear.length > 0) {
-      vs.push({ slots: { ...base, outwear: pick(outwear).id }, formula: 'layering_stack' });
-    }
-    if (outwear.length > 0 && accs.length > 0) {
-      vs.push({
-        slots: { ...base, outwear: pick(outwear).id, accessory: pick(accs).id },
-        formula: 'layering_stack',
-      });
-    }
-    return shuffle(vs, rand);
-  };
-
-  const pairVariants = pairs.map(({ op, shoe }) => variantsFor(op, shoe));
-  const maxRounds = pairVariants.reduce((m, v) => Math.max(m, v.length), 0);
-
-  const candidates: FormulaCandidate[] = [];
-  for (let round = 0; round < maxRounds; round++) {
-    for (const vs of pairVariants) {
-      if (round >= vs.length) continue;
-      candidates.push(vs[round]);
-      if (candidates.length >= ONEPIECE_CAP) return candidates;
     }
   }
   return candidates;
@@ -977,14 +924,13 @@ export function generateCandidates(
 ): FormulaCandidate[] {
   const rand = seed ? mulberry32(hashStr(seed)) : Math.random;
   const pools = getFormulaPools(items, preferredFormulas);
-  const onepieceCandidates = generateOnepieceCandidates(items, rand);
 
   if (pools.length === 0) {
     const fallback = generateFallback(items, rand);
-    return [...onepieceCandidates, ...fallback].slice(0, GENERATION_CAP);
+    return fallback.slice(0, GENERATION_CAP);
   }
 
-  const allCandidates: FormulaCandidate[] = [...onepieceCandidates];
+  const allCandidates: FormulaCandidate[] = [];
   for (const pool of pools) {
     allCandidates.push(...generateFromPool(pool, rand, target));
     if (allCandidates.length >= GENERATION_CAP) break;
@@ -994,18 +940,19 @@ export function generateCandidates(
 
 function generateFallback(items: FitItem[], rand: () => number): FormulaCandidate[] {
   const byCategory = (cat: ItemCategory) => items.filter(i => i.category === cat);
-  const tops    = shuffle(byCategory('top'), rand);
+  // Onepieces act as tops whose bottom is themselves.
+  const tops    = shuffle([...byCategory('top'), ...byCategory('onepiece')], rand);
   const bottoms = shuffle(byCategory('bottom'), rand);
   const shoes   = shuffle(byCategory('shoes'), rand);
   const outwear = shuffle(byCategory('outwear'), rand);
   const accs    = shuffle(byCategory('accessory'), rand);
-  if (tops.length === 0 || bottoms.length === 0 || shoes.length === 0) return [];
+  if (tops.length === 0 || shoes.length === 0 || (bottoms.length === 0 && !hasOnepiece(tops))) return [];
 
   const pick = (arr: FitItem[]) => arr[Math.floor(rand() * arr.length)];
   const candidates: FormulaCandidate[] = [];
   const defaultFormula: FormulaId = 'one_two_three';
   for (const top of tops) {
-    for (const bottom of bottoms) {
+    for (const bottom of top.category === 'onepiece' ? [top] : bottoms) {
       for (const shoe of shoes) {
         const slots: OutfitSlots = { top: top.id, bottom: bottom.id, shoes: shoe.id };
         if (outwear.length > 0 && rand() < 0.5)  slots.outwear   = pick(outwear).id;

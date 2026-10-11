@@ -12,7 +12,7 @@ filter → candidate generation → ranking → quality gate → top 10).
 ## Files
 
 - `fixture.ts` — exports `PROFILES`, a map of named fixture wardrobes + user
-  profiles. Five today, each FOR a different reachable code path:
+  profiles. Eight today, each FOR a different reachable code path:
   - `smartcasual` (30 items, smart-casual/minimalist, neutral palette — the
     default) — the general-purpose baseline; also the only one of the
     original three with any garment `measurements`, so it's the minimum bar
@@ -73,6 +73,13 @@ filter → candidate generation → ranking → quality gate → top 10).
     reuse color/material/fit combos already proven to clear the smartcasual
     style filter in `SMARTCASUAL_WARDROBE`, so the fixture spends its size on
     the layering path, not re-proving the filter.
+  - `onepiece-layered` (19 items: 3 dresses incl. one wide fluid, jumpsuit, overalls, 2 tees,
+    leggings, slim trousers, wide jeans, skirt, 4 shoes, cardigan, blazer, TIGHTS + BELT;
+    smartcasual + streetwear) — added 2026-10-11 for onepieces flowing through all formula
+    pools: dress-over-pants (slim trousers/leggings), overalls-with-a-base-top, TIGHTS in a
+    dress outfit's accessory slot, and `waistErasureMultiplier` on the wide fluid dress.
+    Note: `generateOnepieceCandidates`/`ONEPIECE_CAP` (cited in the `onepiece` bullet) were
+    removed the same day; onepieces now come out of the formula pools.
 
   Do not edit `smartcasual` / `streetwear` / `resort` casually — these are
   the baselines every snapshot is compared against; `measured` /

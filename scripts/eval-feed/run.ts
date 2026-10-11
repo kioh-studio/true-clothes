@@ -6,7 +6,7 @@
 // Usage:
 //   deno run --allow-read --allow-write scripts/eval-feed/run.ts \
 //     --engine supabase/functions/generate-outfits/engine --out snapshot.json \
-//     [--profile smartcasual|streetwear|resort|measured|measured-goal]
+//     [--profile smartcasual|streetwear|resort|measured|measured-goal|onepiece|layering|onepiece-layered]
 //
 // Note: the engine directory is loaded via a dynamic `file://` import so two
 // engine versions (e.g. a baseline copy vs. the live tree) can be compared
@@ -41,7 +41,7 @@ const outPath = args.out;
 const profileName = (args.profile || 'smartcasual') as ProfileName;
 
 if (!engineDirArg || !outPath) {
-  console.error('Usage: deno run --allow-read --allow-write run.ts --engine <dir> --out <snapshot.json> [--profile smartcasual|streetwear|resort|measured|measured-goal]');
+  console.error('Usage: deno run --allow-read --allow-write run.ts --engine <dir> --out <snapshot.json> [--profile smartcasual|streetwear|resort|measured|measured-goal|onepiece|layering|onepiece-layered]');
   Deno.exit(1);
 }
 

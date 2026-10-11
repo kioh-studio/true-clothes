@@ -25,7 +25,7 @@ import type { PhotoInput } from '../../features/wardrobe-photos/types';
 
 // ─── Item role classification ────────────────────────────────────────────────
 // Anchors: the tall/long bottom item that defines the outfit's scale
-export const ANCHOR_PRIORITY = ['DRESS', 'OVERCOAT', 'COAT', 'TROUSERS', 'JEANS', 'CHINOS', 'SKIRT', 'LEGGINGS', 'SHORTS', 'BLAZER'];
+export const ANCHOR_PRIORITY = ['DRESS', 'OVERALLS', 'JUMPSUIT', 'OVERCOAT', 'COAT', 'TROUSERS', 'JEANS', 'CHINOS', 'SKIRT', 'LEGGINGS', 'SHORTS', 'BLAZER'];
 
 // Visual z-order buckets for secondaries — outer shell → mid insulation layer
 // → base/inner top → everything else. Mirrors engine LAYER_ROLE_BY_TYPE

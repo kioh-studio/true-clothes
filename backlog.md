@@ -10,8 +10,9 @@
 ## AH. Engine không có khái niệm "tổng độ ấm" của outfit (2026-08-12)
 
 > **2026-10-11:** đề xuất hướng fix MỚI cho 2 mục 🔴/🟠 dưới đây (đếm LỚP INNER thay vì cộng
-> cân nặng, miễn outer; Part B chỉ gate POLO, không gate SHIRT/TEE), kèm fix onepiece 8/10 formula
-> (§AE) và volume-on-volume (§AG) ở `docs/engine-proposals-2026-10-11.md`. Chờ anh Khôi duyệt.
+> cân nặng, miễn outer; Part B chỉ gate POLO, không gate SHIRT/TEE) ở
+> `docs/engine-proposals-2026-10-11.md` mục 1. Chờ anh Khôi duyệt. (Mục 2 volume-on-volume và
+> mục 3 onepiece 8/10 formula đã làm xong, xem `plan.md`.)
 
 > ⚠ **ĐÃ THỬ SỬA VÀ ĐÃ REVERT trong cùng phiên 2026-08-12.** Bản sửa deploy lên
 > production (fn version 64), rồi A/B với baseline mới lộ ra là nó giết nhầm một
@@ -1056,20 +1057,10 @@ những gì đợt này phát hiện thêm mà CHƯA làm.
   `'shoes'`/`'accessory'` bao giờ, và `LABEL_TO_KEY` (enrichment.ts) không có entry cho
   `shoe_size`/`shoe_width`. Fixture đã sẵn sàng — chỉ còn thiếu code fix (mapping table +
   scoring branch mới) để dữ liệu này thực sự có tác dụng.
-- [ ] **8/10 formula chưa bao giờ sinh được outfit cho onepiece (dress/jumpsuit)** (2026-08-12,
-  phát hiện khi fix bug starvation outerwear của `generateOnepieceCandidates`) —
-  `getFormulaPools` (generation.ts) build pool từ `cats.top`/`cats.bottom`, còn `categorize`
-  xếp onepiece vào bucket riêng (`cats.onepiece`), không bao giờ vào `top`/`bottom`. Nên một
-  chiếc váy chỉ có thể được sinh ra qua đúng 2 formula mà `generateOnepieceCandidates` hardcode
-  (`one_two_three` khi bare/+accessory, `layering_stack` khi có outerwear) — 8 formula còn lại
-  trong `FORMULA_CATALOG` (`monochrome`, `neutral_pop`, `tonal_gradient`, `high_low`,
-  `texture_stack`, `pattern_solid`, `rule_of_thirds`, `contrast_pairing`) KHÔNG BAO GIỜ sinh
-  được outfit cho onepiece, dù về mặt màu/chất liệu/formality chiếc váy đó có hợp formula nào
-  đi nữa. Đây là gap thật (không phải bug vừa fix — phần vừa fix chỉ là starvation trong 2
-  formula sẵn có), nhưng scope lớn hơn nhiều (cần thread onepiece pool qua toàn bộ hệ thống
-  formula-pool, hoặc viết path onepiece-aware riêng cho từng formula) và là quyết định sản
-  phẩm (formula nào thực sự hợp lý cho 1 món đồ liền thân) — chưa làm, chỉ ghi lại. Chi tiết:
-  `plan.md` mục "One-piece candidate generation..." 2026-08-12, phần "Out of scope".
+- [ ] **Collage/describe cho DRESS + quần / OVERALLS + tee chưa kiểm tra trên thiết bị** (2026-10-11) —
+  engine giờ sinh các outfit này (`slots.top !== slots.bottom` với một món liền thân); `collageLayout`
+  đã có jest test, `describe-outfit`/`index.ts` coi `top === bottom` là onepiece nên dress+quần được mô
+  tả như top/bottom. Cần xem thật trên máy.
 - [ ] **Re-backfill `can_layer` cho ~67 item đã backfill bằng prompt cũ** (2026-08-12, phát
   hiện khi sửa bias "regular-fit shirt không layer được" trong `deriveCanLayer` +
   `prompt.ts`) — sửa prompt KHÔNG tự động cập nhật lại các row đã backfill trước đó; chúng

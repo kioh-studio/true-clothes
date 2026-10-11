@@ -1102,6 +1102,102 @@ const LAYERING_PROFILE = {
   bodyMeasurements: BODY_MEASUREMENTS,
 };
 
+// ─── Onepiece-layered wardrobe (19 items) — added 2026-10-11 to measure
+// onepieces flowing through the 10 formula pools (not just the old two-formula
+// generateOnepieceCandidates): dresses / jumpsuit / overalls alongside real
+// tops and bottoms, so dress-over-pants (slim trousers, leggings), overalls-
+// with-a-base-top, TIGHTS and BELT accessories are all reachable. One wide
+// fluid dress exercises waistErasureMultiplier. Same style/body pairing as
+// `onepiece`, except styles are smartcasual + streetwear (union filter) so the
+// wide fluid dress and wide jeans clear the filter (smartcasual bans wide fit).
+
+const ONEPIECE_LAYERED_WARDROBE: ClothingItemRow[] = [
+  {
+    id: 'ol-dress-navy', type: 'DRESS', name: 'Silk Wrap Dress Navy', color: 'Navy',
+    material: 'Silk', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-dress-black', type: 'DRESS', name: 'Cotton Slip Dress Black', color: 'Black',
+    material: 'Cotton', fit: 'slim', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-dress-fluid', type: 'DRESS', name: 'Linen Sundress Cream', color: 'Cream',
+    material: 'Linen', fit: 'wide', pattern: 'solid', warmthSeason: 'all_season', drape: 'fluid',
+  },
+  {
+    id: 'ol-jumpsuit-black', type: 'JUMPSUIT', name: 'Crepe Jumpsuit Black', color: 'Black',
+    material: 'Cotton', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-overalls-beige', type: 'OVERALLS', name: 'Cotton Overalls Beige', color: 'Beige',
+    material: 'Cotton', fit: 'relaxed', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-tee-white', type: 'TEE', name: 'Cotton Tee White', color: 'White',
+    material: 'Cotton', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-tee-black', type: 'TEE', name: 'Cotton Tee Black', color: 'Black',
+    material: 'Cotton', fit: 'slim', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-leggings-black', type: 'LEGGINGS', name: 'Jersey Leggings Black', color: 'Black',
+    material: 'Jersey', fit: 'slim', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-trousers-slim', type: 'TROUSERS', name: 'Cotton Slim Trousers Charcoal', color: 'Charcoal',
+    material: 'Cotton', fit: 'slim', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-trousers-wide', type: 'JEANS', name: 'Wide Jeans Black', color: 'Black',
+    material: 'Denim', fit: 'wide', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-skirt-navy', type: 'SKIRT', name: 'Cotton Midi Skirt Navy', color: 'Navy',
+    material: 'Cotton', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-shoes-flats-black', type: 'FLATS', name: 'Ballet Flats Black', color: 'Black',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-shoes-loafers-brown', type: 'LOAFERS', name: 'Penny Loafers Brown', color: 'Brown',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-shoes-boots-charcoal', type: 'BOOTS', name: 'Chelsea Boots Charcoal', color: 'Charcoal',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-shoes-sneakers-white', type: 'SNEAKERS', name: 'Minimal Sneakers White', color: 'White',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-cardigan-taupe', type: 'CARDIGAN', name: 'Cashmere Cardigan Taupe', color: 'Taupe',
+    material: 'Cashmere', fit: 'relaxed', pattern: 'solid', warmthSeason: 'warm_winter',
+  },
+  {
+    id: 'ol-blazer-gray', type: 'BLAZER', name: 'Cotton Blazer Gray', color: 'Gray',
+    material: 'Cotton', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-acc-tights-black', type: 'TIGHTS', name: 'Opaque Tights Black', color: 'Black',
+    material: 'Jersey', fit: 'slim', pattern: 'solid', warmthSeason: 'all_season',
+  },
+  {
+    id: 'ol-acc-belt-brown', type: 'BELT', name: 'Leather Belt Brown', color: 'Brown',
+    material: 'Leather', fit: 'regular', pattern: 'solid', warmthSeason: 'all_season',
+  },
+];
+
+const ONEPIECE_LAYERED_PROFILE = {
+  selectedStyles: ['smartcasual', 'streetwear'],
+  colorPreferences: ['navy', 'charcoal', 'black', 'beige'],
+  colorSeason: 'autumn',
+  weatherSeason: 'allSeason',
+  bodyMeasurements: BODY_MEASUREMENTS,
+};
+
 // ─── Named profiles ────────────────────────────────────────────────────────────
 
 export const PROFILES = {
@@ -1112,6 +1208,7 @@ export const PROFILES = {
   'measured-goal': { wardrobe: MEASURED_WARDROBE, profile: MEASURED_GOAL_PROFILE },
   onepiece: { wardrobe: ONEPIECE_WARDROBE, profile: ONEPIECE_PROFILE },
   layering: { wardrobe: LAYERING_WARDROBE, profile: LAYERING_PROFILE },
+  'onepiece-layered': { wardrobe: ONEPIECE_LAYERED_WARDROBE, profile: ONEPIECE_LAYERED_PROFILE },
 } as const;
 
 export type ProfileName = keyof typeof PROFILES;

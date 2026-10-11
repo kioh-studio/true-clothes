@@ -279,3 +279,24 @@ describe('buildLayout — measured content-bounds aspect override', () => {
     expect(overrideRatio / controlRatio).toBeCloseTo(2.0 / 0.54, 1);
   });
 });
+
+describe('buildLayout — onepieces combined with a second garment', () => {
+  const boxOk = (p: { slot: { left: number; top: number; w: number; h: number } }) =>
+    [p.slot.left, p.slot.top, p.slot.w, p.slot.h].every(Number.isFinite) && p.slot.w > 0 && p.slot.h > 0;
+
+  it('DRESS + LEGGINGS: dress anchors, leggings is a finite secondary', () => {
+    const items = [entry('leg', 'LEGGINGS'), entry('dress', 'DRESS'), entry('shoe', 'SNEAKERS')];
+    expect(resolveRoles(items).anchor.id).toBe('dress');
+    const out = buildLayout(items);
+    expect(out).toHaveLength(3);
+    out.forEach(p => expect(boxOk(p)).toBe(true));
+  });
+
+  it('OVERALLS + TEE: overalls anchors regardless of item order, tee is the secondary', () => {
+    const items = [entry('tee', 'TEE'), entry('ov', 'OVERALLS')];
+    const { anchor, secondaries } = resolveRoles(items);
+    expect(anchor.id).toBe('ov');
+    expect(secondaries.map(i => i.id)).toEqual(['tee']);
+    buildLayout(items).forEach(p => expect(boxOk(p)).toBe(true));
+  });
+});
