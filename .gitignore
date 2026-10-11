@@ -48,3 +48,6 @@ android/app/debug.keystore
 
 # Claude Code local workspace (settings, skills, commands) — local only
 .claude/
+
+# A/B harness outputs
+scripts/image-gen-ab/out/
