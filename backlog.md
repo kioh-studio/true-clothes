@@ -1426,8 +1426,12 @@ code KHÔNG phải thứ đang chặn release.
   liệu ra nước ngoài, Mẫu 09 + 01a) nộp A05 trong 60 ngày kể từ khi bắt đầu xử lý — không bắt
   buộc trước launch nhưng nên nộp sớm. Chưa chốt: (1) ảnh full-body có là sinh trắc (nhạy cảm)
   hay chỉ 'hình ảnh cá nhân' (cơ bản); (2) cá nhân chưa đăng ký hộ kinh doanh có được miễn trừ
-  5 năm (NĐ 356 Đ.41) không; (3) consent screen hiện tại đủ yếu tố luật đòi chưa. Phạt tối đa
-  5% doanh thu năm trước cho vi phạm chuyển ra nước ngoài.
+  5 năm (NĐ 356 Đ.41) không — văn bản chỉ nêu hộ kinh doanh/DN, và Đ.41 KHÔNG miễn hồ sơ
+  chuyển dữ liệu ra nước ngoài (Luật Đ.20); (3) consent screen hiện tại đủ yếu tố luật đòi chưa.
+  Phạt tối đa 5% doanh thu năm trước cho vi phạm chuyển ra nước ngoài. Đã có sẵn để luật sư
+  review: `docs/tryon-consent-copy.md` (EN/VI, 2 chỗ `[xác minh]`: Google không train bằng ảnh,
+  thời điểm xoá ảnh) + `docs/pdpl-dossier-skeleton.md` (Mẫu 10 DPIA + Mẫu 09/01a chuyển dữ
+  liệu, pre-fill facts MIEN, chỗ trống `[LUẬT SƯ]`/`[ANH KHÔI]`).
 - [ ] **Thuế App Store dev cá nhân VN — nghiên cứu xong, kế toán cần xác nhận cơ sở tính**
   (2026-10-11, cùng doc trên). Apple từ 2025-08-21 khấu trừ TNCN 2% + thuế nhà thầu 5% cho dev
   cá nhân ở VN — trên hoa hồng Apple hay trên giá bán thì CHƯA XÁC MINH. Ngưỡng miễn thuế phía
