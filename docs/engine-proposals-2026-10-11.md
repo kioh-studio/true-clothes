@@ -82,6 +82,53 @@ cho các ô phạt. Snapshot điểm baseline lấy từ engine HIỆN TẠI tr�
 
 **Diff ước lượng:** ~40 dòng scoring.ts + ~10 ranking.ts + ~6 generation.ts + 1 file test.
 
+### Review lại số liệu (lượt 2, cùng ngày) — bảng ở trên BỊ THAY bằng 1 rule
+
+Đọc lại `generation.ts` (variantsFor, ~535–600): một outfit chỉ có 3 chỗ cho thân trên —
+`top`, `outwear`, và `mid` (mid chỉ xuất hiện cùng một outer THẬT). Số lớp inner
+(base/mid, không tính outer) vì thế **tối đa = 2** ở mọi nhánh sinh. Hệ quả:
+
+| Hàng trong bảng | Ngưỡng | Có bao giờ vượt? |
+|---|---|---|
+| summer | 1 | có (2 lớp) → chỉ nhánh ×0.85 chạy |
+| spring / fall / allSeason | 2 | **không bao giờ** |
+| winter | 3 | **không bao giờ** |
+
+→ 4/5 hàng chết, hệ số 0.5 (dư 2 lớp) **không với tới được**. Bảng gọn lại thành đúng
+một câu: *mùa hè mà 2 lớp inner → ×0.85*.
+
+Hai điều nữa lộ ra khi soát:
+1. Hàm `innerLayerCount` bản nháp lọc `category top|onepiece` → bỏ sót HOODIE/KIMONO
+   (layerRole `mid` nhưng category `outwear`). Phải đếm theo `layerRole !== 'outer'` trên
+   cả `top|onepiece|outwear`.
+2. Rule mùa hè đánh đồng *tee + sơ mi linen mở khuy* (hợp lệ) với *tee + sweater medium*
+   (sai). Phân biệt được bằng dữ liệu có sẵn: `fabricWeight` của lớp thứ hai
+   (`warmth_season = lightweight_summer` → `light`). Gốc sâu hơn: `WARMTH_SEASON_MAP` chỉ có
+   3 bucket thật (summer / allSeason / winter) — sweater medium bị gắn `allSeason`, nên
+   `scoreSeasonMatch` nhìn thấy compat 0.9, không có tín hiệu gì. Trộn `min` vào
+   `targetMatch` cũng không cứu được ca này (min vẫn 0.9). Sửa vocab ở extraction/backfill là
+   việc riêng, để backlog.
+
+**Rule chốt đề xuất (thay toàn bộ Part A cũ):**
+
+```ts
+// Chỉ phạt khi target là summer, có đúng 2 lớp inner, và lớp nặng hơn không phải 'light'.
+export function summerStackMultiplier(items: FitItem[], target?: Season): number {
+  if (target !== 'summer') return 1;
+  const inner = items.filter(i =>
+    (i.category === 'top' || i.category === 'onepiece' || i.category === 'outwear') &&
+    i.fabric.layerRole !== 'outer');
+  if (inner.length < 2) return 1;
+  if (inner.every(i => i.fabric.fabricWeight === 'light')) return 1;   // linen shirt mở khuy
+  return 0.85;   // CALIBRATION-PENDING
+}
+```
+
+Vì sao 0.85 đủ và không cần số thứ hai: totalScore điển hình 0.55–0.80 → trừ 0.08–0.12,
+đúng bằng xoá sạch dimension season (`W_SEASON` 0.10). Tức là nó làm việc mà
+`scoreSeasonMatch` đáng lẽ phải làm nếu vocab mùa không bị gộp. Không hard-skip.
+Part B (gate POLO dưới mid+outer) giữ nguyên như trên.
+
 ---
 
 ## 2. Onepiece chỉ sinh được qua 2/10 formula — cách fix
