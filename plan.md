@@ -8835,3 +8835,8 @@ actually run on device**, tracked in backlog).
 - Fixture: new `onepiece-layered` profile (smartcasual + streetwear union so wide pieces clear the filter).
 - A/B, top-10 CORE-triple turnover afterA -> afterB: smartcasual 3, streetwear 1, resort 0, measured 3, measured-goal 4, layering 0, onepiece 5 (old 2-formula output replaced). Formula spread: `onepiece` = texture_stack 4, monochrome 2, one_two_three 2, layering_stack 2 (was only one_two_three/layering_stack); `onepiece-layered` = neutral_pop 4, high_low 2, one_two_three 2, layering_stack 1, contrast_pairing 1.
 - Tests: engine suite 362 -> 365 (`onepiece.test.ts` rewritten), jest `src/components/outfit` 18/18, `npx tsc --noEmit` clean.
+
+## Wire `clothing_items.opacity` through edge functions (2026-10-11)
+
+- Column verified live. Vocabulary `sheer | semi | opaque | NULL` (DB CHECK) == engine `ClothingItemRow.opacity` / `FabricProfile.opacity`; no mapping needed.
+- Added beside `distressed`: generate-outfits (select, row map, pinned-item map), wardrobe-critic (select, row map), evaluate-item (scanned-item map), generate-item-image/prompt.ts (`GarmentMetadata.opacity`, `snapOpacity`, prompt line), backfill-item-metadata (row type, select, needsGemini, patch-if-null, `.or` filter). Engine unchanged; NULL still falls back to `inferOpacity` keywords.

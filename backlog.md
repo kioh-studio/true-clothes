@@ -945,16 +945,7 @@ Phát hiện khi siết `filterByStyle` theo 2 trục mới (xem `plan.md` "Styl
 `BannedFeature` vocabulary + `typesBanned`" cùng ngày). Giữ nguyên toàn bộ diff đã ship —
 các mục dưới đây là những gì CHƯA làm, cố ý dừng để báo cáo thay vì tự mở rộng.
 
-- [ ] **`sheer` mới chạy bằng keyword tên/material — nối cột `opacity` khi project hết pause**
-  (2026-10-11). 4 BannedFeature `sheer`/`cutout`/`sequin`/`animal_print` đã vào engine (plan.md
-  cùng ngày). `animal_print` = trục pattern (`Pattern` thêm `'animal'`, extraction vocab đã thêm).
-  `sheer` dự định đọc `clothing_items.opacity` (migration 20260814000001 có sẵn) nhưng project
-  INACTIVE lúc làm nên KHÔNG verify được cột tồn tại live → chưa thêm vào `.select()` (thiếu cột
-  = 400 mọi request). Việc còn lại khi un-pause: verify cột qua Mgmt API; thêm `opacity` vào
-  select + row map của generate-outfits/wardrobe-critic/evaluate-item (mirror `distressed`);
-  thêm `opacity` vào extraction schema `generate-item-image/prompt.ts` (+`snapOpacity`) và
-  backfill-item-metadata (row type, or-filter, patch-if-null). `sequin`/`cutout` cố ý chỉ
-  keyword (ponytail) — nâng cấp = cột nullable + field extraction như `distressed` nếu thấy miss.
+- [ ] **`sequin`/`cutout` cố ý chỉ keyword (ponytail)** (2026-10-11) — nâng cấp = cột nullable + field extraction như `distressed`/`opacity` nếu thấy miss.
 - [ ] **`abstract_print` được implement (vào `BannedFeature` + `featuresPasses`) nhưng
   KHÔNG gán cho style nào** — bucket `abstract` gộp chung `print`/`abstract`/`camo`/
   `polka dot` (`enrichment.ts` `STORED_PATTERN_MAP`) quá dị biệt để có case "chắc chắn":

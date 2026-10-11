@@ -71,6 +71,8 @@ export interface GarmentMetadata {
   // (linen), normal garment wash, soft/worn-in feel, or vintage styling
   // without actual damage. null = unsure.
   distressed: boolean | null;
+  // Fabric see-through level (2026-08-14) → clothing_items.opacity. null = unsure.
+  opacity: 'sheer' | 'semi' | 'opaque' | null;
   // Visual enrichment đợt 2 (2026-07-03) — attributes only the image can carry.
   print_scale: 'micro' | 'medium' | 'large' | null; // pattern/graphic scale as WORN
   drape: 'structured' | 'regular' | 'fluid' | null; // how the fabric holds its shape
@@ -213,6 +215,10 @@ export function snapWarmth(v: unknown): string | null {
   const k = lc(v);
   return WARMTH_SET.has(k) ? k : null;
 }
+export function snapOpacity(v: unknown): 'sheer' | 'semi' | 'opaque' | null {
+  const k = lc(v);
+  return k === 'sheer' || k === 'semi' || k === 'opaque' ? k : null;
+}
 export function snapDistressed(v: unknown): boolean | null {
   return typeof v === 'boolean' ? v : null;
 }
@@ -271,6 +277,7 @@ export function snapGarment(raw: unknown): GarmentMetadata | null {
     warmth_season: snapWarmth(r.warmth_season),
     can_layer: typeof r.can_layer === 'boolean' ? r.can_layer : null,
     distressed: snapDistressed(r.distressed),
+    opacity: snapOpacity(r.opacity),
     print_scale: snapPrintScale(r.print_scale),
     drape: snapDrape(r.drape),
     visual_interest: snapVisualInterest(r.visual_interest),
@@ -320,6 +327,7 @@ For EACH garment/accessory, output one JSON object with EXACTLY these fields:
 - "warmth_season": EXACTLY ONE of ${WARMTH.join(', ')}, or null.
 - "can_layer": true | false | null. ONLY for tops and light outerwear: true when the garment has a FULL-LENGTH front opening (buttons or zip the entire way down, or is designed to hang open) so it can be worn OVER another top — button-front overshirt/flannel/chore jacket, cardigan, open vest, knit meant to go over a shirt, AND a non-fitted, full-button-front shirt in ANY fabric (linen shirt, oxford shirt, camp-collar or short-sleeve button-front shirt — a light fabric does NOT disqualify it, only the closure does); false when there is no full front opening, even if soft or loose (thin tee, fitted blouse, camisole, henley or any other placket-only pullover — a henley's short neck placket does not count); null when unsure or not applicable (bottoms, shoes, accessories).
 - "distressed": true | false | null. true ONLY for visible INTENTIONAL wear or damage: rips, tears, frayed/raw hems, heavy fading or whiskering, acid/stone wash, deliberately abraded surfaces. false for a clean, undamaged garment — do NOT mark true for natural slubby texture (linen), a normal garment wash, a soft/worn-in feel, or vintage styling with no actual damage. null if unsure.
+- "opacity": "sheer" | "semi" | "opaque" | null. How much skin or the layer underneath shows through the fabric: sheer = clearly see-through (mesh, open knit, lace, chiffon, organza, voile, fishnet); semi = light show-through (thin white cotton, fine gauze); opaque = covers fully (the normal read for most garments). null if unsure.
 - "print_scale": "micro" | "medium" | "large" | null. Scale of the pattern/graphic AS WORN: micro = fine, reads almost solid from a distance (pinstripe, micro-dot); medium = clearly visible motif; large = dominant motif or oversized graphic covering much of the garment. null when the garment is plain solid.
 - "drape": "structured" | "regular" | "fluid" | null. How the fabric holds its shape: structured = crisp, keeps its own silhouette (blazer, starched poplin, raw denim); fluid = soft, flows and follows the body (silk, viscose, fine knit); regular = in between. null if unsure.
 - "visual_interest": number 0.0-1.0 or null. How visually striking this piece reads in the photo — texture depth, unusual cut, strong color presence, quality of finish. 0.2 = plain basic, 0.5 = solid everyday piece, 0.8+ = the piece that makes an outfit. null if the image is too unclear to judge.

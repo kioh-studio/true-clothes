@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
     const wardrobeRes = wardrobeId
       ? await supabase
           .from('clothing_items')
-          .select('id, type, name, color, material, fit, pattern, warmth_season, can_layer, print_scale, drape, visual_interest, photo_url, photo_storage, primary_hex, secondary_hex, graphics, distressed, m_chest, m_shoulder_width, m_sleeves, m_body_length, m_upper_arm, m_waist, m_hip, m_inseam, m_thigh, m_rise')
+          .select('id, type, name, color, material, fit, pattern, warmth_season, can_layer, print_scale, drape, visual_interest, photo_url, photo_storage, primary_hex, secondary_hex, graphics, distressed, opacity, m_chest, m_shoulder_width, m_sleeves, m_body_length, m_upper_arm, m_waist, m_hip, m_inseam, m_thigh, m_rise')
           .eq('wardrobe_id', wardrobeId)
       : { data: [] as Record<string, unknown>[], error: null };
 
@@ -293,6 +293,7 @@ Deno.serve(async (req) => {
         secondary_hex: row.secondary_hex as string | null | undefined,
         graphics: row.graphics as ClothingItemRow['graphics'],
         distressed: row.distressed as boolean | null | undefined,
+        opacity: row.opacity as ClothingItemRow['opacity'],
         measurements: measurements.length > 0 ? measurements : undefined,
       };
     });
@@ -864,6 +865,7 @@ function pinItemToRow(pin: Record<string, unknown>): ClothingItemRow {
     // distressed (2026-08-11): mirrors the hex fields just above — a scanned
     // Mix & Match item can carry this from its own extraction pass.
     distressed: typeof pin.distressed === 'boolean' ? pin.distressed : undefined,
+    opacity: pin.opacity === 'sheer' || pin.opacity === 'semi' || pin.opacity === 'opaque' ? pin.opacity : undefined,
     measurements: measurements && measurements.length > 0 ? measurements : undefined,
   };
 }

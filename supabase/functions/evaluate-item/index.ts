@@ -179,6 +179,7 @@ Deno.serve(async (req) => {
       // distressed (2026-08-11): mirrors pattern/material/fit above — a scanned
       // item's own extraction pass can supply this before it's ever saved.
       distressed: typeof rawItem.distressed === 'boolean' ? rawItem.distressed : undefined,
+      opacity: rawItem.opacity === 'sheer' || rawItem.opacity === 'semi' || rawItem.opacity === 'opaque' ? rawItem.opacity : undefined,
       measurements: measurements && measurements.length > 0 ? measurements : undefined,
     };
 
