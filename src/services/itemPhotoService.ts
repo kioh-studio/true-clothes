@@ -131,10 +131,20 @@ export async function ensureCloudCached(itemId: string, storagePath: string): Pr
   const ext: ImgExt = storagePath.toLowerCase().endsWith('.png') ? 'png' : 'jpg';
   const dest = absoluteFor(relativePathFor(itemId, ext));
   const info = await FileSystem.getInfoAsync(dest);
-  if (info.exists) return dest;
+  if (info.exists && info.size > 0) return dest;
   const url = await signedUrl(storagePath);
-  const { uri } = await FileSystem.downloadAsync(url, dest);
-  return uri;
+  // Atomic: download to a tmp sibling then move, so an interrupted download
+  // never leaves a truncated file at `dest`.
+  // ponytail: no checksum yet; upgrade path = compare Content-Length.
+  const tmp = `${dest}.part`;
+  try {
+    await FileSystem.downloadAsync(url, tmp);
+    await FileSystem.moveAsync({ from: tmp, to: dest });
+  } catch (e) {
+    await FileSystem.deleteAsync(tmp, { idempotent: true }).catch(() => {});
+    throw e;
+  }
+  return dest;
 }
 
 // ─── Cleanup ───────────────────────────────────────────────────────────────

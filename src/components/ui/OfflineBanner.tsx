@@ -31,6 +31,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
-  text:    { ...type.ui, fontSize: 10, color: T.color.secondary, letterSpacing: 0.8, flex: 1 },
-  dismiss: { ...type.ui, fontSize: 12, color: T.color.tertiary, marginLeft: 8 },
+  text:    { ...type.ui, paddingHorizontal: 2, fontSize: 10, color: T.color.secondary, letterSpacing: 0.8, flex: 1 },
+  dismiss: { ...type.ui, paddingHorizontal: 2, fontSize: 12, color: T.color.tertiary, marginLeft: 8 },
 });

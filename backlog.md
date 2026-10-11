@@ -9,6 +9,10 @@
 
 ## AH. Engine không có khái niệm "tổng độ ấm" của outfit (2026-08-12)
 
+> **2026-10-11:** đề xuất hướng fix MỚI cho 2 mục 🔴/🟠 dưới đây (đếm LỚP INNER thay vì cộng
+> cân nặng, miễn outer; Part B chỉ gate POLO, không gate SHIRT/TEE), kèm fix onepiece 8/10 formula
+> (§AE) và volume-on-volume (§AG) ở `docs/engine-proposals-2026-10-11.md`. Chờ anh Khôi duyệt.
+
 > ⚠ **ĐÃ THỬ SỬA VÀ ĐÃ REVERT trong cùng phiên 2026-08-12.** Bản sửa deploy lên
 > production (fn version 64), rồi A/B với baseline mới lộ ra là nó giết nhầm một
 > loạt outfit chuẩn → revert (`git checkout HEAD -- .../engine/`) + deploy lại
@@ -64,21 +68,6 @@
 
 ## AG. Phát hiện từ screenshot feed 2026-08-12
 
-- [ ] 🟡 **Collage lệch trái, trống hẳn góc dưới-phải** (2026-08-12) — sau khi thu nhỏ
-  scale (`COLLAGE` trong `src/components/outfit/collageLayout.ts`), bố cục đọc thành hình
-  chữ L: anchor cột trái (9–39 wu) + cột phụ bên phải (~56–82 wu) + hàng phụ kiện dồn hết
-  về trái vì `centerX = anchorBox.left + anchorBox.w / 2` — mọi hàng accessory căn theo
-  centerline của anchor. Với anchor ở cột trái thì cả 3 tầng đều nặng bên trái, để lại một
-  mảng trống lớn ở góc dưới-phải và một "rãnh" dọc ~17 wu giữa hai cột. Chưa sửa: đây là
-  lựa chọn cố ý trước đó (một phụ kiện lẻ căn giữa khung đọc như bị rời khỏi anchor — xem
-  comment ~dòng 268), nên đổi sang căn giữa toàn khung / căn giữa bounding-box của cả
-  composition là một trade-off thẩm mỹ, phải hỏi anh Khôi trước.
-- [ ] 🟢 **Header nhiệt độ hiển thị "–" trong khi card ghi "15–22°C"** (2026-08-12) —
-  `app/(tabs)/index.tsx:215` fallback về `t('tabs_home_weatherLabel')` = `"–"` khi
-  `weatherContext` null (weather chưa load / bị từ chối quyền vị trí), còn `outfit.weather`
-  trên meta line là dải nhiệt độ tĩnh của outfit chứ không phải thời tiết thật. Hai con số
-  cạnh nhau mâu thuẫn về mặt đọc. Cần quyết: ẩn hẳn cụm nhiệt độ header khi chưa có dữ
-  liệu, hay retry/hiện lý do.
 - [ ] 🟢 **Chấm xanh lạ giữa vùng trống cột phải** (2026-08-12) — thấy trong screenshot ở
   ~66% chiều ngang, ngay dưới polo. Không truy được nguồn trong code: card chỉ render 5
   slot collage (đúng 5 món, đều hiện) + rail action, `buildLayout` lọc `hasImage`, và
@@ -294,6 +283,11 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
   đưa vào CI để có blind A/B judge thật; hiện các vòng đo đều chấm tay theo rubric.
 ## B. Cần thiết bị thật / dữ liệu thật (không verify được từ máy dev)
 
+- [ ] **Verify 3 fix UI 2026-10-11 trên máy thật**: (1) header Home ẩn hẳn cụm nhiệt độ khi
+  weather null (không còn '–'); (2) collage: hàng phụ kiện căn giữa theo bbox toàn bộ quần áo thay
+  vì anchor — xem có còn hình chữ L / rãnh dọc không, và phụ kiện lẻ có bị 'rời' anchor không
+  (trade-off cũ, em tự quyết, anh Khôi xem rồi chốt); (3) Android: chữ cuối Tag/Segmented/Field
+  label/Photo/OfflineBanner không còn bị cắt sau khi thêm paddingHorizontal 2.
 - [ ] **Collage flow layout — chưa verify trực quan trên máy thật** (2026-08-12) — layout
   collage mới (anchor to nhất bên trái / căn giữa khi không có secondary; secondaries cột
   phải top-aligned theo Y anchor; accessories hàng dưới cùng trải đều + wrap; scale-to-fit
@@ -697,7 +691,7 @@ Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offlin
 
 ## J. Kinh te don vi / chi phi bien — audit 2026-08-04 (truoc khi dinh gia subscription)
 
-- [ ] **Deadline cung: `gemini-2.5-*` bi Google tat 16/10/2026** (2026-08-04) — PARTIALLY
+- [ ] **Deadline `gemini-2.5-*` 16/10/2026 ĐÃ BỊ GOOGLE GỠ (verify 2026-10-11) — giữ như việc resilience, không khẩn** (2026-08-04) CẬP NHẬT 2026-10-11: trang deprecations (last updated 2026-10-09) ghi 2.5-flash/-lite/-pro "No shutdown date announced", "served until further notice", NHƯNG chỉ cho project đã từng dùng 2.5 và tháng 7/2026 từng 404 vài giờ → vẫn nên test sẵn secret `GEMINI_FLASH_MODEL` thay thế để rollback nhanh. — PARTIALLY
   ADDRESSED 2026-08-11: toàn bộ 9 chỗ gọi Gemini giờ đọc `GEMINI_FLASH_MODEL` qua env override
   (xem mục ngay trên), nên đổi model thật sau này chỉ là 1 lần `supabase secrets set`, không
   cần deploy code. NHƯNG default hardcoded VẪN CỐ Ý giữ `gemini-2.5-flash` (anh Khôi quyết
@@ -707,13 +701,17 @@ Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offlin
   `gemini-3-pro-image-preview` (image-gen tier) hoá ra ĐÃ bị tắt từ 2026-06-25 (đã qua), không
   phải deadline tương lai — production đã gọi model đã retired suốt từ đó tới hôm nay. Đổi
   sang `gemini-3-pro-image` (GA), giá không đổi (~$0.134/ảnh).
-- [ ] **Don bay giam gia von lon nhat: doi model image-gen** (2026-08-04) — **VẪN CHƯA LÀM**,
-  đừng nhầm với fix 2026-08-11 ở trên (2 việc khác nhau): fix hôm đó chỉ SỬA model đã bị
-  Google retired (`gemini-3-pro-image-preview` → `gemini-3-pro-image`, GIÁ KHÔNG ĐỔI, cùng
-  ~$0.134/ảnh) — KHÔNG phải đòn bẩy giảm giá vốn này (đổi sang Flash Image/Imagen rẻ hơn
-  ~50-85%). Vẫn cần A/B chất lượng ảnh trước khi đổi. `GEMINI_IMAGE_MODEL` env override
-  (mới, 2026-08-11) giờ làm việc thử-rồi-rollback này rẻ hơn nhiều — chỉ cần đổi secret,
-  không cần deploy.
+- [ ] **Đổi model image-gen — khảo sát xong 2026-10-11, chờ A/B** (gốc 2026-08-04; chi tiết
+  `docs/image-gen-model-survey-2026-10.md`). Đề xuất cũ 'Flash Image / Imagen' đã CHẾT: Imagen 4
+  discontinued trên Vertex, gemini-2.5-flash-image shutdown 2026-10-02. Tầng rẻ hiện tại:
+  `gemini-3.1-flash-image` (~$0.067, −50%) và `3.1-flash-lite-image` (~$0.0336, −75%) so với
+  `gemini-3-pro-image` $0.134. Chi phí/ảnh THÀNH CÔNG = giá × (1 + retry) + 1 validator mỗi lần
+  fail → flash chỉ đắt hơn pro khi retry của nó > 2× pro. Khuyến nghị: A/B flash cho EXTRACTION
+  (bài dễ, kỳ vọng dùng được), GIỮ pro cho TRY-ON (lỗi danh tính/hoạ tiết đắt hơn phần tiết
+  kiệm), chỉ thử flash 10–20% lưu lượng try-on. Đo: ΔE màu, logo đọc được, identity similarity,
+  validator pass rate, p50/p95; ≥100 ảnh/nhánh; go khi pass ≥90% của pro, ΔE +≤2, cost −≥30%.
+  Đổi model = đổi secret `GEMINI_IMAGE_MODEL`, không cần deploy. Chưa verify: giá OpenAI/ảnh,
+  FASHN/Kling, SynthID, flash có nhận nhiều ảnh tham chiếu không.
 - [ ] **Plan switching moi wire cho iOS, chua xu ly Android** (2026-08-05, phat sinh tu viec
   fix hai item tren). Luong upgrade/downgrade goi trong `handlePurchase` -> `purchase(pkg)`
   -> `Purchases.purchasePackage(pkg)` khong truyen them tham so gi, dua vao viec Apple tu
@@ -761,13 +759,6 @@ Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offlin
   Android configure bằng key iOS. Đây là lỗi THẬT của bản Android production, không phải hạn
   chế emulator (lỗi `BILLING_UNAVAILABLE` đi kèm mới là do emulator không có Play Billing).
   → Phải sửa trước khi phát hành Play: tách key theo `Platform.OS` ở `app/_layout.tsx:81`.
-- [ ] **Chu bi cat ky tu cuoi do letterSpacing (Android)** (2026-08-04) — token `type.ui` /
-  `type.micro` co `letterSpacing` 1.5/1.8; Android lam tron chieu rong text xuong nen glyph cuoi
-  bi clip ("BEGIN" -> "BEGI"). Da vá `PrimaryButton`, `SecondaryButton`, `TextLink` bang
-  `paddingHorizontal: 2`. Cac cho khac dung cung token van chua vá: `Tag.tsx`, `Segmented.tsx`,
-  `Field.tsx` (label + TextInput), `Photo.tsx`, `OfflineBanner.tsx`, va cac style inline
-  `...type.ui` trong app/*. Can ra soat tren may Android that roi vá dong loat (hoac them padding
-  ngay trong token, tru cho TextInput).
 
 ## K. Review 3 engine (suggest / rating / try-on) — 2026-08-06 (đề xuất, chưa duyệt)
 
@@ -953,16 +944,16 @@ Phát hiện khi siết `filterByStyle` theo 2 trục mới (xem `plan.md` "Styl
 `BannedFeature` vocabulary + `typesBanned`" cùng ngày). Giữ nguyên toàn bộ diff đã ship —
 các mục dưới đây là những gì CHƯA làm, cố ý dừng để báo cáo thay vì tự mở rộng.
 
-- [ ] **`sheer`/`cutout`/`sequin`/`animal_print` — CHƯA thêm vào `BannedFeature`** — đúng
-  theo nguyên tắc "chỉ thêm feature có tín hiệu suy được": rà `FitItem` (colorProfile,
-  graphics, fabric.pattern) không có field nào carry được 4 tín hiệu này. Cần sửa pipeline
-  extraction (ingest-time AI/manual) trước — thêm attribute mới vào `ClothingItemRow`/
-  `FitItem`, có ripple sang `generate-item-image`/`backfill-item-metadata`. Việc riêng,
-  ngoài scope task này. **CẬP NHẬT 2026-08-11**: giờ đã có tiền lệ đầy đủ để copy —
-  `distressed` (mục ngay trên) đi đúng con đường này (cột DB nullable + field trên
-  `FitItem`/`FabricProfile` + enforcement fail-open trong `featuresPasses` + backfill sau) và
-  đã chứng minh chạy được end-to-end. Làm 4 feature này chỉ là lặp lại đúng pattern đó 4 lần,
-  không cần thiết kế lại từ đầu.
+- [ ] **`sheer` mới chạy bằng keyword tên/material — nối cột `opacity` khi project hết pause**
+  (2026-10-11). 4 BannedFeature `sheer`/`cutout`/`sequin`/`animal_print` đã vào engine (plan.md
+  cùng ngày). `animal_print` = trục pattern (`Pattern` thêm `'animal'`, extraction vocab đã thêm).
+  `sheer` dự định đọc `clothing_items.opacity` (migration 20260814000001 có sẵn) nhưng project
+  INACTIVE lúc làm nên KHÔNG verify được cột tồn tại live → chưa thêm vào `.select()` (thiếu cột
+  = 400 mọi request). Việc còn lại khi un-pause: verify cột qua Mgmt API; thêm `opacity` vào
+  select + row map của generate-outfits/wardrobe-critic/evaluate-item (mirror `distressed`);
+  thêm `opacity` vào extraction schema `generate-item-image/prompt.ts` (+`snapOpacity`) và
+  backfill-item-metadata (row type, or-filter, patch-if-null). `sequin`/`cutout` cố ý chỉ
+  keyword (ponytail) — nâng cấp = cột nullable + field extraction như `distressed` nếu thấy miss.
 - [ ] **`abstract_print` được implement (vào `BannedFeature` + `featuresPasses`) nhưng
   KHÔNG gán cho style nào** — bucket `abstract` gộp chung `print`/`abstract`/`camo`/
   `polka dot` (`enrichment.ts` `STORED_PATTERN_MAP`) quá dị biệt để có case "chắc chắn":
@@ -1022,11 +1013,6 @@ những gì đợt này phát hiện thêm mà CHƯA làm.
   "đã ghé qua và bỏ qua" với "chưa bao giờ ghé qua" — nên resume sẽ đưa user quay lại đúng bước
   đó dù họ đã cố ý skip trước đây (tệ nhất chỉ là bấm Skip lại 1 lần, không mất dữ liệu). Muốn
   chính xác tuyệt đối cần thêm checkpoint thật (cột/bảng mới) — chưa authorize, chỉ ghi nhận.
-- [ ] **`sheer`/`cutout`/`sequin`/`animal_print` giờ có tiền lệ đầy đủ để làm theo** — xem mục
-  đã cập nhật ở section AC phía trên: `distressed` hôm nay đã đi trọn vẹn con đường "cột DB
-  nullable + field trên `FitItem` + enforcement fail-open + backfill sau" — 4 feature này chỉ
-  cần lặp lại đúng pattern đó, không cần thiết kế mới. Vẫn cần anh Khôi duyệt trước khi làm
-  (đổi vocabulary + ripple sang ingestion, giống mọi lần trước).
 - [ ] **Theo dõi xáo trộn thứ hạng feed sau khi deploy `ranking.ts`'s re-sort** (2026-08-11) —
   đo bằng eval harness (before/after engine copy diff): outfit SET không đổi, nhưng với
   `streetwear` fixture, 23/24 outfit chung đổi vị trí và top-10 hiển thị turn-over 40% (4
@@ -1035,14 +1021,14 @@ những gì đợt này phát hiện thêm mà CHƯA làm.
   người dùng thật (feed có "nhảy" bất thường không) sau khi deploy `generate-outfits`.
 - [ ] **Quyết định gemini-2.5-flash-lite cần xem lại NGAY khi Google công bố shutdown date**
   (2026-08-11) — quyết định "ở lại lite tier" (section J, mục model env override) là cost-first
-  VÀ có điều kiện: hiện KHÔNG có deadline nào cho `gemini-2.5-flash-lite` (khác hẳn 2.5-flash/
-  -pro đã có 16/10/2026). `GEMINI_FLASH_LITE_MODEL` env override đã tồn tại nên khi cần đổi chỉ
+  VÀ có điều kiện: hiện KHÔNG có deadline nào cho `gemini-2.5-flash-lite` (2.5-flash/-pro cũng vậy
+  từ 2026-10-11, Google đã gỡ ngày 16/10/2026). `GEMINI_FLASH_LITE_MODEL` env override đã tồn tại nên khi cần đổi chỉ
   là đổi secret — nhưng cần AI Khôi/agent nào đó chủ động theo dõi trang deprecations của Google
   định kỳ, vì không có cơ chế tự động cảnh báo. 2 đường nâng cấp đã định giá sẵn trong code
   comment (`describe-outfit/index.ts`, `evaluate-item/note.ts`): `gemini-3.1-flash-lite`
   ($0.25/M in, $1.50/M out, tự nó cũng shutdown 2027-05-07) hoặc `gemini-3.5-flash-lite`
   ($0.30/M in, $2.50/M out, chưa công bố shutdown).
-- [ ] **Flash-tier migration ĐẾN HẠN trước 16/10/2026 — chỉ còn cách 1 Supabase secret**
+- [ ] **Flash-tier migration — KHÔNG CÒN deadline 16/10/2026 (Google gỡ, verify 2026-10-11), vẫn chỉ cách 1 Supabase secret**
   (2026-08-11) — anh Khôi quyết định GIỮ default `gemini-2.5-flash` (không đổi sang
   `gemini-3.6-flash` như một session trước từng làm rồi bị revert) vì `GEMINI_FLASH_MODEL`
   override đã tồn tại ở mọi call site (`generate-item-image`, `backfill-item-metadata`,
@@ -1053,8 +1039,8 @@ những gì đợt này phát hiện thêm mà CHƯA làm.
   5x input / 3x output so với `gemini-2.5-flash` hôm nay ($0.30/$2.50); (2)
   `gemini-3.5-flash-lite` — cost-neutral ($0.30/$2.50, chưa công bố shutdown) nhưng tier lite
   yếu hơn ở vision so với flash hiện tại. Ai nhặt việc này lên cần cân nhắc giá vs chất lượng
-  vision trước 16/10/2026 — xem `generate-item-image/index.ts`'s VISION_MODEL comment để có
-  lý do đầy đủ.
+  vision khi Google công bố lại ngày shutdown, hoặc khi 2.5-flash bắt đầu 404 — xem `generate-item-image/index.ts`'s VISION_MODEL comment để có
+  lý do đầy đủ. Lưu ý khi đổi sang Gemini 3: `curator.ts` ~dòng 234 ghi Gemini 3 cần tắt thinking theo cách khác → test curator + tryon-validate ngay sau khi set secret.
 - [ ] **`proportionBalance`'s target-silhouette blend vẫn KHÔNG đo được bằng eval harness**
   (2026-08-11, phát hiện khi làm mục trên) — `run.ts` không bao giờ gọi
   `resolveTargetSilhouette` (silhouette.ts) để build `ctx.targetSilhouette`/`silhouetteConf`,
@@ -1109,52 +1095,18 @@ Seeded `demo-woman@mien.app` (uid `b543c515-0b5d-4b8e-8d40-caf76a46ed67`) on the
 True Winter premium persona + partial womenswear wardrobe. Detail in `plan.md` same date. Open
 items below — stopped rather than improvised, per this task's ground rules.
 
-- [ ] **`delete-user` doesn't protect the new account.** Its guard is
-  `account_type in ('demo','admin')` (`supabase/functions/delete-user/index.ts:66`), but this
-  account is `premium` as requested — and the demo password ships in the public JS bundle, so
-  anyone with the app can sign in as demo-woman and permanently delete it. Fix option: extend the
-  guard to also protect emails in `DEMO_ACCOUNTS`. Needs a redeploy — not done here.
 - [ ] **All 32 imported womenswear items have NULL `m_*` measurements and NULL `size`** (7 from
   phase 1 + 4 from phase 2 + 6 from phase 3 + 15 from phase 4, 2026-08-12), so the fit engine
   scores them neutrally;
   the wardrobe-critic results for this account exercise style/colour but not fit. Compare the man
   demo, which carries `size` on 32/32 and `m_*` on 30/32. Would need real size-chart data per SKU
   (same root cause the source product pages never exposed price/size — see backlog §AD).
-- [ ] 🔴 **Cardigan renders with its bottom half missing in the feed collage** (2026-08-12, user
-  screenshot of `cardigan_cream` in demo-woman's feed). NOT yet root-caused. Ruled out with
-  evidence, so don't re-investigate these:
-  - The asset is fine — `assets/items/cardigan-cream.png` (1200×1600) contains the whole garment.
-  - The Storage object is fine — 551270 bytes, byte-identical to the local PNG (and all 17 of that
-    wardrobe's objects match their local assets exactly).
-  - `contentBounds.measureContentBounds` does NOT truncate it. Ported verbatim into Node and run
-    over the real bytes through a faithful repro of `contentBoundsUri.ts`'s resize→flatten→JPEG
-    pipeline: measured bottom edge 0.8082 vs true alpha bbox bottom 0.7806 — *generous* by ~2.8%,
-    i.e. the deliberate `PAD`. Same result flattening alpha to white and to black, and with a naive
-    unpremultiplied downscale. Same test over `blouse-white`, `camisole-blush`,
-    `dress-floral-midi`, `skirt-pleated-beige`, `coat-trench-beige`, `sneakers-white-women` — all
-    generous by 1.7–2.9%, none truncated.
-  - `ASPECT` missing a `CARDIGAN` entry (also missing `SWEATER`/`HOODIE`/`VEST`/`PARKA`) cannot
-    crop: `Collage.tsx:34-48` only clips in the `measure` branch, and when an item is measured
-    `item.aspect` is used directly so `ASPECT` is never consulted; unmeasured items render
-    `resizeMode="contain"`, which letterboxes rather than crops. Worth filling in anyway for
-    correct slot sizing, but it is not this bug.
-  - The uncommitted 2026-08-12 `COLLAGE` retune only changes size caps/gaps; `fitTopLeft` and the
-    scale-to-fit pass both preserve aspect, so they can reposition/shrink boxes but never crop.
-  - `Collage.tsx`'s crop maths were re-derived by hand and are correct
-    (`left = -(rect.x/rect.w)*100%` with `width = (1/rect.w)*100%` maps the rect's left edge to 0).
-  - `useItemContentMeasure.ts` has no consumers outside its own feature, so the collage is the only
-    surface that crops — the screenshot must be the feed.
-  Leading remaining hypothesis: a **truncated on-device cache file**. `ensureCloudCached`
-  (`src/services/itemPhotoService.ts:129-138`) returns a cached file on `info.exists` alone — no
-  size check, no checksum, no decode probe, no retry — so a `downloadAsync` interrupted partway
-  (backgrounding, low storage, dropped connection) leaves a partial PNG that is served forever
-  after. PNG being scanline-encoded top-to-bottom, a truncated file renders exactly like this:
-  top intact, bottom gone. NEXT STEP (needs a device — anh Khôi has to launch the emulator):
-  compare the cached file's byte size on the repro device against 551270. If it is short, that
-  confirms it. Fix would be to validate size/decode before trusting the cache and re-download on
-  failure, plus a per-itemId in-flight promise map to stop concurrent remounts racing (the pattern
-  in `contentBoundsUri.ts:35` already does this), plus a one-time cache sweep for devices already
-  holding a corrupted file.
+- [ ] **Cardigan mất nửa dưới trong collage — đã sửa nguyên nhân nghi ngờ, CHƯA verify trên máy**
+  (gốc 2026-08-12, sửa 2026-10-11). Giả thuyết còn lại duy nhất (file cache tải dở bị dùng mãi) đã
+  đóng: `ensureCloudCached` giờ tải vào `.part` rồi `moveAsync` (atomic), file 0 byte coi như
+  thiếu. Cũng đã điền `ASPECT` cho CARDIGAN/SWEATER/HOODIE/VEST/PARKA/GILET/WINDBREAKER. Việc
+  còn lại: xoá cache app trên máy demo-woman, mở feed, chụp lại cardigan_cream. Nếu vẫn lỗi thì
+  giả thuyết sai — lúc đó đọc lại danh sách đã loại trừ trong git history của mục này.
 - [ ] **`TYPE_OPTIONS` offers 10 garment types the DB will reject** (2026-08-12, found while adding
   `FLATS`; 8 of 10 now closed as of 2026-08-13). `src/features/wardrobe-add/vocab.ts:7` lets the
   user pick any of 55 types, but `clothing_items.type` has an FK to `garment_types(type_key)` and
@@ -1337,58 +1289,20 @@ had NO resulting-shape preference"). Bốn việc chủ động hoãn lại khi 
 
 ## Chặn release (rà 2026-08-29)
 
-- [ ] **Chuyển đăng nhập demo sang edge function `demo-signin`** (2026-08-30) — anh Khôi chốt
-  hướng: bỏ `EXPO_PUBLIC_DEMO_PASSWORD` khỏi client bundle, đẩy việc sign-in sang edge function
-  giữ secret. Lưu ý MIEN hiện KHÔNG có edge function auth nào (OTP thật đi thẳng Supabase Auth
-  qua `verifyEmailOtp`/`verifyPhoneOtp`; nhánh demo bypass hoàn toàn client-side trong
-  `authStore.ts:verifyOtp`). Rủi ro còn lại KHÔNG phải tiền mà là: nhiều người lạ dùng chung một
-  uid demo -> ghi đè wardrobe seeded (32 items) và profile của nhau, phá trải nghiệm demo của
-  Apple reviewer. **Phạm vi mở rộng 2026-08-30 theo anh Khôi chốt:** không làm riêng function
-  demo nữa mà gom TOÀN BỘ login/OTP về một edge function `auth`; function chỉ gọi lại đúng các
-  hàm Supabase Auth client đang gọi, khác duy nhất là email/phone trong demo whitelist thì auto
-  pass. Instruction đầy đủ ở `docs/auth-edge-function-instruction.md`, sẵn sàng giao Sonnet.
-  Rào cản quan trọng nhất đã tra ra: Supabase Auth rate-limit `verifyOtp` 360/giờ mỗi IP (burst
-  30, KHÔNG chỉnh được), nên khi proxy qua edge function tất cả user chung một IP — phải gửi
-  header `Sb-Forwarded-For` (Supabase KHÔNG honor `X-Forwarded-For`), và header này phải bật
-  riêng + cần secret key.
-  **2026-08-30 — ĐÃ IMPLEMENT** (`supabase/functions/auth/index.ts` + `index_test.ts`,
-  `authService.ts`, `demo.ts`, `authStore.ts`, `eas.json`, `.env`, 2 file i18n). Kiểm tra:
-  `tsc --noEmit` sạch, `npx jest` 602/602 (44 suite), `deno test` 17/17. CHƯA deploy, CHƯA
-  commit. Còn lại của anh Khôi — rà lại 2026-09-12:
-  - (a) secrets `DEMO_PASSWORD` + `DEMO_WHITELIST` — **ĐÃ SET** (`supabase secrets list` cho
-    thấy cả hai, updated 2026-09-07). Xong.
-  - (b) deploy `auth` — **ĐÃ XONG**; `POST /functions/v1/auth` với anon key trả
-    `{"error":"Not found"}` cho action lạ, tức code function đã chạy. Lưu ý: deploy hiện tại
-    BẬT `verify_jwt` (gọi không header -> `UNAUTHORIZED_NO_AUTH_HEADER` từ gateway), và như
-    vậy là ĐÚNG — supabase-js gửi anon key làm bearer nên login vẫn qua được; KHÔNG cần
-    `--no-verify-jwt` như instruction cũ viết.
-  - (c) **CÒN LẠI, sửa lại theo docs 2026-09-13** (https://supabase.com/docs/guides/auth/rate-limits):
-    `Sb-Forwarded-For` chỉ được Supabase honor khi ĐỒNG THỜI (i) bật "IP Address Forwarding" ở
-    Dashboard → Authentication → Rate Limits VÀ (ii) request dùng SECRET API key
-    (`sb_secret_...`) — publishable key và anon/service_role key kiểu cũ ĐỀU KHÔNG được hỗ trợ.
-    `supabase/functions/auth/index.ts:30,123` hiện dựng client bằng `SUPABASE_ANON_KEY` -> header
-    đang bị bỏ qua dù có bật setting trên dashboard hay không.
-    Việc còn lại: tạo/dùng một secret key, đổi `buildAuthClient` sang key đó (vẫn giữ
-    `persistSession: false`, không bao giờ trả key ra ngoài), rồi mới bật setting trên dashboard.
-    - ĐÃ XÁC NHẬN 2026-09-13 là giả được: `getClientIp` (`supabase/functions/auth/index.ts:108`)
-      lấy phần tử ĐẦU của `x-forwarded-for`, nhưng Supabase KHÔNG ghi đè header client gửi mà nối
-      IP thật vào sau (`x-forwarded-for: spoofed,68.65.164.215`) — nguồn
-      https://github.com/orgs/supabase/discussions/34647. Header `cf-connecting-ip` chứa IP thật.
-    - Hệ quả: rate limit `/verify` của Supabase CHỈ theo IP, không có khoá theo user
-      (https://github.com/orgs/supabase/discussions/26477) → nếu bật forwarding với code hiện
-      tại, attacker xoay IP giả mỗi request và brute-force OTP 6 số được.
-    - Hiện trạng (chưa bật) có lỗ ngược lại: mọi user chung một bucket IP của function (burst
-      30) → một người spam 30 request sai là chặn login của toàn bộ user (DoS), không mất tài
-      khoản.
-    - Kế hoạch sửa, CHỜ anh Khôi duyệt, làm theo thứ tự:
-      1. Deploy tạm function probe echo headers, gọi với `X-Forwarded-For` giả để xác nhận cấu
-         trúc trên project mình, rồi xoá probe. Chọn `cf-connecting-ip` hoặc phần tử CUỐI của XFF.
-      2. **DONE 2026-09-13** — giới hạn 5 lần/15 phút theo từng phone/email (bucket riêng
-         send/verify), độc lập IP: bảng `public.otp_attempts` + fn `consume_otp_attempt` (migration
-         `20260913000001_otp_attempt_rate_limit.sql`, đã apply lên production), gọi từ
-         `handleSendOtp`/`handleVerifyOtp` trước nhánh demo. `auth` đã deploy version 2. Chi tiết ở
-         `plan.md` 2026-09-13.
-      3. Đổi `buildAuthClient` sang secret key + bật IP Address Forwarding trên dashboard.
+> **Quyết định 2026-10-11 (anh Khôi):** KHÔNG làm edge function riêng cho demo login (một
+> endpoint demo tách riêng là pattern dễ bị reverse-engineer). **Lưu ý hiện trạng:** edge
+> function `auth` (gom TOÀN BỘ send-otp/verify-otp, demo whitelist lẫn trong cùng flow — không
+> có endpoint demo riêng) ĐÃ implement + deploy từ 2026-08-30 và client đang gọi qua
+> `authService.ts` (`sb.functions.invoke('auth/...')`). Quyết định này không yêu cầu gỡ nó;
+> nếu anh Khôi muốn quay về OTP thẳng Supabase client-side thì là việc riêng, chưa chốt.
+
+- [ ] **`auth` fn: đổi `buildAuthClient` sang secret key (`sb_secret_...`) + bật IP Address
+  Forwarding** (còn lại từ mục auth 2026-09-13, tách ra 2026-10-11 khi dọn mục gốc). Hiện
+  `supabase/functions/auth/index.ts` dựng client bằng `SUPABASE_ANON_KEY` nên `Sb-Forwarded-For`
+  bị Supabase bỏ qua → mọi user chung một bucket IP (burst 30) → một người spam 30 request sai
+  là chặn login toàn bộ user (DoS, không mất tài khoản). Per-identifier limit 5/15' đã có
+  (`consume_otp_attempt`). Trước khi bật forwarding phải sửa `getClientIp` lấy `cf-connecting-ip`
+  hoặc phần tử CUỐI của XFF (phần tử đầu giả được — supabase discussions/34647).
 
 Trạng thái code lúc rà: `npx jest` 602/602 pass (44 suite), `npx tsc --noEmit` sạch. Chất lượng
 code KHÔNG phải thứ đang chặn release.
@@ -1400,27 +1314,6 @@ code KHÔNG phải thứ đang chặn release.
   https://claude.ai/code/artifact/f7bb4297-611e-4cd8-bd73-c210f5ea938c
   Nguồn: scratchpad `page.tpl.html` + `mien-closet.html` — chưa commit vào repo.
 
-- [ ] 🔴 **ĐỔI PASSWORD APPLE ID — đã phơi nhiễm công khai, chưa xoay** (2026-09-06, xử lý
-  2026-09-12). Password Apple ID từng nằm plaintext trong `.claude/settings.local.json`
-  (permission allow-list của EAS build), rồi bị chép lại lần hai vào chính mục backlog này và
-  commit lên (`c2547f1`, 2026-09-06) khi repo **đang PUBLIC**.
-  ĐÃ LÀM 2026-09-12:
-  - Xoá chuỗi khỏi HEAD, commit + push.
-  - Chuyển repo `kioh-studio/true-clothes` về **PRIVATE** (`gh repo edit --visibility private`).
-    Muốn public lại thì đổi password xong đã.
-  - `git filter-repo --replace-text` trên toàn bộ history + force push 2 nhánh có dính
-    (`010-wardrobe-critic`, `main`); 4 nhánh cũ không dính nên SHA giữ nguyên. Verify: quét
-    toàn bộ blob của mọi ref -> 0 hit. Backup trước khi rewrite ở scratchpad phiên
-    (`pre-rewrite-backup.bundle`, 143MB) — scratchpad sẽ bị dọn, không phải nơi giữ lâu dài.
-  CÒN LẠI:
-  - **Đổi password trên appleid.apple.com** + rà thiết bị/phiên lạ trong Apple ID. Đây là fix
-    dứt điểm DUY NHẤT: rewrite history không cứu được, vì repo đã public một thời gian và
-    GitHub vẫn giữ commit mồ côi `c2547f1` — verify 2026-09-12 `gh api .../commits/c2547f1`
-    vẫn trả patch chứa password (commit `a08a978` cũng còn tồn tại). Private chỉ chặn người
-    ngoài, không xoá.
-  - Sau khi đổi xong: mở ticket GitHub Support xin GC dangling objects (`c2547f1`, `a08a978`)
-    rồi mới cân nhắc public lại.
-  - KHÔNG chép lại giá trị password vào bất kỳ file nào trong repo, backlog này bao gồm.
 
 - [ ] **Không có cơ chế nào rà credential trước khi commit** (2026-09-12) — phát hiện khi anh
   Khôi hỏi "sao bảo có rule rà credential rồi mà". Soi lại: `.git/hooks/` rỗng (không có
@@ -1501,14 +1394,14 @@ code KHÔNG phải thứ đang chặn release.
   wrapper (`src/services/analytics.ts`) đã sẵn, event catalog đã instrument đủ 12 event, nhưng
   đang là no-op hoàn toàn vì key rỗng (`.env` + cả 3 profile `eas.json`). Anh Khôi tạo project
   trên posthog.com rồi paste key vào — không cần deploy lại, chỉ cần set EAS env + build lại.
-- [ ] **Cập nhật Privacy Policy trên site Kioh + App Privacy label trên ASC** (2026-09-22) — trước
-  khi bật PostHog thật: khai "Usage Data → Product Interaction", linked to user (do có
-  `identify(userId)`), purpose Analytics; not used for tracking (không share cross-app/cross-site).
-  Phải làm trước khi submit build có PostHog key thật.
+- [ ] **Điền App Privacy label trên ASC theo `docs/app-privacy-label-asc.md`** (2026-10-11) — policy trên site đã cập nhật (PostHog/Sentry/feedback); label trong ASC phải bấm tay, chưa làm.
 - [ ] **delete-user chưa xoá person trên PostHog** (2026-09-22) — `authStore.deleteAccount` gọi
   `resetAnalytics()` (chỉ xoá state trên máy) nhưng không gọi PostHog API xoá person theo uuid ở
   server. Cần thêm bước gọi PostHog's delete-person API (hoặc trong edge function `delete-user`)
   khi tài khoản bị xoá, để không giữ lại dữ liệu người dùng đã yêu cầu xoá.
+  **2026-10-11:** privacy policy trên site ĐÃ hứa 'xoá tài khoản cũng xoá hồ sơ analytics' →
+  phải làm xong mục này TRƯỚC khi set `EXPO_PUBLIC_POSTHOG_KEY` thật (cần PostHog personal API
+  key + project id làm secret cho `delete-user`).
 - [ ] **Cần native rebuild** (2026-09-22) — thêm `expo-device`/`expo-application` (native modules,
   do `posthog-react-native` cần) — build hiện tại (nếu có) không có 2 module này, phải rebuild
   native trước khi analytics chạy thật trên device.
@@ -1516,3 +1409,35 @@ code KHÔNG phải thứ đang chặn release.
   `20260922000001_feedback.sql` chỉ có RLS chặn user đọc/sửa/xoá bài của người khác, chưa chặn
   spam insert (không giới hạn số lượt/ngày). Ghi chú `ponytail` ngay trong file migration — thêm
   trigger nếu thấy spam thật.
+
+## AI. Việc phát sinh từ research thị trường MIEN (2026-10-10)
+
+> Nguồn: `reports/MIEN khả thi thị trường 2026.md` + `research_notes/MIEN khả thi thị trường 2026/`.
+> Kết luận report: lợi thế MIEN = số đo on-device + verdict trung lập tại điểm mua, KHÔNG phải
+> AI try-on (ChatGPT Try On toàn cầu 2026-10-01; Google Photos Wardrobe đã ra ở US/IN/BR).
+
+- [ ] **Quyết định mô hình giá: freemium AI-credit → hard paywall / trial ngắn cho verdict,
+  try-on, Critic?** (2026-10-10, trade-off — anh Khôi quyết). Benchmark RevenueCat 2026:
+  trial→paid 10.7% hard paywall vs 2.1% freemium; revenue/install D60 $3.09 vs $0.38.
+  Rủi ro hiện tại: 3 lượt try-on Pro miễn phí ≈ $0.40/install, hơn nửa LTV trung vị Lifestyle
+  ($0.70). Nếu giữ free credit thì phải dùng Flash hoặc on-device, Pro Image chỉ cho paid.
+- [ ] **PDPL cho try-on cloud — nghiên cứu xong, cần luật sư chốt 3 điểm** (2026-10-11, từ
+  `docs/compliance-pdpl-appstore-tax-2026-10.md`). Kết luận sơ bộ: cần 2 hồ sơ (DPIA + chuyển dữ
+  liệu ra nước ngoài, Mẫu 09 + 01a) nộp A05 trong 60 ngày kể từ khi bắt đầu xử lý — không bắt
+  buộc trước launch nhưng nên nộp sớm. Chưa chốt: (1) ảnh full-body có là sinh trắc (nhạy cảm)
+  hay chỉ 'hình ảnh cá nhân' (cơ bản); (2) cá nhân chưa đăng ký hộ kinh doanh có được miễn trừ
+  5 năm (NĐ 356 Đ.41) không; (3) consent screen hiện tại đủ yếu tố luật đòi chưa. Phạt tối đa
+  5% doanh thu năm trước cho vi phạm chuyển ra nước ngoài.
+- [ ] **Thuế App Store dev cá nhân VN — nghiên cứu xong, kế toán cần xác nhận cơ sở tính**
+  (2026-10-11, cùng doc trên). Apple từ 2025-08-21 khấu trừ TNCN 2% + thuế nhà thầu 5% cho dev
+  cá nhân ở VN — trên hoa hồng Apple hay trên giá bán thì CHƯA XÁC MINH. Ngưỡng miễn thuế phía
+  VN từ 2026: 500 triệu/năm (Luật TNCN 2025), có nguồn nói 1 tỷ (NĐ 141/2026) — chưa verify.
+  Ví dụ 199k VND → ~150.7k về tay là ước tính. Hỏi kế toán: cơ sở khấu trừ của Apple, có bị
+  đánh 2 lần không, và có phải đăng ký kê khai qua Cổng TMĐT không.
+- [ ] **Bài kiểm tra nhu cầu 6–8 tuần sau khi lên store** (2026-10-10): đo D7/D30, tỉ lệ
+  hoàn tất nhập 10 món đầu, tỉ lệ mua gói sau khi dùng verdict ≥1 lần (ngưỡng tiếp tục đề
+  xuất >3%). Cần event PostHog cho 3 chỉ số này — kiểm tra đã có chưa.
+- [ ] **Khoảng trống research chưa đóng** (2026-10-10): ARPU/tỉ lệ iOS-Android subscription
+  VN; rating + installs Google Play của 7 đối thủ; công cụ fit theo số đo của retailer
+  (ASOS/Zalando) và app Hàn/Nhật/Trung; Google Photos Wardrobe có mở sang VN/SEA không
+  (theo dõi hằng tháng).

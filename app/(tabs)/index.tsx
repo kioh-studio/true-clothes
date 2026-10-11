@@ -212,9 +212,10 @@ export default function HomeScreen() {
   // T023: retry handler
   const handleRetry = () => { fetchOutfits(); };
 
+  // Unknown weather -> render nothing (no "–" placeholder).
   const weatherLabel = weatherContext
     ? `${Math.round(weatherContext.temperatureCelsius)}°C`
-    : t('tabs_home_weatherLabel');
+    : null;
 
   const renderCard = useCallback(({ item: outfit, index }: { item: Outfit; index: number }) => (
     <FeedCard
@@ -247,8 +248,12 @@ export default function HomeScreen() {
         <View style={styles.topRow}>
           <Text style={styles.brand}>{t('tabs_home_brand')}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <IconThermometer size={13} color={T.color.tertiary} strokeWidth={1.4} />
-            <Text style={styles.weatherLabel}>{weatherLabel}</Text>
+            {weatherLabel && (
+              <>
+                <IconThermometer size={13} color={T.color.tertiary} strokeWidth={1.4} />
+                <Text style={styles.weatherLabel}>{weatherLabel}</Text>
+              </>
+            )}
             <Pressable onPress={() => setMenuOpen(true)} style={styles.bellBtn}>
               <IconMenu size={18} color={T.color.tertiary} strokeWidth={1.4} />
             </Pressable>

@@ -45,7 +45,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // slogan_text/graphic_illustration (2026-08-10): artworkType is a signal
     // independent of fabric.pattern, so a solid-pattern piece carrying a
     // slogan/graphic wasn't caught by macro_print — old money never wears one.
-    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed', 'slogan_text', 'graphic_illustration'],
+    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed', 'slogan_text', 'graphic_illustration', 'sheer', 'cutout', 'sequin', 'animal_print'],
     // HOODIE (2026-08-10): a wool/cashmere hoodie in navy/black/charcoal can
     // reach formality ~2.5 and pass this style's fabric/color/fit checks
     // outright (verified against deriveFormality/TYPE_FORMALITY in
@@ -80,7 +80,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // (floral fabric.pattern always trips macro_print too) — kept explicit
     // for a clearer rejection reason on the style most defined by NOT having
     // it.
-    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'floral_print'],
+    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'floral_print', 'sheer', 'cutout', 'sequin', 'animal_print'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.30, style: 0.20, proportion: 0.15, texture: 0.05, formality: 0.05, fit: 0.05 },
     attributes: { formality: 3.5, colorPalette: ['neutral', 'monochrome', 'dark'], silhouette: ['tailored', 'relaxed'], patternLevel: 1.0, textureRichness: 1.5, mood: ['clean', 'serious'] },
     neighbors: [
@@ -104,7 +104,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsAllowed: [], fabricsBanned: [],
     allowedFits: ['regular', 'relaxed', 'wide', 'oversized'],
     formalityRange: [1.0, 3.0],
-    bannedFeatures: [],
+    bannedFeatures: ['sequin'],
     weights: { ...DEFAULT_WEIGHTS, proportion: 0.15, style: 0.20, color: 0.20, texture: 0.10, formality: 0.05, fit: 0.05 },
     attributes: { formality: 2.0, colorPalette: ['bold', 'dark'], silhouette: ['oversized', 'relaxed'], patternLevel: 2.5, textureRichness: 1.5, mood: ['playful', 'edgy'] },
     neighbors: [
@@ -128,7 +128,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['nylon', 'fleece'],
     allowedFits: ['slim', 'regular', 'relaxed'],
     formalityRange: [2.0, 4.0],
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed'],
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'sheer', 'cutout', 'sequin', 'animal_print'],
     weights: DEFAULT_WEIGHTS,
     attributes: { formality: 3.0, colorPalette: ['neutral', 'earth'], silhouette: ['structured', 'relaxed'], patternLevel: 1.5, textureRichness: 2.0, mood: ['clean', 'serious'] },
     neighbors: [
@@ -151,7 +151,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['nylon', 'polyester', 'fleece'],
     allowedFits: ['slim', 'regular'],
     formalityRange: [2.5, 4.5],
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed'],
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'sheer', 'cutout', 'sequin', 'animal_print'],
     weights: { ...DEFAULT_WEIGHTS, formality: 0.15, color: 0.20, proportion: 0.10, texture: 0.05, fit: 0.10 },
     attributes: { formality: 3.5, colorPalette: ['neutral', 'pastel'], silhouette: ['structured', 'tailored'], patternLevel: 2.5, textureRichness: 2.0, mood: ['clean', 'playful'] },
     neighbors: [
@@ -173,7 +173,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['wool', 'cashmere', 'silk', 'suede', 'tweed', 'velvet'],
     allowedFits: ['regular', 'relaxed', 'oversized'],
     formalityRange: [1.0, 2.5],
-    bannedFeatures: [],
+    bannedFeatures: ['sheer', 'cutout', 'sequin', 'animal_print'],
     weights: { ...DEFAULT_WEIGHTS, proportion: 0.15, style: 0.20, fit: 0.15, color: 0.15, formality: 0.05, season: 0.10, texture: 0.05 },
     attributes: { formality: 1.5, colorPalette: ['bold', 'neutral'], silhouette: ['relaxed', 'oversized'], patternLevel: 1.5, textureRichness: 1.0, mood: ['playful'] },
     neighbors: [
@@ -290,7 +290,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['fleece', 'denim', 'corduroy'],
     allowedFits: ['slim', 'regular'],
     formalityRange: [3.0, 4.5],
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print', 'slogan_text', 'graphic_illustration'],
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print', 'slogan_text', 'graphic_illustration', 'sheer', 'cutout', 'sequin', 'animal_print'],
     // HOODIE (2026-08-10): a cashmere navy/black hoodie can reach formality
     // ~2.5, right at this style's tolerance floor, and pass fabric/fit
     // otherwise — the type itself doesn't belong in "Office Chic".
@@ -317,7 +317,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['fleece', 'nylon', 'velvet'],
     allowedFits: ['slim', 'regular', 'relaxed'],
     formalityRange: [2.5, 4.0],
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'macro_print'],
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'macro_print', 'sequin'],
     // HOODIE (2026-08-10): a cashmere black/navy hoodie can reach formality
     // ~2.5, at this style's tolerance floor, and pass color/fabric/fit
     // otherwise — a hoodie breaks the tailored trench/breton-stripe
@@ -344,7 +344,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['leather', 'denim', 'tweed', 'canvas', 'nylon', 'fleece'],
     allowedFits: ['slim', 'regular'],
     formalityRange: [1.5, 3.5],
-    bannedFeatures: ['loud_logo', 'neon_color', 'distressed', 'macro_print'],
+    bannedFeatures: ['loud_logo', 'neon_color', 'distressed', 'macro_print', 'animal_print'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.32, texture: 0.18, style: 0.20, proportion: 0.05, formality: 0.05, fit: 0.05, season: 0.05 },
     attributes: { formality: 2.0, colorPalette: ['pastel'], silhouette: ['bodycon', 'relaxed'], patternLevel: 3.5, textureRichness: 4.0, mood: ['romantic', 'playful'] },
     neighbors: [
@@ -369,7 +369,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // floral_print (2026-08-10): already redundant with macro_print here —
     // kept explicit for a clearer rejection reason on the "quiet basics"
     // aesthetic this style is built on.
-    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed', 'floral_print'],
+    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed', 'floral_print', 'sheer', 'cutout', 'sequin', 'animal_print'],
     weights: { ...DEFAULT_WEIGHTS, color: 0.28, style: 0.20, proportion: 0.15, fit: 0.12, texture: 0.05, formality: 0.05, season: 0.05 },
     attributes: { formality: 2.5, colorPalette: ['neutral', 'monochrome'], silhouette: ['tailored', 'relaxed'], patternLevel: 1.0, textureRichness: 1.5, mood: ['clean'] },
     neighbors: [
@@ -391,7 +391,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['nylon', 'polyester', 'fleece'],
     allowedFits: ['regular', 'relaxed'],
     formalityRange: [2.5, 4.0],
-    bannedFeatures: ['neon_color', 'full_print', 'macro_print'],
+    bannedFeatures: ['neon_color', 'full_print', 'macro_print', 'cutout', 'sequin', 'animal_print'],
     // HOODIE (2026-08-10): a cotton hoodie in navy/black/charcoal (all
     // allowed here) can reach formality ~2.0, at this style's tolerance
     // floor, and pass fabric/fit otherwise — a hoodie breaks the
@@ -419,7 +419,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['leather', 'nylon', 'polyester', 'velvet'],
     allowedFits: ['regular', 'relaxed', 'wide'],
     formalityRange: [1.0, 3.0],
-    bannedFeatures: ['loud_logo', 'neon_color'],
+    bannedFeatures: ['loud_logo', 'neon_color', 'cutout', 'sequin', 'animal_print'],
     weights: { ...DEFAULT_WEIGHTS, texture: 0.15, color: 0.22, style: 0.20, season: 0.12, proportion: 0.10, formality: 0.05, fit: 0.06 },
     attributes: { formality: 1.5, colorPalette: ['earth', 'pastel'], silhouette: ['relaxed', 'oversized'], patternLevel: 3.5, textureRichness: 3.5, mood: ['romantic', 'artistic'] },
     neighbors: [
@@ -441,7 +441,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['silk', 'linen', 'velvet'],
     allowedFits: ['slim', 'regular', 'oversized', 'wide'],
     formalityRange: [1.0, 2.5],
-    bannedFeatures: ['neon_color'],
+    bannedFeatures: ['neon_color', 'sequin'],
     weights: { ...DEFAULT_WEIGHTS, texture: 0.15, style: 0.28, proportion: 0.12, color: 0.18, formality: 0.05, fit: 0.07, season: 0.05 },
     attributes: { formality: 1.5, colorPalette: ['dark', 'bold'], silhouette: ['oversized', 'relaxed'], patternLevel: 3.0, textureRichness: 3.0, mood: ['edgy'] },
     neighbors: [
@@ -463,7 +463,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['wool', 'tweed', 'leather', 'suede', 'velvet'],
     allowedFits: ['relaxed', 'regular', 'oversized'],
     formalityRange: [1.0, 2.5],
-    bannedFeatures: ['loud_logo'],
+    bannedFeatures: ['loud_logo', 'sequin'],
     weights: { ...DEFAULT_WEIGHTS, fit: 0.18, proportion: 0.15, style: 0.20, color: 0.18, formality: 0.05, season: 0.10, texture: 0.04 },
     attributes: { formality: 1.5, colorPalette: ['neutral', 'pastel'], silhouette: ['relaxed', 'oversized'], patternLevel: 1.0, textureRichness: 1.5, mood: ['clean', 'playful'] },
     neighbors: [
@@ -513,7 +513,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['velvet', 'tweed'],
     allowedFits: ['regular', 'relaxed', 'oversized', 'wide'],
     formalityRange: [1.5, 3.5],
-    bannedFeatures: ['loud_logo', 'neon_color'],
+    bannedFeatures: ['loud_logo', 'neon_color', 'animal_print'],
     weights: { ...DEFAULT_WEIGHTS, proportion: 0.18, style: 0.25, color: 0.18, fit: 0.10, formality: 0.05, texture: 0.05, season: 0.09 },
     attributes: { formality: 2.5, colorPalette: ['neutral', 'pastel'], silhouette: ['oversized', 'relaxed'], patternLevel: 1.5, textureRichness: 2.0, mood: ['clean', 'playful'] },
     neighbors: [
@@ -644,7 +644,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // independent of fabric.pattern, so a solid-pattern piece carrying a
     // slogan/graphic wasn't caught by macro_print — never appropriate in a
     // suit-only wardrobe.
-    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print', 'slogan_text', 'graphic_illustration'],
+    bannedFeatures: ['loud_logo', 'full_print', 'neon_color', 'distressed', 'macro_print', 'slogan_text', 'graphic_illustration', 'sheer', 'cutout', 'sequin', 'animal_print'],
     weights: { ...DEFAULT_WEIGHTS, formality: 0.24, fit: 0.16, color: 0.16, style: 0.18, proportion: 0.10, texture: 0.04, season: 0.04 },
     attributes: { formality: 5.0, colorPalette: ['neutral', 'monochrome'], silhouette: ['tailored', 'structured'], patternLevel: 1.0, textureRichness: 1.5, mood: ['serious'] },
     neighbors: [
@@ -692,7 +692,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['silk', 'velvet', 'cashmere', 'tweed', 'flannel'],
     allowedFits: ['relaxed', 'wide', 'oversized'],
     formalityRange: [1.0, 2.5],
-    bannedFeatures: [],
+    bannedFeatures: ['sheer', 'cutout', 'sequin', 'animal_print'],
     weights: { ...DEFAULT_WEIGHTS, style: 0.25, proportion: 0.16, fit: 0.14, color: 0.18, formality: 0.05, texture: 0.10, season: 0.10 },
     attributes: { formality: 2.0, colorPalette: ['earth', 'neutral'], silhouette: ['oversized', 'relaxed'], patternLevel: 1.5, textureRichness: 2.0, mood: ['clean', 'edgy'] },
     neighbors: [
@@ -715,7 +715,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     fabricsBanned: ['silk', 'cashmere', 'velvet', 'tweed', 'fleece'],
     allowedFits: ['slim', 'regular', 'relaxed'],
     formalityRange: [1.0, 3.0],
-    bannedFeatures: ['distressed'],
+    bannedFeatures: ['distressed', 'sheer', 'cutout', 'sequin', 'animal_print'],
     weights: { ...DEFAULT_WEIGHTS, proportion: 0.14, style: 0.22, fit: 0.14, color: 0.16, formality: 0.08, season: 0.10, texture: 0.08 },
     attributes: { formality: 2.0, colorPalette: ['bold', 'neutral'], silhouette: ['structured', 'relaxed'], patternLevel: 2.0, textureRichness: 2.0, mood: ['playful', 'clean'] },
     neighbors: [
@@ -742,7 +742,7 @@ export const STYLE_CONFIGS: StyleConfig[] = [
     // floral_print (2026-08-10): already redundant with macro_print here —
     // kept explicit for a clearer rejection reason on the "deliberately
     // unremarkable" mall-basic aesthetic this style is built on.
-    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed', 'floral_print'],
+    bannedFeatures: ['loud_logo', 'macro_print', 'full_print', 'neon_color', 'distressed', 'floral_print', 'sheer', 'cutout', 'sequin', 'animal_print'],
     weights: { ...DEFAULT_WEIGHTS, style: 0.14, color: 0.14, fit: 0.14, proportion: 0.14, formality: 0.10, season: 0.20, texture: 0.10 },
     attributes: { formality: 1.5, colorPalette: ['neutral'], silhouette: ['relaxed', 'oversized'], patternLevel: 1.0, textureRichness: 1.0, mood: ['clean'] },
     neighbors: [
@@ -950,6 +950,16 @@ function featuresPasses(item: FitItem, config: StyleConfig): string | null {
   // FabricProfile.distressed for the exact definition.
   if (item.fabric.distressed === true && config.bannedFeatures.includes('distressed'))
     features.push('distressed');
+
+  // 2026-10-11 — fail-open: only a positive signal rejects.
+  if (item.fabric.pattern === 'animal' && config.bannedFeatures.includes('animal_print'))
+    features.push('animal_print');
+  if (item.fabric.opacity === 'sheer' && config.bannedFeatures.includes('sheer'))
+    features.push('sheer');
+  if (item.fabric.sequin === true && config.bannedFeatures.includes('sequin'))
+    features.push('sequin');
+  if (item.fabric.cutout === true && config.bannedFeatures.includes('cutout'))
+    features.push('cutout');
 
   if (features.length > 0) return `has banned features for ${config.name}: ${features.join(', ')}`;
   return null;

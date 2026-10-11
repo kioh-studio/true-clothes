@@ -457,6 +457,9 @@ export function styleTagsOf(type: string, color?: string, material?: string): st
 // ─── Pattern inference ───────────────────────────────────────────────────────
 
 const PATTERN_KEYWORDS: Array<[string, Pattern]> = [
+  ['leopard', 'animal'], ['cheetah', 'animal'], ['zebra', 'animal'], ['snakeskin', 'animal'],
+  ['snake print', 'animal'], ['python', 'animal'], ['tiger print', 'animal'], ['cow print', 'animal'],
+  ['animal print', 'animal'],
   ['plaid', 'plaid'], ['check', 'checkered'], ['stripe', 'striped'],
   ['floral', 'floral'], ['graphic', 'graphic'], ['print', 'abstract'],
   ['abstract', 'abstract'],
@@ -474,6 +477,10 @@ function inferPattern(name: string): Pattern {
     if (lower.includes(keyword)) return pattern;
   }
   return 'solid';
+}
+
+export function inferOpacity(name: string, material?: string | null): 'sheer' | undefined {
+  return /sheer|mesh|organza|chiffon|tulle|fishnet|voile|see-through/i.test(`${name} ${material ?? ''}`) ? 'sheer' : undefined;
 }
 
 function inferGraphics(name: string): GraphicsProfile {
@@ -593,7 +600,7 @@ function deriveStatementStrength(
   let score = 0;
   const PATTERN_SCORES: Record<Pattern, number> = {
     solid: 0, striped: 0.5, checkered: 0.5, plaid: 1.0,
-    floral: 1.5, graphic: 2.0, abstract: 1.5,
+    floral: 1.5, graphic: 2.0, abstract: 1.5, animal: 1.5,
   };
   score += PATTERN_SCORES[pattern] ?? 0;
 
@@ -683,6 +690,9 @@ const STORED_PATTERN_MAP: Record<string, Pattern> = {
   checked: 'checkered', checkered: 'checkered', check: 'checkered', gingham: 'checkered',
   floral: 'floral', graphic: 'graphic',
   print: 'abstract', abstract: 'abstract', camo: 'abstract', 'polka dot': 'abstract',
+  animal: 'animal', leopard: 'animal', cheetah: 'animal', zebra: 'animal', snake: 'animal',
+  snakeskin: 'animal', python: 'animal', croc: 'animal', crocodile: 'animal', cow: 'animal',
+  'cow print': 'animal', tiger: 'animal', giraffe: 'animal',
 };
 
 const WARMTH_SEASON_MAP: Record<string, Pick<FabricProfile, 'fabricWeight' | 'season'>> = {
@@ -766,7 +776,12 @@ export function toFitItem(item: ClothingItemRow): FitItem {
     graphics,
     // distressed (2026-08-11): null/undefined both collapse to undefined —
     // fail-open, featuresPasses only rejects on a literal `true`.
-    fabric: { ...fabric, pattern, layerRole, distressed: item.distressed ?? undefined },
+    fabric: {
+      ...fabric, pattern, layerRole, distressed: item.distressed ?? undefined,
+      opacity: item.opacity ?? inferOpacity(item.name, item.material),
+      sequin: /sequin|paillette|glitter/i.test(item.name) ? true : undefined,
+      cutout: /cut-?out|cut out/i.test(item.name) ? true : undefined,
+    },
     // Stored can_layer (AI-extracted or user-set) wins over the rule derivation.
     canLayer: item.canLayer ?? deriveCanLayer(item.type, fabricName, fabric.fabricWeight, fit, fitReal),
     garmentMeasurements: parseMeasurements(item.measurements, category),

@@ -8803,3 +8803,14 @@ carries a `source` for the paywall today, so that prop is omitted rather than in
 `postgres`/`service_role` rows — no `anon` grant at all. `npx expo install posthog-react-native
 expo-device expo-application` (native modules — **app needs a native rebuild before analytics can
 actually run on device**, tracked in backlog).
+
+## BannedFeature: sheer / cutout / sequin / animal_print (2026-10-11)
+
+- Four new fail-open `BannedFeature`s in `generate-outfits/engine` (`filtering.ts featuresPasses`); only a positive signal rejects, undefined never does.
+- `animal_print`: new `Pattern` value `'animal'` (stored map + name keywords leopard/zebra/snake/python/cow/tiger...; `PATTERN_SCORES.animal = 1.5`). Also fires `macro_print` (intended). `generate-item-image/prompt.ts` PATTERNS/aliases accept `animal`.
+- `sheer`: `FabricProfile.opacity` = `item.opacity ?? inferOpacity(name, material)` (keywords sheer/mesh/organza/chiffon/tulle/fishnet/voile/see-through). `ClothingItemRow.opacity` exists in types but is NOT read from the DB yet.
+- Live `clothing_items.opacity` column NOT verified (project INACTIVE/paused, Mgmt API timed out 2026-10-11), so no `.select(...)`, backfill or extraction changes were made; sheer is name-keyword only. To finish: restore project, verify column, add `opacity` to selects/mappings in generate-outfits, wardrobe-critic, evaluate-item, backfill-item-metadata and GarmentMetadata (mirror `distressed`).
+- `sequin` (sequin/paillette/glitter) and `cutout` (cut-out/cut out): name-keyword booleans on `FabricProfile`. Ponytail ceiling: no ingest column; upgrade path = nullable DB column + extraction field like distressed.
+- Bans: sheer = oldmoney, minimalist, preppy, smartcasual, officechic, businessformal, cleangirl, utility, normcore, sporty, athleisure. cutout = same + darkacademia, cottagecore. sequin = sheer set + athflow, darkacademia, cottagecore, grunge, streetwear, parisian. animal_print = oldmoney, minimalist, preppy, smartcasual, officechic, businessformal, cleangirl, cottagecore, athleisure, sporty, utility, normcore, kfashion, darkacademia, coquette.
+- Deliberately unbanned: mobwife (animal), glam/y2k/pinup (sequin), retro70s, bohemian, resort, vintage, elegant, gothic, whimsigoth, artsy, feminine.
+- No `public.styles` migration needed (no seed lists bannedFeatures); consistency test vocabulary updated. Tests: 351 pass.

@@ -47,6 +47,7 @@ const styles = StyleSheet.create({
   },
   label: {
     ...type.ui,
+    paddingHorizontal: 2, // Android trailing-letterSpacing clip guard
     fontSize: 9,
   },
   labelActive: {

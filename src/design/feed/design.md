@@ -508,3 +508,13 @@ the layout sizing and the rendered crop use that measurement instead.
   measured aspect, this crops out the background margin with no distortion.
   A small local hook, `useEntryAspects`, resolves each entry's photo source
   and runs the measurement per outfit card, keyed by item id.
+
+### 2026-10-11 — header weather, collage centering, cache
+- Home header hides the thermometer + temperature entirely when weather is
+  unknown (no "–" placeholder); the i18n key is kept.
+- Collage accessory rows now center on the bounding box of all placed
+  clothes, not the anchor alone (anchor-only gave an "L" with an empty
+  bottom-right).
+- `ASPECT` gained CARDIGAN, SWEATER, HOODIE, VEST, PARKA, GILET, WINDBREAKER.
+- On-device photo cache download is atomic (`.part` then move); zero-byte
+  cached files are treated as missing.

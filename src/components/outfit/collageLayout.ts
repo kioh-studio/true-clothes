@@ -62,6 +62,7 @@ export const ASPECT: Record<string, number> = {
   TEE: 0.86,    SHIRT: 0.82,    KNIT: 0.88,   POLO: 0.84,    HENLEY: 0.84,
   BLOUSE: 0.82, CAMISOLE: 0.82, CROP: 0.92,   BODYSUIT: 0.80, TUNIC: 0.80, CORSET: 0.86,
   BLAZER: 0.80, JACKET: 0.82,
+  CARDIGAN: 0.68, SWEATER: 0.86, HOODIE: 0.84, VEST: 0.78, PARKA: 0.60, GILET: 0.78, WINDBREAKER: 0.82,
   LOAFERS: 1.35, SNEAKERS: 1.55, BOOTS: 1.2, MULES: 1.35, SHOES: 1.35, BELT: 2.8,
   HEELS: 1.25,  FLATS: 1.5,     WEDGES: 1.35, OXFORDS: 1.35, SANDALS: 1.45, SLIDES: 1.45,
   BAG: 0.95,    WATCH: 1.0,     NECKLACE: 0.85, EARRINGS: 0.7, GLOVES: 0.9, TIGHTS: 0.5,
@@ -218,7 +219,7 @@ export function buildLayout(rawItems: Entry[], areaAspect = 0.9): PositionedEntr
   });
 
   // #3 — accessories/shoes: smallest, in row(s) below the lowest clothing
-  // bottom edge, each row centered on the anchor's horizontal centerline
+  // bottom edge, each row centered on the clothes' bbox
   // (clamped into the frame), items packed left→right within the row,
   // wrapping when a row overflows.
   const accEntries = allAccessories.slice(0, 8);
@@ -240,10 +241,12 @@ export function buildLayout(rawItems: Entry[], areaAspect = 0.9): PositionedEntr
   let rowY = clothes.length > 0 ? clothesBottom + COLLAGE.ACC_ROW_TOP_GAP : 0;
 
   const accPlaced: Placed[] = [];
-  // Every row centers on the anchor's horizontal centerline (works for both
-  // the left-column anchor and the centered no-secondary anchor alike).
-  // Falls back to the frame's own center when there's no anchor at all.
-  const centerX = anchorBox ? anchorBox.left + anchorBox.w / 2 : 50;
+  // Rows center on the horizontal bbox of ALL placed clothes (anchor-only
+  // centering produced an L-shaped layout — 2026-08-12 screenshot).
+  // Falls back to the frame's own center when there are no clothes.
+  const centerX = clothes.length > 0
+    ? (Math.min(...clothes.map(c => c.box.left)) + Math.max(...clothes.map(c => c.box.left + c.box.w))) / 2
+    : 50;
   // Row capacity is independent of the anchor position — the full usable
   // width, same as before rows were positioned relative to the anchor.
   const SPAN = 100 - 2 * COLLAGE.ACC_MARGIN; // usable horizontal span (wu)
@@ -271,7 +274,7 @@ export function buildLayout(rawItems: Entry[], areaAspect = 0.9): PositionedEntr
       j++;
     }
 
-    // Centered on the anchor's centerline, clamped so the row never spills
+    // Centered on the clothes bbox, clamped so the row never spills
     // past the frame margins — packed left→right within the row with a
     // fixed gap (no space-evenly distribution: a lone accessory used to end
     // up centered mid-row, reading detached from the anchor above it).

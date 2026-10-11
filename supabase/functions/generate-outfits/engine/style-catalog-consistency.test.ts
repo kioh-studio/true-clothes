@@ -55,6 +55,7 @@ const VALID_BANNED_FEATURES: BannedFeature[] = [
   // 'distressed' re-added (2026-08-11) — now backed by clothing_items.distressed
   // and checked in filtering.ts featuresPasses; see types.ts BannedFeature doc comment.
   'distressed',
+  'sheer', 'cutout', 'sequin', 'animal_print',
 ];
 const VALID_COLOR_PALETTES: ColorPalette[] = ['neutral', 'earth', 'bold', 'pastel', 'dark', 'monochrome'];
 const VALID_SILHOUETTES: Silhouette[] = ['relaxed', 'structured', 'bodycon', 'oversized', 'tailored'];

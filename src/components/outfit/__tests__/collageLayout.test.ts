@@ -188,7 +188,7 @@ describe('buildLayout — flow layout hierarchy', () => {
     }
   });
 
-  it("a single accessory row centers on the anchor's horizontal centerline", () => {
+  it("a single accessory row centers on the clothes' horizontal bbox", () => {
     const items = [
       entry('jeans-1', 'JEANS'),
       entry('tee-1', 'TEE'),
@@ -196,9 +196,9 @@ describe('buildLayout — flow layout hierarchy', () => {
     ];
     const positioned = buildLayout(items);
     const byId = bySlotId(positioned);
-    const anchorSlot = byId.get('jeans-1')!;
+    const clothes = [byId.get('jeans-1')!, byId.get('tee-1')!];
+    const anchorCenter = (Math.min(...clothes.map(c => c.left)) + Math.max(...clothes.map(c => c.left + c.w))) / 2;
     const sneakersSlot = byId.get('sneakers-1')!;
-    const anchorCenter = anchorSlot.left + anchorSlot.w / 2;
     const sneakersCenter = sneakersSlot.left + sneakersSlot.w / 2;
     // No overflow for this outfit, so scale-to-fit/centering never touch
     // `left` — direct equality holds.

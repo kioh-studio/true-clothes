@@ -33,7 +33,7 @@ export const MATERIALS = [
 ] as const;
 
 export const FITS = ['slim', 'regular', 'relaxed', 'wide', 'oversized'] as const;
-export const PATTERNS = ['solid', 'striped', 'plaid', 'checked', 'floral', 'graphic', 'print'] as const;
+export const PATTERNS = ['solid', 'striped', 'plaid', 'checked', 'floral', 'graphic', 'print', 'animal'] as const;
 export const WARMTH = ['lightweight_summer', 'midweight_transitional', 'warm_winter', 'all_season'] as const;
 
 // Engine measurement columns the model may estimate (cm). m_shoe_size is an EU number.
@@ -161,6 +161,8 @@ const PATTERN_ALIASES: Record<string, string> = {
   checked: 'checked', checkered: 'checked', check: 'checked', gingham: 'checked',
   floral: 'floral',
   graphic: 'graphic', logo: 'graphic',
+  animal: 'animal', leopard: 'animal', cheetah: 'animal', zebra: 'animal', snake: 'animal', snakeskin: 'animal',
+  python: 'animal', croc: 'animal', cow: 'animal', tiger: 'animal', giraffe: 'animal',
   print: 'print', abstract: 'print', camo: 'print', camouflage: 'print', 'polka dot': 'print', polkadot: 'print',
 };
 
@@ -314,7 +316,7 @@ For EACH garment/accessory, output one JSON object with EXACTLY these fields:
 - "color_hex" (REQUIRED): the garment's dominant colour as a 6-digit hex code, e.g. "#3b5998".
 - "material": EXACTLY ONE of ${MATERIALS.join(', ')}, or null if unsure.
 - "fit": EXACTLY ONE of ${FITS.join(', ')}, or null.
-- "pattern": EXACTLY ONE of ${PATTERNS.join(', ')}, or null (use "solid" for plain).
+- "pattern": EXACTLY ONE of ${PATTERNS.join(', ')}, or null (use "solid" for plain; "animal" for leopard/zebra/snake/cow/tiger prints).
 - "warmth_season": EXACTLY ONE of ${WARMTH.join(', ')}, or null.
 - "can_layer": true | false | null. ONLY for tops and light outerwear: true when the garment has a FULL-LENGTH front opening (buttons or zip the entire way down, or is designed to hang open) so it can be worn OVER another top — button-front overshirt/flannel/chore jacket, cardigan, open vest, knit meant to go over a shirt, AND a non-fitted, full-button-front shirt in ANY fabric (linen shirt, oxford shirt, camp-collar or short-sleeve button-front shirt — a light fabric does NOT disqualify it, only the closure does); false when there is no full front opening, even if soft or loose (thin tee, fitted blouse, camisole, henley or any other placket-only pullover — a henley's short neck placket does not count); null when unsure or not applicable (bottoms, shoes, accessories).
 - "distressed": true | false | null. true ONLY for visible INTENTIONAL wear or damage: rips, tears, frayed/raw hems, heavy fading or whiskering, acid/stone wash, deliberately abraded surfaces. false for a clean, undamaged garment — do NOT mark true for natural slubby texture (linen), a normal garment wash, a soft/worn-in feel, or vintage styling with no actual damage. null if unsure.

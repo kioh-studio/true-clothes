@@ -7,6 +7,7 @@ const fs = {
   deleteAsync: jest.fn(async () => {}),
   copyAsync: jest.fn(async () => {}),
   readAsStringAsync: jest.fn(async () => btoa('bytes')),
+  moveAsync: jest.fn(async () => {}),
   downloadAsync: jest.fn(async () => ({ uri: '/doc/wardrobe-photos/x.jpg' })),
 };
 jest.mock('expo-file-system/legacy', () => fs);
@@ -34,7 +35,7 @@ if (typeof (global as { btoa?: unknown }).btoa === 'undefined') {
 
 import {
   relativePathFor, optimizeImage, writeDeviceCopy, resolveDeviceUri,
-  signedUrl, removePhoto,
+  signedUrl, removePhoto, ensureCloudCached,
 } from '../itemPhotoService';
 
 beforeEach(() => jest.clearAllMocks());
@@ -72,6 +73,16 @@ describe('itemPhotoService', () => {
     const url = await signedUrl('u1/item1.jpg');
     expect(createSignedUrl).toHaveBeenCalledWith('u1/item1.jpg', 3600);
     expect(url).toContain('token=');
+  });
+
+  it('ensureCloudCached downloads to .part then moves; cleans up on failure', async () => {
+    fs.getInfoAsync.mockResolvedValue({ exists: false });
+    const dest = await ensureCloudCached('item1', 'u1/item1.jpg');
+    expect(fs.downloadAsync).toHaveBeenCalledWith(expect.any(String), `${dest}.part`);
+    expect(fs.moveAsync).toHaveBeenCalledWith({ from: `${dest}.part`, to: dest });
+    fs.downloadAsync.mockRejectedValueOnce(new Error('net'));
+    await expect(ensureCloudCached('item1', 'u1/item1.jpg')).rejects.toThrow('net');
+    expect(fs.deleteAsync).toHaveBeenCalledWith(`${dest}.part`, { idempotent: true });
   });
 
   it('signedUrl throws on error', async () => {

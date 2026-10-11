@@ -32,3 +32,6 @@ Location: `app/add-item.tsx`, directly beneath the selected photo, above the for
 ## Motion
 
 None added — photos appear on resolve without animation, consistent with the deliberate, still aesthetic.
+
+- 2026-10-11: cloud-photo cache writes are atomic — download to `<dest>.part`, then move into place; a failed download deletes the `.part`.
+- Zero-byte cached files count as missing and are re-downloaded. No checksum yet (upgrade path: compare Content-Length).

@@ -55,7 +55,7 @@ export interface LogoSignal {
 
 // ─── Fabric & Seasonality ────────────────────────────────────────────────────
 
-export type Pattern = 'solid' | 'striped' | 'plaid' | 'checkered' | 'floral' | 'graphic' | 'abstract';
+export type Pattern = 'solid' | 'striped' | 'plaid' | 'checkered' | 'floral' | 'graphic' | 'abstract' | 'animal';
 export type FabricWeight = 'light' | 'medium' | 'heavy';
 export type Breathability = 'low' | 'medium' | 'high';
 export type Season = 'spring' | 'summer' | 'fall' | 'winter' | 'allSeason';
@@ -78,6 +78,13 @@ export interface FabricProfile {
   // filtering.ts featuresPasses is fail-open on this field: it only rejects
   // when distressed === true AND the style bans it.
   distressed?: boolean;
+  // sheer = see-through mesh/lace/chiffon/organza/tulle. Source: clothing_items.opacity
+  // when present, else name/material keyword (enrichment.ts inferOpacity).
+  // undefined = unassessed, fail-open (only 'sheer' can trip a ban).
+  opacity?: 'sheer' | 'semi' | 'opaque';
+  // ponytail: name-keyword derived only (no ingest column yet); upgrade path = nullable DB column + extraction field like distressed
+  sequin?: boolean;
+  cutout?: boolean;
 }
 
 // ─── Garment Measurements ────────────────────────────────────────────────────
@@ -180,7 +187,12 @@ export type BannedFeature =
   // FabricProfile.distressed above and checked in filtering.ts featuresPasses.
   // Fail-open by design: only `fabric.distressed === true` trips this ban;
   // undefined/null (unassessed item) never does.
-  | 'distressed';
+  | 'distressed'
+  // 2026-10-11 — all fail-open (only a positive signal rejects).
+  | 'sheer'        // fabric.opacity === 'sheer' (opacity column or name/material keyword)
+  | 'cutout'       // fabric.cutout (name keyword: cut-out / cutout)
+  | 'sequin'       // fabric.sequin (name keyword: sequin / paillette / glitter)
+  | 'animal_print'; // fabric.pattern === 'animal'
 export type ColorGrade = 'perfect' | 'allowed' | 'accent' | 'banned';
 
 export interface StyleConfig {
@@ -532,4 +544,6 @@ export interface ClothingItemRow {
   // above for the definition. null/undefined = unassessed; toFitItem maps
   // both to fabric.distressed === undefined (fail-open in featuresPasses).
   distressed?: boolean | null;
+  // see FabricProfile.opacity; null/undefined = unassessed (fail-open).
+  opacity?: 'sheer' | 'semi' | 'opaque' | null;
 }

@@ -70,6 +70,7 @@ const styles = StyleSheet.create({
   },
   label: {
     ...type.micro,
+    paddingHorizontal: 2, // Android trailing-letterSpacing clip guard
     color: T.color.tertiary,
     position: 'absolute',
     left: 0,

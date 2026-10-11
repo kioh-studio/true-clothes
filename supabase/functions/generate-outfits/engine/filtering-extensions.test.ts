@@ -160,9 +160,9 @@ Deno.test('regression: bohemian (no new bannedFeatures/typesBanned) is unaffecte
   assert(passesStyleNaturally(floralDress, bohemian));
 });
 
-Deno.test('regression: streetwear (empty bannedFeatures, no typesBanned) still accepts a graphic hoodie', () => {
+Deno.test('regression: streetwear (only sequin banned, no typesBanned) still accepts a graphic hoodie', () => {
   const streetwear = styleConfigById('streetwear')!;
-  assertEquals(streetwear.bannedFeatures.length, 0);
+  assertEquals(streetwear.bannedFeatures, ['sequin']); // 2026-10-11: only sequin, unrelated to graphics
   assertEquals(streetwear.typesBanned, undefined);
   const graphicHoodie = item({
     id: 'gh1', type: 'HOODIE', color: 'Black', material: 'Cotton', fit: 'oversized',
@@ -245,4 +245,31 @@ Deno.test('oldmoney bans HOODIE by type and slogan/graphic content by feature', 
     graphics: { present: true, size: 'medium', kind: 'slogan_text', text: 'CLUB' },
   });
   assert(!passesStyleNaturally(sloganKnit, oldmoney));
+});
+
+// ─── (3) sheer / cutout / sequin / animal_print (2026-10-11) ───────────────
+
+Deno.test('animal_print: pattern animal rejected under oldmoney; stored leopard maps to animal', () => {
+  const oldmoney = styleConfigById('oldmoney')!;
+  assert(!passesStyleNaturally(item({ id: 'an1', pattern: 'leopard' }), oldmoney));
+  assertEquals(item({ name: 'Leopard Print Skirt' }).fabric.pattern, 'animal');
+  assert(passesStyleNaturally(item({ id: 'an2', pattern: 'solid' }), permissiveConfig(['animal_print'])));
+});
+
+Deno.test('sheer: name keyword rejected under minimalist; explicit opacity wins; unknown fails open', () => {
+  const cfg = permissiveConfig(['sheer']);
+  assert(!passesStyleNaturally(item({ id: 'sh1', name: 'Sheer Mesh Top' }), cfg));
+  assert(!passesStyleNaturally(item({ id: 'sh2', opacity: 'sheer' }), cfg));
+  assert(passesStyleNaturally(item({ id: 'sh3', opacity: 'opaque', name: 'Cotton Top' }), cfg));
+  assert(passesStyleNaturally(item({ id: 'sh4', opacity: null }), cfg));
+  assert(!passesStyleNaturally(item({ id: 'sh5', opacity: 'sheer' }), styleConfigById('minimalist')!));
+});
+
+Deno.test('sequin / cutout: name keywords reject under banning style, absent passes', () => {
+  assert(!passesStyleNaturally(item({ id: 'sq1', type: 'DRESS', name: 'Sequin Mini Dress' }), permissiveConfig(['sequin'])));
+  assert(!passesStyleNaturally(item({ id: 'co1', type: 'DRESS', name: 'Cut-out Midi Dress' }), permissiveConfig(['cutout'])));
+  assert(passesStyleNaturally(item({ id: 'pl1', type: 'DRESS', name: 'Midi Dress' }), permissiveConfig(['sequin', 'cutout', 'sheer', 'animal_print'])));
+  assert(styleConfigById('preppy')!.bannedFeatures.includes('sequin'));
+  assert(styleConfigById('officechic')!.bannedFeatures.includes('cutout'));
+  assert(!styleConfigById('mobwife')!.bannedFeatures.includes('animal_print'));
 });
