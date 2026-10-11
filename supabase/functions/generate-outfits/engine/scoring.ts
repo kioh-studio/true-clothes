@@ -923,6 +923,10 @@ export function genderStylingDelta(items: FitItem[], gender: 'WOMAN' | 'MAN'): n
   return Math.max(-0.05, Math.min(0.05, delta));
 }
 
+// Waist-defining garment types (moved from silhouette.ts so scoring.ts can use it
+// without an import cycle). See silhouette.ts for the rationale.
+export const WAIST_DEFINING_TYPES = new Set(['CORSET', 'BLAZER', 'VEST']);
+
 export function scoreProportionBalance(items: FitItem[]): number {
   const tops = items.filter(i => i.category === 'top' || i.category === 'outwear' || i.category === 'onepiece');
   const bottoms = items.filter(i => i.category === 'bottom' || i.category === 'onepiece');
@@ -939,6 +943,37 @@ export function scoreProportionBalance(items: FitItem[]): number {
   if (diff === 1) return 0.8;
   if (topVolume <= 2) return 0.65;
   return 0.4;
+}
+
+// Volume-on-volume waist erasure (2026-10-11). scoreProportionBalance already
+// scores wide+wide low (0.35/0.15) but at W_PROPORTION 0.10 that moves
+// totalScore by <=0.065 and it only reads `fit`, never `drape`. This is the
+// multiplicative counterpart (same pattern as scoreTasteAdjustment.multiplier):
+// a voluminous or fluid top over a voluminous or fluid bottom with nothing
+// defining the waist. Outerwear is deliberately NOT a "top" here - an open
+// wide coat over a slim column is normal; only the visible top/onepiece and
+// bottom erase the waist. drape undefined -> fail-open.
+export function waistErasureMultiplier(items: FitItem[], shape?: BodyShape): number {
+  const tops = items.filter(i => i.category === 'top' || i.category === 'onepiece');
+  const bottoms = items.filter(i => i.category === 'bottom' || i.category === 'onepiece');
+  if (tops.length === 0 || bottoms.length === 0) return 1;
+  const topVol = Math.max(...tops.map(i => VOLUME[i.fit]));
+  const botVol = Math.max(...bottoms.map(i => VOLUME[i.fit]));
+  const bothBig = topVol >= 4 && botVol >= 4;
+  const bothFluid = tops.some(i => i.drape === 'fluid') && bottoms.some(i => i.drape === 'fluid');
+  if (!bothBig && !bothFluid) return 1;
+  // A belt or a structured waist-defining piece (not itself oversized/wide) rescues the waist.
+  const waistDefined = items.some(i =>
+    i.typeName === 'BELT' ||
+    (WAIST_DEFINING_TYPES.has(i.typeName) && i.fit !== 'oversized' && i.fit !== 'wide'));
+  if (waistDefined) return 1;
+  // CALIBRATION-PENDING (2026-10-11): starting values, not measured. Hourglass
+  // loses the most from an erased waist; triangle/inverted_triangle rely on it
+  // less; rectangle/apple/unknown least.
+  const base = shape === 'hourglass' ? 0.75
+    : shape === 'triangle' || shape === 'inverted_triangle' ? 0.85
+    : 0.92;
+  return bothBig && bothFluid ? base - 0.10 : base;
 }
 
 // Silhouette-first resolution (2026-07-12): how well this outfit's top/bottom

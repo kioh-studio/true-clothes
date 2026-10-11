@@ -1187,11 +1187,6 @@ items below — stopped rather than improvised, per this task's ground rules.
 Fix chi tiết ở `plan.md` cùng ngày ("Sheer cardigan worn as the sole torso layer"). Ba việc còn
 treo, ghi lại đây theo đúng yêu cầu của lead khi giao task:
 
-- [ ] **Cardigan oversized + quần ống rộng trên thân hình đồng hồ cát xoá mất vòng eo, trong khi
-  card vẫn hiển thị "SHAPE: HOURGLASS"** (2026-08-13, phát hiện cùng lúc điều tra bug cardigan
-  sheer). Engine không có khái niệm "volume chồng volume xoá silhouette" trong scoring — chỉ
-  render nhãn hình dáng cơ thể tĩnh (`body_shape`) mà không phạt điểm khi outfit thực tế che mất
-  hình dáng đó. Cần thêm một tín hiệu phạt volume-on-volume vào `scoring.ts`, chưa làm ở đây.
 - [ ] **[Đã sửa lại 2026-08-13, evidence gốc sai] Accessory có thể thiếu trục formality — nhưng
   CHƯA có ca lỗi thật nào chứng minh.** Mục gốc ghi "túi xách dạ hội đính sequin bị ghép với giày
   sneaker trắng dưới tag `minimalist · everyday`" — đó là đọc nhầm từ thumbnail render nhỏ trên
@@ -1203,14 +1198,9 @@ treo, ghi lại đây theo đúng yêu cầu của lead khi giao task:
   là một đề xuất CHƯA CHỨNG MINH, không có ca lỗi quan sát được đứng sau — cần tìm một
   counter-example thật (một accessory formality rõ ràng bị ghép sai tông trong outfit thật) trước
   khi ai bỏ công làm trục formality cho accessory. Đừng coi đây là bug đã xác nhận.
-- [ ] **Volume-on-volume xoá eo — mới có ở tầng curator (taste), chưa có ở `scoring.ts`
-  (deterministic)** (2026-08-14, cập nhật cho mục "Cardigan oversized + quần ống rộng..." phía
-  trên). `engine/curator.ts`'s `describeItem` giờ gửi tag `drape` (`structured`/`fluid`) cho model,
-  và `SYSTEM_PROMPT` có thêm câu phạt "fluid top + fluid bottom xoá eo" — nhưng đây CHỈ là tầng LLM
-  curation, best-effort và có fallback khi lỗi/timeout/thiếu API key (`curatorEnabled()` false thì
-  bỏ qua hoàn toàn). Rule engine (`scoring.ts`) vẫn không có tín hiệu phạt volume-on-volume nào —
-  mục gốc phía trên (thêm penalty vào `scoring.ts`) vẫn treo y nguyên, chưa làm ở đây vì đó là
-  thay đổi tầng scoring, ngoài phạm vi task này (chỉ được giao làm giàu candidate line cho curator).
+- [ ] **Card UI vẫn hiện nhãn "SHAPE: HOURGLASS" như lời khen khi `waistErasureMultiplier` < 1** (2026-10-11,
+  còn sót sau khi thêm multiplier ở `scoring.ts`) — outfit xoá eo vẫn bị phạt điểm nhưng nhãn hình
+  dáng trên card không biết điều đó; cần ẩn/đổi nhãn khi outfit làm mất eo. Cần quyết định UI.
 - [ ] **Bản sao thứ ba của phân loại "món mặc trên thân"** (2026-08-13). Fix sole-torso-layer ở
   `describe-outfit/prompt.ts` vừa thêm `TORSO_LAYER_TYPES` (`prompt.ts:34-41`) — set các garment
   type coi là lớp mặc trên thân, dùng bởi `deriveSoleTorsoLayerIndex` (`prompt.ts:50`). Đây là bản

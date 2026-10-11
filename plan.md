@@ -8814,3 +8814,12 @@ actually run on device**, tracked in backlog).
 - Bans: sheer = oldmoney, minimalist, preppy, smartcasual, officechic, businessformal, cleangirl, utility, normcore, sporty, athleisure. cutout = same + darkacademia, cottagecore. sequin = sheer set + athflow, darkacademia, cottagecore, grunge, streetwear, parisian. animal_print = oldmoney, minimalist, preppy, smartcasual, officechic, businessformal, cleangirl, cottagecore, athleisure, sporty, utility, normcore, kfashion, darkacademia, coquette.
 - Deliberately unbanned: mobwife (animal), glam/y2k/pinup (sequin), retro70s, bohemian, resort, vintage, elegant, gothic, whimsigoth, artsy, feminine.
 - No `public.styles` migration needed (no seed lists bannedFeatures); consistency test vocabulary updated. Tests: 351 pass.
+
+## Engine: waistErasureMultiplier — volume/fluid-on-volume/fluid (2026-10-11)
+
+- `scoring.ts`: new exported `waistErasureMultiplier(items, shape?)`, applied in `ranking.ts` as `(base + taste.bonus) * taste.multiplier * waistMult + ...`. `WAIST_DEFINING_TYPES` moved from `silhouette.ts` to `scoring.ts` (exported; silhouette imports it, no cycle, behaviour unchanged).
+- Fires when the visible top/onepiece and bottom/onepiece are both big (VOLUME >= 4) or both `drape: 'fluid'`, with no BELT and no waist-defining type (CORSET/BLAZER/VEST) whose fit isn't oversized/wide. Outerwear is NOT a "top" here. A onepiece counts on both sides. `drape` undefined = fail-open.
+- Values (CALIBRATION-PENDING, starting guesses): hourglass 0.75, triangle/inverted_triangle 0.85, other/unknown 0.92; big AND fluid together subtract a further 0.10 (hourglass floor 0.65).
+- Complements (does not replace) `scoreProportionBalance`, which is `fit`-only and moves totalScore <= 0.065.
+- A/B (eval-feed, top-10 turnover baseline -> afterA, exact slot sets): smartcasual 0, streetwear 0, resort 0, measured 0, measured-goal 0, onepiece 0, layering 0. No fixture currently contains a volume-on-volume outfit in its top-10.
+- Tests: `waist-erasure.test.ts` (11 cases). Engine suite 351 -> 362 (run with `--allow-env --allow-read`; curator.test.ts needs env).

@@ -11,7 +11,7 @@ import {
   scoreOutfitFit, scoreProportionBalance, scoreFormalityConsistency,
   scoreSeasonMatch, scoreTextureHarmony, scoreAnchorClarity,
   scoreTasteAdjustment, genderStylingDelta, housePOVDelta,
-  scoreTargetSilhouette,
+  scoreTargetSilhouette, waistErasureMultiplier,
 } from './scoring.ts';
 import { tasteAffinityDelta, tasteDismissPenalty } from './taste.ts';
 import { FormulaId } from './generation.ts';
@@ -507,6 +507,8 @@ export function rankCandidates(
 
     // Taste layer: classic-combo bonus, multiplicative veto for fatal flaws.
     const taste = scoreTasteAdjustment(fitItems);
+    // Volume-on-volume / fluid-on-fluid waist erasure (2026-10-11).
+    const waistMult = waistErasureMultiplier(fitItems, ctx.bodyMeasurements.body_shape);
     // Opt-in gender-aware styling: a small additive nudge, off unless ctx.gender set.
     const genderDelta = ctx.gender ? genderStylingDelta(fitItems, ctx.gender) : 0;
     // Behaviour-learned taste (lever L2): a small positive nudge toward looks like
@@ -529,7 +531,7 @@ export function rankCandidates(
     // user has no explicit shapeGoal (or 'auto'), never both. See
     // autoShapeTierDelta's own block comment above for the full rationale.
     const autoShapeBonus = autoShapeTierDelta(fitItems, ctx);
-    const totalScore = Math.max(0, Math.min(1, (base + taste.bonus) * taste.multiplier + genderDelta + tasteDelta - dismissPenalty + houseDelta + shapeGoalBonus + autoShapeBonus));
+    const totalScore = Math.max(0, Math.min(1, (base + taste.bonus) * taste.multiplier * waistMult + genderDelta + tasteDelta - dismissPenalty + houseDelta + shapeGoalBonus + autoShapeBonus));
 
     scored.push({
       slots: c.slots,

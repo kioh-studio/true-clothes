@@ -14,7 +14,7 @@
 import {
   FitItem, EngineContext, BodyShape, Silhouette, IntentContext, TargetSilhouette,
 } from './types.ts';
-import { VOLUME, SHAPE_VOLUME_TARGETS } from './scoring.ts';
+import { VOLUME, SHAPE_VOLUME_TARGETS, WAIST_DEFINING_TYPES } from './scoring.ts';
 
 export type { TargetSilhouette } from './types.ts';
 
@@ -375,7 +375,6 @@ export type OutfitSilhouetteShape = 'hourglass' | 'rectangle' | 'oval' | 'invert
 // backlog.md); COAT/OVERCOAT/JACKET (TYPE_DEFAULT_FIT is 'relaxed' for
 // coats — a belted trench reads via the explicit belt signal (a) below, not
 // via the coat type itself, which is boxy/relaxed by default).
-const WAIST_DEFINING_TYPES = new Set(['CORSET', 'BLAZER', 'VEST']);
 
 /**
  * Does THIS OUTFIT (not the wearer's body) create a defined waist? Signals in
