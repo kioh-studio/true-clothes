@@ -44,7 +44,5 @@ const styles = StyleSheet.create({
   label: {
     ...type.ui,
     color: T.color.primary,
-    // Same trailing-letterSpacing clip guard as PrimaryButton.
-    paddingHorizontal: 2,
   },
 });

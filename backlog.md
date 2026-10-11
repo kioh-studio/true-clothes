@@ -286,8 +286,8 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
 - [ ] **Verify 3 fix UI 2026-10-11 trên máy thật**: (1) header Home ẩn hẳn cụm nhiệt độ khi
   weather null (không còn '–'); (2) collage: hàng phụ kiện căn giữa theo bbox toàn bộ quần áo thay
   vì anchor — xem có còn hình chữ L / rãnh dọc không, và phụ kiện lẻ có bị 'rời' anchor không
-  (trade-off cũ, em tự quyết, anh Khôi xem rồi chốt); (3) Android: chữ cuối Tag/Segmented/Field
-  label/Photo/OfflineBanner không còn bị cắt sau khi thêm paddingHorizontal 2.
+  (trade-off cũ, em tự quyết, anh Khôi xem rồi chốt). Cần feed đã đăng nhập (backend đang tạm dừng).
+  (Mục (3) clip chữ Android đã XONG: giả thuyết letterSpacing sai, gốc là font load timing, đã fix + verify trên emulator.)
 - [ ] **Collage flow layout — chưa verify trực quan trên máy thật** (2026-08-12) — layout
   collage mới (anchor to nhất bên trái / căn giữa khi không có secondary; secondaries cột
   phải top-aligned theo Y anchor; accessories hàng dưới cùng trải đều + wrap; scale-to-fit
@@ -1288,6 +1288,15 @@ had NO resulting-shape preference"). Bốn việc chủ động hoãn lại khi 
   nên không cần chờ credit Cloudflare mới làm được. Điều kiện kích hoạt: trước mốc release.
 
 ## Chặn release (rà 2026-08-29)
+
+- [ ] 🔴 **Supabase project `trtjcsxcowqecsebvyme` đang INACTIVE (free-tier auto-pause) — host
+  `*.supabase.co` trả NXDOMAIN ở cả 8.8.8.8 lẫn 1.1.1.1** (phát hiện 2026-10-11 khi verify trên
+  emulator). Chỉ anh Khôi "Restore project" trên dashboard được (API restore fail — xem memory).
+  Đang chặn: (1) deploy `generate-outfits`/`wardrobe-critic`/`evaluate-item`/`generate-item-image`
+  mang 4 BannedFeature mới (commit `538bd42` CHƯA deploy); (2) verify cột `opacity` live để nối
+  `sheer`; (3) login + feed trên emulator để verify collage/header fix; (4) mọi smoke test edge fn.
+  Sau khi restore: `supabase functions deploy generate-outfits wardrobe-critic evaluate-item
+  generate-item-image` (KHÔNG `--no-verify-jwt`).
 
 > **Quyết định 2026-10-11 (anh Khôi):** KHÔNG làm edge function riêng cho demo login (một
 > endpoint demo tách riêng là pattern dễ bị reverse-engineer). **Lưu ý hiện trạng:** edge

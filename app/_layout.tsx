@@ -190,10 +190,15 @@ function RootLayout() {
     <SafeAreaProvider>
       <StatusBar style="dark" />
       <OfflineBanner />
-      {/* The navigator must stay mounted on the very first render, or router
-          navigation throws before the root layout registers. A canvas overlay
-          covers the pre-redirect route flash while the app hydrates. */}
-      <Stack screenOptions={{ headerShown: false }}>
+      {/* The navigator mounts as soon as fonts are ready (the redirect effect
+          waits on navReady, which only flips once Stack has mounted, so this
+          is safe). It must NOT mount before fonts load: on the New
+          Architecture, text measured with the fallback font keeps its stale
+          width after Inter/Cormorant register, clipping the last glyph(s) of
+          every letter-spaced label ("BEGIN" → "BEGI", tagline loses its last
+          word) on cold start — seen on Android API 34 + 37, 2026-10-11. A
+          canvas overlay covers the pre-redirect route flash while hydrating. */}
+      {fontsLoaded && <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(onboarding)" options={{ animation: 'none' }} />
         <Stack.Screen name="(tabs)" options={{ animation: 'none' }} />
         <Stack.Screen name="outfit/[id]" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
@@ -224,7 +229,7 @@ function RootLayout() {
         {/* T039: Personal colour edit */}
         <Stack.Screen name="personal-color-edit" options={{ headerShown: false, animation: 'slide_from_right' }} />
         <Stack.Screen name="+not-found" />
-      </Stack>
+      </Stack>}
 
       {!appReady && (
         <View style={[StyleSheet.absoluteFill, { backgroundColor: T.color.canvas, zIndex: 9998 }]} />

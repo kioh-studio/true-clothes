@@ -518,3 +518,9 @@ the layout sizing and the rendered crop use that measurement instead.
 - `ASPECT` gained CARDIGAN, SWEATER, HOODIE, VEST, PARKA, GILET, WINDBREAKER.
 - On-device photo cache download is atomic (`.part` then move); zero-byte
   cached files are treated as missing.
+
+- Android text clipping the last glyph ("BEGIN"->"BEGI", truncated taglines) was a
+  font-load race: `<Stack>` mounted before `useFonts` resolved, so on the New
+  Architecture text was measured with the fallback font and kept that stale width.
+  Fix: gate `<Stack>` on `fontsLoaded` in `app/_layout.tsx` (verified on API 34 + 37
+  emulators). Not a letterSpacing issue; no per-Text padding needed.

@@ -78,7 +78,6 @@ const styles = StyleSheet.create({
   },
   fallbackLabel: {
     ...type.micro,
-    paddingHorizontal: 2, // Android trailing-letterSpacing clip guard
     color: T.color.tertiary,
   },
 });
