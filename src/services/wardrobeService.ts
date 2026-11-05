@@ -131,6 +131,7 @@ interface ClothingItemRow {
   print_scale: string | null;
   drape: string | null;
   visual_interest: number | null;
+  price: number | string | null;   // numeric(12,2) arrives as string from PostgREST
   photo_url: string | null;
   photo_storage: PhotoStorageKind | null;
   times_worn: number;
@@ -225,6 +226,7 @@ function rowToItem(row: ClothingItemRow, userId: string): WardrobeItem {
     printScale: toPrintScale(row.print_scale),
     drape: toDrape(row.drape),
     visualInterest: row.visual_interest ?? null,
+    price: row.price == null ? null : Number(row.price),
   };
 }
 
@@ -536,6 +538,12 @@ export async function updateItem(id: string, patch: UpdateItemInput): Promise<Wa
 
   if (error) throw new WardrobeDbError('Failed to update clothing item', error);
   return rowToItem(data as ClothingItemRow, user.id);
+}
+
+/** Set (or clear with null) the purchase price of an item. */
+export async function setItemPrice(itemId: string, price: number | null): Promise<void> {
+  const { error } = await sb.from('clothing_items').update({ price }).eq('id', itemId);
+  if (error) throw new WardrobeDbError('Failed to update item price', error);
 }
 
 /**

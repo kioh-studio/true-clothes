@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Image, Alert, Share, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Image, Alert, Share, TextInput, useWindowDimensions } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../../src/design/tokens';
@@ -15,6 +15,7 @@ import type { WardrobeItem } from '../../src/types/fitEngine';
 import { warmthLabel } from '../../src/features/wardrobe-add/vocab';
 import i18n, { useTranslation } from '../../src/i18n';
 import { localDateKey } from '../../src/utils/localDateKey';
+import { parsePrice } from '../../src/features/wishlist/parsePrice';
 
 // Measurement labels below are internal English words used as the join key
 // between MEASUREMENTS_BY_TYPE / MKEY_LABELS / demo data (src/data) — they are
@@ -162,10 +163,11 @@ export default function ItemDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
-  const { items, wardrobeItems, removeItem, removeWardrobeItem, wearStats, toggleItemWornToday } = useAppStore();
+  const { items, wardrobeItems, removeItem, removeWardrobeItem, wearStats, toggleItemWornToday, setWardrobeItemPrice } = useAppStore();
   const { height: winH } = useWindowDimensions();
   const [unit, setUnit] = useState('CM');
   const [deleting, setDeleting] = useState(false);
+  const [priceText, setPriceText] = useState<string | null>(null);   // null = not editing
 
   // Resolve the REAL wardrobe item first; only then the demo/mock catalogue.
   // The old `|| items[0]` fallback meant any unmatched id silently showed the
@@ -184,6 +186,14 @@ export default function ItemDetailScreen() {
 
   const wear = wardrobeItem ? wearStats[wardrobeItem.id] : undefined;
   const wornToday = wear?.lastWornOn === localDateKey();
+  const price = wardrobeItem?.price ?? null;
+  const priceValue = priceText ?? (price != null ? String(price) : '');
+  const commitPrice = () => {
+    if (!wardrobeItem || priceText === null) return;
+    const p = parsePrice(priceText);
+    setPriceText(null);
+    if (p !== undefined && p !== price) setWardrobeItemPrice(wardrobeItem.id, p).catch(() => {});
+  };
 
   const vm: ItemVM | null = wardrobeItem
     ? { ...normalizeWardrobe(wardrobeItem, t), wornCount: wear?.count ?? 0 }
@@ -330,9 +340,27 @@ export default function ItemDetailScreen() {
                   {t('itemDetail_wornSummary', { count: wear.count, date: formatDay(wear.lastWornOn) })}
                 </Text>
               ) : null}
+              {price != null ? (
+                <Text style={type.caption}>
+                  {t('itemDetail_costPerWear', { amount: Math.round(price / Math.max(vm.wornCount, 1)).toLocaleString() })}
+                </Text>
+              ) : null}
               <TextLink onPress={() => toggleItemWornToday(vm.id)}>
                 {wornToday ? t('itemDetail_wornTodayUndo') : t('itemDetail_wornToday')}
               </TextLink>
+              <View style={{ alignSelf: 'stretch' }}>
+                <Text style={styles.sectionLabel}>{t('itemDetail_priceLabel')}</Text>
+                <TextInput
+                  value={priceValue}
+                  onChangeText={setPriceText}
+                  onBlur={commitPrice}
+                  onSubmitEditing={commitPrice}
+                  keyboardType="decimal-pad"
+                  placeholder={t('itemDetail_pricePlaceholder')}
+                  placeholderTextColor={T.color.tertiary}
+                  style={styles.priceInput}
+                />
+              </View>
             </View>
           )}
         </View>
@@ -459,6 +487,10 @@ const styles = StyleSheet.create({
   statCell: { flex: 1, paddingVertical: 16, alignItems: 'center', borderRightWidth: 0.5, borderRightColor: T.color.hairline },
   statNum: { fontFamily: T.font.serif, fontSize: 24, fontWeight: '300', color: T.color.primary },
   statLabel: { ...type.ui, fontSize: 9, color: T.color.tertiary, marginTop: 4 },
+  priceInput: {
+    marginTop: 4, borderBottomWidth: 0.5, borderBottomColor: T.color.hairline,
+    paddingVertical: 8, fontFamily: T.font.sans, fontSize: 15, color: T.color.primary,
+  },
   sectionLabel: { ...type.ui, fontSize: 10, color: T.color.tertiary },
   attrRow: { flexDirection: 'row', alignItems: 'center', minHeight: 48 },
   attrKey: { ...type.ui, fontSize: 10, color: T.color.tertiary, width: 110 },

@@ -1270,5 +1270,17 @@
   "doneStep_viewWardrobe": "XEM TỦ ĐỒ CỦA TÔI",
   "fieldRow_choosePrefix": "CHỌN {{label}}",
   "tagEditor_removeAccessibility": "Xoá {{tag}}",
-  "tagEditor_addTagPlaceholder": "Thêm thẻ…"
+  "tagEditor_addTagPlaceholder": "Thêm thẻ…",
+  "tabs_menu_wardrobeStats": "Thống kê tủ đồ",
+  "wardrobeStats_title": "Thống kê tủ đồ",
+  "wardrobeStats_unwornTitle": "LÂU CHƯA MẶC",
+  "wardrobeStats_unwornDays": "{{count}} ngày",
+  "wardrobeStats_neverWorn": "Chưa mặc lần nào",
+  "wardrobeStats_unwornEmpty": "Tủ đồ của bạn đang được dùng đều.",
+  "wardrobeStats_cpwTitle": "GIÁ MỖI LẦN MẶC",
+  "wardrobeStats_cpwTimes": "{{count}} lần",
+  "wardrobeStats_cpwHint": "Nhập giá ở trang chi tiết món đồ để xem.",
+  "itemDetail_priceLabel": "GIÁ MUA",
+  "itemDetail_pricePlaceholder": "Tuỳ chọn",
+  "itemDetail_costPerWear": "≈ {{amount}} / lần mặc"
 }

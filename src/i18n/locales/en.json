@@ -1270,5 +1270,17 @@
   "doneStep_viewWardrobe": "VIEW MY WARDROBE",
   "fieldRow_choosePrefix": "CHOOSE {{label}}",
   "tagEditor_removeAccessibility": "Remove {{tag}}",
-  "tagEditor_addTagPlaceholder": "Add tag…"
+  "tagEditor_addTagPlaceholder": "Add tag…",
+  "tabs_menu_wardrobeStats": "Wardrobe stats",
+  "wardrobeStats_title": "Wardrobe stats",
+  "wardrobeStats_unwornTitle": "NOT WORN LATELY",
+  "wardrobeStats_unwornDays": "{{count}} days",
+  "wardrobeStats_neverWorn": "Never worn",
+  "wardrobeStats_unwornEmpty": "Everything's in rotation.",
+  "wardrobeStats_cpwTitle": "COST PER WEAR",
+  "wardrobeStats_cpwTimes": "{{count}} wears",
+  "wardrobeStats_cpwHint": "Add a price on an item to see this.",
+  "itemDetail_priceLabel": "PRICE PAID",
+  "itemDetail_pricePlaceholder": "Optional",
+  "itemDetail_costPerWear": "≈ {{amount}} per wear"
 }

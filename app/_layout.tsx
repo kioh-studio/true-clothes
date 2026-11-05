@@ -218,6 +218,7 @@ function RootLayout() {
         <Stack.Screen name="history" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="wishlist/index" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="wishlist/[id]" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="wardrobe-stats" options={{ animation: 'slide_from_right' }} />
         {/* 010-wardrobe-critic: gap-analysis report, reached from the Menu + end-of-feed card */}
         <Stack.Screen name="wardrobe-report" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="paywall" options={{ animation: 'slide_from_bottom', presentation: 'modal', headerShown: false }} />

@@ -6,7 +6,7 @@ import { ClothingItem, Collection, ITEMS, COLLECTIONS } from '../data';
 import { WardrobeItem } from '../types/fitEngine';
 import { WeatherContext } from '../types/weather';
 import {
-  fetchMyItems, addItem, deleteItem, updateItem,
+  fetchMyItems, addItem, deleteItem, updateItem, setItemPrice,
   migrateLocalItems, listPendingCloudUploads, promoteToCloud,
   AddItemInput, UpdateItemInput, LegacyLocalItem,
   WardrobeStorageError, WardrobeDbError,
@@ -126,6 +126,7 @@ interface AppState {
   addWardrobeItem: (input: AddItemInput) => Promise<void>;
   removeWardrobeItem: (id: string) => Promise<void>;
   updateWardrobeItem: (id: string, patch: UpdateItemInput) => Promise<void>;
+  setWardrobeItemPrice: (id: string, price: number | null) => Promise<void>;
   wardrobeError: string | null;            // session-only
 
   // Push any still-local photos to the cloud for premium users. Doubles as the
@@ -374,6 +375,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       } else {
         set({ wardrobeError: i18n.t('paywall_genericErrorMessage') });
       }
+    }
+  },
+
+  // Optimistic price edit; rolls back to the previous value if the write fails.
+  setWardrobeItemPrice: async (id, price) => {
+    const prev = get().wardrobeItems.find(i => i.id === id)?.price ?? null;
+    const apply = (v: number | null) =>
+      set(s => ({ wardrobeItems: s.wardrobeItems.map(i => (i.id === id ? { ...i, price: v } : i)) }));
+    apply(price);
+    try {
+      await setItemPrice(id, price);
+    } catch {
+      apply(prev);
+      set({ wardrobeError: i18n.t('wardrobeStore_updateItemFailed') });
     }
   },
 

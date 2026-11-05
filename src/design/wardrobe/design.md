@@ -58,3 +58,10 @@
 Under the title block of a real wardrobe item: a caption "Đã mặc N lần · lần cuối {d MMM}" (only when
 N > 0) and a quiet underlined text toggle "Mặc hôm nay" / "Đã mặc hôm nay - hoàn tác". The stats grid's
 WORN / LAST cells now use the real wear log.
+
+## Wardrobe stats + price (2026-11-06)
+
+Item detail: under the wear caption an optional "GIÁ MUA" hairline-underline field (saved on blur); when set,
+a caption "≈ {cpw} / lần mặc". New screen `wardrobe-stats` (Home menu, receipt icon): two hairline-divided
+lists, "LÂU CHƯA MẶC" (thumb + name + "{n} ngày" / "Chưa mặc lần nào") and "GIÁ MỖI LẦN MẶC" (thumb + name +
+amount · "{n} lần"); one-line empty/hint states. Rows open the item detail. No shadows, no fills.

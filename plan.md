@@ -1,5 +1,14 @@
 # Onboarding Logic Plan
 
+## Wardrobe stats: "lâu chưa mặc" + cost-per-wear (2026-11-06)
+
+From `docs/wardrobe-stats-instruction.md`. Migration `20261106000001_clothing_items_price.sql` adds nullable
+`clothing_items.price numeric(12,2)` (check >= 0) - written, NOT applied (Supabase paused). `WardrobeItem.price`
+(Number() of the PostgREST string), `wardrobeService.setItemPrice`, `appStore.setWardrobeItemPrice` (optimistic,
+rolls back on failure). Pure `src/features/wardrobe/wardrobeStats.ts`: unworn = worn >= 60 days ago, or never worn
+and added >= 14 days ago; `costPerWear = price / max(count,1)`. Hook `useWardrobeStats`, screen `app/wardrobe-stats.tsx`
+(Home menu row). Engine untouched; edge functions do not read price.
+
 ## Wear log, Wishlist, Weather phase 1, Quota clarity (2026-11-05)
 
 Executed from `docs/wear-wishlist-weather-quota-instruction.md`. Supabase was paused: migrations and the

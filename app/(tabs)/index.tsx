@@ -572,7 +572,7 @@ ActionBtn.displayName = 'ActionBtn';
 
 function MenuSheet({ open, onClose, onOpenProfile, onOpenCollections, onSignOut }: any) {
   const { t } = useTranslation();
-  const { IconDashedSquare, IconCalendar, IconLayers, IconUser, IconSettings, IconChat, IconBookmark, IconClock, IconHeart } = require('../../src/components/icons');
+  const { IconDashedSquare, IconCalendar, IconLayers, IconUser, IconSettings, IconChat, IconBookmark, IconClock, IconHeart, IconReceipt } = require('../../src/components/icons');
   const menuItems = [
     { icon: <IconDashedSquare size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_buildOutfit'), action: () => router.push('/build') },
     { icon: <IconCalendar size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_scheduleOutfits'), action: () => router.push('/schedule') },
@@ -580,6 +580,7 @@ function MenuSheet({ open, onClose, onOpenProfile, onOpenCollections, onSignOut 
     { icon: <IconBookmark size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_savedOutfits'), action: () => router.push('/saved') },
     { icon: <IconClock size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_outfitHistory'), action: () => router.push('/history') },
     { icon: <IconHeart size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_wishlist'), action: () => router.push('/wishlist' as never) },
+    { icon: <IconReceipt size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_wardrobeStats'), action: () => router.push('/wardrobe-stats' as never) },
     { icon: <IconBook size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_wardrobeReport'), action: () => router.push('/wardrobe-report' as any) },
     { icon: <IconUser size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_profile'), action: onOpenProfile },
     { icon: <IconSettings size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_settings'), action: () => router.push('/settings') },

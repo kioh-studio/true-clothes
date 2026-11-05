@@ -1438,9 +1438,13 @@ code KHÔNG phải thứ đang chặn release.
 > Nguồn: review Google Photos Wardrobe (Android Authority, Android Police), Alta (stylewithingrace), Acloset (Play/App Store tổng hợp), Whering (Kimola), Indyx (survey blog). Reddit không fetch được — còn là gap.
 
 - [ ] **Thời tiết phase 2: độ ẩm / hourly / feels-like vào ranking** (2026-11-05) — phase 1 đã xong (band từ feels-like max cả ngày + chip Home). Còn: độ ẩm, hourly cho user buổi tối, và đưa mưa/feels-like vào ranking engine (đụng ranking → phải A/B sweep known-good trước deploy, bài học mục AH). Làm SAU launch.
-- [ ] **"Lâu chưa mặc" + cost-per-wear** (2026-11-05) — wear log per-item đã có (`wear_events`, chờ apply migration). Còn: màn thống kê lâu chưa mặc / CPW — chờ anh Khôi duyệt lại sau khi được giải thích.
 - [ ] **Export dữ liệu tủ đồ** (2026-11-05) — quota rõ ràng đã xong (không có cap số món; note quota ở ScanScreen + onboarding). Còn: cân nhắc export dữ liệu để không giữ dữ liệu làm con tin.
 
-## AL. Đề xuất định vị lại MIEN = "stylist tỉ lệ" (2026-11-05, chưa duyệt)
+## AL. Stylist tỉ lệ — phần còn thiếu (2026-11-06, chờ anh Khôi chọn)
 
-- [ ] **Chốt định vị: MIEN là stylist tỉ lệ cơ thể (trông cao hơn / gọn hơn / thẳng hơn / structure hơn)** (2026-11-05) — engine đã có sẵn `shape_goal`, `silhouette.ts`, trọng số `proportion`, số đo on-device. Đề xuất: (1) dùng tỉ lệ (chân/chiều cao, vai/hông, eo) thay nhãn quả táo/quả lê; (2) đóng khung là "hiệu ứng anh muốn", không phải "che khuyết điểm" (xem `docs/research/body-shape-importance-FINAL.md`); (3) mỗi outfit và mỗi verdict nói rõ hiệu ứng + lý do (VD "cạp cao + giày cùng tông quần → chân dài hơn"); (4) bằng chứng trực quan bằng sơ đồ silhouette on-device vẽ đường eo/tỉ lệ, không cần AI render; (5) thẻ "hồ sơ tỉ lệ" chia sẻ được như kết quả personal color. Kiểm chứng trước khi code: 5–10 video TikTok về mẹo tỉ lệ dùng demo MIEN, đo phản hồi. Nếu duyệt thì wear log/CPW và thời tiết phase 2 (mục AK) xuống ưu tiên thấp.
+> 2026-11-06: phần lõi ĐÃ CÓ — đo cơ thể on-device (`src/features/measurements/silhouette.ts`), bodyShapeClassifier, `shape_goal` + `app/shape-goal-edit.tsx`, engine chấm silhouette/proportion theo goal, chip dáng trên thẻ outfit, verdict tính form theo dáng. Chỉ còn 3 khoảng trống dưới.
+
+- [ ] **Đổi cách gọi từ nhãn hình học sang hiệu ứng** (2026-11-06) — "trông cao hơn / gọn hơn / structure hơn" thay vì đồng hồ cát/tam giác ngược; khung "hiệu ứng anh muốn", không phải "che khuyết điểm" (`docs/research/body-shape-importance-FINAL.md`). Quyết định định vị → chờ anh Khôi.
+- [ ] **Câu giải thích hiệu ứng cho từng outfit** (2026-11-06) — VD "cạp cao + giày cùng tông quần → chân dài hơn". Engine đã tính silhouette/proportion nhưng không trả lý do ra client.
+- [ ] **Thẻ "hồ sơ tỉ lệ" chia sẻ được** (2026-11-06) — như kết quả personal color. Kiểm chứng trước bằng 5–10 video TikTok mẹo tỉ lệ dùng demo MIEN.
+- [ ] **Ô giá chưa hiểu dấu chấm ngăn nghìn kiểu VN** (2026-11-06) — `parsePrice` ("1.500.000" → bị bỏ qua im lặng; "1500000" thì OK). Dùng chung cho wishlist + giá món đồ. Sửa: bỏ dấu chấm/phẩy ngăn nghìn khi locale vi.

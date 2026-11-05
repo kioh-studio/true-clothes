@@ -55,6 +55,8 @@ export interface WardrobeItem {
   // as a layer (overshirt/cardigan/knit-over). NULL = AUTO (engine derives by
   // rule); true/false = explicit user/AI override.
   canLayer?: boolean | null
+  // Purchase price (2026-11-06), optional, user-entered. Drives cost-per-wear only; engine ignores it.
+  price?: number | null
   // Measured-hex color layer (2026-07-06) — deterministic pixel-derived
   // dominant colour(s) of the item's isolated photo (colorCluster.ts, server-
   // side). Read-only here: set by generate-item-image at ingest or by the
