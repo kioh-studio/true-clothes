@@ -25,6 +25,10 @@ jest.mock('expo-image-manipulator', () => ({
 
 // i18n pulls in expo-localization (ESM, untransformed by Jest) — stub it, same
 // as tryOnStore.test.ts. The store only reads i18n.language for note locale.
+jest.mock('../../services/wishlistService', () => ({
+  addWishlistItem: jest.fn(async () => ({})),
+  wardrobeFingerprint: jest.fn(() => '0:'),
+}));
 jest.mock('../../i18n', () => ({ __esModule: true, default: { language: 'en' } }));
 
 let _isAvailable = false;

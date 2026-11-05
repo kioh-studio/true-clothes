@@ -47,6 +47,7 @@ export function ResultScreen() {
   const {
     status, scannedItem, verdict, error, mixMatchOutfits, mixMatchLoading,
     evaluate, discard, fetchMixMatch, prefetchMixMatch, addToWardrobe, applyMeasurements,
+    saveToWishlist, wishlistSaved, wishlistSaving,
   } = useTryOn();
 
   // 010-wardrobe-critic Try-On bridge (T031): if the user arrived here via a
@@ -346,6 +347,16 @@ export function ResultScreen() {
         <PrimaryButton onPress={handleAdd} disabled={adding}>
           {adding ? t('resultScreen_adding') : t('addItem_saveButton')}
         </PrimaryButton>
+        <Pressable
+          onPress={() => { saveToWishlist().catch(() => {}); }}
+          hitSlop={8}
+          style={styles.passBtn}
+          disabled={adding || wishlistSaved || wishlistSaving}
+        >
+          <Text style={styles.passLabel}>
+            {wishlistSaved ? t('resultScreen_wishlistSaved') : t('resultScreen_saveToWishlist')}
+          </Text>
+        </Pressable>
         <Pressable onPress={handleBack} hitSlop={8} style={styles.passBtn} disabled={adding}>
           <Text style={styles.passLabel}>{t('resultScreen_notForMe')}</Text>
         </Pressable>

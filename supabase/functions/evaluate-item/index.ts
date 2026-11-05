@@ -68,11 +68,13 @@ Deno.serve(async (req) => {
     let rawItem: Record<string, unknown> | undefined;
     let localeRaw: unknown;
     let bodyNeutral = false; // opt-in body-neutral styling (recommendation #6)
+    let skipNote = false;    // wishlist re-evaluation: scores only, no Gemini note
     try {
       const body = await req.json() as Record<string, unknown>;
       rawItem = body.item as Record<string, unknown> | undefined;
       localeRaw = body.locale;
       if (body.body_neutral === true) bodyNeutral = true;
+      if (body.skip_note === true) skipNote = true;
     } catch {
       return jsonResponse({ error: 'Invalid JSON body' }, 400);
     }
@@ -216,7 +218,7 @@ Deno.serve(async (req) => {
     // calls this once per item; see plan.md changelog).
     let fitNote: string | null = null;
     const apiKey = Deno.env.get('GOOGLE_API_KEY');
-    if (apiKey) {
+    if (apiKey && !skipNote) {
       let allowed = true;
       try {
         const { data: ok } = await supabase.rpc('consume_rate_limit', {

@@ -64,7 +64,11 @@ function mapRecommendation(raw: string | null): Recommendation | null {
  *
  * Throws on network/auth/unexpected errors — the store catches and sets error.
  */
-export async function evaluateItem(item: ScannedItem, locale = 'en'): Promise<Verdict> {
+export async function evaluateItem(
+  item: ScannedItem,
+  locale = 'en',
+  opts: { skipNote?: boolean } = {},
+): Promise<Verdict> {
   const m = item.metadata;
 
   // Build snake_case request body as per the contract
@@ -80,6 +84,8 @@ export async function evaluateItem(item: ScannedItem, locale = 'en'): Promise<Ve
     },
     locale,
     ...(useAppStore.getState().bodyNeutralMode ? { body_neutral: true } : {}),
+    // Wishlist re-evaluation: scores only, skip the Gemini note (fit_note null).
+    ...(opts.skipNote ? { skip_note: true } : {}),
   };
 
   const { data, error } = await sb.functions.invoke('evaluate-item', {

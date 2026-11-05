@@ -20,6 +20,9 @@ export function useTryOn() {
   const prefetchMixMatch   = useTryOnStore((s) => s.prefetchMixMatch);
   const addToWardrobe      = useTryOnStore((s) => s.addToWardrobe);
   const applyMeasurements  = useTryOnStore((s) => s.applyMeasurements);
+  const saveToWishlist     = useTryOnStore((s) => s.saveToWishlist);
+  const wishlistSaved      = useTryOnStore((s) => s.wishlistSaved);
+  const wishlistSaving     = useTryOnStore((s) => s.wishlistSaving);
 
   return {
     status,
@@ -45,5 +48,9 @@ export function useTryOn() {
     discard: reset,
     /** Feature 009: merge AI-mapped shop measurements and re-evaluate */
     applyMeasurements,
+    /** Save the scanned item + verdict to the wishlist (not the wardrobe). */
+    saveToWishlist,
+    wishlistSaved,
+    wishlistSaving,
   };
 }

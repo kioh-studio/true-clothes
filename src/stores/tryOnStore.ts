@@ -21,11 +21,11 @@ import { checkCredit, isCreditExhausted } from '../services/usageCreditService';
 import { hasPremiumAccountType } from '../services/profileService';
 import { evaluateItem } from '../services/tryOnService';
 import i18n from '../i18n';
-import { AddItemInput } from '../services/wardrobeService';
-import { categoryForType } from '../features/wardrobe-add/vocab';
+import { scannedItemToAddInput } from '../features/try-on/scannedItemToAddInput';
 import { dominantHexesFromUri } from '../features/wardrobe-add/colorClusterUri';
 import { useFitEngineStore } from './fitEngineStore';
 import { useAppStore } from './appStore';
+import { addWishlistItem, wardrobeFingerprint } from '../services/wishlistService';
 import type { ExtractMethod } from '../types/tryOn';
 
 export type TryOnStatus =
@@ -46,6 +46,9 @@ export interface TryOnState {
   error: string | null;
   /** True when the AI extraction was blocked by insufficient credits. */
   needsUpgrade: boolean;
+  /** Current scanned item has been saved to the wishlist (disables the action). */
+  wishlistSaved: boolean;
+  wishlistSaving: boolean;
 
   /**
    * Clear all transient state back to idle AND delete the temporary cut-out
@@ -126,6 +129,13 @@ export interface TryOnState {
    * content). No credit consumed (curate:false, same as fetchMixMatch).
    */
   prefetchMixMatch: () => Promise<void>;
+
+  /**
+   * Save the scanned item + current verdict to the wishlist (uploads the cut-out
+   * photo first; the temp file is NOT deleted while the upload is running).
+   * Does not add to the wardrobe. Returns true on success.
+   */
+  saveToWishlist: () => Promise<boolean>;
 }
 
 // ─── file uri → base64 data URI (same helper as useAddWizard) ─────────────────
@@ -159,7 +169,7 @@ async function cleanupTempImage(uri: string | null): Promise<void> {
 
 const INITIAL: Omit<
   TryOnState,
-  'reset' | 'scan' | 'evaluate' | 'fetchMixMatch' | 'addToWardrobe' | 'pinWardrobeItem' | 'applyMeasurements' | 'prefetchMixMatch'
+  'reset' | 'scan' | 'evaluate' | 'fetchMixMatch' | 'addToWardrobe' | 'pinWardrobeItem' | 'applyMeasurements' | 'prefetchMixMatch' | 'saveToWishlist'
 > = {
   status: 'idle',
   scannedItem: null,
@@ -168,6 +178,8 @@ const INITIAL: Omit<
   mixMatchLoading: false,
   error: null,
   needsUpgrade: false,
+  wishlistSaved: false,
+  wishlistSaving: false,
 };
 
 export const useTryOnStore = create<TryOnState>((set, get) => {
@@ -199,7 +211,8 @@ export const useTryOnStore = create<TryOnState>((set, get) => {
     scanGeneration++;
     const current = get().scannedItem;
     // Never delete an image we don't own (e.g. a wardrobe item reused as a pin).
-    const uri = current && !current.keepImage ? current.localImageUri : null;
+    // Also keep the file while a wishlist upload is still reading it.
+    const uri = current && !current.keepImage && !get().wishlistSaving ? current.localImageUri : null;
     cleanupTempImage(uri).catch(() => {});
     set({ ...INITIAL });
   },
@@ -209,7 +222,7 @@ export const useTryOnStore = create<TryOnState>((set, get) => {
   scan: async (photoUri: string, _method: ExtractMethod) => {
     const myGeneration = ++scanGeneration;
     const isStale = () => myGeneration !== scanGeneration;
-    set({ status: 'scanning', error: null, needsUpgrade: false, scannedItem: null, verdict: null });
+    set({ status: 'scanning', error: null, needsUpgrade: false, scannedItem: null, verdict: null, wishlistSaved: false });
 
     try {
       // Try On ALWAYS uses the AI path so the Verdict gets rich metadata
@@ -369,46 +382,7 @@ export const useTryOnStore = create<TryOnState>((set, get) => {
     const { scannedItem } = get();
     if (!scannedItem) return;
 
-    const meta = scannedItem.metadata;
-    const input: AddItemInput = {
-      localPhotoUri: scannedItem.localImageUri,
-      category: categoryForType(meta.type),
-      colors: meta.color ? [meta.color] : [],
-      name: meta.name || undefined,
-      type: meta.type,
-      primaryColor: meta.color || undefined,
-      material: meta.material ?? undefined,
-      fit: meta.fit ?? undefined,
-      pattern: meta.pattern ?? undefined,
-      warmthSeason: meta.warmthSeason ? [meta.warmthSeason] : undefined,
-      measurements:
-        meta.measurements && Object.keys(meta.measurements).length
-          ? meta.measurements
-          : undefined,
-      brand: meta.brand || undefined,
-      graphics: meta.graphics,
-      // Reuse the existing extraction provenance ('ai' | 'item') so we don't have
-      // to touch the possibly-constrained clothing_items.source column (plan/R).
-      source: scannedItem.method,
-      // Measured-hex color layer (2026-07-06): carried from the scan metadata
-      // (server-computed for keyed images; recomputed/nulled in scan() otherwise).
-      primaryHex: meta.primaryHex ?? null,
-      secondaryHex: meta.secondaryHex ?? null,
-      // Distressed finish + dual-role layering + visual enrichment đợt 2
-      // (2026-08-11 threading fix): this path was the odd one out — the AI
-      // add-wizard already carried these into its AddItemInput, but Try-On's
-      // addToWardrobe built its own object from scratch and simply never
-      // copied them over, so an item saved via Try-On silently lost data the
-      // same scan already extracted. Try-On always uses the AI method
-      // (scan()'s comment above), so `meta` here is the same GarmentMetadata
-      // shape the add-wizard gets — no on-device "no source" case to worry
-      // about on this path.
-      distressed: meta.distressed ?? null,
-      canLayer: meta.canLayer ?? null,
-      printScale: meta.printScale ?? null,
-      drape: meta.drape ?? null,
-      visualInterest: meta.visualInterest ?? null,
-    };
+    const input = scannedItemToAddInput(scannedItem);
 
     set({ error: null });
 
@@ -425,6 +399,38 @@ export const useTryOnStore = create<TryOnState>((set, get) => {
     // (Skip when the image is owned elsewhere, e.g. a reused wardrobe photo.)
     if (!scannedItem.keepImage) await cleanupTempImage(scannedItem.localImageUri);
     set({ status: 'added' });
+  },
+
+  // ── saveToWishlist ───────────────────────────────────────────────────────────
+
+  saveToWishlist: async () => {
+    const { scannedItem, verdict, wishlistSaving, wishlistSaved } = get();
+    if (!scannedItem || wishlistSaving || wishlistSaved) return false;
+    const myGeneration = scanGeneration;
+    set({ wishlistSaving: true, error: null });
+    try {
+      await addWishlistItem({
+        metadata: scannedItem.metadata,
+        localImageUri: scannedItem.localImageUri,
+        verdict,
+        wardrobeFp: wardrobeFingerprint(useAppStore.getState().wardrobeItems),
+      });
+      // If the user left meanwhile, reset() already ran and skipped cleanup
+      // (upload was in flight) — drop the temp file now.
+      if (myGeneration !== scanGeneration) {
+        if (!scannedItem.keepImage) await cleanupTempImage(scannedItem.localImageUri);
+        set({ wishlistSaving: false });
+      } else {
+        set({ wishlistSaved: true, wishlistSaving: false });
+      }
+      return true;
+    } catch (err) {
+      set({
+        wishlistSaving: false,
+        error: err instanceof Error ? err.message : i18n.t('tryOnStore_wishlistSaveFailed'),
+      });
+      return false;
+    }
   },
 
   // ── pinWardrobeItem: build outfits around an item the user already owns ───────

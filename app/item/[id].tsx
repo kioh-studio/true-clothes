@@ -14,6 +14,7 @@ import type { PhotoInput } from '../../src/features/wardrobe-photos/types';
 import type { WardrobeItem } from '../../src/types/fitEngine';
 import { warmthLabel } from '../../src/features/wardrobe-add/vocab';
 import i18n, { useTranslation } from '../../src/i18n';
+import { localDateKey } from '../../src/utils/localDateKey';
 
 // Measurement labels below are internal English words used as the join key
 // between MEASUREMENTS_BY_TYPE / MKEY_LABELS / demo data (src/data) — they are
@@ -117,6 +118,14 @@ function formatAdded(iso: string): string {
   return date.toLocaleDateString(locale, { month: 'short', year: 'numeric' });
 }
 
+// 'YYYY-MM-DD' (local date key) → "5 Nov" without a UTC shift.
+function formatDay(key: string): string {
+  const date = new Date(`${key}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return '';
+  const locale = i18n.language?.startsWith('vi') ? 'vi-VN' : 'en-US';
+  return date.toLocaleDateString(locale, { day: 'numeric', month: 'short' });
+}
+
 function normalizeWardrobe(w: WardrobeItem, t: (key: string) => string): ItemVM {
   const type = (w.type || w.category || '').toUpperCase();
   // Prefer the garment's estimated measurements (feature 006); else a sensible
@@ -153,7 +162,7 @@ export default function ItemDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
-  const { items, wardrobeItems, removeItem, removeWardrobeItem } = useAppStore();
+  const { items, wardrobeItems, removeItem, removeWardrobeItem, wearStats, toggleItemWornToday } = useAppStore();
   const { height: winH } = useWindowDimensions();
   const [unit, setUnit] = useState('CM');
   const [deleting, setDeleting] = useState(false);
@@ -173,8 +182,11 @@ export default function ItemDetailScreen() {
       : { id: 'missing', photoStorage: 'none', photoPath: null };
   const photo = useItemPhoto(photoInput);
 
+  const wear = wardrobeItem ? wearStats[wardrobeItem.id] : undefined;
+  const wornToday = wear?.lastWornOn === localDateKey();
+
   const vm: ItemVM | null = wardrobeItem
-    ? normalizeWardrobe(wardrobeItem, t)
+    ? { ...normalizeWardrobe(wardrobeItem, t), wornCount: wear?.count ?? 0 }
     : demoItem
       ? normalizeDemo(demoItem)
       : null;
@@ -311,6 +323,18 @@ export default function ItemDetailScreen() {
           <Text style={type.caption}>
             {vm.colorText} {vm.material ? vm.material.toLowerCase() : ''}. {t('itemDetail_wornCount', { count: vm.wornCount })}
           </Text>
+          {vm.isWardrobe && (
+            <View style={{ marginTop: 16, gap: 8, alignItems: 'flex-start' }}>
+              {wear && wear.count > 0 ? (
+                <Text style={type.caption}>
+                  {t('itemDetail_wornSummary', { count: wear.count, date: formatDay(wear.lastWornOn) })}
+                </Text>
+              ) : null}
+              <TextLink onPress={() => toggleItemWornToday(vm.id)}>
+                {wornToday ? t('itemDetail_wornTodayUndo') : t('itemDetail_wornToday')}
+              </TextLink>
+            </View>
+          )}
         </View>
 
         {/* Stats */}
@@ -318,7 +342,7 @@ export default function ItemDetailScreen() {
           <View style={styles.statsGrid}>
             {[
               { label: t('itemDetail_statWorn'), value: vm.wornCount },
-              { label: t('itemDetail_statLast'), value: vm.wornCount > 0 ? t('itemDetail_statLastAgo') : '—' },
+              { label: t('itemDetail_statLast'), value: wear ? formatDay(wear.lastWornOn) : (vm.wornCount > 0 ? t('itemDetail_statLastAgo') : '—') },
               { label: t('itemDetail_statOutfits'), value: outfitsUsing.length },
             ].map((s, i) => (
               <View key={s.label} style={[styles.statCell, i === 2 && { borderRightWidth: 0 }]}>

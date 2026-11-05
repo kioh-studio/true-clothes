@@ -51,7 +51,9 @@ export async function fetchCurrentWeather(
     `&longitude=${coords.longitude}` +
     `&current_weather=true` +
     `&temperature_unit=celsius` +
-    `&windspeed_unit=kmh`;
+    `&windspeed_unit=kmh` +
+    `&daily=apparent_temperature_max,apparent_temperature_min,precipitation_probability_max` +
+    `&timezone=auto&forecast_days=1`;
 
   let response: Response;
   try {
@@ -64,22 +66,66 @@ export async function fetchCurrentWeather(
     throw new WeatherFetchError(`Open-Meteo returned ${response.status}`);
   }
 
-  let json: { current_weather?: { temperature: number; windspeed: number; weathercode: number } };
+  let json: OpenMeteoResponse;
   try {
     json = await response.json();
   } catch (err) {
     throw new WeatherFetchError('Invalid JSON from Open-Meteo', err);
   }
 
+  return parseOpenMeteo(json, locationCity);
+}
+
+// ─── Pure parser ──────────────────────────────────────────────────────────────
+
+export interface OpenMeteoResponse {
+  current_weather?: { temperature: number; windspeed: number; weathercode: number };
+  daily?: {
+    apparent_temperature_max?: (number | null)[];
+    apparent_temperature_min?: (number | null)[];
+    precipitation_probability_max?: (number | null)[];
+  };
+}
+
+const num = (v: number | null | undefined): number | undefined =>
+  typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+
+/** Pure: Open-Meteo JSON -> WeatherContext. Throws WeatherFetchError without current_weather. */
+export function parseOpenMeteo(
+  json: OpenMeteoResponse,
+  locationCity?: string | null,
+  now: Date = new Date(),
+): WeatherContext {
   const cw = json.current_weather;
   if (!cw) throw new WeatherFetchError('Missing current_weather in Open-Meteo response');
 
+  const feelsLikeMaxC = num(json.daily?.apparent_temperature_max?.[0]);
+  const feelsLikeMinC = num(json.daily?.apparent_temperature_min?.[0]);
+  const precipProbMax = num(json.daily?.precipitation_probability_max?.[0]);
+
   return {
     temperatureCelsius: cw.temperature,
-    temperatureBand: getTemperatureBand(cw.temperature),
+    // ponytail: uses today's daytime max; evening users get today's band, add hourly if needed
+    temperatureBand: getTemperatureBand(feelsLikeMaxC ?? cw.temperature),
     weatherCode: cw.weathercode,
     windspeedKmh: cw.windspeed,
-    fetchedAt: new Date().toISOString(),
+    fetchedAt: now.toISOString(),
     locationCity: locationCity ?? null,
+    ...(feelsLikeMaxC !== undefined ? { feelsLikeMaxC } : {}),
+    ...(feelsLikeMinC !== undefined ? { feelsLikeMinC } : {}),
+    ...(precipProbMax !== undefined ? { precipProbMax } : {}),
   };
+}
+
+/** Pure: extra Home chips — feels-like when >=2 deg off current, rain when >=50%. */
+export function weatherExtras(ctx: WeatherContext): { feelsLike?: number; rainPct?: number } {
+  const out: { feelsLike?: number; rainPct?: number } = {};
+  if (ctx.feelsLikeMaxC !== undefined &&
+      Math.abs(ctx.feelsLikeMaxC - ctx.temperatureCelsius) >= 2) {
+    out.feelsLike = Math.round(ctx.feelsLikeMaxC);
+  }
+  if (ctx.precipProbMax !== undefined && ctx.precipProbMax >= 50) {
+    out.rainPct = Math.round(ctx.precipProbMax);
+  }
+  return out;
 }

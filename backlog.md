@@ -1426,3 +1426,21 @@ code KHÔNG phải thứ đang chặn release.
   VN; rating + installs Google Play của 7 đối thủ; công cụ fit theo số đo của retailer
   (ASOS/Zalando) và app Hàn/Nhật/Trung; Google Photos Wardrobe có mở sang VN/SEA không
   (theo dõi hằng tháng).
+
+## AJ. Quyết định ship-or-kill MIEN (2026-11-05)
+
+- [ ] **Chốt: ship bản thu hẹp trong 2–3 tuần hay đóng băng MIEN** (2026-11-05, đề xuất chưa duyệt — anh Khôi quyết). Bối cảnh: dev từ 2026-03 (8 tháng, 87 commit) chưa lên store; commit cuối 2026-10-11; Supabase đang pause; backlog ~163 mục mở. Đề xuất: (1) restore Supabase + deploy 4 edge fn đang chờ; (2) cắt scope còn đúng 1 lời hứa "quét món đồ → có vừa người + hợp tủ đồ không" + personal color làm mồi; (3) chốt giá (hard paywall/trial cho verdict + try-on); (4) bật Sentry + PostHog (làm delete-person trước); (5) submit iOS + Android VN; (6) đo 6–8 tuần với ngưỡng kill: D30 < 5% hoặc chuyển đổi trả phí < 2% người đã dùng verdict → đóng băng, chuyển sức sang MedSkin. Đóng băng mọi việc tinh chỉnh engine (layering, opacity, body-shape) cho tới khi có user thật.
+
+## AK. Đề xuất từ research lời chê đối thủ (2026-11-05)
+
+> 2026-11-05: wishlist / thời tiết phase 1 / wear log / quota rõ ràng đã implement (xem plan.md). Cần apply 2 migration `20261105000001/2` + deploy `evaluate-item` khi Supabase hoạt động lại.
+
+> Nguồn: review Google Photos Wardrobe (Android Authority, Android Police), Alta (stylewithingrace), Acloset (Play/App Store tổng hợp), Whering (Kimola), Indyx (survey blog). Reddit không fetch được — còn là gap.
+
+- [ ] **Thời tiết phase 2: độ ẩm / hourly / feels-like vào ranking** (2026-11-05) — phase 1 đã xong (band từ feels-like max cả ngày + chip Home). Còn: độ ẩm, hourly cho user buổi tối, và đưa mưa/feels-like vào ranking engine (đụng ranking → phải A/B sweep known-good trước deploy, bài học mục AH). Làm SAU launch.
+- [ ] **"Lâu chưa mặc" + cost-per-wear** (2026-11-05) — wear log per-item đã có (`wear_events`, chờ apply migration). Còn: màn thống kê lâu chưa mặc / CPW — chờ anh Khôi duyệt lại sau khi được giải thích.
+- [ ] **Export dữ liệu tủ đồ** (2026-11-05) — quota rõ ràng đã xong (không có cap số món; note quota ở ScanScreen + onboarding). Còn: cân nhắc export dữ liệu để không giữ dữ liệu làm con tin.
+
+## AL. Đề xuất định vị lại MIEN = "stylist tỉ lệ" (2026-11-05, chưa duyệt)
+
+- [ ] **Chốt định vị: MIEN là stylist tỉ lệ cơ thể (trông cao hơn / gọn hơn / thẳng hơn / structure hơn)** (2026-11-05) — engine đã có sẵn `shape_goal`, `silhouette.ts`, trọng số `proportion`, số đo on-device. Đề xuất: (1) dùng tỉ lệ (chân/chiều cao, vai/hông, eo) thay nhãn quả táo/quả lê; (2) đóng khung là "hiệu ứng anh muốn", không phải "che khuyết điểm" (xem `docs/research/body-shape-importance-FINAL.md`); (3) mỗi outfit và mỗi verdict nói rõ hiệu ứng + lý do (VD "cạp cao + giày cùng tông quần → chân dài hơn"); (4) bằng chứng trực quan bằng sơ đồ silhouette on-device vẽ đường eo/tỉ lệ, không cần AI render; (5) thẻ "hồ sơ tỉ lệ" chia sẻ được như kết quả personal color. Kiểm chứng trước khi code: 5–10 video TikTok về mẹo tỉ lệ dùng demo MIEN, đo phản hồi. Nếu duyệt thì wear log/CPW và thời tiết phase 2 (mục AK) xuống ưu tiên thấp.

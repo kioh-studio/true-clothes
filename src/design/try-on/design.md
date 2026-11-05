@@ -495,3 +495,14 @@ gains one more line, directly under the existing italic "Fills your gap:
 - Purely additive to a secondary/presentational section — never blocks or
   delays the verdict (`VerdictPanel`), which remains the screen's primary
   content and renders independently.
+
+## Wishlist + scan quota note (2026-11-05)
+
+- Result screen: a quiet secondary text action "Lưu để cân nhắc" sits above "Không hợp với tôi" in the
+  sticky bar; after saving it reads "Đã lưu vào wishlist" and is disabled.
+- Scan screen: one `CreditQuotaNote` (`ai_extraction`) line under the hint, same pattern as the add-item
+  upload step.
+- Wishlist (`app/wishlist/index.tsx`): 2-col grid of considering items (photo on canvas, hairline frame,
+  serif name + score); footer caption "Đã không mua: {sum}" only when skipped prices sum > 0. Item screen
+  shows the stored VerdictPanel, an optional hairline price field, "{old} -> {new}" score line after a
+  silent re-score, then primary "Đã mua" with text links "Bỏ qua" / "Xoá". Entry: Home menu sheet row.

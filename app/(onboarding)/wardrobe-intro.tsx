@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../../src/design/tokens';
 import { PrimaryButton, TextLink, Bounded } from '../../src/components/ui';
 import { useAuthStore } from '../../src/stores/authStore';
+import { FREE_LIMITS } from '../../src/services/usageCreditService';
 import { useTranslation } from '../../src/i18n';
 
 export default function WardrobeIntroScreen() {
@@ -89,6 +90,9 @@ export default function WardrobeIntroScreen() {
         <Text style={styles.body}>
           {t('onboardingWardrobeIntro_body')}
         </Text>
+        <Text style={styles.freeNote}>
+          {t('onboardingWardrobeIntro_freeNote', { n: FREE_LIMITS.ai_extraction })}
+        </Text>
 
         <View style={{ height: 24 }} />
         <View style={styles.stepsRow}>
@@ -159,6 +163,12 @@ const styles = StyleSheet.create({
     ...type.bodyL,
     color: T.color.secondary,
     marginTop: 16,
+  },
+  freeNote: {
+    ...type.caption,
+    fontSize: 11,
+    color: T.color.tertiary,
+    marginTop: 12,
   },
   stepsRow: {
     flexDirection: 'row',

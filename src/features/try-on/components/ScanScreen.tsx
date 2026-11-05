@@ -15,6 +15,8 @@ import { IconCamera, IconImage, IconX } from '../../../components/icons';
 import { useTryOn } from '../useTryOn';
 import { useAuthStore } from '../../../stores/authStore';
 import { useFitEngineStore } from '../../../stores/fitEngineStore';
+import { useCreditQuota } from '../../monetization/useCreditQuota';
+import { CreditQuotaNote } from '../../monetization/components/CreditQuotaNote';
 import { useTranslation } from '../../../i18n';
 
 export function ScanScreen() {
@@ -22,6 +24,10 @@ export function ScanScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const { status, error, needsUpgrade, scan, reset } = useTryOn();
+  // Quiet monthly-allowance line (same pattern as the add-item UploadStep).
+  // A scan spends an ai_extraction credit, so re-read when the flow returns to idle.
+  const { status: quota, refresh: refreshQuota } = useCreditQuota('ai_extraction');
+  useEffect(() => { if (status === 'idle') refreshQuota(); }, [status, refreshQuota]);
 
   // Profile completeness drives the wardrobe-match quality. Surface a gentle
   // prompt before scanning so the user knows the result is only as good as the
@@ -241,6 +247,7 @@ export function ScanScreen() {
           <Text style={styles.hint}>
             {t('scanScreen_hint')}
           </Text>
+          <CreditQuotaNote status={quota} creditType="ai_extraction" style={styles.quotaNote} />
         </>
       )}
       </Bounded>
@@ -393,6 +400,10 @@ const styles = StyleSheet.create({
   buttonLabelSecondary: {
     ...type.ui,
     color: T.color.primary,
+  },
+  quotaNote: {
+    textAlign: 'center',
+    marginTop: T.s(2),
   },
   hint: {
     ...type.caption,

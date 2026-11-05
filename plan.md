@@ -1,5 +1,39 @@
 # Onboarding Logic Plan
 
+## Wear log, Wishlist, Weather phase 1, Quota clarity (2026-11-05)
+
+Executed from `docs/wear-wishlist-weather-quota-instruction.md`. Supabase was paused: migrations and the
+edge-function change are written but NOT applied/deployed. Engine ranking/scoring untouched.
+
+**1. Wear log.** New `wear_events` (migration `20261105000001_wear_events.sql`, RLS own-rows, unique
+`(user_id,item_id,worn_on)`). `src/services/wearService.ts`: `logWear`/`unlogWear`/`fetchWearStats` +
+pure `aggregateWear`, `itemIdsFromOutfitId` (outfit ids are pipe-joined item uuids, optional `gen_`
+prefix; non-uuid demo ids skipped). The existing `outfit_interactions` `'worn'` row is unchanged.
+`appStore.toggleWorn`/`markWorn` additionally fire `logWear`/`unlogWear` (same in-flight counter);
+`appStore.wearStats` (not persisted) is loaded in `loadServerState`; `toggleItemWornToday` backs the new
+"Mặc hôm nay" toggle on `app/item/[id].tsx`. `localDateKey` moved to `src/utils/localDateKey.ts`.
+
+**2. Wishlist.** Table `wishlist_items` (migration `20261105000002_wishlist_items.sql`), photos in
+`wardrobe-photos` at `{uid}/wishlist/{id}.png`. `src/services/wishlistService.ts` (+ pure
+`wardrobeFingerprint` = `count:max(updatedAt|createdAt)`, `skippedTotal`; `WardrobeItem` has no
+`updatedAt`, so edits to an existing item do not change the fingerprint, only add/remove/new items do).
+`tryOnStore.saveToWishlist` (temp cut-out is not deleted while the upload runs). The ScannedItem ->
+AddItemInput mapping was extracted to `src/features/try-on/scannedItemToAddInput.ts` and reused by the
+"bought" flow. Screens `app/wishlist/index.tsx` and `app/wishlist/[id].tsx`, logic in
+`src/features/wishlist/useWishlist.ts`; entry row in the Home menu sheet. Opening an item re-runs
+`evaluateItem(..., { skipNote: true })` only when the fingerprint differs. Edge fn `evaluate-item`
+accepts `skip_note: true` (skips the Gemini note; backward compatible) - needs deploy.
+
+**3. Weather phase 1.** `fetchCurrentWeather` requests the `daily` feels-like max/min and rain
+probability; `parseOpenMeteo` (pure) builds the context; `temperatureBand` uses `feelsLikeMaxC ??
+temperature`. New optional `WeatherContext` fields keep old persisted contexts valid. Home shows
+"Cảm giác N°" (diff >= 2) and "Mưa P%" (>= 50) via `weatherExtras`.
+
+**4. Quota clarity.** Verified by grep: no cap on wardrobe items (client, edge functions, migrations)
+and none on wishlist. `CreditQuotaNote` (`ai_extraction`) added to try-on `ScanScreen`; onboarding
+`wardrobe-intro` shows a free-tier line using the now-exported `FREE_LIMITS.ai_extraction`.
+`app/paywall.tsx` untouched.
+
 ## Ingest-threading: print_scale/drape/visual_interest/can_layer + Try-On distressed parity (2026-08-11)
 
 Follow-up to `backlog.md`'s "Đồng bộ ingest-threading cho `print_scale`/`drape`/`visual_interest`"

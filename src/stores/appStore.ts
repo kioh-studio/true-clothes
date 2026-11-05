@@ -23,6 +23,11 @@ import {
 } from '../services/outfitInteractionService';
 import { fetchCurrentWeather } from '../services/weatherService';
 import {
+  logWear, unlogWear, fetchWearStats, itemIdsFromOutfitId,
+  type WearStats,
+} from '../services/wearService';
+import { localDateKey } from '../utils/localDateKey';
+import {
   fetchMyCollections,
   createCollection as svcCreateCollection,
   updateCollection as svcUpdateCollection,
@@ -92,12 +97,6 @@ function deviceDefaultLanguage(): 'en' | 'vi' {
   return code?.toLowerCase().startsWith('vi') ? 'vi' : 'en';
 }
 
-function localDateKey(d: Date = new Date()): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
 
 export interface WornEntry {
   outfitId: string;
@@ -151,6 +150,11 @@ interface AppState {
   toggleSave: (id: string) => void;
   toggleSchedule: (id: string) => void;
   toggleWorn: (id: string) => void;
+  // Per-item wear log (wear_events). Not persisted; loaded after login.
+  wearStats: WearStats;
+  loadWearStats: () => Promise<void>;
+  /** Single-item 'worn today' toggle (item detail). */
+  toggleItemWornToday: (itemId: string) => void;
   toggleCollection: (id: string) => void;
 
   wornHistory: WornEntry[];
@@ -435,8 +439,37 @@ export const useAppStore = create<AppState>((set, get) => ({
       _interactionWritesInFlight++;
       const writeP = wasWorn ? unmarkWorn(id) : svcMarkWorn(id);
       writeP.catch(() => {}).finally(() => { _interactionWritesInFlight--; });
+      // Parallel per-item log (the 'worn' interaction above stays as is).
+      const itemIds = itemIdsFromOutfitId(id);
+      _interactionWritesInFlight++;
+      (wasWorn ? unlogWear(itemIds) : logWear(itemIds, id))
+        .catch(() => {})
+        .finally(() => { _interactionWritesInFlight--; get().loadWearStats().catch(() => {}); });
       return { wornSet };
     });
+  },
+
+  wearStats: {},
+  loadWearStats: async () => {
+    set({ wearStats: await fetchWearStats() });
+  },
+  toggleItemWornToday: (itemId) => {
+    const today = localDateKey();
+    const cur = get().wearStats[itemId];
+    const wornToday = cur?.lastWornOn === today;
+    // Optimistic: recompute this item's stat locally, reconcile after the write.
+    const wearStats = { ...get().wearStats };
+    if (wornToday) {
+      if (cur.count <= 1) delete wearStats[itemId];
+      else wearStats[itemId] = { count: cur.count - 1, lastWornOn: cur.lastWornOn }; // reconciled below
+    } else {
+      wearStats[itemId] = { count: (cur?.count ?? 0) + 1, lastWornOn: today };
+    }
+    set({ wearStats });
+    _interactionWritesInFlight++;
+    (wornToday ? unlogWear([itemId]) : logWear([itemId]))
+      .catch(() => {})
+      .finally(() => { _interactionWritesInFlight--; get().loadWearStats().catch(() => {}); });
   },
 
   wornHistory: [],
@@ -448,6 +481,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     track('outfit_worn');
     _interactionWritesInFlight++;
     svcMarkWorn(outfitId).catch(() => {}).finally(() => { _interactionWritesInFlight--; });
+    _interactionWritesInFlight++;
+    logWear(itemIdsFromOutfitId(outfitId), outfitId)
+      .catch(() => {})
+      .finally(() => { _interactionWritesInFlight--; get().loadWearStats().catch(() => {}); });
     save({ ...s, wornHistory, wornSet });
     return { wornHistory, wornSet };
   }),
@@ -663,6 +700,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.warn('[appStore] loadServerState wardrobe failed:', err);
     }
 
+    // Per-item wear stats (non-blocking, failure keeps current).
+    get().loadWearStats().catch(() => {});
+
     // Outfit interactions
     // Skip the set() overwrite if an optimistic write is still in flight —
     // the server read would race against and clobber the user's action.
@@ -715,6 +755,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       scheduledOutfits:   {} as Record<string, OutfitSnapshot>,
       wornHistory:        [] as WornEntry[],
       wornCooldownIds:    [] as string[],
+      wearStats:          {} as WearStats,
       collections:        COLLECTIONS,
       weatherContext:     null as WeatherContext | null,
       weatherLastFetched: null as string | null,

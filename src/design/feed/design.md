@@ -524,3 +524,8 @@ the layout sizing and the rendered crop use that measurement instead.
   Architecture text was measured with the fallback font and kept that stale width.
   Fix: gate `<Stack>` on `fontsLoaded` in `app/_layout.tsx` (verified on API 34 + 37
   emulators). Not a letterSpacing issue; no per-Text padding needed.
+
+## Home weather label (2026-11-05)
+
+The top-right label is `24°C`, plus ` · Cảm giác 34°` when today's feels-like max differs from the current
+temperature by >= 2, plus ` · Mưa 60%` when today's rain probability >= 50. Same micro type, no new chrome.

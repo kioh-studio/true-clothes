@@ -1,5 +1,6 @@
 // Home — Outfit Feed (TikTok-style vertical pager)
 import React, { useRef, useState, useCallback, useEffect } from 'react';
+import { weatherExtras } from '../../src/services/weatherService';
 import {
   View, Text, StyleSheet, FlatList, Pressable, useWindowDimensions, Share,
   Animated, PanResponder, findNodeHandle,
@@ -214,7 +215,14 @@ export default function HomeScreen() {
 
   // Unknown weather -> render nothing (no "–" placeholder).
   const weatherLabel = weatherContext
-    ? `${Math.round(weatherContext.temperatureCelsius)}°C`
+    ? (() => {
+        const x = weatherExtras(weatherContext);
+        return [
+          `${Math.round(weatherContext.temperatureCelsius)}°C`,
+          x.feelsLike !== undefined ? t('tabs_home_feelsLike', { temp: x.feelsLike }) : null,
+          x.rainPct !== undefined ? t('tabs_home_rain', { pct: x.rainPct }) : null,
+        ].filter(Boolean).join(' · ');
+      })()
     : null;
 
   const renderCard = useCallback(({ item: outfit, index }: { item: Outfit; index: number }) => (
@@ -564,13 +572,14 @@ ActionBtn.displayName = 'ActionBtn';
 
 function MenuSheet({ open, onClose, onOpenProfile, onOpenCollections, onSignOut }: any) {
   const { t } = useTranslation();
-  const { IconDashedSquare, IconCalendar, IconLayers, IconUser, IconSettings, IconChat, IconBookmark, IconClock } = require('../../src/components/icons');
+  const { IconDashedSquare, IconCalendar, IconLayers, IconUser, IconSettings, IconChat, IconBookmark, IconClock, IconHeart } = require('../../src/components/icons');
   const menuItems = [
     { icon: <IconDashedSquare size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_buildOutfit'), action: () => router.push('/build') },
     { icon: <IconCalendar size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_scheduleOutfits'), action: () => router.push('/schedule') },
     { icon: <IconLayers size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_collections'), action: onOpenCollections },
     { icon: <IconBookmark size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_savedOutfits'), action: () => router.push('/saved') },
     { icon: <IconClock size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_outfitHistory'), action: () => router.push('/history') },
+    { icon: <IconHeart size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_wishlist'), action: () => router.push('/wishlist' as never) },
     { icon: <IconBook size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_wardrobeReport'), action: () => router.push('/wardrobe-report' as any) },
     { icon: <IconUser size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_profile'), action: onOpenProfile },
     { icon: <IconSettings size={22} color={T.color.primary} strokeWidth={1.4} />, title: t('tabs_menu_settings'), action: () => router.push('/settings') },

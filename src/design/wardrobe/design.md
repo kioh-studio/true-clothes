@@ -52,3 +52,9 @@
 | Warning accent | `T.color.warning` |
 | Sync indicator | `T.color.tertiary` |
 | Hairline borders | `T.color.hairline` |
+
+## Item detail wear log (2026-11-05)
+
+Under the title block of a real wardrobe item: a caption "Đã mặc N lần · lần cuối {d MMM}" (only when
+N > 0) and a quiet underlined text toggle "Mặc hôm nay" / "Đã mặc hôm nay - hoàn tác". The stats grid's
+WORN / LAST cells now use the real wear log.
