@@ -246,3 +246,7 @@ depths, no computable scale) is completely silent: the scan proceeds to the same
 'processing' → 'success' flow as a front-only scan always has, exactly like the
 existing silhouette/refinement passes' "never surface a model-internals error to the
 user" policy. There is no "side scan failed" message anywhere in the UI.
+
+## Retake state (2026-11-20)
+
+Phase `retake` replaces the old "no result" dead end when fewer than 2 front frames could be refined (no numbers are ever shown from the weaker fallback) and when free storage is below Android's cache-trim threshold (checked at Start and before processing). Same bottom block as the intro: heading ("Let's scan again" / "Cần quét lại", 18 pt, white), up to 2 guidance lines (11-12 pt caption style) for the top-priority reasons (storage > cropped > no_person > mask > error), then the primary "Scan again" / "Quét lại" button which restarts the scan (re-running the storage check). The screen's existing top back button remains the exit. Guidance copy lives in `measurementsScan_retake_{storage,cropped,no_person,mask,error}`. Side-view failures still never surface UI.

@@ -70,6 +70,15 @@
         {
           "motionPermission": "MIEN uses motion sensors to check your phone is held upright while scanning your body measurements."
         }
+      ],
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "MIEN uses your camera to photograph clothing for your wardrobe, and to scan your face and body for colour analysis, measurements and virtual try-on.",
+          "enableMicrophonePermission": false,
+          "enableCodeScanner": false,
+          "enableLocation": false
+        }
       ]
     ],
     "experiments": {

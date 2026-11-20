@@ -10,17 +10,17 @@
 // The .frames.json + .bin files let scripts/offline-replay re-run every pipeline
 // stage AFTER the models offline with any constants.
 //
-// processScan DELETES the uris it consumes, so every image is COPIED to the
-// cache dir first — the source set survives.
+// Images are decoded to in-RAM RgbaImages (stillToRgba); processScan never touches
+// files and zeroes the pixel buffers it is given. The source set is never modified.
 
 import React, { useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as FileSystem from 'expo-file-system/legacy';
-import { manipulateAsync } from 'expo-image-manipulator';
 import { T, type } from '../src/design/tokens';
 import { estimateKeypoints } from '../src/features/measurements/poseEstimate';
 import { assessPose, assessSidePose } from '../src/features/measurements/poseQuality';
+import { stillToRgba } from '../src/features/measurements/stillToRgba';
 import { processScan, type BufferedFrame, type DebugFrameInfo } from '../src/features/measurements/processScan';
 import type { Sex } from '../src/features/measurements/landmarksToMeasurements';
 import { scanToFixture } from '../src/features/measurements/scanFixture';
@@ -74,7 +74,7 @@ export default function DevScanReplayScreen() {
   return <Inner />;
 }
 
-/** Load one view's images → BufferedFrames (copies in cache; 1 image is reused 3×). */
+/** Load one view's images → BufferedFrames (1 image is reused 3×, each copy owning its pixels). */
 async function loadView(
   dir: string, prefix: 'front' | 'side', pitchRad: number | undefined, log: (s: string) => void,
 ): Promise<BufferedFrame[]> {
@@ -82,34 +82,22 @@ async function loadView(
     .filter((n) => new RegExp(`^${prefix}_\\d+\\.jpe?g$`, 'i').test(n)).sort();
   const gate = prefix === 'front' ? assessPose : assessSidePose;
   const frames: BufferedFrame[] = [];
-  const copyOf = async (src: string, i: number): Promise<string> => {
-    // documentDirectory, NOT cacheDirectory: Android trims cache files when /data is
-    // low on space (emulator!), deleting frames mid-scan -> random refine failures.
-    await FileSystem.makeDirectoryAsync(`${ROOT}tmp/`, { intermediates: true }).catch(() => {});
-    const dst = `${ROOT}tmp/replay-${prefix}-${Date.now()}-${i}.jpg`;
-    await FileSystem.copyAsync({ from: src, to: dst });
-    return dst;
-  };
   for (const name of names) {
-    const probeUri = await copyOf(dir + name, 0);
-    // Same dimension probe estimateKeypoints itself uses when w/h are absent
-    // (camera photos get theirs from takePictureAsync; manipulateAsync applies EXIF).
-    const probe = await manipulateAsync(probeUri, []);
-    FileSystem.deleteAsync(probe.uri, { idempotent: true }).catch(() => {});
-    const res = await estimateKeypoints(probeUri, probe.width, probe.height);
+    const image = await stillToRgba(dir + name);
+    const res = await estimateKeypoints(image);
     if (!res) {
       log(`  ${name}: NO POSE from estimateKeypoints — skipped (live loop would drop it too)`);
-      FileSystem.deleteAsync(probeUri, { idempotent: true }).catch(() => {});
       continue;
     }
     const q = gate(res.keypoints);
     if (!q.ok) log(`  ${name}: live pose gate FAILED (${q.hint}, present ${q.present}, fill ${q.frameFill.toFixed(2)}) — included anyway`);
-    frames.push({ keypoints: res.keypoints, uri: probeUri, width: probe.width, height: probe.height, pitchRad });
+    frames.push({ keypoints: res.keypoints, image, pitchRad });
   }
-  // Single source image → reuse 3× (fresh copies; processScan deletes each uri).
+  // Single source image → reuse 3×. processScan zeroes each frame's pixels, so every
+  // copy gets its own buffer (a shared one would be wiped under the others).
   if (frames.length === 1) {
     const f = frames[0];
-    for (let i = 1; i < 3; i++) frames.push({ ...f, uri: await copyOf(f.uri, i) });
+    for (let i = 1; i < 3; i++) frames.push({ ...f, image: { ...f.image, data: f.image.data.slice() } });
   }
   return frames;
 }
@@ -128,8 +116,9 @@ async function replayBody(bodyId: string, log: (s: string) => void): Promise<str
     { heightCm: meta.heightCm, weightKg: meta.weightKg, sex: meta.sex, ageYears: meta.ageYears },
     // Masks are not mutated after capture (the pure stage clones before eraseDisk).
     { addToTotal: () => {}, frameDone: () => {}, debug: { onFrame: (i) => infos.push(i) } },
+    { allowFallback: true },
   );
-  if (!scan) throw new Error('processScan returned null');
+  if (!scan || 'retake' in scan) throw new Error('processScan returned null');
   await dumpFrames(bodyId, meta, groundTruth, infos);
   const fixture = scanToFixture(bodyId, meta, groundTruth, scan);
   await FileSystem.writeAsStringAsync(`${ROOT}out/${bodyId}.json`, JSON.stringify(fixture, null, 2));

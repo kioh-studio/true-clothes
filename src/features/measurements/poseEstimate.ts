@@ -1,8 +1,8 @@
 // On-device pose estimation for the body-measurement AI capture path.
 //
 // Pipeline (all on-device, no remote upload):
-//   expo-image-manipulator scales the photo uniformly (long side → model input
-//   size) → jpeg-js decodes to RGBA → letterbox-padded into a square RGB
+//   an in-RAM RGBA frame is bilinear-scaled uniformly (long side → model input
+//   size; cropResizeRgba) → letterbox-padded into a square RGB
 //   tensor (aspect ratio preserved; see `inferKeypointsInSquare`) → MoveNet →
 //   17 keypoints (y, x, score) normalized 0..1 in the padded square.
 //
@@ -34,14 +34,14 @@
 // caller degrades gracefully (refineKeypoints falls back to the pass-1
 // keypoints; estimateKeypoints falls back to manual entry).
 //
-// PRIVACY: The caller is responsible for deleting the temp photo URI via
-// FileSystem.deleteAsync after this function returns (success or null).
+// PRIVACY: frames are in-RAM RgbaImages (see rgbaImage.ts) - nothing here touches
+// disk; the caller zeroes the buffers when done.
 
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import jpeg from 'jpeg-js';
 import { loadTensorflowModel, type TensorflowModel } from 'react-native-fast-tflite';
+import { cropResizeRgba, type RgbaImage } from './rgbaImage';
 import { personCropRect, cropSquareToFullSquare, longSideResize } from './cropMath';
 import { loadModelWithGpuFallback } from './modelLoad';
+import type { ScanFailReason } from './scanFailure';
 import { decodeBlazePoseLandmarks, findOutputIndexByLength, BLAZEPOSE_LANDMARKS_LENGTH } from './blazePoseDecode';
 
 // ── Keypoint type ─────────────────────────────────────────────────────────────
@@ -174,16 +174,6 @@ export function loadBlazePoseModel(): Promise<TensorflowModel> {
   return _blazePosePromise;
 }
 
-// ── JPEG decode ───────────────────────────────────────────────────────────────
-
-/** Decode a base64-encoded JPEG to raw RGBA pixels. Hermes provides atob. */
-function decodeJpegBase64(base64: string): { width: number; height: number; data: Uint8Array } {
-  const bin = atob(base64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return jpeg.decode(bytes, { useTArray: true }) as { width: number; height: number; data: Uint8Array };
-}
-
 // ── Shared inference core (Lightning only — see inferBlazePoseInSquare below
 //    for the refine pass, which is deliberately NOT sharing this function) ──
 
@@ -229,10 +219,9 @@ interface SquareInference {
  */
 function inferKeypointsInSquare(
   model: TensorflowModel,
-  resizedBase64: string,
+  img: RgbaImage,
   modelSize: number,
 ): SquareInference | null {
-  const img = decodeJpegBase64(resizedBase64);
   const pixelCount = modelSize * modelSize;
 
   // Content centred, rest padded with zeros. MoveNet int8 takes uint8 RGB;
@@ -312,10 +301,9 @@ function inferKeypointsInSquare(
  */
 function inferBlazePoseInSquare(
   model: TensorflowModel,
-  resizedBase64: string,
+  img: RgbaImage,
   modelSize: number,
 ): SquareInference | null {
-  const img = decodeJpegBase64(resizedBase64);
   const pixelCount = modelSize * modelSize;
 
   // BlazePose is float32-only in practice, but branch defensively the same
@@ -376,7 +364,7 @@ function inferBlazePoseInSquare(
 // ── Public: estimate keypoints from a photo URI (Lightning, full frame) ──────
 
 /**
- * Resize `photoUri` to a 192×192 MoveNet Lightning input and return 17
+ * Resize the RGBA `frame` to a 192×192 MoveNet Lightning input and return 17
  * keypoints.
  *
  * IMPORTANT — aspect ratio: the image is scaled UNIFORMLY (long side → 192) and
@@ -388,41 +376,22 @@ function inferBlazePoseInSquare(
  * for a portrait photo). The padding offset cancels out because every downstream
  * quantity is a *difference* of keypoint coordinates.
  *
- * `origW`/`origH` are the source pixel dimensions (from the image picker asset).
- * When absent/invalid they are probed via a no-op manipulate.
- *
  * Returns `null` on any failure (model missing, decode error, native error —
  * callers additionally gate on per-keypoint score).
  */
 export async function estimateKeypoints(
-  photoUri: string,
-  origW?: number,
-  origH?: number,
+  frame: RgbaImage,
 ): Promise<PoseResult | null> {
   try {
     const model = await loadModel();
 
-    // 0. Resolve source dimensions (probe with a no-op manipulate if needed).
-    let sW = origW, sH = origH;
-    if (!sW || !sH || !isFinite(sW) || !isFinite(sH)) {
-      const probe = await manipulateAsync(photoUri, []);
-      sW = probe.width;
-      sH = probe.height;
-    }
-
     // 1. Scale uniformly so the LONG side is MODEL_SIZE; the short side stays
-    //    proportional (≤ MODEL_SIZE) and gets letterbox-padded below.
-    const { width: tW, height: tH } = longSideResize(sW, sH, MODEL_SIZE);
+    //    proportional (<= MODEL_SIZE) and gets letterbox-padded below.
+    const { width: tW, height: tH } = longSideResize(frame.width, frame.height, MODEL_SIZE);
+    const resized = cropResizeRgba(frame, null, tW, tH);
 
-    const resized = await manipulateAsync(
-      photoUri,
-      [{ resize: { width: tW, height: tH } }],
-      { base64: true, format: SaveFormat.JPEG, compress: 0.95 },
-    );
-    if (!resized.base64) return null;
-
-    // 2-5. Decode, letterbox, infer, and map to named keypoints (shared core).
-    const result = inferKeypointsInSquare(model, resized.base64, MODEL_SIZE);
+    // 2-5. Letterbox, infer, and map to named keypoints (shared core).
+    const result = inferKeypointsInSquare(model, resized, MODEL_SIZE);
     if (!result) return null;
 
     // Display space: undo the letterbox (pixel-in-square → source-image
@@ -469,7 +438,7 @@ export async function estimateKeypoints(
  * NOT used yet — future work, once something downstream can consume a depth
  * signal.
  *
- * Returns `null` (caller falls back to `pass1Kps`) when:
+ * Returns `{ok:false, reason}` (caller falls back to `pass1Kps`) when:
  * - `personCropRect` finds no usable crop (degenerate bbox, too small, or
  *   cropping wouldn't meaningfully help — see cropMath.ts),
  * - the BlazePose asset is missing or fails to load,
@@ -480,47 +449,44 @@ export async function estimateKeypoints(
  * Every failure mode is non-fatal, matching `estimateKeypoints`'s
  * degrade-to-null contract.
  */
+export type RefineOutcome =
+  | { ok: true; keypoints: Keypoint[] }
+  | { ok: false; reason: ScanFailReason };
+
 export async function refineKeypoints(
-  photoUri: string,
-  sW: number,
-  sH: number,
+  img: RgbaImage,
   pass1Kps: Keypoint[],
-): Promise<Keypoint[] | null> {
+): Promise<RefineOutcome> {
+  const sW = img.width, sH = img.height;
   let stage = 'crop-rect';
   try {
     const cropRect = personCropRect(pass1Kps, sW, sH);
-    if (!cropRect) { console.warn('[REFINE_FAIL]', stage, 'no cropRect'); return null; }
+    if (!cropRect) { console.warn('[REFINE_FAIL]', stage, 'no cropRect'); return { ok: false, reason: 'cropped' }; }
 
     stage = 'load-model';
     const model = await loadBlazePoseModel();
-    stage = 'manipulate';
+    stage = 'resize';
 
     const { width: tW, height: tH } = longSideResize(cropRect.width, cropRect.height, BLAZEPOSE_SIZE);
-    const cropped = await manipulateAsync(
-      photoUri,
-      [
-        { crop: cropRect },
-        { resize: { width: tW, height: tH } },
-      ],
-      { base64: true, format: SaveFormat.JPEG, compress: 0.9 },
-    );
-    if (!cropped.base64) { console.warn('[REFINE_FAIL]', stage, 'no base64'); return null; }
+    const cropped = cropResizeRgba(img, cropRect, tW, tH);
 
     stage = 'infer';
-    const result = inferBlazePoseInSquare(model, cropped.base64, BLAZEPOSE_SIZE);
-    if (!result) return null; // reason already logged inside
+    const result = inferBlazePoseInSquare(model, cropped, BLAZEPOSE_SIZE);
+    // null = poseflag gate (or, rarely, an odd output shape) - treated as no usable pose.
+    if (!result) return { ok: false, reason: 'no_person' };
 
     // Map every keypoint from crop-square space to the shared FULL-square
     // space so the refined pose is a drop-in replacement for the pass-1
     // keypoints everywhere downstream (silhouette bands, measurement math).
     // Scores pass through unchanged — BlazePose's own confidence, not blended
     // with pass 1's.
-    return result.keypoints.map((k) => {
+    const keypoints = result.keypoints.map((k) => {
       const { u, v } = cropSquareToFullSquare(k.x, k.y, cropRect, sW, sH);
       return { name: k.name, x: u, y: v, score: k.score };
     });
+    return { ok: true, keypoints };
   } catch (err) {
     console.warn('[REFINE_FAIL]', stage, String(err));
-    return null;
+    return { ok: false, reason: 'error' };
   }
 }

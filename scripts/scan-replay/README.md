@@ -42,6 +42,6 @@ adb exec-out run-as tech.kioh.mien tar -C files/scan-replay/out -cf - . > out.ta
 Notes
 - `documentDirectory` (expo-file-system) on Android = `file:///data/user/0/tech.kioh.mien/files/`, i.e. `files/` under `run-as`. Needs a debuggable APK.
 - Progress also goes to Metro/logcat as `[SCAN_REPLAY] ...`; per-body timing/refined count/failures in `out/_log.txt` (rewritten after each body).
-- Source images are never consumed (processScan deletes cache copies only). Re-run freely; `push` wipes `in/` and `out/`.
+- Source images are never consumed (frames are decoded to RAM via stillToRgba; processScan zeroes only its in-RAM copies). Re-run freely; `push` wipes `in/` and `out/`.
 - A frame where `estimateKeypoints` finds no pose is skipped (the live loop would drop it too); a frame failing the live pose gate is still processed but logged.
 - Fixture `replay` block (`est`, `rawEst`, `refinedSuccessCount`, `sideOk`) is diagnostics only; the harness ignores it.

@@ -36,13 +36,12 @@
 //     converts through cropMath's Lc/L scale factor before merging with
 //     other frames or full-frame results.
 //
-// PRIVACY: same contract as poseEstimate — everything on-device, the caller
-// deletes the temp photo. Any failure returns null and the caller falls back
+// PRIVACY: same contract as poseEstimate — everything on-device, in RAM; the
+// caller zeroes the frame buffer. Any failure returns null and the caller falls back
 // to the keypoint-span heuristics (previous behaviour).
 
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import jpeg from 'jpeg-js';
 import { loadTensorflowModel, type TensorflowModel } from 'react-native-fast-tflite';
+import { cropResizeRgba, type RgbaImage } from './rgbaImage';
 import { longSideResize, type CropRect } from './cropMath';
 import { loadModelWithGpuFallback } from './modelLoad';
 import { fillNCHWFloat, type SilhouetteMask } from './silhouetteMath';
@@ -110,25 +109,16 @@ export function loadMatteModel(): Promise<TensorflowModel> {
   return _mattePromise;
 }
 
-// ── JPEG decode (same as poseEstimate) ────────────────────────────────────────
-
-function decodeJpegBase64(base64: string): { width: number; height: number; data: Uint8Array } {
-  const bin = atob(base64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return jpeg.decode(bytes, { useTArray: true }) as { width: number; height: number; data: Uint8Array };
-}
-
 // ── Selfie-segmenter inference core (HWC, fallback path) ──────────────────────
 
 /**
- * Decode an already-resized (long side → SEG_SIZE) JPEG, letterbox-pad it
+ * Take an already-resized (long side → SEG_SIZE) RGBA image, letterbox-pad it
  * into a SEG_SIZE×SEG_SIZE tensor, run the selfie segmenter, and return the
  * person-probability mask — in WHATEVER letterboxed-square space the
  * caller's resize was relative to (full-frame square for `estimateSilhouette`,
  * crop square for `estimateSilhouetteCropped`). Shared so both variants stay
- * byte-for-byte consistent; only the manipulateAsync call that produces
- * `base64` differs.
+ * byte-for-byte consistent; only the cropResizeRgba call that produces
+ * the image differs.
  *
  * NOTE: unlike poseEstimate's MoveNet, the selfie segmenter genuinely expects
  * float32 input normalised to [0,1] — the /255 division below is correct for
@@ -136,8 +126,7 @@ function decodeJpegBase64(base64: string): { width: number; height: number; data
  * for MODNet's completely different NCHW (channel-planar) layout; the two
  * are NOT interchangeable and must not be merged into one fill loop.
  */
-function inferSilhouetteMask(model: TensorflowModel, base64: string): SilhouetteMask | null {
-  const img = decodeJpegBase64(base64);
+function inferSilhouetteMask(model: TensorflowModel, img: RgbaImage): SilhouetteMask | null {
   const pixelCount = SEG_SIZE * SEG_SIZE;
 
   // Selfie Segmenter takes float32 RGB normalised to [0,1]; keep a uint8
@@ -201,8 +190,7 @@ function inferSilhouetteMask(model: TensorflowModel, base64: string): Silhouette
  * their doc comments), so a 512-sized mask works everywhere a 256-sized one
  * did, without any caller-side change.
  */
-function inferMatteMask(model: TensorflowModel, base64: string): SilhouetteMask | null {
-  const img = decodeJpegBase64(base64);
+function inferMatteMask(model: TensorflowModel, img: RgbaImage): SilhouetteMask | null {
   const pixelCount = MATTE_SIZE * MATTE_SIZE;
 
   const offX = (MATTE_SIZE - img.width)  >> 1;
@@ -233,17 +221,11 @@ function isDegenerateMask(mask: SilhouetteMask): boolean {
 }
 
 /** Full-frame MODNet attempt — null on ANY failure (load, shape, degenerate output). */
-async function tryMatteFullFrame(photoUri: string, sW: number, sH: number): Promise<SilhouetteMask | null> {
+async function tryMatteFullFrame(img: RgbaImage): Promise<SilhouetteMask | null> {
   try {
     const model = await loadMatteModel();
-    const { width: tW, height: tH } = longSideResize(sW, sH, MATTE_SIZE);
-    const resized = await manipulateAsync(
-      photoUri,
-      [{ resize: { width: tW, height: tH } }],
-      { base64: true, format: SaveFormat.JPEG, compress: 0.95 },
-    );
-    if (!resized.base64) return null;
-    const mask = inferMatteMask(model, resized.base64);
+    const { width: tW, height: tH } = longSideResize(img.width, img.height, MATTE_SIZE);
+    const mask = inferMatteMask(model, cropResizeRgba(img, null, tW, tH));
     return mask && !isDegenerateMask(mask) ? mask : null;
   } catch {
     return null;
@@ -251,17 +233,11 @@ async function tryMatteFullFrame(photoUri: string, sW: number, sH: number): Prom
 }
 
 /** Cropped MODNet attempt — null on ANY failure (load, shape, degenerate output). */
-async function tryMatteCropped(photoUri: string, cropRect: CropRect): Promise<SilhouetteMask | null> {
+async function tryMatteCropped(img: RgbaImage, cropRect: CropRect): Promise<SilhouetteMask | null> {
   try {
     const model = await loadMatteModel();
     const { width: tW, height: tH } = longSideResize(cropRect.width, cropRect.height, MATTE_SIZE);
-    const resized = await manipulateAsync(
-      photoUri,
-      [{ crop: cropRect }, { resize: { width: tW, height: tH } }],
-      { base64: true, format: SaveFormat.JPEG, compress: 0.95 },
-    );
-    if (!resized.base64) { console.warn('[MASK_FAIL]', 'matte-no-base64'); return null; }
-    const mask = inferMatteMask(model, resized.base64);
+    const mask = inferMatteMask(model, cropResizeRgba(img, cropRect, tW, tH));
     if (!mask || isDegenerateMask(mask)) console.warn('[MASK_FAIL]', 'matte', mask ? 'degenerate' : 'null');
     return mask && !isDegenerateMask(mask) ? mask : null;
   } catch (err) {
@@ -273,7 +249,7 @@ async function tryMatteCropped(photoUri: string, cropRect: CropRect): Promise<Si
 // ── Segmentation inference — full frame ───────────────────────────────────────
 
 /**
- * Run person segmentation on `photoUri`: tries MODNet FIRST (see the module
+ * Run person segmentation on `img`: tries MODNet FIRST (see the module
  * doc comment), falling back to the selfie segmenter on any MODNet failure
  * (load error, shape mismatch, or a degenerate alpha mean — see
  * `isDegenerateMask`). Returns the mask in the WINNING model's own
@@ -284,32 +260,16 @@ async function tryMatteCropped(photoUri: string, cropRect: CropRect): Promise<Si
  * in the same normalised space regardless of which model produced the mask.
  */
 export async function estimateSilhouette(
-  photoUri: string,
-  origW?: number,
-  origH?: number,
+  img: RgbaImage,
 ): Promise<SilhouetteMask | null> {
   try {
-    let sW = origW, sH = origH;
-    if (!sW || !sH || !isFinite(sW) || !isFinite(sH)) {
-      const probe = await manipulateAsync(photoUri, []);
-      sW = probe.width;
-      sH = probe.height;
-    }
-
-    const matte = await tryMatteFullFrame(photoUri, sW, sH);
+    const matte = await tryMatteFullFrame(img);
     if (matte) return matte;
 
     // Fallback: the original selfie-segmenter path, unchanged.
     const model = await loadSegmenterModel();
-    const { width: tW, height: tH } = longSideResize(sW, sH, SEG_SIZE);
-    const resized = await manipulateAsync(
-      photoUri,
-      [{ resize: { width: tW, height: tH } }],
-      { base64: true, format: SaveFormat.JPEG, compress: 0.95 },
-    );
-    if (!resized.base64) return null;
-
-    return inferSilhouetteMask(model, resized.base64);
+    const { width: tW, height: tH } = longSideResize(img.width, img.height, SEG_SIZE);
+    return inferSilhouetteMask(model, cropResizeRgba(img, null, tW, tH));
   } catch {
     return null;
   }
@@ -324,9 +284,7 @@ export async function estimateSilhouette(
  * instead of background/floor. Tries MODNet first, falls back to the selfie
  * segmenter — same policy as the full-frame variant above.
  *
- * `sW`/`sH` are the SOURCE (uncropped) frame's pixel dimensions — used only
- * to defensively clamp `cropRect` in case it came from a different frame's
- * dimensions than `photoUri`'s.
+ * `img` is the SOURCE (uncropped) frame; `cropRect` is defensively clamped to it.
  *
  * Returns the mask in CROP-square normalised space — NOT the shared
  * full-square space `estimateSilhouette` returns. The caller must convert any
@@ -334,19 +292,18 @@ export async function estimateSilhouette(
  * (cropMath.ts) before merging with full-frame results.
  */
 export async function estimateSilhouetteCropped(
-  photoUri: string,
-  sW: number,
-  sH: number,
+  img: RgbaImage,
   cropRect: CropRect,
 ): Promise<SilhouetteMask | null> {
+  const sW = img.width, sH = img.height;
   // Defensive clamp — cropRect should already be within [0,sW]x[0,sH] (it
   // came from personCropRect against these same dims), but never hand
-  // manipulateAsync a rect that overflows the actual source image.
+  // cropResizeRgba a rect that overflows the actual source image.
   const width  = Math.min(cropRect.width,  Math.max(1, sW - cropRect.originX));
   const height = Math.min(cropRect.height, Math.max(1, sH - cropRect.originY));
   const safeRect: CropRect = { originX: cropRect.originX, originY: cropRect.originY, width, height };
 
-  const matte = await tryMatteCropped(photoUri, safeRect);
+  const matte = await tryMatteCropped(img, safeRect);
   if (matte) return matte;
 
   try {
@@ -354,14 +311,7 @@ export async function estimateSilhouetteCropped(
     const model = await loadSegmenterModel();
     const { width: tW, height: tH } = longSideResize(safeRect.width, safeRect.height, SEG_SIZE);
 
-    const resized = await manipulateAsync(
-      photoUri,
-      [{ crop: safeRect }, { resize: { width: tW, height: tH } }],
-      { base64: true, format: SaveFormat.JPEG, compress: 0.95 },
-    );
-    if (!resized.base64) { console.warn('[MASK_FAIL]', 'seg-no-base64'); return null; }
-
-    const m = inferSilhouetteMask(model, resized.base64);
+    const m = inferSilhouetteMask(model, cropResizeRgba(img, safeRect, tW, tH));
     if (!m) console.warn('[MASK_FAIL]', 'seg-null');
     return m;
   } catch (err) {

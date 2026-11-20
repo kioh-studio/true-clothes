@@ -22,3 +22,13 @@ allprojects {
 
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"
+
+// 16 KB page-size: vision-camera-resize-plugin 3.2.0 (and its bundled libyuv.so) build 4 KB-aligned.
+// Its own build.gradle lacks the flag that react-native-vision-camera / worklets-core pass.
+subprojects { sub ->
+  if (sub.name == 'vision-camera-resize-plugin') {
+    sub.afterEvaluate {
+      sub.android.defaultConfig.externalNativeBuild.cmake.arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+    }
+  }
+}

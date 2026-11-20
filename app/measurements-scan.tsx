@@ -6,11 +6,12 @@
 // frames in a row it AUTO-CAPTURES — no manual retake loop. A "Capture now" button
 // is always available as an override.
 //
-// PRIVACY: every polled frame is processed on-device. Frames without a pose are
-// deleted immediately; up to the last BUFFER_SIZE frames WITH a pose are
-// retained (a small ring buffer) only until capture, when the refinement +
-// silhouette passes read each of them once and every buffered frame is deleted
-// (see finish()). Nothing is uploaded or persisted.
+// PRIVACY: every polled frame is processed on-device. Each still is decoded to
+// an in-RAM RGBA image and the file is deleted immediately (before MoveNet).
+// Frames without a pose are dropped; up to the last BUFFER_SIZE frames WITH a
+// pose are retained in RAM (a small ring buffer) only until capture, when the
+// refinement + silhouette passes read each of them and every buffer is zeroed
+// (see finish()/processScan). Nothing is uploaded or persisted.
 //
 // ACCURACY: capture no longer trusts a single frame OR a single model pass.
 // Up to BUFFER_SIZE good frames are median-aggregated (see aggregateFrames.ts)
@@ -36,7 +37,7 @@
 // only be validated/tuned on a real device — not in this environment.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -49,6 +50,16 @@ import { IconX } from '../src/components/icons';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { useAuthStore } from '../src/stores/authStore';
 import { estimateKeypoints, type Keypoint } from '../src/features/measurements/poseEstimate';
+import type { RgbaImage } from '../src/features/measurements/rgbaImage';
+import { stillToRgba } from '../src/features/measurements/stillToRgba';
+
+/** Live frames via VisionCamera (no stills, no files). iOS keeps expo-camera until its EAS build.
+ *  Required lazily: an iOS binary without the native module would throw on import. */
+// OFF: worklets-core 1.6.3 cannot hand the frame buffer to JS (see plan.md 2026-11-20 live-tracking steps 3-5).
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+const LIVE_FRAMES = false && Platform.OS === 'android';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const LF = LIVE_FRAMES ? (require('../src/features/measurements/liveFrames') as typeof import('../src/features/measurements/liveFrames')) : null;
 import { estimatePersonUnitH, K, type Sex } from '../src/features/measurements/landmarksToMeasurements';
 import { exportScanFixture } from '../src/features/measurements/scanExport';
 import {
@@ -58,12 +69,25 @@ import {
   assessPose, assessSidePose, SKELETON_EDGES, Q, type PoseHint,
 } from '../src/features/measurements/poseQuality';
 import { useTranslation } from '../src/i18n';
+import { guidanceKeys, isLowStorage, type ScanFailReason } from '../src/features/measurements/scanFailure';
+
+/** Free/total disk check; unknown (throws) => not low, never block on it. */
+async function storageIsLow(): Promise<boolean> {
+  if (LIVE_FRAMES) return false; // no frame files on the live path -> nothing for the OS to trim
+  try {
+    const free = await FileSystem.getFreeDiskStorageAsync();
+    const total = await FileSystem.getTotalDiskCapacityAsync().catch(() => null);
+    return isLowStorage(free, total);
+  } catch {
+    return false;
+  }
+}
 
 // 'scanning' now covers BOTH capture passes — see `SubPhase` below. 'turn' is
 // the brief full-screen interstitial between them telling the user to turn
 // 90°; it is its own top-level phase (not a sub-phase of 'scanning') because
 // no camera polling happens during it.
-type ScanPhase = 'intro' | 'scanning' | 'turn' | 'processing' | 'success' | 'height_required' | 'error';
+type ScanPhase = 'intro' | 'scanning' | 'turn' | 'processing' | 'success' | 'height_required' | 'error' | 'retake';
 /** Which capture pass 'scanning' is currently running. */
 type SubPhase = 'front' | 'side';
 
@@ -149,9 +173,22 @@ export default function MeasurementsScanScreen() {
   // pipeline (front refine+segment, then side refine+segment) takes
   // noticeably longer than the front-only pipeline did, so this is a simple
   // best-effort reassurance, not a precise accounting of every internal step.
+  const [retakeReasons, setRetakeReasons] = useState<ScanFailReason[]>([]);
   const [processProgress, setProcessProgress] = useState<{ done: number; total: number } | null>(null);
   // Dev-only diagnostics: which quality gate is failing (keypoints present / frame fill).
   const [debugInfo, setDebugInfo] = useState('');
+
+  // LIVE_FRAMES is a per-platform constant, so these conditional hooks are stable across renders.
+  const live = LF ? LF.useLiveFrameGrabber() : null;
+  const liveDevice = LF ? LF.useCameraDevice(facing) : undefined;
+  const liveFormat = LF ? LF.useCameraFormat(liveDevice, [
+    { videoResolution: { width: 1280, height: 960 } }, { fps: 15 },
+  ]) : undefined;
+  useEffect(() => {
+    if (__DEV__ && liveFormat) {
+      console.log(`[LIVE_FORMAT] video ${liveFormat.videoWidth}x${liveFormat.videoHeight} fps ${liveFormat.minFps}-${liveFormat.maxFps}`);
+    }
+  }, [liveFormat]);
 
   const cameraRef = useRef<CameraView | null>(null);
   const readyRef = useRef(false);
@@ -189,16 +226,12 @@ export default function MeasurementsScanScreen() {
   const betaRef = useRef<number | null>(null);
 
   const clearFrameBuffer = useCallback(() => {
-    for (const f of frameBufferRef.current) {
-      FileSystem.deleteAsync(f.uri, { idempotent: true }).catch(() => {});
-    }
+    for (const f of frameBufferRef.current) f.image.data.fill(0);
     frameBufferRef.current = [];
   }, []);
 
   const clearSideBuffer = useCallback(() => {
-    for (const f of sideBufferRef.current) {
-      FileSystem.deleteAsync(f.uri, { idempotent: true }).catch(() => {});
-    }
+    for (const f of sideBufferRef.current) f.image.data.fill(0);
     sideBufferRef.current = [];
   }, []);
 
@@ -320,6 +353,10 @@ export default function MeasurementsScanScreen() {
     const sideBuffered = sideBufferRef.current;
     sideBufferRef.current = [];
     if (buffered.length === 0) { setPhase('error'); return; }
+    if (await storageIsLow()) {
+      for (const f of [...buffered, ...sideBuffered]) f.image.data.fill(0);
+      setRetakeReasons(['storage']); setPhase('retake'); return;
+    }
     setPhase('processing');
 
     // "x/y frames processed" progress line — a best-effort estimate, not a
@@ -342,6 +379,7 @@ export default function MeasurementsScanScreen() {
       { addToTotal, frameDone: bumpDone },
     );
     if (!scan) { setPhase('error'); return; }
+    if ('retake' in scan) { setRetakeReasons(scan.retake.reasons); setPhase('retake'); return; }
     const { rawEst, est, stability: cv, aggKps, widths, maskExtentU, frontCapturePitchRad, side: sideResult, refinedSuccessCount } = scan;
 
     if (__DEV__) {
@@ -504,7 +542,7 @@ export default function MeasurementsScanScreen() {
 
     const loop = async () => {
       if (!scanningRef.current) return;
-      if (busyRef.current || !cameraRef.current || !readyRef.current) {
+      if (busyRef.current || (!LIVE_FRAMES && !cameraRef.current) || !readyRef.current) {
         timerRef.current = setTimeout(loop, POLL_MS);
         return;
       }
@@ -517,27 +555,39 @@ export default function MeasurementsScanScreen() {
         // orientation-correct the still keeps the decoded pixels upright.
         // quality 0.5 (was 0.35): sharper edges for the capture-time cropped
         // segmentation pass — still comfortably fast at the 1.2 s poll cadence.
-        const pic = await cameraRef.current.takePictureAsync({ quality: 0.5 });
-        if (pic?.uri) {
-          const res = await estimateKeypoints(pic.uri, pic.width, pic.height);
-          if (res && scanningRef.current) {
+        const pic = live ? null : await cameraRef.current?.takePictureAsync({ quality: 0.5 });
+        if (live || pic?.uri) {
+          // Live path: the frame processor hands us an upright RGBA frame in RAM.
+          // Still path: decode to RAM and delete the still IMMEDIATELY - before any
+          // model runs - so no frame file outlives this line.
+          let image: RgbaImage | null = null;
+          if (live) {
+            image = await live.grab();
+          } else if (pic?.uri) {
+            try {
+              image = await stillToRgba(pic.uri);
+            } catch {
+              image = null;
+            } finally {
+              FileSystem.deleteAsync(pic.uri, { idempotent: true }).catch(() => {});
+            }
+          }
+          const res = image ? await estimateKeypoints(image) : null;
+          if (image && res && scanningRef.current) {
             // Push this frame into the current sub-phase's ring buffer
             // (matching lastKpRef) for the multi-frame aggregation in
-            // finish(); evict+delete the oldest once it exceeds that
-            // buffer's cap. Frames without a pose are deleted immediately
-            // below — nothing outlives the scan. `pitchRad` stamps the
-            // latest DeviceMotion reading at capture time — see
+            // finish(); evict the oldest (drop the reference) once it exceeds
+            // that buffer's cap. Frames without a pose are simply dropped -
+            // nothing outlives the scan. `pitchRad` stamps the latest
+            // DeviceMotion reading at capture time - see
             // `BufferedFrame.pitchRad`'s doc comment.
             buffer.current.push({
-              keypoints: res.keypoints, uri: pic.uri, width: pic.width, height: pic.height,
+              keypoints: res.keypoints, image,
               pitchRad: betaRef.current ?? undefined,
             });
-            if (buffer.current.length > bufferCap) {
-              const evicted = buffer.current.shift();
-              if (evicted) FileSystem.deleteAsync(evicted.uri, { idempotent: true }).catch(() => {});
-            }
+            if (buffer.current.length > bufferCap) buffer.current.shift()?.image.data.fill(0);
           } else {
-            FileSystem.deleteAsync(pic.uri, { idempotent: true }).catch(() => {});
+            image?.data.fill(0);
           }
           if (res && scanningRef.current) {
             const q = currentSubPhase === 'front' ? assessPose(res.keypoints) : assessSidePose(res.keypoints);
@@ -590,7 +640,7 @@ export default function MeasurementsScanScreen() {
       scanningRef.current = false;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [phase, subPhase, finish, finishFront, clearFrameBuffer, clearSideBuffer]);
+  }, [phase, subPhase, finish, finishFront, clearFrameBuffer, clearSideBuffer, live]);
 
   const handleStart = useCallback(async () => {
     if (!bodyHeight || bodyHeight <= 0) { setPhase('height_required'); return; }
@@ -598,6 +648,7 @@ export default function MeasurementsScanScreen() {
       const res = await requestPermission();
       if (!res.granted) return;
     }
+    if (await storageIsLow()) { setRetakeReasons(['storage']); setPhase('retake'); return; }
     setSubPhase('front');
     setProcessProgress(null);
     clearFrameBuffer();
@@ -708,12 +759,30 @@ export default function MeasurementsScanScreen() {
         style={styles.fill}
         onLayout={(e) => setLayout({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
       >
-        <CameraView
-          ref={cameraRef}
-          style={StyleSheet.absoluteFill}
-          facing={facing}
-          onCameraReady={() => { readyRef.current = true; }}
-        />
+        {LF && live ? (
+          liveDevice && (
+            <LF.Camera
+              style={StyleSheet.absoluteFill}
+              device={liveDevice}
+              format={liveFormat}
+              fps={15}
+              pixelFormat="yuv"
+              photo={false}
+              video={false}
+              audio={false}
+              isActive={phase !== 'processing' && phase !== 'success' && phase !== 'retake'}
+              frameProcessor={live.frameProcessor}
+              onInitialized={() => { readyRef.current = true; }}
+            />
+          )
+        ) : (
+          <CameraView
+            ref={cameraRef}
+            style={StyleSheet.absoluteFill}
+            facing={facing}
+            onCameraReady={() => { readyRef.current = true; }}
+          />
+        )}
         {phase === 'scanning' && renderOverlay()}
 
         {/* Distance-readable state: a colored frame border (green = pose good,
@@ -795,7 +864,16 @@ export default function MeasurementsScanScreen() {
             <Text style={styles.debugText}>{debugInfo}</Text>
           )}
 
-          {phase === 'intro' || phase === 'error' ? (
+          {phase === 'retake' ? (
+            <>
+              <Text style={styles.retakeTitle}>{t('measurementsScan_retake_title')}</Text>
+              {guidanceKeys(retakeReasons).map((k) => (
+                <Text key={k} style={[styles.introText, { marginTop: T.s(2) }]}>{t(k)}</Text>
+              ))}
+              <View style={{ height: T.s(3) }} />
+              <PrimaryButton onPress={handleStart}>{t('measurementsScan_retake_again')}</PrimaryButton>
+            </>
+          ) : phase === 'intro' || phase === 'error' ? (
             <>
               <Text style={styles.introText}>{t('measurementsScan_liveIntro')}</Text>
               <View style={{ height: T.s(3) }} />
@@ -895,6 +973,7 @@ const styles = StyleSheet.create({
   debugText: { ...type.ui, fontSize: 10, color: 'rgba(255,255,255,0.7)', marginBottom: T.s(2) },
   hintOk: { backgroundColor: 'rgba(91,138,107,0.92)', color: '#fff' },
   hintAdjust: { backgroundColor: 'rgba(194,133,59,0.92)', color: '#fff' },
+  retakeTitle: { ...type.body, color: '#fff', textAlign: 'center', fontSize: 18 },
   introText: { ...type.caption, fontSize: 12, color: '#fff', textAlign: 'center', lineHeight: 18, paddingHorizontal: T.s(2) },
   privacyText: { ...type.caption, fontSize: 11, color: 'rgba(255,255,255,0.7)', textAlign: 'center', lineHeight: 16, paddingHorizontal: T.s(2) },
   captureNow: {
