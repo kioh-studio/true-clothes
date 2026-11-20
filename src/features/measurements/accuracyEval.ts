@@ -21,6 +21,7 @@ import type { Keypoint } from './poseEstimate';
 import type { SilhouetteWidths } from './silhouetteMath';
 import type { SideDepths } from './sideViewMath';
 import { computeBodyShape, type BodyShape } from '../../types/measurements';
+import { demographicPrior, fuseWithPrior } from './demographicPrior';
 
 // ── Fixture schema ────────────────────────────────────────────────────────────
 
@@ -87,7 +88,7 @@ export interface Fixture {
    * recomputes `EstimateInputs.sideDepthsCm` from `depthsU` using the SAME
    * `estimatePersonUnitH` math the app uses for the side view's own scale
    * reference — see the module doc comment — so the harness can calibrate
-   * `superellipseN`/`sideDepthWidthRatioMin`/`Max` against real ground truth
+   * `superellipseN*`/`sideDepthWidthRatioMin`/`Max` against real ground truth
    * once fixtures with tape-measured depth exist.
    */
   side?: {
@@ -102,6 +103,10 @@ export interface Fixture {
      *  the front-level `capturePitchRad` above. */
     capturePitchRad?: number;
   };
+  /** Relative importance of this subject in aggregate()/suggestCalibration()
+   *  (default 1) — e.g. to weight synthetic bodies by how common their
+   *  demographic is. Weighted mean = Σw·x / Σw. */
+  weight?: number;
   /** Tape-measure truth. Every field optional — score only what was measured. */
   groundTruth: Partial<Record<MeasuredField, number>>;
 }
@@ -118,6 +123,8 @@ export interface FieldError {
   /** predicted − truth. Positive → the estimate reads too large. */
   signedError: number;
   absError: number;
+  /** The fixture's `weight` (default 1). */
+  weight: number;
 }
 
 export interface SubjectResult {
@@ -134,7 +141,9 @@ export interface SubjectResult {
  * `tunables` overriding the defaults) and diff every present groundTruth
  * field against the prediction.
  */
-export function evaluateFixture(fx: Fixture, tunables?: MeasurementTunables): SubjectResult {
+export function evaluateFixture(
+  fx: Fixture, tunables?: MeasurementTunables, opts: { fuse?: boolean } = {},
+): SubjectResult {
   // Recompute the SIDE view's own cm-per-unit scale — using the SAME
   // `estimatePersonUnitH` math (and the same `tunables` override) the app
   // uses for the side pass — from the raw `depthsU` a v2 fixture stores.
@@ -164,7 +173,12 @@ export function evaluateFixture(fx: Fixture, tunables?: MeasurementTunables): Su
     sideDepthsCm,
     tunables,
   };
-  const predicted = keypointsToMeasurements(fx.keypoints, fx.inputs.heightCm, inputs);
+  const rawPredicted = keypointsToMeasurements(fx.keypoints, fx.inputs.heightCm, inputs);
+  // opts.fuse: score what the app actually stores (after the demographic-prior fusion).
+  const predicted = rawPredicted && opts.fuse
+    ? fuseWithPrior(rawPredicted, demographicPrior(fx.inputs.sex, fx.inputs.heightCm, fx.inputs.weightKg, fx.inputs.ageYears))
+    : rawPredicted;
+  const weight = fx.weight ?? 1;
 
   const fields: FieldError[] = [];
   for (const field of MEASURED_FIELDS) {
@@ -172,7 +186,7 @@ export function evaluateFixture(fx: Fixture, tunables?: MeasurementTunables): Su
     const pred = predicted?.[field];
     if (truth == null || pred == null) continue; // unscored / omitted — skip, don't count as zero error
     const signedError = pred - truth;
-    fields.push({ field, n: 1, predicted: pred, truth, signedError, absError: Math.abs(signedError) });
+    fields.push({ field, n: 1, predicted: pred, truth, signedError, absError: Math.abs(signedError), weight });
   }
 
   const shapeTruth = computeBodyShape(fx.groundTruth);
@@ -187,9 +201,13 @@ export function evaluateFixture(fx: Fixture, tunables?: MeasurementTunables): Su
 export interface Aggregate {
   perField: Record<string, {
     n: number;
+    /** Σ weight over the n samples. */
+    wSum: number;
+    // bias/mae/rmse/suggest* are WEIGHTED means (Σw·x/Σw); `unweighted` is the plain mean.
     bias: number;
     mae: number;
     rmse: number;
+    unweighted: { bias: number; mae: number; rmse: number };
     /** Scalar to multiply every prediction by to zero out the mean bias. */
     suggestMultiplier: number;
     /** Constant to add to every prediction to zero out the mean bias. */
@@ -202,6 +220,13 @@ export interface Aggregate {
 
 function mean(vals: number[]): number {
   return vals.reduce((s, v) => s + v, 0) / vals.length;
+}
+
+/** Weighted mean Σw·x/Σw; falls back to the plain mean when Σw is 0. */
+function wmean(vals: number[], ws: number[]): number {
+  const wSum = ws.reduce((s, w) => s + w, 0);
+  if (wSum <= 0) return mean(vals);
+  return vals.reduce((s, v, i) => s + v * ws[i], 0) / wSum;
 }
 
 /** Roll a list of per-subject results into per-field error stats + calibration suggestions. */
@@ -218,17 +243,24 @@ export function aggregate(results: SubjectResult[]): Aggregate {
   const perField: Aggregate['perField'] = {};
   for (const [field, errs] of byField) {
     const n = errs.length;
-    const bias = mean(errs.map((e) => e.signedError));
-    const mae = mean(errs.map((e) => e.absError));
-    const rmse = Math.sqrt(mean(errs.map((e) => e.signedError ** 2)));
-    // suggestMultiplier: mean(truth / predicted) — the scalar that would have
+    const ws = errs.map((e) => e.weight);
+    const wSum = ws.reduce((t, w) => t + w, 0);
+    const bias = wmean(errs.map((e) => e.signedError), ws);
+    const mae = wmean(errs.map((e) => e.absError), ws);
+    const rmse = Math.sqrt(wmean(errs.map((e) => e.signedError ** 2), ws));
+    const unweighted = {
+      bias: mean(errs.map((e) => e.signedError)),
+      mae: mean(errs.map((e) => e.absError)),
+      rmse: Math.sqrt(mean(errs.map((e) => e.signedError ** 2))),
+    };
+    // suggestMultiplier: weighted mean(truth / predicted) — the scalar that would have
     // zeroed each prediction's error, averaged across subjects. Predictions
     // are circumferences/lengths in cm and the sane-range clamps keep them
     // well away from 0, so the guard below is just defensive.
-    const ratios = errs.filter((e) => e.predicted !== 0).map((e) => e.truth / e.predicted);
-    const suggestMultiplier = ratios.length ? mean(ratios) : 1;
-    const suggestOffset = mean(errs.map((e) => e.truth - e.predicted));
-    perField[field] = { n, bias, mae, rmse, suggestMultiplier, suggestOffset };
+    const nz = errs.filter((e) => e.predicted !== 0);
+    const suggestMultiplier = nz.length ? wmean(nz.map((e) => e.truth / e.predicted), nz.map((e) => e.weight)) : 1;
+    const suggestOffset = wmean(errs.map((e) => e.truth - e.predicted), ws);
+    perField[field] = { n, wSum, bias, mae, rmse, unweighted, suggestMultiplier, suggestOffset };
   }
 
   const shapeScored = results.filter((r) => r.shapeCorrect != null);
@@ -268,9 +300,11 @@ export const TUNABLE_FIELD_MAP: Record<string, MeasuredField[]> = {
   // Torso cross-section shape exponent — applies to bust/waist/hip
   // regardless of whether the depth semi-axis came from the BMI-guessed
   // path or a measured side-view depth (see the doc comment on
-  // `K.superellipseN`). NOT `sideDepthWidthRatioMin`/`Max` — those are
+  // `K.superellipseN*`, one per region). NOT `sideDepthWidthRatioMin`/`Max` — those are
   // validity GATES for a measured depth, not a calibratable shape param.
-  superellipseN: ['body_bust', 'body_waist', 'body_hip'],
+  superellipseNChest: ['body_bust'],
+  superellipseNWaist: ['body_waist'],
+  superellipseNHip: ['body_hip'],
 };
 
 /** The standard set of landmark-space constants worth calibrating offline
@@ -326,8 +360,8 @@ export function suggestCalibration(
     for (const field of influencedFields) {
       const stat = agg.perField[field];
       if (!stat) continue;
-      sumAbs += stat.mae * stat.n;
-      count += stat.n;
+      sumAbs += stat.mae * stat.wSum;
+      count += stat.wSum;
     }
     return count ? sumAbs / count : 0;
   }

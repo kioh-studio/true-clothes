@@ -82,7 +82,7 @@ export function medianKeypoints(frames: Keypoint[][], minScore = DEFAULT_MIN_SCO
   });
 }
 
-const WIDTH_FIELDS: (keyof SilhouetteWidths)[] = ['shoulderU', 'chestU', 'waistU', 'hipU'];
+const WIDTH_FIELDS: ('shoulderU' | 'chestU' | 'waistU' | 'hipU')[] = ['shoulderU', 'chestU', 'waistU', 'hipU'];
 
 /**
  * Median-aggregate several per-frame silhouette width readings, field by

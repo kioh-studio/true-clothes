@@ -69,3 +69,6 @@ app/dev-seed.tsx
 
 # --- Dev-only Sentry manual-verification screen (also __DEV__-guarded) ---
 app/dev-sentry-test.tsx
+
+# --- Dev-only scan replay screen (also __DEV__-guarded) ---
+app/dev-scan-replay.tsx

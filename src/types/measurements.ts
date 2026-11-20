@@ -25,6 +25,10 @@ export interface EstimatedMeasurements {
    * absent when only a single frame was available to compare.
    */
   stability?: number;
+  /** Whether each girth used a measured side-view depth or the guessed depth ratio. */
+  depthSource?: { bust?: 'side' | 'guess'; waist?: 'side' | 'guess'; hip?: 'side' | 'guess' };
+  /** Girths whose scan value disagreed with the demographic prior beyond the gate; kept raw (not fused). */
+  outliers?: Array<'body_bust' | 'body_waist' | 'body_hip'>;
 }
 
 export interface BodyMeasurements {

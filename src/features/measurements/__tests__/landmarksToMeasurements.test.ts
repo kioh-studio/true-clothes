@@ -200,7 +200,9 @@ describe('keypointsToMeasurements', () => {
   });
 
   describe('BMI depth refinement (optional weight)', () => {
-    const kps = makeKeypoints();
+    // ANTHRO-FIT: the default fixture's bust (~158) now sits at the 160 clamp, so use a
+    // narrower skeleton to keep heavy builds inside the sane range.
+    const kps = makeKeypoints({ leftShoulder: { x: 0.60 }, rightShoulder: { x: 0.40 }, leftHip: { x: 0.57 }, rightHip: { x: 0.43 } });
 
     test('omitting weight leaves the average-build estimate unchanged', () => {
       const a = keypointsToMeasurements(kps, 170);
@@ -231,7 +233,9 @@ describe('keypointsToMeasurements', () => {
   });
 
   describe('sex-specific tunables', () => {
-    const kps = makeKeypoints();
+    // ANTHRO-FIT: the default fixture's bust (~158) now sits at the 160 clamp, so use a
+    // narrower skeleton to keep heavy builds inside the sane range.
+    const kps = makeKeypoints({ leftShoulder: { x: 0.60 }, rightShoulder: { x: 0.40 }, leftHip: { x: 0.57 }, rightHip: { x: 0.43 } });
 
     test('no sex == neutral (regression: behaviour unchanged when unknown)', () => {
       const neutral = keypointsToMeasurements(kps, 170);
@@ -265,14 +269,17 @@ describe('keypointsToMeasurements', () => {
     const kps = makeKeypoints();
 
     test('older subject reads a larger waist than a younger one (visceral fat)', () => {
-      const young = keypointsToMeasurements(kps, 170, { ageYears: 25 });
-      const older = keypointsToMeasurements(kps, 170, { ageYears: 65 });
+      // ANTHRO-FIT: production ageWaistGain is now 0; exercise the code path via a tunable override.
+      const tunables = { ageWaistGain: 0.015 };
+      const young = keypointsToMeasurements(kps, 170, { ageYears: 25, tunables });
+      const older = keypointsToMeasurements(kps, 170, { ageYears: 65, tunables });
       expect(older!.body_waist!).toBeGreaterThan(young!.body_waist!);
     });
 
     test('age affects waist only, not bust / hip / inseam', () => {
-      const young = keypointsToMeasurements(kps, 170, { ageYears: 25 });
-      const older = keypointsToMeasurements(kps, 170, { ageYears: 65 });
+      const tunables = { ageWaistGain: 0.015 };
+      const young = keypointsToMeasurements(kps, 170, { ageYears: 25, tunables });
+      const older = keypointsToMeasurements(kps, 170, { ageYears: 65, tunables });
       expect(older!.body_bust).toBe(young!.body_bust);
       expect(older!.body_hip).toBe(young!.body_hip);
       expect(older!.body_inseam).toBe(young!.body_inseam);
@@ -498,6 +505,7 @@ describe('sideDepthsCm — measured side-view depth overrides the BMI-guessed pa
     const base = keypointsToMeasurements(kps, 170)!;
     const withSide = keypointsToMeasurements(kps, 170, {
       sideDepthsCm: { chestCm: 35, waistCm: 24, hipCm: 28 },
+      tunables: { useSideDepthHip: 1 }, // default is 0 (calibration-sweep 2026-11-20)
     })!;
     expect(withSide.body_bust).not.toBe(base.body_bust);
     expect(withSide.body_waist).not.toBe(base.body_waist);
@@ -524,10 +532,10 @@ describe('sideDepthsCm — measured side-view depth overrides the BMI-guessed pa
 
   test('BMI (weight) does NOT affect a field using the measured-depth path', () => {
     const lean = keypointsToMeasurements(kps, 170, {
-      weightKg: 50, sideDepthsCm: { chestCm: 35, waistCm: 24, hipCm: 28 },
+      weightKg: 50, sideDepthsCm: { chestCm: 35, waistCm: 24, hipCm: 28 }, tunables: { useSideDepthHip: 1 },
     })!;
     const heavy = keypointsToMeasurements(kps, 170, {
-      weightKg: 95, sideDepthsCm: { chestCm: 35, waistCm: 24, hipCm: 28 },
+      weightKg: 95, sideDepthsCm: { chestCm: 35, waistCm: 24, hipCm: 28 }, tunables: { useSideDepthHip: 1 },
     })!;
     expect(heavy.body_bust).toBe(lean.body_bust);
     expect(heavy.body_waist).toBe(lean.body_waist);

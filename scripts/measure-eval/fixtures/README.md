@@ -81,7 +81,7 @@ are calibratable here.
   front-level field). When present, `evaluateFixture` recomputes
   `EstimateInputs.sideDepthsCm` using the SAME `estimatePersonUnitH` math the
   app uses for the side view's OWN scale reference (never the front view's
-  cmPerUnit) — this is what lets the harness calibrate `superellipseN` /
+  cmPerUnit) — this is what lets the harness calibrate `superellipseN*` /
   `sideDepthWidthRatioMin`/`Max` once fixtures with tape-measured depth
   exist. Absent → `sideDepthsCm` stays undefined, byte-identical to a
   front-only evaluation.

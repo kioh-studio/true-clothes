@@ -48,20 +48,14 @@ import { PrimaryButton, SecondaryButton, Bounded } from '../src/components/ui';
 import { IconX } from '../src/components/icons';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { useAuthStore } from '../src/stores/authStore';
-import { estimateKeypoints, refineKeypoints, type Keypoint } from '../src/features/measurements/poseEstimate';
-import {
-  estimateSilhouette, estimateSilhouetteCropped, extractWidths, maskVerticalExtent, eraseDisk,
-  type SilhouetteMask, type SilhouetteWidths,
-} from '../src/features/measurements/silhouette';
-import { extractSideDepths, type SideDepths, type SideRowFracs } from '../src/features/measurements/sideViewMath';
-import { personCropRect, fullSquareToCropSquare, cropSquareLengthToFullSquare } from '../src/features/measurements/cropMath';
-import { keypointsToMeasurements, estimatePersonUnitH, K, type Sex } from '../src/features/measurements/landmarksToMeasurements';
+import { estimateKeypoints, type Keypoint } from '../src/features/measurements/poseEstimate';
+import { estimatePersonUnitH, K, type Sex } from '../src/features/measurements/landmarksToMeasurements';
 import { exportScanFixture } from '../src/features/measurements/scanExport';
 import {
-  medianKeypoints, medianWidths, medianSideDepths, medianExtent, scaleAgreement, rejectOutlierFrames,
-} from '../src/features/measurements/aggregateFrames';
+  processScan, MAX_REFINE_FRAMES, SIDE_MAX_REFINE_FRAMES, type BufferedFrame,
+} from '../src/features/measurements/processScan';
 import {
-  assessPose, assessSidePose, SKELETON_EDGES, Q, REQUIRED_KP, type PoseHint,
+  assessPose, assessSidePose, SKELETON_EDGES, Q, type PoseHint,
 } from '../src/features/measurements/poseQuality';
 import { useTranslation } from '../src/i18n';
 
@@ -78,17 +72,7 @@ const OK_COLOR = '#5B8A6B';   // muted green — pose good
 const ADJ_COLOR = '#C2853B';  // muted amber — needs adjusting
 // Ring-buffer capacity for multi-frame median aggregation (aggregateFrames.ts).
 const BUFFER_SIZE = 4;
-// Latency guard (2026-07-12): BlazePose Heavy + MODNet cost noticeably more
-// per frame than the Lightning/selfie-segmenter combo they augment — refine
-// at most this many of the buffered frames per capture, not all of them.
-// See finish()'s doc comment for the full ranking + fallback policy.
-const MAX_REFINE_FRAMES = 3;
-// SIDE (profile) capture pass — smaller buffer/refine cap than the front
-// pass: the side pass is a bonus accuracy signal on top of a front-only
-// estimate that's already complete on its own, so it deliberately costs less
-// capture-time latency than the front pass does.
 const SIDE_BUFFER_SIZE = 3;
-const SIDE_MAX_REFINE_FRAMES = 2;
 // How long the 'turn' interstitial (full-screen "turn to your side" text)
 // shows before auto-advancing into the side scanning loop.
 const TURN_INTERSTITIAL_MS = 2500;
@@ -96,238 +80,12 @@ const TURN_INTERSTITIAL_MS = 2500;
 // ~12° — CALIBRATION-PENDING, needs on-device tuning.
 const TILT_THRESHOLD_RAD = 0.21;
 
-/**
- * Run the silhouette extraction (contour widths + vertical extent) against
- * one buffered frame's mask, in WHATEVER normalised space that mask lives in
- * (crop-square when the frame was cropped, full-square when not — the caller
- * converts both to full-square units afterward via a shared scale factor).
- * Returns null widths when shoulders/hips aren't confident enough to place
- * the scan bands (the same gate `extractWidths` uses internally). The extent
- * scan probes MULTIPLE columns — the torso centre plus nose and each
- * confident ankle — because a single torso-centre probe dies in the gap
- * between the legs below the crotch and would truncate the extent at the
- * crotch instead of the soles (see `maskVerticalExtent`); with no confident
- * probe landmarks at all, extent is null for this frame.
- */
-function extractWidthsAndExtent(
-  mask: SilhouetteMask, kps: Keypoint[],
-): { widths: SilhouetteWidths | null; extentSpan: number | null } {
-  const widths = extractWidths(mask, kps) ?? null;
-  const by: Record<string, Keypoint> = {};
-  for (const k of kps) by[k.name] = k;
-  const need = ['leftShoulder', 'rightShoulder', 'leftHip', 'rightHip'];
-  const probes: number[] = [];
-  if (need.every((n) => by[n] && by[n].score >= Q.minScore)) {
-    probes.push((by['leftShoulder'].x + by['rightShoulder'].x + by['leftHip'].x + by['rightHip'].x) / 4);
-  }
-  for (const name of ['nose', 'leftAnkle', 'rightAnkle']) {
-    const k = by[name];
-    if (k && k.score >= Q.minScore) probes.push(k.x);
-  }
-  const extent = maskVerticalExtent(mask, probes);
-  return { widths, extentSpan: extent ? extent.botV - extent.topV : null };
-}
-
 /** Shoulder x-span of a keypoint set, or null if either shoulder is absent —
  *  used only for the __DEV__ refined-vs-pass1 diagnostic log. */
 function shoulderSpanOf(kps: Keypoint[]): number | null {
   const l = kps.find((k) => k.name === 'leftShoulder');
   const r = kps.find((k) => k.name === 'rightShoulder');
   return l && r ? Math.abs(l.x - r.x) : null;
-}
-
-/** One buffered live-poll frame — shared shape for BOTH the front and side
- *  ring buffers. `pitchRad` is the DeviceMotion beta (radians) read at the
- *  moment this frame was captured — see the module doc comment on
- *  `capturePitchRad` (groundwork for a future keystone correction, unused in
- *  any math today). */
-interface BufferedFrame {
-  keypoints: Keypoint[];
-  uri: string;
-  width: number;
-  height: number;
-  pitchRad?: number;
-}
-
-/** Mask-extent probe columns for the SIDE view — same pattern as
- *  `extractWidthsAndExtent`'s front-view probes, but lenient (torso-centre
- *  probe uses whichever of the four shoulder/hip joints are confident,
- *  not requiring all four) since a profile view only ever shows one side
- *  of the body clearly. */
-function sideProbesOf(kps: Keypoint[]): number[] {
-  const by: Record<string, Keypoint> = {};
-  for (const k of kps) by[k.name] = k;
-  const probes: number[] = [];
-  const torsoNames = ['leftShoulder', 'rightShoulder', 'leftHip', 'rightHip']
-    .filter((n) => by[n] && by[n].score >= Q.minScore);
-  if (torsoNames.length > 0) {
-    probes.push(torsoNames.reduce((s, n) => s + by[n].x, 0) / torsoNames.length);
-  }
-  for (const name of ['nose', 'leftAnkle', 'rightAnkle']) {
-    const k = by[name];
-    if (k && k.score >= Q.minScore) probes.push(k.x);
-  }
-  return probes;
-}
-
-/** Weakest-link completeness score for a SIDE frame — nose plus the best of
- *  each shoulder/hip/ankle pair — the side-pose counterpart to `finish()`'s
- *  `requiredMinScore` ranking (which needs BOTH joints of every pair; a
- *  profile view only ever needs one). Used to pick the best
- *  `SIDE_MAX_REFINE_FRAMES` candidates for the expensive refine+segment pass. */
-function sideRequiredMinScore(kps: Keypoint[]): number {
-  const by: Record<string, Keypoint> = {};
-  for (const k of kps) by[k.name] = k;
-  const pairBest = (a: string, b: string) => Math.max(by[a]?.score ?? 0, by[b]?.score ?? 0);
-  return Math.min(
-    by['nose']?.score ?? 0,
-    pairBest('leftShoulder', 'rightShoulder'),
-    pairBest('leftHip', 'rightHip'),
-    pairBest('leftAnkle', 'rightAnkle'),
-  );
-}
-
-/** Result of a successful side-view processing pass — see `processSideFrames`. */
-interface SideProcessResult {
-  /** Median-aggregated side keypoints, full-square space. */
-  sideAggKps: Keypoint[];
-  /** Median-aggregated measured depths, in the SIDE mask's own (already
-   *  full-square-converted) normalised units — exported into the fixture
-   *  (v2) so the harness can recompute cm with different tunables. */
-  depthsU: SideDepths;
-  /** Side mask's crown→sole vertical extent, full-square units. */
-  maskExtentU?: number;
-  /** Measured depths converted to centimetres via the SIDE view's OWN scale
-   *  — this is what actually feeds `keypointsToMeasurements`. */
-  sideDepthsCm: { chestCm?: number; waistCm?: number; hipCm?: number };
-  /** Median DeviceMotion pitch across the buffered side frames. */
-  capturePitchRad?: number;
-}
-
-/**
- * Process the buffered SIDE (profile) frames into measured bust/waist/hip
- * depths, using the FRONT scan's row fractions (`frontRowFracs` — a
- * `SilhouetteWidths`-shaped object works directly, only its
- * `chestRowFrac`/`waistRowFrac`/`hipRowFrac` fields are read) to register the
- * SAME anatomical rows on the profile mask (see sideViewMath.ts's module doc
- * comment for why a row FRACTION is view-invariant when absolute y is not).
- *
- * Mirrors `finish()`'s front-view refine+segment pipeline at a smaller scale
- * (`SIDE_BUFFER_SIZE`/`SIDE_MAX_REFINE_FRAMES`) — the side pass is a BONUS
- * signal on top of an already-complete front-only estimate, so any failure
- * anywhere in this pipeline (a candidate's refine/segment attempt throwing,
- * no usable depths surviving aggregation, no computable side-view scale)
- * simply returns `null` and the caller silently falls back to the front-only,
- * BMI-guessed-depth estimate — never a user-visible error.
- *
- * Per candidate frame: `personCropRect` locates the person → `refineKeypoints`
- * (BlazePose Heavy) sharpens the pose on that crop → `estimateSilhouetteCropped`
- * (MODNet-first) segments the SAME crop → `eraseDisk` zeroes a disk around
- * each confident wrist (relaxed arms put the hands near seat/hip level in a
- * profile photo, polluting the hip-depth contour — see silhouetteMath.ts's
- * `eraseDisk` doc comment) BEFORE → `extractSideDepths` scans the front's row
- * fractions. Every candidate's photo uri is deleted once this loop is done
- * reading it (privacy contract unchanged).
- *
- * `onFrameProcessed` is an optional progress callback, invoked once per
- * candidate frame (success or failure) — feeds the "x/y frames processed"
- * line under the processing spinner.
- */
-async function processSideFrames(
-  buffered: BufferedFrame[],
-  frontRowFracs: SideRowFracs,
-  heightCm: number,
-  onFrameProcessed?: () => void,
-): Promise<SideProcessResult | null> {
-  if (buffered.length === 0) return null;
-
-  const candidates = [...buffered]
-    .sort((a, b) => sideRequiredMinScore(b.keypoints) - sideRequiredMinScore(a.keypoints))
-    .slice(0, SIDE_MAX_REFINE_FRAMES);
-
-  const perFrameKps: Keypoint[][] = [];
-  const perFrameDepths: (SideDepths | null)[] = [];
-  const perFrameExtents: (number | null)[] = [];
-
-  for (const frame of candidates) {
-    let finalKps = frame.keypoints;
-    let depths: SideDepths | null = null;
-    let extentSpan: number | null = null;
-    try {
-      const cropRect = personCropRect(frame.keypoints, frame.width, frame.height);
-      if (cropRect) {
-        const refined = await refineKeypoints(frame.uri, frame.width, frame.height, frame.keypoints);
-        if (refined) finalKps = refined;
-
-        const mask = await estimateSilhouetteCropped(frame.uri, frame.width, frame.height, cropRect);
-        if (mask) {
-          const kpsInCropSpace = finalKps.map((k) => {
-            const { u, v } = fullSquareToCropSquare(k.x, k.y, cropRect, frame.width, frame.height);
-            return { ...k, x: u, y: v };
-          });
-
-          // Hand erasure BEFORE the depth scan — radius = 0.06 × the crop's
-          // own person-unit height (≈ hand length), around each wrist whose
-          // score clears the standard 0.3 confidence floor.
-          const personUnitForHand = estimatePersonUnitH(kpsInCropSpace, undefined, K);
-          if (personUnitForHand != null) {
-            for (const wristName of ['leftWrist', 'rightWrist']) {
-              const wrist = kpsInCropSpace.find((k) => k.name === wristName);
-              if (wrist && wrist.score >= Q.minScore) {
-                eraseDisk(mask, wrist.x, wrist.y, 0.06 * personUnitForHand);
-              }
-            }
-          }
-
-          const sideDepths = extractSideDepths(mask, kpsInCropSpace, frontRowFracs);
-          const hasAnyDepth = sideDepths.chestU != null || sideDepths.waistU != null || sideDepths.hipU != null;
-          depths = hasAnyDepth
-            ? {
-                chestU: sideDepths.chestU != null ? cropSquareLengthToFullSquare(sideDepths.chestU, cropRect, frame.width, frame.height) : undefined,
-                waistU: sideDepths.waistU != null ? cropSquareLengthToFullSquare(sideDepths.waistU, cropRect, frame.width, frame.height) : undefined,
-                hipU:   sideDepths.hipU   != null ? cropSquareLengthToFullSquare(sideDepths.hipU,   cropRect, frame.width, frame.height) : undefined,
-              }
-            : null;
-
-          const extent = maskVerticalExtent(mask, sideProbesOf(kpsInCropSpace));
-          if (extent) {
-            extentSpan = cropSquareLengthToFullSquare(extent.botV - extent.topV, cropRect, frame.width, frame.height);
-          }
-        }
-      }
-    } catch {
-      // This candidate's refine/segmentation attempt failed — contributes
-      // only its pass-1 keypoints below; no depths/extent for this frame.
-    }
-    perFrameKps.push(finalKps);
-    perFrameDepths.push(depths);
-    perFrameExtents.push(extentSpan);
-    onFrameProcessed?.();
-  }
-
-  // Every buffered side photo (candidate or not) is done being read here.
-  for (const frame of buffered) {
-    FileSystem.deleteAsync(frame.uri, { idempotent: true }).catch(() => {});
-  }
-
-  const depthsU = medianSideDepths(perFrameDepths);
-  if (depthsU.chestU == null && depthsU.waistU == null && depthsU.hipU == null) return null; // wholly failed
-
-  const sideAggKps = medianKeypoints(perFrameKps);
-  const maskExtentU = medianExtent(perFrameExtents);
-  const capturePitchRad = medianExtent(buffered.map((f) => f.pitchRad));
-
-  const sidePersonUnitH = estimatePersonUnitH(sideAggKps, maskExtentU, K);
-  if (sidePersonUnitH == null || sidePersonUnitH <= 0) return null; // no usable side-view scale
-
-  const sideCmPerUnit = heightCm / sidePersonUnitH;
-  const sideDepthsCm = {
-    chestCm: depthsU.chestU != null ? depthsU.chestU * sideCmPerUnit : undefined,
-    waistCm: depthsU.waistU != null ? depthsU.waistU * sideCmPerUnit : undefined,
-    hipCm:   depthsU.hipU   != null ? depthsU.hipU   * sideCmPerUnit : undefined,
-  };
-
-  return { sideAggKps, depthsU, maskExtentU, sideDepthsCm, capturePitchRad };
 }
 
 /** Map the profile gender label to the estimator's sex; non-binary/unset → neutral. */
@@ -564,172 +322,27 @@ export default function MeasurementsScanScreen() {
     if (buffered.length === 0) { setPhase('error'); return; }
     setPhase('processing');
 
-    // Rank by the weakest REQUIRED_KP score (higher = more complete pass-1
-    // pose = the best candidate for a second, more expensive pass to sharpen).
-    const requiredMinScore = (kps: Keypoint[]): number => {
-      const by: Record<string, Keypoint> = {};
-      for (const k of kps) by[k.name] = k;
-      let min = 1;
-      for (const name of REQUIRED_KP) min = Math.min(min, by[name]?.score ?? 0);
-      return min;
-    };
-    const refineCandidates = [...buffered]
-      .sort((a, b) => requiredMinScore(b.keypoints) - requiredMinScore(a.keypoints))
-      .slice(0, MAX_REFINE_FRAMES);
-
     // "x/y frames processed" progress line — a best-effort estimate, not a
     // precise accounting (see `processProgress`'s doc comment above its
     // declaration): starts at the front refine candidates + however many
-    // side candidates will be attempted; `addToTotal` below adjusts it if
-    // the front fallback branch ends up reprocessing every buffered frame.
+    // side candidates will be attempted; `addToTotal` (passed to processScan)
+    // adjusts it if the front fallback branch ends up reprocessing every
+    // buffered frame.
+    const refineCandidateCount = Math.min(buffered.length, MAX_REFINE_FRAMES);
     const sideCandidateEstimate = sideBuffered.length > 0 ? Math.min(sideBuffered.length, SIDE_MAX_REFINE_FRAMES) : 0;
-    setProcessProgress({ done: 0, total: refineCandidates.length + sideCandidateEstimate || 1 });
+    setProcessProgress({ done: 0, total: refineCandidateCount + sideCandidateEstimate || 1 });
     const bumpDone = () => setProcessProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
     const addToTotal = (n: number) => setProcessProgress((p) => (p ? { ...p, total: p.total + n } : p));
 
-    const refineResults: {
-      succeeded: boolean;
-      keypoints: Keypoint[];
-      widths: SilhouetteWidths | null;
-      extent: number | null;
-    }[] = [];
-
-    for (const b of refineCandidates) {
-      let finalKps = b.keypoints;
-      let widthsForFrame: SilhouetteWidths | null = null;
-      let extentForFrame: number | null = null;
-      let succeeded = false;
-
-      try {
-        const cropRect = personCropRect(b.keypoints, b.width, b.height);
-        if (cropRect) {
-          const refined = await refineKeypoints(b.uri, b.width, b.height, b.keypoints);
-          if (refined) { finalKps = refined; succeeded = true; }
-
-          const mask = await estimateSilhouetteCropped(b.uri, b.width, b.height, cropRect);
-          if (mask) {
-            // extractWidths/maskVerticalExtent need keypoints in the SAME
-            // space as the mask (crop-square) — map this frame's own final
-            // keypoints (already in full-square space) back into ITS crop.
-            const kpsInCropSpace = finalKps.map((k) => {
-              const { u, v } = fullSquareToCropSquare(k.x, k.y, cropRect, b.width, b.height);
-              return { ...k, x: u, y: v };
-            });
-            const { widths, extentSpan } = extractWidthsAndExtent(mask, kpsInCropSpace);
-            if (widths) {
-              widthsForFrame = {
-                shoulderU: widths.shoulderU != null ? cropSquareLengthToFullSquare(widths.shoulderU, cropRect, b.width, b.height) : undefined,
-                chestU:    widths.chestU    != null ? cropSquareLengthToFullSquare(widths.chestU,    cropRect, b.width, b.height) : undefined,
-                waistU:    widths.waistU    != null ? cropSquareLengthToFullSquare(widths.waistU,    cropRect, b.width, b.height) : undefined,
-                hipU:      widths.hipU      != null ? cropSquareLengthToFullSquare(widths.hipU,      cropRect, b.width, b.height) : undefined,
-                // Row FRACTIONS are dimensionless ratios (fraction of the
-                // shoulder→hip span) — unlike the widths above, they must
-                // NOT go through cropSquareLengthToFullSquare (that scales a
-                // LENGTH by Lc/L; a ratio of two lengths in the SAME space
-                // already cancels that factor) — copy through unconverted.
-                chestRowFrac: widths.chestRowFrac,
-                waistRowFrac: widths.waistRowFrac,
-                hipRowFrac:   widths.hipRowFrac,
-              };
-            }
-            if (extentSpan != null) {
-              extentForFrame = cropSquareLengthToFullSquare(extentSpan, cropRect, b.width, b.height);
-            }
-          }
-        }
-      } catch {
-        // This candidate's refine/segmentation attempt failed — `succeeded`
-        // stays false; the branch below decides what happens to it next.
-      }
-
-      refineResults.push({ succeeded, keypoints: finalKps, widths: widthsForFrame, extent: extentForFrame });
-      bumpDone();
-    }
-
-    const refinedSuccessCount = refineResults.filter((r) => r.succeeded).length;
-
-    const finalKpsPerFrame: Keypoint[][] = [];
-    const collectedWidths: (SilhouetteWidths | null)[] = [];
-    const collectedExtents: (number | null)[] = [];
-
-    if (refinedSuccessCount >= 2) {
-      // Enough refined frames to trust on their own — see the doc comment
-      // above for why un-refined/failed-refine frames are dropped entirely
-      // rather than folded in with their pass-1 keypoints. Every buffered
-      // photo (candidate or not) is done being read at this point.
-      for (const r of refineResults) {
-        if (!r.succeeded) continue;
-        finalKpsPerFrame.push(r.keypoints);
-        collectedWidths.push(r.widths);
-        collectedExtents.push(r.extent);
-      }
-      for (const b of buffered) {
-        FileSystem.deleteAsync(b.uri, { idempotent: true }).catch(() => {});
-      }
-    } else {
-      // Fewer than 2 candidates refined — revert to the pre-refinement
-      // pipeline UNIFORMLY for every buffered frame (see the doc comment
-      // above). Every buffered photo (including the attempted candidates',
-      // still undeleted from the loop above) gets read exactly once here.
-      // This reprocesses every buffered frame (a superset of the refine
-      // candidates already counted in the initial progress total above) —
-      // grow the total by the full buffer size so "x/y" never overshoots.
-      addToTotal(buffered.length);
-      for (const b of buffered) {
-        let widthsForFrame: SilhouetteWidths | null = null;
-        let extentForFrame: number | null = null;
-        try {
-          const mask = await estimateSilhouette(b.uri, b.width, b.height);
-          if (mask) {
-            const { widths, extentSpan } = extractWidthsAndExtent(mask, b.keypoints);
-            widthsForFrame = widths;
-            extentForFrame = extentSpan; // already full-square — no crop scale to apply
-          }
-        } catch {
-          // Segmentation failed for this frame — it still contributes its
-          // pass-1 keypoints; widths/extent stay null for this frame only.
-        } finally {
-          FileSystem.deleteAsync(b.uri, { idempotent: true }).catch(() => {});
-        }
-        finalKpsPerFrame.push(b.keypoints);
-        collectedWidths.push(widthsForFrame);
-        collectedExtents.push(extentForFrame);
-        bumpDone();
-      }
-    }
-
-    // Outlier rejection: drop any frame whose apparent scale (nose→ankle span)
-    // disagrees with the rest — a single foreshortened/mis-detected frame
-    // would otherwise pollute the median. scaleAgreement is an HONEST
-    // stability signal (distinct from per-frame keypoint confidence): it
-    // reflects whether the frames agree on scale, not just whether the
-    // detector was confident about a joint. Runs over the FINAL (refined
-    // where available) keypoints, not the raw pass-1 ones.
-    const frames = rejectOutlierFrames(finalKpsPerFrame);
-    const cv = scaleAgreement(frames);
-    const aggKps = medianKeypoints(frames);
-
-    const mergedWidths = medianWidths(collectedWidths);
-    const widths: SilhouetteWidths | undefined =
-      Object.keys(mergedWidths).length > 0 ? mergedWidths : undefined;
-    const maskExtentU = medianExtent(collectedExtents);
-    const frontCapturePitchRad = medianExtent(buffered.map((b) => b.pitchRad));
-
-    // ── SIDE (profile) processing — bonus signal on top of the always-
-    // complete front-only estimate above. `widths ?? {}` carries the front's
-    // MEDIAN row fractions (chestRowFrac/waistRowFrac/hipRowFrac) — how the
-    // side pass registers the SAME anatomical rows on the profile mask (see
-    // sideViewMath.ts). Any failure here (thrown error, no usable depths, no
-    // computable side-view scale) is a SILENT fallback to front-only —
-    // exactly today's behaviour — never a user-visible error.
-    let sideResult: SideProcessResult | null = null;
-    if (sideBuffered.length > 0) {
-      try {
-        sideResult = await processSideFrames(sideBuffered, widths ?? {}, bodyHeight ?? 0, bumpDone);
-      } catch {
-        sideResult = null;
-      }
-    }
+    // bodyHeight is guaranteed > 0 here (scanning only starts past the height
+    // gate); the ?? 0 just satisfies the type — 0 would safely return null.
+    const scan = await processScan(
+      buffered, sideBuffered,
+      { heightCm: bodyHeight ?? 0, weightKg: bodyWeight, sex, ageYears },
+      { addToTotal, frameDone: bumpDone },
+    );
+    if (!scan) { setPhase('error'); return; }
+    const { rawEst, est, stability: cv, aggKps, widths, maskExtentU, frontCapturePitchRad, side: sideResult, refinedSuccessCount } = scan;
 
     if (__DEV__) {
       // Diagnostic only: average shoulder x-span BEFORE (pass-1 Lightning,
@@ -740,12 +353,12 @@ export default function MeasurementsScanScreen() {
       // comment) — `refinedSuccessCount`/`MAX_REFINE_FRAMES` say how many of
       // the ranked candidates actually got refined.
       const avgOf = (vals: number[]) => (vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null);
-      const pass1Avg = avgOf(buffered.map((b) => shoulderSpanOf(b.keypoints)).filter((v): v is number => v != null));
-      const refinedAvg = avgOf(finalKpsPerFrame.map(shoulderSpanOf).filter((v): v is number => v != null));
+      const pass1Avg = avgOf(scan.diag.pass1Kps.map(shoulderSpanOf).filter((v): v is number => v != null));
+      const refinedAvg = avgOf(scan.diag.finalKps.map(shoulderSpanOf).filter((v): v is number => v != null));
       setDebugInfo((prev) => `${prev} · agree ${(cv * 100).toFixed(1)}%`);
       console.log(
-        `[MEASURE_SCAN] frames=${buffered.length} kept=${frames.length} scaleAgreementCV=${cv.toFixed(4)}` +
-        ` refined=${refinedSuccessCount}/${refineCandidates.length} (cap ${MAX_REFINE_FRAMES})` +
+        `[MEASURE_SCAN] frames=${scan.diag.frames} kept=${scan.diag.kept} scaleAgreementCV=${cv.toFixed(4)}` +
+        ` refined=${refinedSuccessCount}/${scan.diag.refineCandidates} (cap ${MAX_REFINE_FRAMES})` +
         ` shoulderSpan pass1=${pass1Avg?.toFixed(4) ?? 'n/a'} refined=${refinedAvg?.toFixed(4) ?? 'n/a'}` +
         ` maskExtentU=${maskExtentU?.toFixed(4) ?? 'n/a'}`
       );
@@ -773,12 +386,13 @@ export default function MeasurementsScanScreen() {
       }
     }
 
-    // bodyHeight is guaranteed > 0 here (scanning only starts past the height
-    // gate); the ?? 0 just satisfies the type — 0 would safely return null.
-    const est = keypointsToMeasurements(aggKps, bodyHeight ?? 0, {
-      weightKg: bodyWeight, sex, ageYears, silhouette: widths, maskExtentU,
-      sideDepthsCm: sideResult?.sideDepthsCm,
-    });
+    if (rawEst && est) {
+      console.log(
+        `[MEASURE_SCAN_PRIOR] bust ${rawEst.body_bust}->${est.body_bust} waist ${rawEst.body_waist}->${est.body_waist}` +
+        ` hip ${rawEst.body_hip}->${est.body_hip} outliers=${est.outliers?.join(',') ?? 'none'}` +
+        ` depth=${JSON.stringify(rawEst.depthSource)}`,
+      );
+    }
     const hasAny = !!est && (
       est.body_bust != null || est.body_waist != null || est.body_hip != null ||
       est.body_inseam != null || est.body_shoulder_width != null ||

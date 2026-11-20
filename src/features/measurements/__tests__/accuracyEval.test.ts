@@ -231,3 +231,40 @@ describe('evaluateFixture — v2 `side` block recomputes sideDepthsCm', () => {
     expect(bustField.absError).toBeCloseTo(0, 6);
   });
 });
+
+describe('fixture `weight` — weighted aggregate', () => {
+  const kps = makeKeypoints();
+  const pred = keypointsToMeasurements(kps, HEIGHT_CM)!.body_shoulder_width!;
+  const mk = (id: string, err: number, weight?: number): Fixture => ({
+    subjectId: id, inputs: { heightCm: HEIGHT_CM }, keypoints: kps, weight,
+    groundTruth: { body_shoulder_width: pred - err }, // predicted − truth = +err
+  });
+
+  test('weighted MAE/bias = Σw·x/Σw; unweighted stays the plain mean', () => {
+    const agg = aggregate([evaluateFixture(mk('a', 2, 3)), evaluateFixture(mk('b', 10, 1))]);
+    const s = agg.perField.body_shoulder_width;
+    expect(s.n).toBe(2);
+    expect(s.wSum).toBe(4);
+    expect(s.mae).toBeCloseTo((2 * 3 + 10 * 1) / 4, 6); // 4
+    expect(s.bias).toBeCloseTo(4, 6);
+    expect(s.unweighted.mae).toBeCloseTo(6, 6);
+  });
+
+  test('omitted weight == 1 (identical to explicit 1)', () => {
+    const a = aggregate([evaluateFixture(mk('a', 2)), evaluateFixture(mk('b', 10))]);
+    const b = aggregate([evaluateFixture(mk('a', 2, 1)), evaluateFixture(mk('b', 10, 1))]);
+    expect(a.perField.body_shoulder_width.mae).toBeCloseTo(b.perField.body_shoulder_width.mae, 9);
+    expect(a.perField.body_shoulder_width.mae).toBeCloseTo(6, 6);
+  });
+
+  test('suggestCalibration objective honours weights (beforeMae is weighted)', () => {
+    const fixtures = [mk('a', 2, 3), mk('b', 10, 1)];
+    const { beforeMae } = suggestCalibration(fixtures, ['kpShoulderFactor'], { steps: 1, passes: 1 });
+    expect(beforeMae).toBeCloseTo(4, 6);
+  });
+
+  test('evaluateFixture({fuse:true}) does not throw and keeps the weight', () => {
+    const fx = { ...mk('a', 2, 2), inputs: { heightCm: HEIGHT_CM, weightKg: 65, sex: 'female' as const } };
+    expect(evaluateFixture(fx, undefined, { fuse: true }).fields[0].weight).toBe(2);
+  });
+});

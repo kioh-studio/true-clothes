@@ -20,6 +20,10 @@
     "supabase/functions",
     "scripts/eval-feed",
     "scripts/measure-eval",
+    "scripts/bodym-eval",
+    "scripts/bench-table",
+    "scripts/offline-replay",
+    "scripts/residual-fit",
     "scripts/sim"
   ]
 }

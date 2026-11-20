@@ -69,7 +69,7 @@ const SIDE_BAND = 0.02;
  * Method, per region (chest/waist/hip):
  *   1. y = sideShoulderY + frac × sideTorso (frac from `rowFracs`, or a
  *      fixed anatomical default when that field is missing this scan —
- *      chest 0.25 (`S.chestAt`), waist the midpoint of the front view's own
+ *      chest 0.50 (`S.chestAt`, mid-torso), waist the midpoint of the front view's own
  *      waist search band (`S.waistFrom`..`S.waistTo`), hip the midpoint of
  *      the front view's own hip/seat band, estimated using THIS side
  *      frame's own torso/leg proportions the same way `extractWidths` does).
@@ -96,6 +96,7 @@ export function extractSideDepths(
   mask: SilhouetteMask,
   sideKps: Keypoint[],
   rowFracs: SideRowFracs,
+  s: typeof S = S,
 ): SideDepths {
   const by: Record<string, Keypoint> = {};
   for (const k of sideKps) by[k.name] = k;
@@ -124,10 +125,10 @@ export function extractSideDepths(
   // side frame's own torso/legLen (extractWidths' hip band isn't a fixed
   // fraction of torso — it's anchored to hipY with its own up/down margins),
   // converted to a shoulder-relative fraction for the shared `rowY` below.
-  const defaultChestFrac = S.chestAt;
-  const defaultWaistFrac = (S.waistFrom + S.waistTo) / 2;
-  const hipBandTopFrac = 1 - S.hipUpTorsoFraction;
-  const hipBandBotFrac = 1 + (S.hipDownLegFraction * legLen) / torso;
+  const defaultChestFrac = s.chestAt;
+  const defaultWaistFrac = (s.waistFrom + s.waistTo) / 2;
+  const hipBandTopFrac = 1 - s.hipUpTorsoFraction;
+  const hipBandBotFrac = 1 + (s.hipDownLegFraction * legLen) / torso;
   const defaultHipFrac = (hipBandTopFrac + hipBandBotFrac) / 2;
 
   const rowY = (frac: number) => shoulderY + frac * torso;
@@ -136,9 +137,9 @@ export function extractSideDepths(
   const waistY = rowY(rowFracs.waistRowFrac ?? defaultWaistFrac);
   const hipY_ = rowY(rowFracs.hipRowFrac ?? defaultHipFrac);
 
-  const chestExtreme = bandExtremeWidthRow(mask, chestY - SIDE_BAND, chestY + SIDE_BAND, centerX, 'max');
-  const waistExtreme = bandExtremeWidthRow(mask, waistY - SIDE_BAND, waistY + SIDE_BAND, centerX, 'min');
-  const hipExtreme = bandExtremeWidthRow(mask, hipY_ - SIDE_BAND, hipY_ + SIDE_BAND, centerX, 'max');
+  const chestExtreme = bandExtremeWidthRow(mask, chestY - SIDE_BAND, chestY + SIDE_BAND, centerX, 'max', s);
+  const waistExtreme = bandExtremeWidthRow(mask, waistY - SIDE_BAND, waistY + SIDE_BAND, centerX, 'min', s);
+  const hipExtreme = bandExtremeWidthRow(mask, hipY_ - SIDE_BAND, hipY_ + SIDE_BAND, centerX, 'max', s);
 
   return {
     chestU: chestExtreme?.width,

@@ -53,11 +53,12 @@ export const K = {
    * Depth-to-width ratios for the Ramanujan ellipse approximation.
    * These convert the front-visible "width" to the unseen body depth so we can
    * approximate the circumference as an ellipse perimeter.
-   * Values are approximate cross-section depth:width from DXA/CT studies:
-   *   chest ~0.72, waist slightly more round ~0.78, hip ~0.70.
+   * ANTHRO-FIT 2026-11: neutral bases = mean of the Asian-weighted ANSUR II fit
+   * and the AIST Japan mean ratio (reports/anthro-fit-ansur.md §3b); was
+   * 0.72 / 0.78 / 0.70. Still to be re-tuned on real tape fixtures.
    */
-  chestDepthRatio: 0.72,
-  waistDepthRatio:  0.78,
+  chestDepthRatio: 0.75,
+  waistDepthRatio:  0.72,
   hipDepthRatio:    0.70,
 
   /**
@@ -69,7 +70,8 @@ export const K = {
    * absent the factor is 1 (base ratios, unchanged behaviour).
    */
   refBmi: 22,
-  bmiDepthGain: 0.5,
+  // ANTHRO-FIT: was 0.5; every ANSUR/AIST fit gives 0.17–0.37 (report §2.2). Tape re-tune pending.
+  bmiDepthGain: 0.25,
   depthFactorMin: 0.8,
   depthFactorMax: 1.3,
   depthRatioMin: 0.55,
@@ -79,10 +81,11 @@ export const K = {
    * Age effect on waist depth only: visceral fat tends to rise with age at the
    * same BMI, rounding the waist cross-section. Applied above `ageWaistFrom`,
    * +`ageWaistGain` per decade, capped at `ageWaistMax`. Weak signal — kept small.
-   * CALIBRATION-PENDING.
+   * ANTHRO-FIT: gain set to 0 (age term is noise in Asian-only fits, report §2.2);
+   * code path kept. CALIBRATION-PENDING.
    */
   ageWaistFrom: 30,
-  ageWaistGain: 0.015,
+  ageWaistGain: 0,
   ageWaistMax: 1.06,
 
   /**
@@ -253,19 +256,32 @@ export const K = {
    * suggest real chest/waist/hip sections read somewhat SQUARER than a true
    * ellipse (literature ~2.2–2.5), which would predict a slightly larger
    * true perimeter than the ellipse model for the same width×depth bounding
-   * box. DEFAULT STAYS 2.0 (byte-identical to the pre-existing ellipse
-   * behaviour) until real tape-measurement fixtures exist to calibrate this
-   * — the field exists so the offline harness (scripts/measure-eval) can
+   * box. Per-region defaults below (ANTHRO-FIT, was a single 2.0) until real
+   * tape-measurement fixtures exist to calibrate them
+   * — the fields exist so the offline harness (scripts/measure-eval) can
    * search this dimension, not as a production change yet. Applies to BOTH
    * the BMI-guessed-depth path and the new measured-depth path
    * (`sideDepthsCm` below) — it's a statement about body cross-section
    * SHAPE, independent of how the depth semi-axis was obtained. NOT listed
    * in `TUNABLE_FIELD_MAP`'s neighbouring `sideDepthWidthRatioMin`/`Max` —
    * those two are validity GATES (CALIBRATION-PENDING but not part of the
-   * coordinate-descent search), whereas `superellipseN` is a genuine
+   * coordinate-descent search), whereas `superellipseN*` is a genuine
    * calibratable shape parameter (see accuracyEval.ts).
    */
-  superellipseN: 2.0,
+  // ANTHRO-FIT 2026-11: per-region n, AIST-implied (reports/anthro-fit-ansur.md
+  // §3a); replaces the single 2.0. ANSUR caliper n (2.5/2.24/2.32) are upper
+  // bounds. Tape re-tune pending.
+  // CALIBRATION-SWEEP 2026-11-20: chest 2.35 -> 2.25 (pairs with S.chestAt 0.50;
+  // reports/calibration-sweep.md, synthetic 350 + BodyM, held-out validated, tape re-tune pending).
+  superellipseNChest: 2.25,
+  /**
+   * 1 = use the measured side-view HIP depth; 0 (default) = ignore it and use the guessed
+   * depth ratio. Measured side hip depth made hip worse on both BodyM (MAE 4.6 vs 3.2) and
+   * synth (9.9 vs 7.1) — reports/calibration-sweep.md; tape re-tune pending.
+   */
+  useSideDepthHip: 0,
+  superellipseNWaist: 2.15,
+  superellipseNHip: 2.10,
 };
 
 /**
@@ -371,7 +387,7 @@ function tunablesFor(sex: Sex | undefined, KC: typeof K) {
       waistScale:         base.waistScale * 0.96,      // narrower waist
       waistBlendShoulder: 0.30,
       waistBlendHip:      0.70,                         // waist tracks the hips
-      hipDepthRatio:      base.hipDepthRatio * 1.06,    // rounder hips
+      hipDepthRatio:      base.hipDepthRatio * 0.92,    // flatter hip section (ANSUR+AIST, report §3b)
       hipWidthCorrection: base.hipWidthCorrection * 1.04,
     };
   }
@@ -379,7 +395,6 @@ function tunablesFor(sex: Sex | undefined, KC: typeof K) {
     return {
       ...base,
       chestFromShoulder:  base.chestFromShoulder * 1.04, // chest fills the span
-      waistDepthRatio:    base.waistDepthRatio * 1.06,   // visceral → rounder waist
       waistBlendShoulder: 0.55,
       waistBlendHip:      0.45,                           // waist tracks upper body
       hipWidthCorrection: base.hipWidthCorrection * 0.97, // less buttock projection
@@ -411,7 +426,7 @@ function ellipsePerimeter(a: number, b: number): number {
  * (Ramanujan's closed-form ellipse approximation) within 0.2%, as a
  * correctness check on the integration itself rather than a trivial
  * tautology. For `n` far from 2 (a flatter/more rectangular cross-section —
- * literature ~2.2–2.5 for body sections, see `K.superellipseN`) the
+ * literature ~2.2–2.5 for body sections, see `K.superellipseN*`) the
  * derivative CAN blow up right at t=0/π/2 (the curve's vertical/horizontal
  * tangent points, the same kind of singularity Ramanujan's series exists to
  * sidestep for n=2 too) — `EPS` insets the sampled `t` away from the exact
@@ -421,7 +436,7 @@ function ellipsePerimeter(a: number, b: number): number {
  *
  * Only ever invoked when a caller explicitly needs `n !== 2` — the
  * production circumference formula below keeps using `ellipsePerimeter`
- * directly whenever `KC.superellipseN === 2` (the default), both because
+ * directly whenever n === 2, both because
  * Ramanujan's formula is already accurate for a true ellipse and to avoid
  * paying for numeric integration on every scan.
  */
@@ -545,7 +560,7 @@ function blendPersonUnitH(
  * using the ellipse/superellipse-perimeter approximation, with the body
  * DEPTH still GUESSED from `depthRatio` (BMI/age-adjusted) — the pre-side-
  * view behaviour, kept as the fallback path for any field the side-view
- * capture didn't (or couldn't) measure. `shapeN`: see `K.superellipseN`.
+ * capture didn't (or couldn't) measure. `shapeN`: see `K.superellipseN*`.
  */
 function widthToCircumference(widthCm: number, depthRatio: number, shapeN: number): number {
   const a = widthCm / 2;
@@ -756,19 +771,21 @@ export function keypointsToMeasurements(
   // never the whole estimate.
   function measuredOrGuessedCircumference(
     widthCm: number, guessedDepthRatio: number, depthCmMeasured: number | undefined,
-  ): number {
+    shapeN: number,
+  ): { cm: number; source: 'side' | 'guess' } {
     if (depthCmMeasured != null && widthCm > 0) {
       const ratio = depthCmMeasured / widthCm;
       if (ratio >= KC.sideDepthWidthRatioMin && ratio <= KC.sideDepthWidthRatioMax) {
-        return circumferenceFromSemiAxes(widthCm / 2, depthCmMeasured / 2, KC.superellipseN);
+        return { cm: circumferenceFromSemiAxes(widthCm / 2, depthCmMeasured / 2, shapeN), source: 'side' };
       }
     }
-    return widthToCircumference(widthCm, guessedDepthRatio, KC.superellipseN);
+    return { cm: widthToCircumference(widthCm, guessedDepthRatio, shapeN), source: 'guess' };
   }
 
-  const bustCm  = measuredOrGuessedCircumference(chestWidthCm, chestDepth, sideDepthsCm?.chestCm);
-  const waistCm = measuredOrGuessedCircumference(waistWidthCm, waistDepth, sideDepthsCm?.waistCm);
-  const hipCm   = measuredOrGuessedCircumference(hipWidthCm,   hipDepth,   sideDepthsCm?.hipCm);
+  const bust  = measuredOrGuessedCircumference(chestWidthCm, chestDepth, sideDepthsCm?.chestCm, KC.superellipseNChest);
+  const waist = measuredOrGuessedCircumference(waistWidthCm, waistDepth, sideDepthsCm?.waistCm, KC.superellipseNWaist);
+  const hip   = measuredOrGuessedCircumference(hipWidthCm,   hipDepth,   KC.useSideDepthHip ? sideDepthsCm?.hipCm : undefined,   KC.superellipseNHip);
+  const bustCm = bust.cm, waistCm = waist.cm, hipCm = hip.cm;
 
   // ── Lengths (direct keypoint distance × scale — no depth guess) ────────────
   // Inseam: crotch (avg hip) to floor. Prefers the NEW heel-based floor
@@ -828,5 +845,6 @@ export function keypointsToMeasurements(
     body_bust, body_waist, body_hip, body_inseam,
     body_shoulder_width, body_sleeve_length, body_upper_body_length,
     confidence,
+    depthSource: { bust: bust.source, waist: waist.source, hip: hip.source },
   };
 }

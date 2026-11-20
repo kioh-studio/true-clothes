@@ -38,6 +38,15 @@ export interface SilhouetteWidths {
   chestRowFrac?: number;
   waistRowFrac?: number;
   hipRowFrac?: number;
+  /** Diagnostic (not a length): how the tracked chest edges were obtained. */
+  chestEdge?: ChestEdgeInfo;
+}
+
+export interface ChestEdgeInfo {
+  left: 'clean' | 'extrapolated';
+  right: 'clean' | 'extrapolated';
+  /** Chest-band rows where at least one side came from the fitted curve. */
+  extrapolatedRows: number;
 }
 
 // Tunables — CALIBRATION-PENDING (tune against real tape measurements).
@@ -46,8 +55,14 @@ export const S = {
   /** Band around the shoulder keypoint line scanned for the widest row. */
   shoulderBandAbove: 0.02,
   shoulderBandBelow: 0.08,
-  /** Chest row as a fraction of the shoulder→hip vertical span. */
-  chestAt: 0.25,
+  /**
+   * Chest row as a fraction of the shoulder→hip vertical span. 0.50 ≈ mid-torso
+   * (about the lower sternum / under-bust, NOT the armpit; 0.25 was the armpit,
+   * where lats + arm roots widen the contour). Source: reports/calibration-sweep.md
+   * (synthetic 350 bodies + BodyM, held-out validated; flat optimum 0.48–0.52;
+   * tape re-tune pending).
+   */
+  chestAt: 0.50,
   chestBand: 0.04,
   /** Natural-waist search band as fractions of the shoulder→hip span. */
   waistFrom: 0.45,
@@ -57,6 +72,16 @@ export const S = {
   hipUpTorsoFraction: 0.05,
   /** Minimum valid rows a band scan needs before trusting its extreme. */
   minBandRows: 3,
+  /** Torso-edge tracking (chest). ponytail: CALIBRATION-PENDING, tune on replay fixtures. */
+  trackSeedRows: 6,
+  trackSeedFrac: 0.05,       // seed rows = max(trackSeedRows, this x torso span px)
+  trackTolPx: 2,
+  trackTolFrac: 0.015,       // tol = max(trackTolPx, this x torso span px)
+  maxEdgeExtrapolation: 0.35, // x shoulder->hip span
+  /** Side-view hand-erase disk radius (x person-unit height) around each wrist. */
+  handEraseRadius: 0.06,
+  /** 1 = erase only disk pixels OUTSIDE the torso contour interpolated from rows above/below the disk (calibration option; 0 = legacy full disk). */
+  handEraseOutsideTorso: 0,
 };
 
 
@@ -115,8 +140,18 @@ export function runWidthAt(
   centerXNorm: number,
   threshold = S.maskThreshold,
 ): number | null {
+  const e = runEdgesAtRow(mask, Math.round(yNorm * (mask.size - 1)), centerXNorm, threshold);
+  return e ? (e.right - e.left) / mask.size : null;
+}
+
+/** Sub-pixel left/right edges (pixel units) of the centreline run at a pixel row. */
+export function runEdgesAtRow(
+  mask: SilhouetteMask,
+  row: number,
+  centerXNorm: number,
+  threshold = S.maskThreshold,
+): { left: number; right: number } | null {
   const size = mask.size;
-  const row = Math.round(yNorm * (size - 1));
   if (row < 0 || row >= size) return null;
   const at = (x: number) => mask.data[row * size + x] >= threshold;
 
@@ -147,7 +182,7 @@ export function runWidthAt(
 
   const leftEdge = subpixelEdge(mask, row, l, -1, threshold);
   const rightEdge = subpixelEdge(mask, row, r, 1, threshold);
-  return (rightEdge - leftEdge) / size;
+  return { left: leftEdge, right: rightEdge };
 }
 
 /**
@@ -182,6 +217,7 @@ export function runWidthAt(
 export function maskVerticalExtent(
   mask: SilhouetteMask,
   probeXNorms: number[],
+  s: typeof S = S,
 ): { topV: number; botV: number } | null {
   if (probeXNorms.length === 0) return null;
   const size = mask.size;
@@ -194,7 +230,7 @@ export function maskVerticalExtent(
     // A row is valid when ANY probe column yields a ≥2px run at it.
     let hit = false;
     for (const probeX of probeXNorms) {
-      const w = runWidthAt(mask, yNorm, probeX);
+      const w = runWidthAt(mask, yNorm, probeX, s.maskThreshold);
       if (w != null && w * size >= 2) { hit = true; break; } // reject sub-2px specks
     }
     if (!hit) continue;
@@ -203,7 +239,7 @@ export function maskVerticalExtent(
     botRow = row;
   }
 
-  if (validRows < S.minBandRows || topRow < 0) return null;
+  if (validRows < s.minBandRows || topRow < 0) return null;
   return { topV: topRow / (size - 1), botV: botRow / (size - 1) };
 }
 
@@ -230,6 +266,7 @@ export function bandExtremeWidthRow(
   yBottomNorm: number,
   centerXNorm: number,
   mode: 'min' | 'max',
+  s: typeof S = S,
 ): BandExtreme | null {
   const size = mask.size;
   const rowTop = Math.max(0, Math.round(yTopNorm * (size - 1)));
@@ -239,12 +276,12 @@ export function bandExtremeWidthRow(
   let best: BandExtreme | null = null;
   let valid = 0;
   for (let row = rowTop; row <= rowBot; row++) {
-    const w = runWidthAt(mask, row / (size - 1), centerXNorm);
+    const w = runWidthAt(mask, row / (size - 1), centerXNorm, s.maskThreshold);
     if (w == null) continue;
     valid++;
     if (best == null || (mode === 'min' ? w < best.width : w > best.width)) best = { width: w, row };
   }
-  return valid >= S.minBandRows ? best : null;
+  return valid >= s.minBandRows ? best : null;
 }
 
 /**
@@ -257,9 +294,127 @@ export function bandExtremeWidth(
   yBottomNorm: number,
   centerXNorm: number,
   mode: 'min' | 'max',
+  s: typeof S = S,
 ): number | null {
-  const r = bandExtremeWidthRow(mask, yTopNorm, yBottomNorm, centerXNorm, mode);
+  const r = bandExtremeWidthRow(mask, yTopNorm, yBottomNorm, centerXNorm, mode, s);
   return r ? r.width : null;
+}
+
+/** Least-squares polynomial of `deg` through (t, x); returns evaluator. */
+function polyFit(ts: number[], xs: number[], deg: 1 | 2): (t: number) => number {
+  const n = ts.length;
+  const m = deg + 1;
+  const A: number[][] = Array.from({ length: m }, () => new Array<number>(m + 1).fill(0));
+  for (let i = 0; i < n; i++) {
+    for (let a = 0; a < m; a++) {
+      for (let b = 0; b < m; b++) A[a][b] += Math.pow(ts[i], a + b);
+      A[a][m] += xs[i] * Math.pow(ts[i], a);
+    }
+  }
+  const mean = xs.reduce((q, v) => q + v, 0) / n;
+  for (let c = 0; c < m; c++) { // gauss-jordan, partial pivot
+    let p = c;
+    for (let r = c + 1; r < m; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    [A[c], A[p]] = [A[p], A[c]];
+    if (Math.abs(A[c][c]) < 1e-9) return () => mean;
+    for (let r = 0; r < m; r++) {
+      if (r === c) continue;
+      const f = A[r][c] / A[c][c];
+      for (let k = c; k <= m; k++) A[r][k] -= f * A[c][k];
+    }
+  }
+  const coef = A.map((row, i) => row[m] / row[i]);
+  return (t) => coef.reduce((q, c, i) => q + c * Math.pow(t, i), 0);
+}
+
+interface SideTrack {
+  /** pixel row -> accepted measured edge x */
+  accepted: Map<number, number>;
+  /** topmost (smallest) accepted row */
+  lastRow: number;
+  predict: (row: number) => number;
+}
+
+/**
+ * Walk upward (pts ordered by descending row) accepting edge points that stay
+ * on the fitted curve. `outward` = +1 for the right edge, -1 for the left.
+ * An outward jump beyond `tol` (arm contact) ends tracking for good; an inward
+ * outlier is just skipped.
+ */
+function trackSide(pts: Array<{ row: number; x: number }>, seedN: number, tol: number, outward: 1 | -1): SideTrack | null {
+  if (pts.length < seedN) return null;
+  const r0 = pts[0].row;
+  const ts: number[] = [];
+  const xs: number[] = [];
+  const accepted = new Map<number, number>();
+  const take = (p: { row: number; x: number }) => { ts.push(r0 - p.row); xs.push(p.x); accepted.set(p.row, p.x); };
+  const fit = () => polyFit(ts, xs, ts.length >= 8 ? 2 : 1);
+  for (let i = 0; i < seedN; i++) take(pts[i]);
+  let f = fit();
+  let lastRow = pts[seedN - 1].row;
+  for (let i = seedN; i < pts.length; i++) {
+    const d = pts[i].x - f(r0 - pts[i].row);
+    if (Math.abs(d) <= tol) { take(pts[i]); lastRow = pts[i].row; f = fit(); }
+    else if (d * outward > 0) break;
+  }
+  return { accepted, lastRow, predict: (row) => f(r0 - row) };
+}
+
+/**
+ * Chest width from independently TRACKED left/right torso edges. In an A-pose
+ * the upper arms touch the torso at chest height so the centreline run spans
+ * arm-to-arm; here each edge is followed up from `startRow` (natural waist,
+ * arms still separated) and, once an edge jumps outward (arm contact), the
+ * fitted curve is extrapolated instead. Max width over the chest band rows
+ * (same rule as the old band scan). Null when too few seed rows, too few band
+ * rows, or the extrapolation distance exceeds `S.maxEdgeExtrapolation`.
+ * `spanPx` = shoulder→hip span in pixels (scales tolerances).
+ */
+export function trackedTorsoWidthAt(
+  mask: SilhouetteMask,
+  startRow: number,
+  shoulderRow: number,
+  bandTopRow: number,
+  bandBotRow: number,
+  centerXNorm: number,
+  spanPx: number,
+  s: typeof S = S,
+): { width: number; row: number; edge: ChestEdgeInfo } | null {
+  const seedN = Math.max(s.trackSeedRows, Math.round(s.trackSeedFrac * spanPx));
+  const tol = Math.max(s.trackTolPx, s.trackTolFrac * spanPx);
+  const L: Array<{ row: number; x: number }> = [];
+  const R: Array<{ row: number; x: number }> = [];
+  for (let row = startRow; row >= shoulderRow; row--) {
+    const e = runEdgesAtRow(mask, row, centerXNorm, s.maskThreshold);
+    if (!e) continue;
+    L.push({ row, x: e.left });
+    R.push({ row, x: e.right });
+  }
+  const tl = trackSide(L, seedN, tol, -1);
+  const tr = trackSide(R, seedN, tol, 1);
+  if (!tl || !tr) return null;
+
+  const maxEx = s.maxEdgeExtrapolation * spanPx;
+  let best: { width: number; row: number; l: boolean; r: boolean } | null = null;
+  let valid = 0;
+  let extRows = 0;
+  for (let row = Math.max(bandTopRow, 0); row <= Math.min(bandBotRow, mask.size - 1); row++) {
+    const lx = tl.accepted.get(row);
+    const rx = tr.accepted.get(row);
+    if ((lx == null && tl.lastRow - row > maxEx) || (rx == null && tr.lastRow - row > maxEx)) return null;
+    const left = lx ?? tl.predict(row);
+    const right = rx ?? tr.predict(row);
+    valid++;
+    if (lx == null || rx == null) extRows++;
+    const w = (right - left) / mask.size;
+    if (best == null || w > best.width) best = { width: w, row, l: lx != null, r: rx != null };
+  }
+  if (!best || valid < s.minBandRows) return null;
+  return {
+    width: best.width,
+    row: best.row,
+    edge: { left: best.l ? 'clean' : 'extrapolated', right: best.r ? 'clean' : 'extrapolated', extrapolatedRows: extRows },
+  };
 }
 
 /**
@@ -267,7 +422,7 @@ export function bandExtremeWidth(
  * (contour widths). Returns null when the pose lacks confident shoulders/hips
  * — without those the bands cannot be placed.
  */
-export function extractWidths(mask: SilhouetteMask, kps: Keypoint[]): SilhouetteWidths | null {
+export function extractWidths(mask: SilhouetteMask, kps: Keypoint[], s: typeof S = S): SilhouetteWidths | null {
   const by: Record<string, Keypoint> = {};
   for (const k of kps) by[k.name] = k;
   const need = ['leftShoulder', 'rightShoulder', 'leftHip', 'rightHip'];
@@ -291,13 +446,24 @@ export function extractWidths(mask: SilhouetteMask, kps: Keypoint[]): Silhouette
   const rowFrac = (row: number) => ((row / (size - 1)) - shoulderY) / torso;
 
   const shoulderExtreme = bandExtremeWidthRow(
-    mask, shoulderY - S.shoulderBandAbove, shoulderY + S.shoulderBandBelow, centerX, 'max');
-  const chestY = shoulderY + S.chestAt * torso;
-  const chestExtreme = bandExtremeWidthRow(mask, chestY - S.chestBand, chestY + S.chestBand, centerX, 'max');
+    mask, shoulderY - s.shoulderBandAbove, shoulderY + s.shoulderBandBelow, centerX, 'max', s);
+  const chestY = shoulderY + s.chestAt * torso;
   const waistExtreme = bandExtremeWidthRow(
-    mask, shoulderY + S.waistFrom * torso, shoulderY + S.waistTo * torso, centerX, 'min');
+    mask, shoulderY + s.waistFrom * torso, shoulderY + s.waistTo * torso, centerX, 'min', s);
+  // Chest: track torso edges up from the waist (arms touch the torso here in an A-pose).
+  const px = (y: number) => Math.round(y * (size - 1));
+  const chestExtreme = trackedTorsoWidthAt(
+    mask,
+    waistExtreme?.row ?? px(shoulderY + ((s.waistFrom + s.waistTo) / 2) * torso),
+    px(shoulderY),
+    px(chestY - s.chestBand),
+    px(chestY + s.chestBand),
+    centerX,
+    Math.max(1, torso * (size - 1)),
+    s,
+  );
   const hipExtreme = bandExtremeWidthRow(
-    mask, hipY - S.hipUpTorsoFraction * torso, hipY + S.hipDownLegFraction * legLen, centerX, 'max');
+    mask, hipY - s.hipUpTorsoFraction * torso, hipY + s.hipDownLegFraction * legLen, centerX, 'max', s);
 
   if (!shoulderExtreme && !chestExtreme && !waistExtreme && !hipExtreme) return null;
   return {
@@ -308,6 +474,7 @@ export function extractWidths(mask: SilhouetteMask, kps: Keypoint[]): Silhouette
     chestRowFrac: chestExtreme ? rowFrac(chestExtreme.row) : undefined,
     waistRowFrac: waistExtreme ? rowFrac(waistExtreme.row) : undefined,
     hipRowFrac:   hipExtreme   ? rowFrac(hipExtreme.row)   : undefined,
+    chestEdge: chestExtreme?.edge,
   };
 }
 

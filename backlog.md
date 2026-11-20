@@ -1448,3 +1448,23 @@ code KHÔNG phải thứ đang chặn release.
 - [ ] **Câu giải thích hiệu ứng cho từng outfit** (2026-11-06) — VD "cạp cao + giày cùng tông quần → chân dài hơn". Engine đã tính silhouette/proportion nhưng không trả lý do ra client.
 - [ ] **Thẻ "hồ sơ tỉ lệ" chia sẻ được** (2026-11-06) — như kết quả personal color. Kiểm chứng trước bằng 5–10 video TikTok mẹo tỉ lệ dùng demo MIEN.
 - [ ] **Ô giá chưa hiểu dấu chấm ngăn nghìn kiểu VN** (2026-11-06) — `parsePrice` ("1.500.000" → bị bỏ qua im lặng; "1500000" thì OK). Dùng chung cho wishlist + giá món đồ. Sửa: bỏ dấu chấm/phẩy ngăn nghìn khi locale vi.
+
+- [ ] **Học từ Son of a Tailor: suy số đo từ 4 input + vòng phản hồi fit** (2026-11-19, đề xuất chưa duyệt)
+  — SoaT dùng height/weight/age/shoe size → ML map thẳng ra pattern áo (~170k khách, tự báo 95–97%).
+  Ý cho MIEN: (1) thêm shoe size + age vào onboarding làm prior khi user bỏ trống chest/waist/hip
+  (regression height+weight ~1.2–1.6cm MAE, Bartol 2022); (2) nút "vừa / chật / rộng ở đâu" sau khi
+  mặc để thu nhãn fit thật, hiệu chỉnh fit engine theo user. Chưa làm vì chờ anh Khôi chốt.
+
+- [ ] **Tối ưu độ chính xác scan số đo KHÔNG cần đo dây** (2026-11-19, anh Khôi chốt: làm pipeline trước, user confirmation sau)
+  1+2. (hằng số + prior/fusion đã xong, chưa commit) Còn treo: UI "chụp lại" khi field bị flag `outliers` (hiện chỉ log `[MEASURE_SCAN_PRIOR]`); synthetic fixture rộng trong test cho bust sát clamp 160.
+  - **Cần anh Khôi**: đăng ký tài khoản WHO NCD Microdata, xin + tải Vietnam STEPS 2021 (catalog/948) và 2015 (catalog/590) → fit lại prior eo/hông bằng người Việt (trọng số ×4), script `scripts/anthro-fit/fit_ansur.py` tái dùng được.
+  - **Cần anh Khôi xin data (geometry — quan trọng nhất cho vòng ngực)**: Size Korea raw (sizekorea.kr, ĐT 02-2052-7778~9) và AIST/HQL Nhật 1991-92/1997-98 3D (form release agreement tại airc.aist.go.jp/dhrt) — hỏi rõ được dùng hệ số dẫn xuất cho app thương mại không. Chưa có bộ mở nào có breadth+depth+circ người châu Á (đã dò 2026-11-19, xem report §8).
+  - Prior eo/hông thêm (cần đăng ký): KNHANES (HQ), CHARLS/CHNS (TQ), IFLS (Indonesia, có hông — Đông Nam Á). Steps ở report §8f.
+  3. Sửa keystone theo `capturePitchRad` (đã log, chưa dùng).
+  4. Siết capture QA: cảnh báo đồ rộng, loại frame xấu, ≥N frame mới chấp nhận.
+  5. (sau) User confirmation / fit feedback loop.
+  Giới hạn: hằng số phía vision (contour inset, maskExtentFudge, scale) vẫn cần ảnh có ground truth — ANSUR không thay được.
+  - (2026-11-20) Calibration xong (BodyM + 350 synth, đã áp `S.chestAt` 0.50, `K.superellipseNChest` 2.25, `K.useSideDepthHip` 0 — CHƯA commit, working tree lẫn việc khác). Còn: kiểm chứng trên người thật chụp bằng app + đo dây (3–5 người); bảng so sánh: https://claude.ai/artifact/UVLmPU2fQZ2o1JvceYe3p9 . Hướng dài hạn chưa duyệt: train model tách thân/tay bằng dữ liệu Blender (cần GPU thuê).
+- (2026-11-20) Calibration sweep còn treo — chi tiết `reports/calibration-sweep.md`: (a) inseam `K.inseamProjectionFactor` 0.95→~1.00 chờ fixture người thật (synth muốn 1.00–1.02, BodyM [pseudo-kp, vòng tròn] muốn 0.95); (b) shoulder band bị cánh tay khi dạng ≥40° (a45 +6.4 cm) — cân nhắc tracking viền vai như `trackedTorsoWidthAt`; (c) side WAIST depth làm xấu waist trên synth (tay phía trước bụng, 3.8 vs 2.5 MAE) nhưng tốt trên BodyM — cần data thật; (d) synth GT `upper_body_length` (neck-base bone − waist z ≈ 0.196·H) lệch định nghĩa tape (ANSUR cervicale→omphalion ≈ 0.255·H) — sửa GT synth trước khi tin con số này.
+
+- [ ] **Fit lại residual correction khi có scan người thật đo dây (3–5 người)** (2026-11-20) — `scripts/residual-fit/fit.ts` + `reports/residual-fit.md`. Synth và BodyM mâu thuẫn ở eo (bias synth +1.3 vs BodyM -5.0) và hông synth rộng giả tạo (+7–9 cm, MakeHuman) → hông chỉ fit bằng BodyM (gain nhỏ: testB 3.5→2.9, testA 1.8). Có tape thật thì chọn lại variant. Ngoài ra `reports/benchmark-all.md` chưa refresh (generator `scripts/bench-table/build.ts` chưa áp residual, dataset cũ).

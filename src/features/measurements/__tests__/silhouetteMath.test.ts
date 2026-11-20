@@ -1,6 +1,6 @@
 // Unit tests for the pure silhouette geometry — synthetic masks, no native deps.
 import {
-  runWidthAt, bandExtremeWidth, bandExtremeWidthRow, extractWidths, maskVerticalExtent,
+  runWidthAt, trackedTorsoWidthAt, bandExtremeWidth, bandExtremeWidthRow, extractWidths, maskVerticalExtent,
   fillNCHWFloat, eraseDisk, S,
   type SilhouetteMask,
 } from '../silhouetteMath';
@@ -380,12 +380,14 @@ describe('extractWidths — row-fraction registration', () => {
 
   function rowFracMask(): SilhouetteMask {
     const data = new Float32Array(SIZE * SIZE);
-    // Chest band (rows 17..23, S.chestAt=0.25 target row 20): unique max at
-    // row 21 (width 30), everything else in-band width 10.
-    for (let r = 17; r <= 23; r++) paintRow(data, SIZE, r, r === 21 ? 30 : 10);
-    // Waist band (rows 28..44): unique min at row 33 (width 8), everything
+    // Chest band (rows 17..23, S.chestAt=0.25 target row 20). The chest is
+    // now TRACKED up from the waist, so it needs a continuous torso (a lone
+    // wide spike row would be read as arm contact and ignored): rows 10..27
+    // width 25. The winning row is the first band row (ties keep the first).
+    for (let r = 10; r <= 27; r++) paintRow(data, SIZE, r, 25);
+    // Waist band (rows 28..44): unique min at row 33 (width 24), everything
     // else in-band width 25.
-    for (let r = 28; r <= 44; r++) paintRow(data, SIZE, r, r === 33 ? 8 : 25);
+    for (let r = 28; r <= 44; r++) paintRow(data, SIZE, r, r === 33 ? 24 : 25);
     // Hip band (rows 48..53): unique max at row 52 (width 22), everything
     // else in-band width 5.
     for (let r = 48; r <= 53; r++) paintRow(data, SIZE, r, r === 52 ? 22 : 5);
@@ -402,11 +404,11 @@ describe('extractWidths — row-fraction registration', () => {
     ];
   }
 
-  test('chest/waist/hip row fractions match the (offset-from-naive) unique extreme row', () => {
+  test('chest/waist/hip row fractions match the registered extreme row', () => {
     const w = extractWidths(rowFracMask(), rowFracKps());
     expect(w).not.toBeNull();
     // torso = hipY(row50) - shoulderY(row10) = 40 rows.
-    expect(w!.chestRowFrac).toBeCloseTo((21 - 10) / 40, 6); // 0.275
+    expect(w!.chestRowFrac).toBeCloseTo((27 - 10) / 40, 6); // first row of the chest band (chestAt 0.50 -> band rows 27..)
     expect(w!.waistRowFrac).toBeCloseTo((33 - 10) / 40, 6); // 0.575
     // Hip row (52) sits BELOW the hip joint line (row 50) — frac > 1, exactly
     // the "seat band extends below the hip joints" case documented on
@@ -467,5 +469,69 @@ describe('eraseDisk', () => {
     expect(mask.data[0 * SIZE + 0]).toBe(0);
     // A pixel far from the corner is untouched.
     expect(mask.data[(SIZE - 1) * SIZE + (SIZE - 1)]).toBe(1);
+  });
+});
+
+// ── trackedTorsoWidthAt (2026-11-19, chest edge tracking) ───────────────────
+
+describe('trackedTorsoWidthAt', () => {
+  const N = 128;
+  const CXN = 0.5;
+  const START = 90, SHOULDER = 30, TOP = 52, BOT = 60; // chest band rows 52..60
+  /** Torso edges per row from fn(row)->[l,r]; arm(row)->extra px each side or 0. */
+  function build(
+    torso: (row: number) => [number, number],
+    arm: (row: number) => [number, number],
+  ): SilhouetteMask {
+    const data = new Float32Array(N * N);
+    for (let row = SHOULDER; row <= START + 10; row++) {
+      const [tl, tr] = torso(row);
+      const [al, ar] = arm(row);
+      for (let x = Math.round(tl - al); x <= Math.round(tr + ar); x++) data[row * N + x] = 1;
+    }
+    return { data, size: N };
+  }
+  const flat = (row: number): [number, number] => [44, 84]; // width 41 px
+  const none = () => [0, 0] as [number, number];
+  const call = (m: SilhouetteMask) => trackedTorsoWidthAt(m, START, SHOULDER, TOP, BOT, CXN, 80);
+  const oldW = (m: SilhouetteMask) => bandExtremeWidth(m, TOP / (N - 1), BOT / (N - 1), CXN, 'max')! * N;
+
+  test('(a) separated arms: matches the old run width', () => {
+    const m = build(flat, none);
+    const t = call(m)!;
+    expect(t.width * N).toBeCloseTo(oldW(m), 0);
+    expect(t.edge.extrapolatedRows).toBe(0);
+  });
+
+  test('(b) arms touching armpit..just above waist: tracked ~ torso, old ~ arm-to-arm', () => {
+    const m = build(flat, (r) => (r < 80 ? [12, 12] : [0, 0]));
+    const t = call(m)!;
+    expect(oldW(m)).toBeGreaterThan(60);
+    expect(Math.abs(t.width * N - 41)).toBeLessThan(3);
+    expect(t.edge.left).toBe('extrapolated');
+    expect(t.edge.right).toBe('extrapolated');
+    expect(t.edge.extrapolatedRows).toBe(BOT - TOP + 1);
+  });
+
+  test('(c) one arm touching, other separated', () => {
+    const m = build(flat, (r) => (r < 80 ? [12, 0] : [0, 0]));
+    const t = call(m)!;
+    expect(Math.abs(t.width * N - 41)).toBeLessThan(3);
+    expect(t.edge.left).toBe('extrapolated');
+    expect(t.edge.right).toBe('clean');
+  });
+
+  test('(d) arms touching all the way to the waist -> null', () => {
+    const m = build(flat, (r) => (r < 88 ? [12, 12] : [0, 0]));
+    expect(call(m)).toBeNull();
+  });
+
+  test('(e) widening ribcage edge is followed, not truncated', () => {
+    // edges widen going UP (row decreasing): half-width grows 1px per 4 rows
+    const rib = (row: number): [number, number] => [44 - (90 - row) / 8, 84 + (90 - row) / 8];
+    const m = build(rib, (r) => (r < 72 ? [12, 12] : [0, 0]));
+    const t = call(m)!;
+    const truth = 41 + 2 * ((90 - 52) / 8); // at the top band row (widest)
+    expect(Math.abs(t.width * N - truth)).toBeLessThan(4);
   });
 });
