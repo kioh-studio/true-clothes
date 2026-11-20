@@ -83,7 +83,10 @@ async function loadView(
   const gate = prefix === 'front' ? assessPose : assessSidePose;
   const frames: BufferedFrame[] = [];
   const copyOf = async (src: string, i: number): Promise<string> => {
-    const dst = `${FileSystem.cacheDirectory}replay-${prefix}-${Date.now()}-${i}.jpg`;
+    // documentDirectory, NOT cacheDirectory: Android trims cache files when /data is
+    // low on space (emulator!), deleting frames mid-scan -> random refine failures.
+    await FileSystem.makeDirectoryAsync(`${ROOT}tmp/`, { intermediates: true }).catch(() => {});
+    const dst = `${ROOT}tmp/replay-${prefix}-${Date.now()}-${i}.jpg`;
     await FileSystem.copyAsync({ from: src, to: dst });
     return dst;
   };

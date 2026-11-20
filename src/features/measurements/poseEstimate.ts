@@ -353,14 +353,22 @@ function inferBlazePoseInSquare(
   const outputs = model.runSync([input]);
   const landmarksIdx = findOutputIndexByLength(outputs, BLAZEPOSE_LANDMARKS_LENGTH);
   const poseflagIdx  = findOutputIndexByLength(outputs, 1);
-  if (landmarksIdx < 0 || poseflagIdx < 0) return null; // unexpected model shape — degrade to null, not a crash
+  if (landmarksIdx < 0 || poseflagIdx < 0) {
+    console.warn('[REFINE_FAIL]', 'output-shape', `lens=${outputs.map((o) => o.length).join(',')}`);
+    return null; // unexpected model shape — degrade to null, not a crash
+  }
 
   // Cast: react-native-fast-tflite's output element type is a union that
   // technically includes BigInt64Array/BigUint64Array (not ArrayLike<number>)
   // — in practice a BlazePose landmark/poseflag tensor is always float32.
   const landmarks = outputs[landmarksIdx] as Float32Array;
-  const keypoints = decodeBlazePoseLandmarks(landmarks, outputs[poseflagIdx][0] as number, modelSize);
-  if (!keypoints) return null; // poseflag gate — BlazePose itself saw no usable pose in this crop
+  const poseflagLogit = outputs[poseflagIdx][0] as number;
+  const keypoints = decodeBlazePoseLandmarks(landmarks, poseflagLogit, modelSize);
+  if (!keypoints) {
+    console.warn('[REFINE_FAIL]', 'poseflag', `logit=${poseflagLogit}`);
+    return null;
+  }
+  // poseflag gate — BlazePose itself saw no usable pose in this crop
 
   return { keypoints, offX, offY, imgWidth: img.width, imgHeight: img.height };
 }
@@ -478,11 +486,14 @@ export async function refineKeypoints(
   sH: number,
   pass1Kps: Keypoint[],
 ): Promise<Keypoint[] | null> {
+  let stage = 'crop-rect';
   try {
     const cropRect = personCropRect(pass1Kps, sW, sH);
-    if (!cropRect) return null;
+    if (!cropRect) { console.warn('[REFINE_FAIL]', stage, 'no cropRect'); return null; }
 
+    stage = 'load-model';
     const model = await loadBlazePoseModel();
+    stage = 'manipulate';
 
     const { width: tW, height: tH } = longSideResize(cropRect.width, cropRect.height, BLAZEPOSE_SIZE);
     const cropped = await manipulateAsync(
@@ -493,10 +504,11 @@ export async function refineKeypoints(
       ],
       { base64: true, format: SaveFormat.JPEG, compress: 0.9 },
     );
-    if (!cropped.base64) return null;
+    if (!cropped.base64) { console.warn('[REFINE_FAIL]', stage, 'no base64'); return null; }
 
+    stage = 'infer';
     const result = inferBlazePoseInSquare(model, cropped.base64, BLAZEPOSE_SIZE);
-    if (!result) return null;
+    if (!result) return null; // reason already logged inside
 
     // Map every keypoint from crop-square space to the shared FULL-square
     // space so the refined pose is a drop-in replacement for the pass-1
@@ -507,7 +519,8 @@ export async function refineKeypoints(
       const { u, v } = cropSquareToFullSquare(k.x, k.y, cropRect, sW, sH);
       return { name: k.name, x: u, y: v, score: k.score };
     });
-  } catch {
+  } catch (err) {
+    console.warn('[REFINE_FAIL]', stage, String(err));
     return null;
   }
 }

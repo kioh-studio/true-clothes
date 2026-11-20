@@ -260,10 +260,12 @@ async function tryMatteCropped(photoUri: string, cropRect: CropRect): Promise<Si
       [{ crop: cropRect }, { resize: { width: tW, height: tH } }],
       { base64: true, format: SaveFormat.JPEG, compress: 0.95 },
     );
-    if (!resized.base64) return null;
+    if (!resized.base64) { console.warn('[MASK_FAIL]', 'matte-no-base64'); return null; }
     const mask = inferMatteMask(model, resized.base64);
+    if (!mask || isDegenerateMask(mask)) console.warn('[MASK_FAIL]', 'matte', mask ? 'degenerate' : 'null');
     return mask && !isDegenerateMask(mask) ? mask : null;
-  } catch {
+  } catch (err) {
+    console.warn('[MASK_FAIL]', 'matte-throw', String(err));
     return null;
   }
 }
@@ -357,10 +359,13 @@ export async function estimateSilhouetteCropped(
       [{ crop: safeRect }, { resize: { width: tW, height: tH } }],
       { base64: true, format: SaveFormat.JPEG, compress: 0.95 },
     );
-    if (!resized.base64) return null;
+    if (!resized.base64) { console.warn('[MASK_FAIL]', 'seg-no-base64'); return null; }
 
-    return inferSilhouetteMask(model, resized.base64);
-  } catch {
+    const m = inferSilhouetteMask(model, resized.base64);
+    if (!m) console.warn('[MASK_FAIL]', 'seg-null');
+    return m;
+  } catch (err) {
+    console.warn('[MASK_FAIL]', 'seg-throw', String(err));
     return null;
   }
 }

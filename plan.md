@@ -8921,3 +8921,10 @@ Source: `reports/anthro-fit-ansur.md` (ANSUR II Asian-weighted + AIST Japan mean
 - Result: "both" chosen for bust and waist, bodym-only for hip. Held-out MAE before -> after: bust synth-a25 4.1->2.9, a45 3.3->2.4, testA 9.2->9.2, testB 7.8->6.9; waist 4.1->3.3, 2.8->3.2, 4.0->2.9, 6.6->4.8; hip (bodym-only; synth rows informational) 7.1->6.5, 6.9->6.5, testA 1.8->1.8, testB 3.5->2.9. Train gains are of similar size to held-out gains (no sign of overfit), but see caveats.
 - Caveats: (1) hip: small gain only on BodyM testB; synth hip GT unusable. (2) waist: synth (+1.3) and BodyM (-5.0) disagree on the sign of the bias; the fit compromises. Both need real tape data to settle (backlog).
 - Benchmark: new stage `s3_resid` in the artifact bench (synth = offline replay `off-resid`, rawEst identical to off-final; BodyM = fusion + applyResidualCorrection). Tests: `__tests__/residualCorrection.test.ts` (clamp, missing field, outlier).
+
+## 2026-11-20 — scan run-to-run instability: root cause = Android cache trimming (replay harness)
+- Symptom: same images, different `refined` counts / numbers between runs (fallback branch when <2 front frames refined).
+- Root cause: `app/dev-scan-replay.tsx` copied frames into `cacheDirectory`; the emulator's /data was 95% full, so `DeviceStorageMonitorService` repeatedly trimmed app cache and DELETED the frames mid-scan (`getInfoAsync` -> exists:false; no JS delete preceded it). expo-image-manipulator then threw `Loading bitmap failed`, swallowed by `refineKeypoints` / `estimateSilhouetteCropped`. Retrying cannot help (file is gone), so no retry was added.
+- Fix: replay copies now go to `documentDirectory/scan-replay/tmp/`. `refineKeypoints` / `estimateSilhouetteCropped` now `console.warn` `[REFINE_FAIL]` / `[MASK_FAIL]` with the stage + error (and poseflag logit) on every null path.
+- Product note: the live scan also holds frames in cache; a nearly-full phone could lose frames the same way (see backlog).
+- Known unrelated: selfie-segmenter fallback always throws `unresolved-ops` on tensor allocation (MODNet is the working path).
