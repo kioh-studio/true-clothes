@@ -147,7 +147,9 @@ export function OutfitCollage({
     return buildLayout(withAspect, areaAspect);
   }, [rawEntries, measures, areaAspect]);
 
-  const hasTip = showTitle && !!outfit.stylingTip;
+  // Proportion note (display-only) replaces the styling tip on the same single line.
+  const tipText = outfit.proportionNotes?.[0] ?? outfit.stylingTip;
+  const hasTip = showTitle && !!tipText;
   const titleY = titleTop != null ? titleTop : (compact ? 16 : 24);
   const titleBlockH = (compact ? 52 : 72) + (hasTip ? 16 : 0);
   const itemsTop = showTitle ? titleY + titleBlockH : 0;
@@ -164,7 +166,7 @@ export function OutfitCollage({
           </Text>
           {hasTip && (
             <Text style={styles.tip} numberOfLines={1}>
-              {outfit.stylingTip!.toLowerCase()}
+              {tipText!.toLowerCase()}
             </Text>
           )}
         </View>

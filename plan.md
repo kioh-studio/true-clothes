@@ -8884,6 +8884,12 @@ actually run on device**, tracked in backlog).
 - Column verified live. Vocabulary `sheer | semi | opaque | NULL` (DB CHECK) == engine `ClothingItemRow.opacity` / `FabricProfile.opacity`; no mapping needed.
 - Added beside `distressed`: generate-outfits (select, row map, pinned-item map), wardrobe-critic (select, row map), evaluate-item (scanned-item map), generate-item-image/prompt.ts (`GarmentMetadata.opacity`, `snapOpacity`, prompt line), backfill-item-metadata (row type, select, needsGemini, patch-if-null, `.or` filter). Engine unchanged; NULL still falls back to `inferOpacity` keywords.
 
+## Proportion-effect notes (backlog AL, 2026-11-06)
+
+- `engine/proportion-notes.ts` (new, mirrors `styling-tips.ts`): `deriveProportionNotes(items, slots)` -> max 2 `{key,en,vi}`; priority column > leg_line (suppressed by column) > open_layer > waist (`outfitWaistDefinition`) > fitted_top_wide_leg > wide_top_slim_leg > structured_shoulder. Thresholds `FITTED_MAX_VOLUME=2`, `WIDE_MIN_VOLUME=4`. Missing fields => rule doesn't fire.
+- `scoring.ts`: new exported `outfitTopBottomVolumes` (extracted from `scoreProportionBalance`, which now calls it; behavior identical).
+- Attached in `index.ts` as `ScoredOutfit.proportionNotes` (display-only, NOT a scoring/ranking input). Client: `fitEngine.ts`, `Outfit.proportionNotes: string[]`, `useFitFeed.scoredToOutfit`.
+
 ## Body-scan anthropometric recalibration + demographic prior fusion (2026-11-19)
 
 Source: `reports/anthro-fit-ansur.md` (ANSUR II Asian-weighted + AIST Japan means + NHANES Asian-only). Tape re-tune on real fixtures is STILL PENDING; every number below is hand-chosen from public data.

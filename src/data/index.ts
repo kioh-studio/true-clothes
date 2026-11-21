@@ -258,6 +258,7 @@ export interface Outfit {
   tier?: 1 | 2;     // 1 = matches user style, 2 = flex/discovery
   stylistNote?: string; // one-line LLM curator note — why this works for the user
   stylingTip?: string;  // one resolved-locale "way to wear" tip (feature 008)
+  proportionNotes?: string[]; // resolved-locale proportion-effect sentences (max 2, display-only)
   silhouette?: string; // display tag: engine's target silhouette for this outfit
   silhouetteShape?: string; // display tag: parallel geometric-shape name (1-to-1 from silhouette)
   colorTone?: string;  // display tag: outfit's dominant (anchor) colour

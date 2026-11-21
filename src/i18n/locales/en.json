@@ -1,5 +1,6 @@
 {
   "outfit_howToWear": "HOW TO WEAR",
+  "outfit_proportionEffect": "PROPORTION EFFECT",
   "outfitDetail_itemFallbackName": "Item",
   "outfitDetail_notFoundTitle": "Outfit not found.",
   "outfitDetail_notFoundBody": "This outfit may have been removed.",
@@ -569,7 +570,6 @@
   "measurementsScan_turnSub": "90° — arms relaxed, hands slightly forward",
   "measurementsScan_hint_turn_side": "Turn sideways to the camera",
   "measurementsScan_skipSide": "SKIP — front only",
-  "measurements_shapeApple": "Apple",
   "measurementsScan_retake_title": "Let's scan again",
   "measurementsScan_retake_again": "Scan again",
   "measurementsScan_retake_storage": "Your phone is almost out of storage, so the system removed scan photos mid-way. Free up space (photos, videos, unused apps or cached data) and scan again.",
@@ -577,6 +577,7 @@
   "measurementsScan_retake_no_person": "We couldn't read your pose clearly. Stand in good light, face the camera, wear fitted clothes.",
   "measurementsScan_retake_mask": "We couldn't separate you from the background. Stand against a plain wall that contrasts with your clothes.",
   "measurementsScan_retake_error": "Something went wrong processing the scan. Please scan again.",
+  "measurements_shapeApple": "Apple",
 
   "onboardingAccount_subtitle": "Enter your email to get started.",
 

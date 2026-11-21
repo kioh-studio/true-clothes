@@ -214,6 +214,20 @@ export default function OutfitDetailScreen() {
           </View>
         )}
 
+        {/* Proportion effect — deterministic, display-only (feed outfits; absent for older/cached data) */}
+        {Array.isArray(outfit.proportionNotes) && outfit.proportionNotes.length > 0 && (
+          <View style={{ paddingHorizontal: 24, marginTop: 32 }}>
+            <Text style={styles.sectionLabel}>{t('outfit_proportionEffect')}</Text>
+            <View style={{ height: 16 }} />
+            {outfit.proportionNotes.map((note: string, i: number) => (
+              <View key={`${i}-${note}`} style={styles.tipRow}>
+                <Text style={styles.tipBullet}>—</Text>
+                <Text style={styles.tipText}>{note}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
         <View style={{ height: 32 }} />
 
         {/* Items */}

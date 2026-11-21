@@ -529,3 +529,9 @@ the layout sizing and the rendered crop use that measurement instead.
 
 The top-right label is `24°C`, plus ` · Cảm giác 34°` when today's feels-like max differs from the current
 temperature by >= 2, plus ` · Mưa 60%` when today's rain probability >= 50. Same micro type, no new chrome.
+
+## Proportion-effect line (backlog AL, 2026-11-06)
+
+When the engine returns `proportionNotes` (max 2, display-only, both locales inline), the feed hook resolves all of them onto `Outfit.proportionNotes`. `Collage.tsx` shows `proportionNotes[0]` on the SAME single tip line, replacing `stylingTip`; if absent it keeps `stylingTip`. No extra line, so card height is unchanged.
+
+The outfit detail screen (`app/outfit/[id].tsx`) adds a "PROPORTION EFFECT" / "HIỆU ỨNG TỈ LỆ" block (`outfit_proportionEffect`) right after "How to wear", same row style (`—` bullet + text), listing all notes. Hidden when there are none. Notes reach it via the `data` route param (the whole `Outfit` is JSON-stringified by feed/saved/history).

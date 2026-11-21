@@ -15,6 +15,7 @@ import { generateCandidates, generatePinnedCandidates, generateHeroCandidates, G
 import { resolveIntent, applyIntent, rankCandidates, dailyShuffle } from './engine/ranking.ts';
 import { resolveTargetSilhouette, outfitSilhouetteTag, resultingBodySilhouette } from './engine/silhouette.ts';
 import { deriveStylingTips } from './engine/styling-tips.ts';
+import { deriveProportionNotes } from './engine/proportion-notes.ts';
 import { buildTasteVector, buildDismissVector, VIEWED_WEIGHT, SAVED_WEIGHT, TRIED_ON_WEIGHT, WORN_WEIGHT } from './engine/taste.ts';
 import { seasonForMonth, resolveHemisphere, outfitDominantColor, computeUserAttributes } from './engine/scoring.ts';
 import { curateOutfits, curatorEnabled, CuratorImage, isSoleTorsoLayer, describeItem as formatCandidateItem } from './engine/curator.ts';
@@ -703,6 +704,7 @@ Deno.serve(async (req) => {
       const its = itemsOf(o);
       o.story = storyOf(its);
       o.stylingTips = deriveStylingTips(its, o.formula, { top: o.slots.top, outwear: o.slots.outwear });
+      o.proportionNotes = deriveProportionNotes(its, { top: o.slots.top, outwear: o.slots.outwear });
       // mid always implies outwear today (generation.ts never emits a bare mid
       // with no true outer) — the `|| o.slots.mid` is defensive, not currently
       // load-bearing, but a layered outfit reads warmer either way.

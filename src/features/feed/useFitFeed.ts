@@ -63,6 +63,7 @@ function scoredToOutfit(scored: ScoredOutfit, items: ReturnType<typeof useAppSto
   const weather = scored.weatherBand ?? '22°C';
   const tip = scored.stylingTips?.[0];
   const stylingTip = tip ? (i18n.language.startsWith('vi') ? tip.vi : tip.en) : undefined;
+  const proportionNotes = scored.proportionNotes?.map(n => (i18n.language.startsWith('vi') ? n.vi : n.en));
 
   // Use the full slot set (same order as fitEngineStore's outfitKey) so two
   // outfits sharing core items but differing in outwear/accessory/mid get
@@ -124,6 +125,7 @@ function scoredToOutfit(scored: ScoredOutfit, items: ReturnType<typeof useAppSto
     tier: scored.tier,
     stylistNote: scored.stylistNote,
     stylingTip,
+    proportionNotes,
     silhouette: scored.silhouette,
     silhouetteShape: scored.silhouetteShape,
     colorTone: scored.colorTone,

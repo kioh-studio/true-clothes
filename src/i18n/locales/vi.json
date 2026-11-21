@@ -1,5 +1,6 @@
 {
   "outfit_howToWear": "CÁCH MẶC",
+  "outfit_proportionEffect": "HIỆU ỨNG TỈ LỆ",
   "outfitDetail_itemFallbackName": "Món đồ",
   "outfitDetail_notFoundTitle": "Không tìm thấy bộ trang phục này.",
   "outfitDetail_notFoundBody": "Bộ trang phục này có thể đã bị gỡ bỏ.",
@@ -569,7 +570,6 @@
   "measurementsScan_turnSub": "90° — tay thả lỏng, bàn tay hơi đưa ra trước",
   "measurementsScan_hint_turn_side": "Xoay nghiêng người so với camera",
   "measurementsScan_skipSide": "BỎ QUA — chỉ dùng ảnh thẳng",
-  "measurements_shapeApple": "Táo",
   "measurementsScan_retake_title": "Cần quét lại",
   "measurementsScan_retake_again": "Quét lại",
   "measurementsScan_retake_storage": "Bộ nhớ máy gần đầy nên ảnh quét bị hệ thống xoá giữa chừng. Hãy xoá bớt ảnh, video, ứng dụng không dùng hoặc dữ liệu tạm (cache) rồi quét lại.",
@@ -577,6 +577,7 @@
   "measurementsScan_retake_no_person": "Chưa nhận rõ dáng người. Đứng nơi đủ sáng, quay thẳng về camera, mặc đồ vừa người.",
   "measurementsScan_retake_mask": "Chưa tách được người khỏi nền. Đứng trước nền trơn, khác màu với quần áo.",
   "measurementsScan_retake_error": "Có lỗi khi xử lý ảnh. Vui lòng quét lại.",
+  "measurements_shapeApple": "Táo",
 
   "onboardingAccount_subtitle": "Nhập email để bắt đầu.",
 

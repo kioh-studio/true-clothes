@@ -308,6 +308,8 @@ export interface ScoredOutfit {
   // Deterministic rule-derived styling tips (Way to Wear Phase B) — both
   // locales inline; the client picks. Max 2.
   stylingTips?: Array<{ key: string; en: string; vi: string }>;
+  // Proportion-effect notes (backlog AL) — display-only, not a scoring input.
+  proportionNotes?: Array<{ key: string; en: string; vi: string }>;
   // Real warmth band derived from the outfit's fabrics/layers — replaces the
   // client's hardcoded '22°C'. One of '<15°C' | '15–22°C' | '22–28°C' | '28°C+'.
   weatherBand?: string;

@@ -1440,12 +1440,11 @@ code KHÔNG phải thứ đang chặn release.
 - [ ] **Thời tiết phase 2: độ ẩm / hourly / feels-like vào ranking** (2026-11-05) — phase 1 đã xong (band từ feels-like max cả ngày + chip Home). Còn: độ ẩm, hourly cho user buổi tối, và đưa mưa/feels-like vào ranking engine (đụng ranking → phải A/B sweep known-good trước deploy, bài học mục AH). Làm SAU launch.
 - [ ] **Export dữ liệu tủ đồ** (2026-11-05) — quota rõ ràng đã xong (không có cap số món; note quota ở ScanScreen + onboarding). Còn: cân nhắc export dữ liệu để không giữ dữ liệu làm con tin.
 
-## AL. Stylist tỉ lệ — phần còn thiếu (2026-11-06, chờ anh Khôi chọn)
+## AL. Stylist tỉ lệ — phần còn thiếu (cập nhật 2026-11-21, chờ anh Khôi chọn)
 
-> 2026-11-06: phần lõi ĐÃ CÓ — đo cơ thể on-device (`src/features/measurements/silhouette.ts`), bodyShapeClassifier, `shape_goal` + `app/shape-goal-edit.tsx`, engine chấm silhouette/proportion theo goal, chip dáng trên thẻ outfit, verdict tính form theo dáng. Chỉ còn 3 khoảng trống dưới.
+> 2026-11-06: phần lõi ĐÃ CÓ — đo cơ thể on-device (`src/features/measurements/silhouette.ts`), bodyShapeClassifier, `shape_goal` + `app/shape-goal-edit.tsx`, engine chấm silhouette/proportion theo goal, chip dáng trên thẻ outfit, verdict tính form theo dáng. Câu giải thích hiệu ứng từng outfit đã xong 2026-11-21 (`proportionNotes`). Chỉ còn 2 khoảng trống dưới.
 
 - [ ] **Đổi cách gọi từ nhãn hình học sang hiệu ứng** (2026-11-06) — "trông cao hơn / gọn hơn / structure hơn" thay vì đồng hồ cát/tam giác ngược; khung "hiệu ứng anh muốn", không phải "che khuyết điểm" (`docs/research/body-shape-importance-FINAL.md`). Quyết định định vị → chờ anh Khôi.
-- [ ] **Câu giải thích hiệu ứng cho từng outfit** (2026-11-06) — VD "cạp cao + giày cùng tông quần → chân dài hơn". Engine đã tính silhouette/proportion nhưng không trả lý do ra client.
 - [ ] **Thẻ "hồ sơ tỉ lệ" chia sẻ được** (2026-11-06) — như kết quả personal color. Kiểm chứng trước bằng 5–10 video TikTok mẹo tỉ lệ dùng demo MIEN.
 - [ ] **Ô giá chưa hiểu dấu chấm ngăn nghìn kiểu VN** (2026-11-06) — `parsePrice` ("1.500.000" → bị bỏ qua im lặng; "1500000" thì OK). Dùng chung cho wishlist + giá món đồ. Sửa: bỏ dấu chấm/phẩy ngăn nghìn khi locale vi.
 

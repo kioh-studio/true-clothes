@@ -927,13 +927,22 @@ export function genderStylingDelta(items: FitItem[], gender: 'WOMAN' | 'MAN'): n
 // without an import cycle). See silhouette.ts for the rationale.
 export const WAIST_DEFINING_TYPES = new Set(['CORSET', 'BLAZER', 'VEST']);
 
-export function scoreProportionBalance(items: FitItem[]): number {
+// Top/bottom VOLUME aggregation shared by scoreProportionBalance and the
+// display-only proportion-notes module. null when either half is missing.
+export function outfitTopBottomVolumes(items: FitItem[]): { topVolume: number; bottomVolume: number } | null {
   const tops = items.filter(i => i.category === 'top' || i.category === 'outwear' || i.category === 'onepiece');
   const bottoms = items.filter(i => i.category === 'bottom' || i.category === 'onepiece');
-  if (tops.length === 0 || bottoms.length === 0) return 0.7;
+  if (tops.length === 0 || bottoms.length === 0) return null;
+  return {
+    topVolume: Math.max(...tops.map(i => VOLUME[i.fit])),
+    bottomVolume: Math.max(...bottoms.map(i => VOLUME[i.fit])),
+  };
+}
 
-  const topVolume = Math.max(...tops.map(i => VOLUME[i.fit]));
-  const bottomVolume = Math.max(...bottoms.map(i => VOLUME[i.fit]));
+export function scoreProportionBalance(items: FitItem[]): number {
+  const volumes = outfitTopBottomVolumes(items);
+  if (!volumes) return 0.7;
+  const { topVolume, bottomVolume } = volumes;
 
   if (topVolume >= 5 && bottomVolume >= 5) return 0.15;
   if (topVolume >= 4 && bottomVolume >= 4) return 0.35;
