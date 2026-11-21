@@ -1,0 +1,6 @@
+{
+  "name": "frame-stash",
+  "version": "1.0.0",
+  "description": "Android-only: VisionCamera frame processor plugin that converts a camera frame to upright RGBA in native memory; JS fetches the pixels as a Uint8Array by id.",
+  "private": true
+}

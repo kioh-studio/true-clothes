@@ -1,0 +1,49 @@
+// frame-stash: pure Kotlin (no .so), so no 16 KB page-alignment concern.
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+buildscript {
+    def expoModulesCorePlugin = new File(
+        project(":expo-modules-core").projectDir.absolutePath,
+        "ExpoModulesCorePlugin.gradle"
+    )
+    if (expoModulesCorePlugin.exists()) {
+        apply from: expoModulesCorePlugin
+        applyKotlinExpoModulesCorePlugin()
+    }
+}
+
+android {
+    compileSdkVersion 34
+
+    defaultConfig {
+        minSdkVersion 24
+        targetSdkVersion 34
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'src/main/AndroidManifest.xml'
+            java.srcDirs = ['src/main/java']
+        }
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    implementation project(':expo-modules-core')
+    implementation project(':react-native-vision-camera')
+}

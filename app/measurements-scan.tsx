@@ -55,9 +55,9 @@ import { stillToRgba } from '../src/features/measurements/stillToRgba';
 
 /** Live frames via VisionCamera (no stills, no files). iOS keeps expo-camera until its EAS build.
  *  Required lazily: an iOS binary without the native module would throw on import. */
-// OFF: worklets-core 1.6.3 cannot hand the frame buffer to JS (see plan.md 2026-11-20 live-tracking steps 3-5).
+// Android only: native stashFrame plugin (modules/frame-stash) hands pixels to JS by id; iOS keeps expo-camera.
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-const LIVE_FRAMES = false && Platform.OS === 'android';
+const LIVE_FRAMES = Platform.OS === 'android';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const LF = LIVE_FRAMES ? (require('../src/features/measurements/liveFrames') as typeof import('../src/features/measurements/liveFrames')) : null;
 import { estimatePersonUnitH, K, type Sex } from '../src/features/measurements/landmarksToMeasurements';

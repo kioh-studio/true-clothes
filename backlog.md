@@ -1474,8 +1474,7 @@ code KHÔNG phải thứ đang chặn release.
 
 ## Live-tracking migration — remaining steps (2026-11-20)
 Steps 1-2 (RAM frames, `rgbaImage.ts`/`stillToRgba.ts`) done, see plan.md. Left:
-- [ ] **LT4: frame-grabber buffer transfer is BLOCKED** (2026-11-21) — `liveFrames.ts` + `measurements-scan` wiring exist, `LIVE_FRAMES = false`. worklets-core 1.6.3 cannot give JS the frame buffer: Uint8Array arg arrives opaque (probing it deadlocked Hermes -> SIGABRT), raw ArrayBuffer throws 'Array buffers are not supported as shared values'. Options to decide: (a) worklets-core nightly / newer; (b) tiny custom native module (JSI ArrayBuffer out of the resize plugin's native buffer); (c) a frame processor plugin that writes into a JSI-shared buffer the JS side holds. Then flip the flag, A/B (LT6).
-- [ ] **LT6: physical-phone A/B** (2026-11-20) — old path vs live frames on a real device; JS bilinear cost (+4 s/body on emulator) should vanish with the native resize plugin.
+- [ ] **LT6: physical-phone A/B** (2026-11-20, updated 2026-11-21) — LT4 solved by native `frame-stash` module (plan.md 2026-11-21); emulator-verified upright frames + retake path only. Still needs a real person on a physical phone: pose/mask on live frames, old vs live accuracy, native ~45 ms/frame, RAM.
 - [ ] **LT7: remove the old expo-camera path + `storageIsLow` guard + `'storage'` retake reason** (2026-11-20) — after LT6 passes.
 - [ ] **LT8: iOS** (2026-11-20) — needs a Mac for the VisionCamera build.
 - [ ] **Inseam MAE +0.35 cm after RAM migration (>0.3 bar)** (2026-11-20) — likely noise (integer-rounded, <=1 cm shifts, 20 bodies, known run-to-run instability); recheck on the physical-phone A/B before blaming the resampler.
