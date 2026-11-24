@@ -1261,15 +1261,6 @@ had NO resulting-shape preference"). Bốn việc chủ động hoãn lại khi 
 
 ## Chặn release (rà 2026-08-29)
 
-- [ ] 🔴 **Supabase project `trtjcsxcowqecsebvyme` đang INACTIVE (free-tier auto-pause) — host
-  `*.supabase.co` trả NXDOMAIN ở cả 8.8.8.8 lẫn 1.1.1.1** (phát hiện 2026-10-11 khi verify trên
-  emulator). Chỉ anh Khôi "Restore project" trên dashboard được (API restore fail — xem memory).
-  Đang chặn: (1) deploy `generate-outfits`/`wardrobe-critic`/`evaluate-item`/`generate-item-image`
-  mang 4 BannedFeature mới (commit `538bd42` CHƯA deploy); (2) verify cột `opacity` live để nối
-  `sheer`; (3) login + feed trên emulator để verify collage/header fix; (4) mọi smoke test edge fn.
-  Sau khi restore: `supabase functions deploy generate-outfits wardrobe-critic evaluate-item
-  generate-item-image` (KHÔNG `--no-verify-jwt`).
-
 > **Quyết định 2026-10-11 (anh Khôi):** KHÔNG làm edge function riêng cho demo login (một
 > endpoint demo tách riêng là pattern dễ bị reverse-engineer). **Lưu ý hiện trạng:** edge
 > function `auth` (gom TOÀN BỘ send-otp/verify-otp, demo whitelist lẫn trong cùng flow — không
@@ -1376,13 +1367,10 @@ code KHÔNG phải thứ đang chặn release.
   đang là no-op hoàn toàn vì key rỗng (`.env` + cả 3 profile `eas.json`). Anh Khôi tạo project
   trên posthog.com rồi paste key vào — không cần deploy lại, chỉ cần set EAS env + build lại.
 - [ ] **Điền App Privacy label trên ASC theo `docs/app-privacy-label-asc.md`** (2026-10-11) — policy trên site đã cập nhật (PostHog/Sentry/feedback); label trong ASC phải bấm tay, chưa làm.
-- [ ] **delete-user chưa xoá person trên PostHog** (2026-09-22) — `authStore.deleteAccount` gọi
-  `resetAnalytics()` (chỉ xoá state trên máy) nhưng không gọi PostHog API xoá person theo uuid ở
-  server. Cần thêm bước gọi PostHog's delete-person API (hoặc trong edge function `delete-user`)
-  khi tài khoản bị xoá, để không giữ lại dữ liệu người dùng đã yêu cầu xoá.
-  **2026-10-11:** privacy policy trên site ĐÃ hứa 'xoá tài khoản cũng xoá hồ sơ analytics' →
-  phải làm xong mục này TRƯỚC khi set `EXPO_PUBLIC_POSTHOG_KEY` thật (cần PostHog personal API
-  key + project id làm secret cho `delete-user`).
+- [ ] **Set secret PostHog cho `delete-user` TRƯỚC khi bật `EXPO_PUBLIC_POSTHOG_KEY`** (2026-11-23) —
+  code xoá person (distinct_id = Supabase uuid, `delete_events=true`) đã deploy (v13), nhưng là no-op
+  tới khi set `POSTHOG_PERSONAL_API_KEY` + `POSTHOG_PROJECT_ID` (tuỳ chọn `POSTHOG_API_HOST`, mặc định
+  `https://us.posthog.com`) bằng `npx supabase secrets set`. Chưa test với PostHog thật.
 - [ ] **Cần native rebuild** (2026-09-22) — thêm `expo-device`/`expo-application` (native modules,
   do `posthog-react-native` cần) — build hiện tại (nếu có) không có 2 module này, phải rebuild
   native trước khi analytics chạy thật trên device.
@@ -1446,7 +1434,6 @@ code KHÔNG phải thứ đang chặn release.
 
 - [ ] **Đổi cách gọi từ nhãn hình học sang hiệu ứng** (2026-11-06) — "trông cao hơn / gọn hơn / structure hơn" thay vì đồng hồ cát/tam giác ngược; khung "hiệu ứng anh muốn", không phải "che khuyết điểm" (`docs/research/body-shape-importance-FINAL.md`). Quyết định định vị → chờ anh Khôi.
 - [ ] **Thẻ "hồ sơ tỉ lệ" chia sẻ được** (2026-11-06) — như kết quả personal color. Kiểm chứng trước bằng 5–10 video TikTok mẹo tỉ lệ dùng demo MIEN.
-- [ ] **Ô giá chưa hiểu dấu chấm ngăn nghìn kiểu VN** (2026-11-06) — `parsePrice` ("1.500.000" → bị bỏ qua im lặng; "1500000" thì OK). Dùng chung cho wishlist + giá món đồ. Sửa: bỏ dấu chấm/phẩy ngăn nghìn khi locale vi.
 
 - [ ] **Học từ Son of a Tailor: suy số đo từ 4 input + vòng phản hồi fit** (2026-11-19, đề xuất chưa duyệt)
   — SoaT dùng height/weight/age/shoe size → ML map thẳng ra pattern áo (~170k khách, tự báo 95–97%).

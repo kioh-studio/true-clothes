@@ -5,6 +5,14 @@ describe('parsePrice', () => {
     expect(parsePrice('12.5')).toBe(12.5);
     expect(parsePrice(' 12,5 ')).toBe(12.5);
   });
+  it('parses thousands grouping', () => {
+    expect(parsePrice('1.500.000')).toBe(1500000);
+    expect(parsePrice('150.000')).toBe(150000);
+    expect(parsePrice('1,500,000')).toBe(1500000);
+    expect(parsePrice('1.500,50')).toBe(1500.5);
+    expect(parsePrice('1,500.50')).toBe(1500.5);
+    expect(parsePrice('1 500 000')).toBe(1500000);
+  });
   it('empty clears to null', () => expect(parsePrice('  ')).toBeNull());
   it('rejects invalid and negative', () => {
     expect(parsePrice('abc')).toBeUndefined();
