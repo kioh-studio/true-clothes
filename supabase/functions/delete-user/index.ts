@@ -96,22 +96,58 @@ Deno.serve(async (req: Request) => {
 
   // Lists every object under `${userId}/` in a bucket, paginating past the
   // default 100-object page so accounts with >100 photos don't leave orphans.
-  async function listAllPaths(bucket: string): Promise<string[]> {
+  // Recurses into sub-folders (entries with id === null), e.g. `${userId}/wishlist/`.
+  async function listAllPaths(bucket: string, prefix: string): Promise<string[]> {
     const paths: string[] = [];
     const pageSize = 100;
     for (let offset = 0; ; offset += pageSize) {
       const { data, error } = await adminClient.storage
         .from(bucket)
-        .list(userId, { limit: pageSize, offset });
+        .list(prefix, { limit: pageSize, offset });
       if (error) {
-        console.error(`[delete-user] storage.list(${bucket}) failed for ${userId}:`, error.message);
+        console.error(`[delete-user] storage.list(${bucket}/${prefix}) failed for ${userId}:`, error.message);
         break;
       }
       if (!data || data.length === 0) break;
-      paths.push(...data.map((f: { name: string }) => `${userId}/${f.name}`));
+      for (const f of data as { name: string; id: string | null }[]) {
+        if (f.id === null) paths.push(...(await listAllPaths(bucket, `${prefix}/${f.name}`)));
+        else paths.push(`${prefix}/${f.name}`);
+      }
       if (data.length < pageSize) break;
     }
     return paths;
+  }
+
+  // Best-effort analytics erasure: failures are logged, never block deletion.
+  async function deletePosthogPerson(uid: string): Promise<void> {
+    const key = Deno.env.get('POSTHOG_PERSONAL_API_KEY');
+    const projectId = Deno.env.get('POSTHOG_PROJECT_ID');
+    const host = Deno.env.get('POSTHOG_API_HOST') ?? 'https://us.posthog.com';
+    if (!key || !projectId) {
+      console.info('[delete-user] PostHog secrets unset — skipping analytics deletion');
+      return;
+    }
+    const headers = { Authorization: `Bearer ${key}` };
+    try {
+      const res = await fetch(
+        `${host}/api/projects/${projectId}/persons/?distinct_id=${encodeURIComponent(uid)}`,
+        { headers, signal: AbortSignal.timeout(8000) },
+      );
+      if (!res.ok) {
+        console.error(`[delete-user] PostHog person lookup failed: HTTP ${res.status}`);
+        return;
+      }
+      const body = (await res.json()) as { results?: { id: string | number }[] };
+      for (const person of body.results ?? []) {
+        const del = await fetch(
+          `${host}/api/projects/${projectId}/persons/${person.id}/?delete_events=true`,
+          { method: 'DELETE', headers, signal: AbortSignal.timeout(8000) },
+        );
+        if (!del.ok) console.error(`[delete-user] PostHog person delete failed: HTTP ${del.status}`);
+      }
+    } catch (err: unknown) {
+      console.error('[delete-user] PostHog deletion failed:', err instanceof Error ? err.message : 'unknown');
+    }
   }
 
   try {
@@ -119,14 +155,19 @@ Deno.serve(async (req: Request) => {
     // Storage errors are logged (not swallowed) but don't block account deletion —
     // the right-to-delete-account guarantee takes priority over best-effort cleanup.
     for (const bucket of ['wardrobe-photos', 'avatars']) {
-      const paths = await listAllPaths(bucket);
-      if (paths.length > 0) {
-        const { error: removeError } = await adminClient.storage.from(bucket).remove(paths);
+      const paths = await listAllPaths(bucket, userId);
+      for (let i = 0; i < paths.length; i += 1000) {
+        const { error: removeError } = await adminClient.storage
+          .from(bucket)
+          .remove(paths.slice(i, i + 1000));
         if (removeError) {
           console.error(`[delete-user] storage.remove(${bucket}) failed for ${userId}:`, removeError.message);
         }
       }
     }
+
+    // 3b. Best-effort PostHog person deletion (distinct_id === userId).
+    await deletePosthogPerson(userId);
 
     // 4. Delete the auth user — all DB rows cascade-delete via FK
     const { error: deleteError } = await adminClient.auth.admin.deleteUser(userId);
