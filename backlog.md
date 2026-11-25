@@ -746,20 +746,9 @@ Harness: `scripts/sim/body-shape-sim.ts` (`npm run body-shape-sim`, Deno, offlin
   trong template cua RevenueCat nen kho khop design system MIEN. Scheme cua app da co san
   la `mien` (`app.json:11`) neu chon (b). Chua chot — can anh Khoi quyet.
 
-- [ ] **`_layout.tsx` chi doc MOT bien RevenueCat key -> chi chay duoc 1 platform** (2026-08-04,
-  phat hien khi huong dan dan key). `app/_layout.tsx:81` doc duy nhat
-  `process.env['EXPO_PUBLIC_REVENUECAT_API_KEY']`, nhung RevenueCat cap key RIENG cho tung store
-  (`appl_…` cho iOS, `goog_…` cho Android) — khong dung chung duoc. iOS-first thi khong sao,
-  nhung khi len Google Play phai sua thanh chon key theo `Platform.OS` (VD 2 bien
-  `..._IOS` / `..._ANDROID`, hoac giu 1 bien cho iOS va them bien thu 2). Neu quen, ban Android
-  se configure bang key iOS -> SDK loi hoac khong tra ve offering nao.
-  **XAC NHAN BANG RUNTIME 2026-08-10** (logcat, bản debug trên emulator Android):
-  `[RevenueCat] The specified API Key is not recognized. Ensure that you are using the public
-  app-specific API key, which should look like 'goog_1a2b3c4d5e6f7h'...` — đúng như dự đoán,
-  `eas.json:14,29,41` đang đặt `appl_llObneTbxssMfXnooijYjkTNzKD` cho CẢ 3 profile, nên bản
-  Android configure bằng key iOS. Đây là lỗi THẬT của bản Android production, không phải hạn
-  chế emulator (lỗi `BILLING_UNAVAILABLE` đi kèm mới là do emulator không có Play Billing).
-  → Phải sửa trước khi phát hành Play: tách key theo `Platform.OS` ở `app/_layout.tsx:81`.
+- [ ] **Android can key `goog_…` cho RevenueCat** (2026-11-25): dien vao
+  `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY` (eas.json 3 profile + .env). Code `_layout.tsx` da chon key
+  theo `Platform.OS`; de trong thi khong configure (paywall hien fallback).
 
 ## K. Review 3 engine (suggest / rating / try-on) — 2026-08-06 (đề xuất, chưa duyệt)
 
@@ -1268,13 +1257,10 @@ had NO resulting-shape preference"). Bốn việc chủ động hoãn lại khi 
 > `authService.ts` (`sb.functions.invoke('auth/...')`). Quyết định này không yêu cầu gỡ nó;
 > nếu anh Khôi muốn quay về OTP thẳng Supabase client-side thì là việc riêng, chưa chốt.
 
-- [ ] **`auth` fn: đổi `buildAuthClient` sang secret key (`sb_secret_...`) + bật IP Address
-  Forwarding** (còn lại từ mục auth 2026-09-13, tách ra 2026-10-11 khi dọn mục gốc). Hiện
-  `supabase/functions/auth/index.ts` dựng client bằng `SUPABASE_ANON_KEY` nên `Sb-Forwarded-For`
-  bị Supabase bỏ qua → mọi user chung một bucket IP (burst 30) → một người spam 30 request sai
-  là chặn login toàn bộ user (DoS, không mất tài khoản). Per-identifier limit 5/15' đã có
-  (`consume_otp_attempt`). Trước khi bật forwarding phải sửa `getClientIp` lấy `cf-connecting-ip`
-  hoặc phần tử CUỐI của XFF (phần tử đầu giả được — supabase discussions/34647).
+- [ ] **`auth` fn: bật "IP Address Forwarding" trong Auth settings nếu dashboard có toggle** (2026-11-25).
+  Bản mới đã deploy 2026-11-25 (secret key + cf-connecting-ip/phần tử cuối XFF), smoke test OK. Chưa
+  xác minh Supabase đọc đúng IP thật per-user — nếu có toggle thì bật, rồi thử spam verify-otp từ 1 IP
+  xem IP khác còn login được không.
 
 Trạng thái code lúc rà: `npx jest` 602/602 pass (44 suite), `npx tsc --noEmit` sạch. Chất lượng
 code KHÔNG phải thứ đang chặn release.
@@ -1421,7 +1407,6 @@ code KHÔNG phải thứ đang chặn release.
 
 ## AK. Đề xuất từ research lời chê đối thủ (2026-11-05)
 
-> 2026-11-05: wishlist / thời tiết phase 1 / wear log / quota rõ ràng đã implement (xem plan.md). Cần apply 2 migration `20261105000001/2` + deploy `evaluate-item` khi Supabase hoạt động lại.
 
 > Nguồn: review Google Photos Wardrobe (Android Authority, Android Police), Alta (stylewithingrace), Acloset (Play/App Store tổng hợp), Whering (Kimola), Indyx (survey blog). Reddit không fetch được — còn là gap.
 

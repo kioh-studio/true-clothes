@@ -12,7 +12,7 @@ import {
   Inter_500Medium,
 } from '@expo-google-fonts/inter';
 import * as SplashScreen from 'expo-splash-screen';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
 import { useShallow } from 'zustand/react/shallow';
@@ -154,7 +154,9 @@ function RootLayout() {
 
   useEffect(() => {
     if (!Purchases || !isLoggedIn) return;
-    const apiKey = process.env['EXPO_PUBLIC_REVENUECAT_API_KEY'];
+    const apiKey = Platform.OS === 'android'
+      ? process.env['EXPO_PUBLIC_REVENUECAT_ANDROID_KEY']
+      : process.env['EXPO_PUBLIC_REVENUECAT_API_KEY'];
     if (!apiKey) return;
     (async () => {
       try {

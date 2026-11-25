@@ -105,16 +105,16 @@ export function resolveDemoMatch(
 }
 
 /**
- * Real client IP from `x-forwarded-for` (may carry a proxy chain,
- * "client, proxy1, proxy2" — the client is always the first entry).
- * Forwarded to Supabase Auth via the `Sb-Forwarded-For` header so
- * verifyOtp's per-IP rate limit (30 requests / 5 min, burst up to 30,
- * customizable in the dashboard) is keyed per real user instead of
- * collapsing every user onto this function's own IP. Supabase does NOT
- * honor X-Forwarded-For for this.
+ * Client IP for Supabase Auth's per-IP rate limit. Prefers `cf-connecting-ip`
+ * (set by the edge, not client-controllable); else the LAST `x-forwarded-for`
+ * entry (appended by the trusted proxy). The FIRST entry is client-spoofable
+ * (supabase discussions/34647), so it is never used.
  */
 export function getClientIp(req: Request): string | null {
-  return req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null;
+  const cf = req.headers.get('cf-connecting-ip')?.trim();
+  if (cf) return cf;
+  const parts = (req.headers.get('x-forwarded-for') ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : null;
 }
 
 /**
@@ -174,11 +174,32 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+// Supabase Auth honors Sb-Forwarded-For only for SECRET API keys (sb_secret_...).
+function resolveSecretKey(): string | null {
+  const raw = Deno.env.get('SUPABASE_SECRET_KEYS');
+  if (raw) {
+    try {
+      const obj = JSON.parse(raw) as Record<string, unknown>;
+      const k = obj['default'] ?? Object.values(obj).find(v => typeof v === 'string' && v.startsWith('sb_secret_'));
+      if (typeof k === 'string' && k.startsWith('sb_secret_')) return k;
+    } catch { /* fall through */ }
+  }
+  const k = Deno.env.get('AUTH_SECRET_KEY');
+  return k && k.startsWith('sb_secret_') ? k : null;
+}
+
+let warnedNoSecret = false;
+
 // New client per request — Sb-Forwarded-For differs per request, so a
 // module-scope client would leak the first caller's IP onto every request.
 function buildAuthClient(req: Request) {
-  const ip = getClientIp(req);
-  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  const secret = resolveSecretKey();
+  if (!secret && !warnedNoSecret) {
+    warnedNoSecret = true;
+    console.warn('[auth] no sb_secret_ key available; using anon key, per-user IP forwarding disabled');
+  }
+  const ip = secret ? getClientIp(req) : null;
+  return createClient(SUPABASE_URL, secret ?? SUPABASE_ANON_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
     global: { headers: ip ? { 'Sb-Forwarded-For': ip } : {} },
   });

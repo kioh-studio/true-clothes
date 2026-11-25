@@ -104,9 +104,21 @@ Deno.test('getClientIp: single value', () => {
   assertEquals(getClientIp(req), '1.2.3.4');
 });
 
-Deno.test('getClientIp: takes the first of multiple proxy-chain values', () => {
-  const req = new Request('https://example.com', { headers: { 'x-forwarded-for': '1.2.3.4, 5.6.7.8' } });
+Deno.test('getClientIp: uses the LAST xff entry (first is spoofable)', () => {
+  const req = new Request('https://example.com', { headers: { 'x-forwarded-for': '9.9.9.9, 1.2.3.4 , 5.6.7.8' } });
+  assertEquals(getClientIp(req), '5.6.7.8');
+});
+
+Deno.test('getClientIp: ignores empty/whitespace xff entries', () => {
+  const req = new Request('https://example.com', { headers: { 'x-forwarded-for': '1.2.3.4, , ' } });
   assertEquals(getClientIp(req), '1.2.3.4');
+});
+
+Deno.test('getClientIp: cf-connecting-ip wins over xff', () => {
+  const req = new Request('https://example.com', {
+    headers: { 'cf-connecting-ip': ' 7.7.7.7 ', 'x-forwarded-for': '1.2.3.4, 5.6.7.8' },
+  });
+  assertEquals(getClientIp(req), '7.7.7.7');
 });
 
 Deno.test('getClientIp: missing header returns null', () => {
