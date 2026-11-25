@@ -8971,3 +8971,9 @@ Source: `reports/anthro-fit-ansur.md` (ANSUR II Asian-weighted + AIST Japan mean
 
 - `app/_layout.tsx`: RevenueCat key chosen by `Platform.OS` (iOS `EXPO_PUBLIC_REVENUECAT_API_KEY`, Android `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY`, added empty to eas.json x3 + .env); empty key = not configured (paywall already falls back).
 - `supabase/functions/auth`: `getClientIp` now prefers `cf-connecting-ip`, else LAST `x-forwarded-for` entry (first is client-spoofable). `buildAuthClient` uses an `sb_secret_` key (`SUPABASE_SECRET_KEYS` default/first sb_secret_, else `AUTH_SECRET_KEY`) so Supabase Auth honors `Sb-Forwarded-For`; falls back to anon key without the header (one warning, no key/IP logged). Deno tests updated (25 pass).
+
+## 2026-11-25 - demo OTP rotation, DB hardening, feedback rate limit
+
+- `DEMO_WHITELIST` secret rotated to random 6-digit codes for `demo@mien.app` / `demo-woman@mien.app` (old static code now rejected; new codes verified 200). Codes are kept out of the repo. delete-user comment updated (no redeploy).
+- Migration `20261125000001_db_hardening.sql` (applied via MCP; `db push` not used): `{public}` policies retargeted to `authenticated` (incl. storage.objects), `handle_new_user()` EXECUTE revoked from client roles, `set_updated_at()` pinned `search_path=''`, new storage UPDATE policies for `wardrobe-photos` / `avatars` (client uploads use `upsert:true`). Advisor: dropped `function_search_path_mutable`, `anon_security_definer_function_executable`, and `handle_new_user` from the authenticated-definer finding.
+- Migration `20261125000002_feedback_rate_limit.sql`: index `(user_id, created_at desc)` + BEFORE INSERT trigger capping 20 feedback rows / 24h per user (errcode P0001; client already shows generic error alert). Verified 21st insert blocked in a rolled-back txn. The old "no rate limit" note in `20260922000001_feedback.sql` is left untouched.

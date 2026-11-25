@@ -48,7 +48,7 @@ Deno.serve(async (req: Request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // 2. Guard shared/system accounts. Demo login (OTP 000000) and any admin
+  // 2. Guard shared/system accounts. Demo login (static OTP from DEMO_WHITELIST) and any admin
   // account resolve to a small set of stable, shared uids — never let a
   // regular delete-account request destroy them.
   const { data: profile, error: profileError } = await adminClient

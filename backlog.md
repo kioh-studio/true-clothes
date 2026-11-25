@@ -897,11 +897,6 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   R8 warning khi build release. Nhiều khả năng do RevenueCat kéo transitive (hỗ trợ Amazon
   Appstore). MIEN chỉ phát hành Play + App Store → nhiều khả năng loại được để giảm dex.
   Chưa đụng vì chưa verify RevenueCat có gọi tới nó vô điều kiện lúc init không. (2026-08-09)
-- [ ] **OTP demo cũ (`000000`) vẫn lộ trong git history — repo đã PUBLIC** (2026-09-19).
-  Password demo đã rotate 2026-09-19 (`demo@mien.app`, `demo-woman@mien.app`, secret
-  `DEMO_PASSWORD` mới; password cũ verify bị từ chối). OTP trong `DEMO_WHITELIST` CHƯA đổi vì
-  đổi thì phải cập nhật App Review Notes trên ASC. Đường OTP chỉ qua fn `auth` có rate-limit
-  theo email. Vẫn cần verify RLS: tài khoản demo không đọc/ghi được dữ liệu user khác.
 - [ ] **Style catalog (22 style, 2026-08-10): toàn bộ `image_url` là null, kể cả 14 style
   mới** — DB `public.styles.image_url` null cho cả 22 row (đúng như 8 style cũ trước đây).
   8 style cũ còn có ảnh Unsplash qua fallback tĩnh `src/data/index.ts` `STYLES[].img`; 14
@@ -1339,10 +1334,6 @@ code KHÔNG phải thứ đang chặn release.
 - [ ] **LOW — `@react-navigation/native@^7.2.4` ahead of SDK-expected `^7.1.8`** (rà 2026-09-21:
   `expo-constants` đã là direct dep, `expo install --check` chỉ còn đúng package này).
 - [ ] **LOW — Supabase session stored in AsyncStorage, not SecureStore** (`src/services/supabase.ts`).
-- [ ] **LOW — DB hardening:** policies `TO public` → `TO authenticated`; revoke EXECUTE on
-  `handle_new_user` from anon/authenticated; `set_updated_at()` pin search_path; storage buckets
-  lack UPDATE policy (upsert replace will fail).
-- [ ] **LOW — `react-native-fast-tflite` untested on New Architecture** — smoke-test the scan flow
   on a real iPhone from TestFlight.
 
 ## Product analytics & in-app feedback (2026-09-22)
@@ -1360,10 +1351,6 @@ code KHÔNG phải thứ đang chặn release.
 - [ ] **Cần native rebuild** (2026-09-22) — thêm `expo-device`/`expo-application` (native modules,
   do `posthog-react-native` cần) — build hiện tại (nếu có) không có 2 module này, phải rebuild
   native trước khi analytics chạy thật trên device.
-- [ ] **Chưa có rate-limit insert cho bảng `feedback`** (2026-09-22) — migration
-  `20260922000001_feedback.sql` chỉ có RLS chặn user đọc/sửa/xoá bài của người khác, chưa chặn
-  spam insert (không giới hạn số lượt/ngày). Ghi chú `ponytail` ngay trong file migration — thêm
-  trigger nếu thấy spam thật.
 
 ## AI. Việc phát sinh từ research thị trường MIEN (2026-10-10)
 
@@ -1449,3 +1436,4 @@ Steps 1-2 (RAM frames, `rgbaImage.ts`/`stillToRgba.ts`) done, see plan.md. Left:
 - [ ] **LT7: remove the old expo-camera path + `storageIsLow` guard + `'storage'` retake reason** (2026-11-20) — after LT6 passes.
 - [ ] **LT8: iOS** (2026-11-20) — needs a Mac for the VisionCamera build.
 - [ ] **Inseam MAE +0.35 cm after RAM migration (>0.3 bar)** (2026-11-20) — likely noise (integer-rounded, <=1 cm shifts, 20 bodies, known run-to-run instability); recheck on the physical-phone A/B before blaming the resampler.
+- [ ] **Cập nhật App Review notes trên ASC với OTP demo mới** (2026-11-25) — `DEMO_WHITELIST` đã rotate; mã nằm ở file scratchpad `demo-otp.txt` (không commit). Cũ `000000` đã vô hiệu. Verify RLS: tài khoản demo không đọc được dữ liệu user khác.
