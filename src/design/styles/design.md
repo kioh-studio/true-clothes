@@ -9,4 +9,5 @@
 ## Images
 - 14 newer styles (feminine, officechic, parisian, coquette, cleangirl, darkacademia, cottagecore, grunge, athflow, elegant, kfashion, vintage, resort, artsy) use Unsplash photos (Unsplash License), cropped 4:5, 800x1000 JPEG q75, hosted in the PUBLIC Supabase bucket `style-images/<id>.jpg`; `public.styles.image_url` points at them (migration `20261126000001_style_images_bucket.sql`).
 - Client: onboarding uses `imageUrl ?? static img`; `styles-edit` now prefers the DB `imageUrl` too. The catalog is cached 24h (`styles-cache`), so existing installs pick up new images after expiry.
-- Still image-less (tile = colour + label): glam, businessformal, gothic, utility, sporty, normcore, retro70s, pinup, whimsigoth, mobwife.
+- The remaining 10 (glam, businessformal, gothic, utility, sporty, normcore, retro70s, pinup, whimsigoth, mobwife) were added in `20261126000002_style_images_more.sql`; `vintage.jpg` and `parisian.jpg` were later replaced in place with text-free photos. All 31 styles now have an image (static fallback for the 8 originals).
+- Replacing an object: `supabase storage rm` then `cp` (cp does not overwrite); public CDN may serve the old bytes up to ~1h (max-age=3600).

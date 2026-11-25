@@ -1367,8 +1367,9 @@ code KHÔNG phải thứ đang chặn release.
 
 ## AM. Launch hoàn thiện (2026-11-26)
 
-- [ ] **Ảnh cho 10 style còn thiếu** (2026-11-26): glam, businessformal, gothic, utility, sporty, normcore,
-  retro70s, pinup, whimsigoth, mobwife — cùng pipeline Unsplash → bucket `style-images`.
+- [ ] **Ảnh style yếu — thay nếu có ảnh đẹp hơn** (2026-11-26): gothic (nền rừng xanh, không tối),
+  whimsigoth (áo phao velvet teal), mobwife (crop mất mặt), retro70s (người nhỏ), pinup (Unsplash chỉ 2
+  kết quả). Nguồn/ID: scratchpad `style-images/NOTES.md`; ghi đè cùng path trong bucket `style-images`.
 - [ ] **Device-verify notifications + location/weather** (2026-11-26) — cần native rebuild (thêm
   `expo-notifications`): delivery daily/weather 20:00/weekly, quyền Android 13+, tap routing cold start,
   GPS + tìm thành phố, Home đổi nhiệt độ khi đổi location, logout huỷ reminder.

@@ -8988,3 +8988,4 @@ Source: `reports/anthro-fit-ansur.md` (ANSUR II Asian-weighted + AIST Japan mean
 
 ### 2026-11-26 — Style catalog i18n and images
 Style names/descriptions localized via `style_<id>_name|desc` keys (en+vi, all 31 styles), rendered through `src/features/styles/styleLabel.ts` (`styleName`, `styleDesc`, `styleLabelFromAny`) with DB/static fallback; stored/sent values unchanged. 14 styles got Unsplash photos in the new public bucket `style-images` with `public.styles.image_url` set (migration `20261126000001_style_images_bucket.sql`); `styles-edit` now prefers DB `imageUrl`. Styles cache is 24h, so existing installs see new images after expiry.
+Follow-up same day: remaining 10 styles got images (migration `20261126000002_style_images_more.sql`); vintage/parisian swapped for text-free photos. All 31 styles now have an image.
