@@ -4,40 +4,49 @@ Per Constitution I (Luxury Minimalist Design): near-monochrome canvas, hairline
 dividers only, serif headlines, no gradients/shadows. All colors/type via
 `T.*` / `type.*` tokens (`src/design/tokens.ts`).
 
-## Screen: `app/notifications.tsx`
+## Screen: `app/notifications.tsx` (thin; logic in `src/features/notifications/useNotificationSettings.ts`)
 
-Layout mirrors `app/settings.tsx` exactly (same header + row primitives),
-reached from the Profile screen's "Notifications" row (`app/(tabs)/profile.tsx`
-SECTIONS, route `/notifications`).
+Reached from the Profile "Notifications" row (`route: '/notifications'`).
+Same visual structure as `app/settings.tsx` / `app/location-weather.tsx`.
 
-- **Header**: 56px nav row, hairline bottom border. Back chevron
-  (`IconChevronLeft`, 20px, stroke 1.2) left, centered serif title
-  `t('notifications_title')`, empty 44×44 spacer right for symmetry.
-- **Body**: single `ScrollView`, 24px horizontal padding, 32px top padding.
-  One section, labelled `t('notifications_sectionLabel')` (`type.ui`, 10px,
-  tertiary, matches `settings_preferencesSection` styling).
-- **Rows** (hairline-bordered, 18px vertical padding, matches `settings.tsx`
-  `row`/`rowBody`/`rowTitle`/`rowDesc`): each pairs a title + one-line
-  description on the left with a `Switch` on the right
-  (`trackColor={{ false: T.color.muted, true: T.color.primary }}`,
-  `thumbColor={T.color.canvas}` — identical to every other toggle in the app).
-  Order: Daily outfit → Weather changes → Wardrobe reminders → News & offers.
-- **Footer note**: `type.caption`, `T.color.tertiary`, 24px top margin —
-  a single reassurance line (`t('notifications_footerNote')`) stating
-  preferences are local to the device. No CTA, no button — text only, per the
-  app's convention for secondary/informational copy.
+- **Header**: 56px nav row, hairline bottom border. Back chevron left,
+  centered serif title, empty 44x44 spacer right.
+- **Permission row** (only while OS permission is not granted): top hairline
+  row "Turn on notifications" + one-line description. Tap requests permission;
+  if the OS will not ask again, the description says so and the tap opens system
+  Settings. Never shown a prompt at app launch.
+- **Toggles** (section `notifications_sectionLabel`): Daily outfit, Weather
+  changes, Wardrobe reminders. Title + description left, `Switch` right
+  (`trackColor` muted/primary, `thumbColor` canvas). While permission is not
+  granted the switches render OFF and disabled. The "News & offers" switch was
+  removed (no delivery infrastructure); `notificationPrefs.marketing` stays in
+  the store, unused.
+- **Reminder time** (section `notifications_timeSection`): row of five preset
+  chips (06:30, 07:00, 07:30, 08:00, 08:30). Hairline-bordered rectangles
+  (radius 2); the active chip is filled primary with canvas text. No picker
+  dependency. Applies to the daily outfit and the weather reminder.
+- **Footer note**: `type.caption`, tertiary — reminders are scheduled on the
+  device, nothing is sent from servers.
 
-## State
+## Behaviour
 
-All four toggles are bound directly to `appStore.notificationPrefs`
-(persisted, defaults: `dailyOutfit: true, weather: true, wardrobe: true,
-marketing: false`). `setNotificationPref(key, value)` is the sole write path —
-no local component state, no debouncing (mirrors `settings.tsx`'s
-`genderAwareStyling`/`bodyNeutralMode` switches).
-
-## Explicitly out of scope (see `backlog.md`)
-
-This screen only **records intent**. There is no `expo-notifications`
-integration — no permission prompt, no OS-level scheduling, no push delivery.
-Toggling a switch here does not currently cause any notification to actually
-be sent.
+- State: `appStore.notificationPrefs` (`setNotificationPref`), `appStore.reminderTime`
+  (default `07:30`, persisted), OS permission read via `notificationService`.
+- Delivery is local only (`expo-notifications`, no push token, no server).
+  `src/features/notifications/syncReminders.ts` cancels our three identifiers
+  (`mien.daily`, `mien.weather`, `mien.wardrobe`) and reschedules from
+  `planReminders` (pure, tested). Triggered by `useReminderSync` (root layout) on:
+  hydration/login, pref or time change, language change, successful weather
+  refresh, wardrobe change, app foreground. Logout or revoked permission cancels
+  everything.
+- Reminders:
+  - Daily outfit: DAILY repeating at the reminder time, opens Home.
+  - Weather: one-shot the evening before (today 20:00; if already past, 30 minutes
+    from now only when that is still before 22:00, else skipped), only when tomorrow's
+    forecast has rain probability >= 60%, a feels-like max differing by >= 6 C
+    from today, or a different temperature band. Needs a weather location.
+  - Wardrobe: WEEKLY Sunday 19:00, only when >= 3 items are "not worn lately"
+    (same logic as `wardrobe-stats`); copy includes the count; opens
+    `/wardrobe-stats`.
+- Android channel `reminders` (default importance). Tapping a notification
+  routes to its `data.route` via expo-router.

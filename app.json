@@ -66,6 +66,12 @@
         }
       ],
       [
+        "expo-notifications",
+        {
+          "color": "#1A1815"
+        }
+      ],
+      [
         "expo-sensors",
         {
           "motionPermission": "MIEN uses motion sensors to check your phone is held upright while scanning your body measurements."

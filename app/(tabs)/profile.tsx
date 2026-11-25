@@ -19,12 +19,10 @@ const SECTIONS: Array<{ id: string; labelKey: string; route?: string }> = [
   { id: 'colourSeason', labelKey: 'tabs_profile_colourSeason', route: '/personal-color-edit' },
   { id: 'measurements', labelKey: 'tabs_profile_bodyMeasurements', route: '/measurements-edit' },
   { id: 'shapeGoal', labelKey: 'tabs_profile_shapeGoal', route: '/shape-goal-edit' },
-  // Temporarily hidden — no destination screen yet; re-enable when built
-  // { id: 'location', labelKey: 'tabs_profile_locationWeather' },
+  { id: 'location', labelKey: 'tabs_profile_locationWeather', route: '/location-weather' },
   // Temporarily hidden — no destination screen yet; re-enable when built
   // { id: 'accounts', labelKey: 'tabs_profile_connectedAccounts' },
-  // Temporarily hidden — notifications are prefs-only (no real delivery); re-enable when push/local notifications are wired
-  // { id: 'notifications', labelKey: 'tabs_profile_notifications', route: '/notifications' },
+  { id: 'notifications', labelKey: 'tabs_profile_notifications', route: '/notifications' },
   { id: 'subscription', labelKey: 'tabs_profile_subscription', route: '/paywall' },
   // The IconSettings button above routes to /profile-edit (name/avatar/location),
   // not /settings (units, suggestion toggles, language, account) — this row is

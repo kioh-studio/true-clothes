@@ -6,6 +6,7 @@ import { PrimaryButton, Field, Bounded } from '../../src/components/ui';
 import { IconChevronLeft, IconPin } from '../../src/components/icons';
 import { T, type } from '../../src/design/tokens';
 import { useAuthStore } from '../../src/stores/authStore';
+import { useAppStore } from '../../src/stores/appStore';
 import { detectCurrentLocation } from '../../src/services/locationService';
 import { track } from '../../src/services/analytics';
 import { useTranslation } from '../../src/i18n';
@@ -15,6 +16,7 @@ export default function LocationScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const { setProfile } = useAuthStore();
+  const setWeatherLocation = useAppStore(s => s.setWeatherLocation);
   const [value, setValue] = useState('');     // source of truth — detected, then editable
   const [detecting, setDetecting] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -23,7 +25,7 @@ export default function LocationScreen() {
   // Remember the auto-detected label + ISO code so we only attach the code when the
   // field still matches what GPS found (a manual edit clears it → server falls back
   // to the country-name map for the typed value).
-  const detected = useRef<{ label: string; code: string | null } | null>(null);
+  const detected = useRef<{ label: string; code: string | null; latitude: number; longitude: number } | null>(null);
 
   // Auto-detect on mount. Only prefill if the user hasn't typed yet (functional
   // update reads the latest value, so a fast typer is never overwritten).
@@ -34,7 +36,7 @@ export default function LocationScreen() {
       if (!active) return;
       setDetecting(false);
       if (!res) { setFailed(true); return; }
-      detected.current = { label: res.label, code: res.countryCode };
+      detected.current = { label: res.label, code: res.countryCode, latitude: res.latitude, longitude: res.longitude };
       setValue(prev => (prev.trim() ? prev : res.label));
     })();
     return () => { active = false; };
@@ -56,6 +58,11 @@ export default function LocationScreen() {
         Alert.alert(t('onboardingCommon_couldNotSaveAlertTitle'), msg);
         return;
       }
+      // Coordinates stay on-device. GPS label unchanged -> exact coords; manual edit
+      // -> null, so refreshWeather geocodes the just-saved text.
+      setWeatherLocation(code && detected.current && trimmed === detected.current.label
+        ? { latitude: detected.current.latitude, longitude: detected.current.longitude, label: trimmed, countryCode: code }
+        : null);
       track('onboarding_step_completed', { step: 'location' });
       router.push('/(onboarding)/measurements');
     } catch {

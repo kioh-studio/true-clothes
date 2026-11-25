@@ -129,3 +129,50 @@ export function weatherExtras(ctx: WeatherContext): { feelsLike?: number; rainPc
   }
   return out;
 }
+
+/** Pure: Celsius -> rounded number in the preferred unit. */
+export function toUnit(celsius: number, unit: 'metric' | 'imperial'): number {
+  return Math.round(unit === 'imperial' ? celsius * 9 / 5 + 32 : celsius);
+}
+
+/** Pure: Celsius -> display string honouring the unit preference ("21°C" / "70°F"). */
+export function formatTemp(celsius: number, unit: 'metric' | 'imperial'): string {
+  return `${toUnit(celsius, unit)}°${unit === 'imperial' ? 'F' : 'C'}`;
+}
+
+// ─── Tomorrow forecast (for the weather reminder) ────────────────────────────
+
+export interface DailyForecast {
+  feelsLikeMaxC: number;
+  precipProbMax: number;
+}
+
+export interface TwoDayForecast { today: DailyForecast; tomorrow: DailyForecast }
+
+/** Pure: Open-Meteo daily arrays (2 days) -> today/tomorrow, or null if incomplete. */
+export function parseTwoDayForecast(json: OpenMeteoResponse): TwoDayForecast | null {
+  const d = json.daily;
+  const t0 = num(d?.apparent_temperature_max?.[0]);
+  const t1 = num(d?.apparent_temperature_max?.[1]);
+  if (t0 === undefined || t1 === undefined) return null;
+  return {
+    today: { feelsLikeMaxC: t0, precipProbMax: num(d?.precipitation_probability_max?.[0]) ?? 0 },
+    tomorrow: { feelsLikeMaxC: t1, precipProbMax: num(d?.precipitation_probability_max?.[1]) ?? 0 },
+  };
+}
+
+/** Fetch today + tomorrow daily forecast. Returns null on any failure (non-blocking). */
+export async function fetchTomorrowForecast(coords: Coordinates): Promise<TwoDayForecast | null> {
+  try {
+    const url =
+      `https://api.open-meteo.com/v1/forecast` +
+      `?latitude=${coords.latitude}&longitude=${coords.longitude}` +
+      `&daily=apparent_temperature_max,precipitation_probability_max` +
+      `&timezone=auto&forecast_days=2`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return parseTwoDayForecast(await res.json());
+  } catch {
+    return null;
+  }
+}

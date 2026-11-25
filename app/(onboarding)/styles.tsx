@@ -15,6 +15,7 @@ import {
 import { useGridCardWidth, useGridColumns } from '../../src/design/layout';
 import { track } from '../../src/services/analytics';
 import { useTranslation } from '../../src/i18n';
+import { styleName, styleDesc } from '../../src/features/styles/styleLabel';
 
 const RELATED_MAP: Record<string, string[]> = {
   oldmoney: ['preppy', 'smartcasual'],
@@ -25,23 +26,24 @@ const RELATED_MAP: Record<string, string[]> = {
 
 // Fallback to the static catalog for image/description when the DB row
 // has NULL values (many live rows are missing image_url/description).
-function withStaticFallback(s: StyleCatalogItem | StyleOption): StyleOption {
-  if ('img' in s) return s;
+function withStaticFallback(s: StyleCatalogItem | StyleOption, t: Parameters<typeof styleName>[2]): StyleOption {
+  if ('img' in s) return { ...s, name: styleName(s.id, s.name, t), desc: styleDesc(s.id, s.desc, t) };
   const fallback = STYLES.find(x => x.id === s.id);
   return {
     id: s.id,
-    name: s.name,
-    desc: s.description ?? fallback?.desc ?? '',
+    name: styleName(s.id, s.name, t),
+    desc: styleDesc(s.id, s.description ?? fallback?.desc ?? '', t),
     img: s.imageUrl ?? fallback?.img ?? '',
     genderLean: s.genderLean,
   };
 }
 
 function StyleCard({ style: s, selected, onPress, small = false, cols }: { style: StyleCatalogItem | StyleOption; selected: boolean; onPress: () => void; small?: boolean; cols?: number }) {
+  const { t } = useTranslation();
   const CARD_W = useGridCardWidth(cols ?? 2);
   const w = small ? 130 : CARD_W;
   const h = w * (4 / 3);
-  const view = withStaticFallback(s);
+  const view = withStaticFallback(s, t);
   return (
     <Pressable onPress={onPress} style={[styles.card, { width: w, height: h }]}>
       <Photo src={view.img} label={view.name} tone={selected ? 0 : 2} style={StyleSheet.absoluteFillObject} />

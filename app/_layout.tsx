@@ -24,6 +24,8 @@ import { OfflineBanner } from '../src/components/ui';
 import { getCurrentUserId } from '../src/services/authService';
 import { identify, screen as screenTrack } from '../src/services/analytics';
 import { useTranslation } from '../src/i18n';
+import { useReminderSync } from '../src/features/notifications/useReminderSync';
+import { useWeatherAutoRefresh } from '../src/features/location-weather/useWeatherAutoRefresh';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -116,6 +118,8 @@ function RootLayout() {
   const navState = useRootNavigationState();
   const navReady = !!navState?.key;
   const appReady = fontsLoaded && hydrated && appHydrated;
+  useReminderSync(navReady && appReady);
+  useWeatherAutoRefresh();
 
   useEffect(() => {
     hydrate();
@@ -229,6 +233,7 @@ function RootLayout() {
         <Stack.Screen name="help" options={{ title: t('help_title'), animation: 'slide_from_right' }} />
         <Stack.Screen name="feedback" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="notifications" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="location-weather" options={{ animation: 'slide_from_right' }} />
         {/* T019: Profile edit */}
         <Stack.Screen name="profile-edit" options={{ headerShown: false, animation: 'slide_from_right' }} />
         {/* T039: Personal colour edit */}

@@ -15,6 +15,7 @@ import { useAppStore } from '../src/stores/appStore';
 import { STYLES, COLORS, OCCASIONS } from '../src/data';
 import { OutfitCollage } from '../src/components/outfit/Collage';
 import { useTranslation } from '../src/i18n';
+import { styleName } from '../src/features/styles/styleLabel';
 import { useItemPhoto } from '../src/features/wardrobe-photos';
 import {
   useBuilderItems, assignBucketKey, type BuilderItem,
@@ -154,22 +155,22 @@ function generateOutfits({
     const itemIds = Object.values(sel).filter(Boolean) as string[];
     if (itemIds.length < 2) continue;
 
-    const styleName = styleFilter ? STYLES.find((s) => s.id === styleFilter)?.name : null;
+    const styleNameStr = styleFilter ? (() => { const s = STYLES.find((x) => x.id === styleFilter); return s ? styleName(s.id, s.name, t) : null; })() : null;
     const colorLabel = colorFilter ? t(COLOR_FILTER_LABEL_KEYS[colorFilter] ?? colorFilter) : null;
     const titleParts: string[] = [];
-    if (styleName) titleParts.push(styleName);
+    if (styleNameStr) titleParts.push(styleNameStr);
     if (anchorItems.length) titleParts.push(t('build_titleWith', { item: anchorItems[0].color || anchorItems[0].name }));
     else titleParts.push(t(TITLE_WORD_KEYS[i % 5]));
 
     const rationaleParts: string[] = [];
     if (anchorItems.length) rationaleParts.push(t('build_rationaleBuiltAround', { items: anchorItems.slice(0, 2).map((a) => a.name.toLowerCase()).join(` ${t('build_and')} `) }));
     if (colorLabel) rationaleParts.push(t('build_rationaleLeaning', { color: colorLabel.toLowerCase() }));
-    if (styleName) rationaleParts.push(styleName.toLowerCase());
+    if (styleNameStr) rationaleParts.push(styleNameStr.toLowerCase());
 
     const tags: string[] = [];
     if (occasionFilter) tags.push(occasionFilter);
     if (colorLabel) tags.push(colorLabel);
-    if (styleName) tags.push(styleName.toUpperCase());
+    if (styleNameStr) tags.push(styleNameStr.toUpperCase());
     if (tags.length === 0) tags.push(t('build_tagSuggested'), t('build_tagDaytime'));
 
     results.push({
@@ -177,7 +178,7 @@ function generateOutfits({
       title: titleParts.join(' · ') || t('build_composedFallbackTitle'),
       rationale: rationaleParts.join(' · ') + '.',
       tags,
-      style: styleName || 'CUSTOM',
+      style: (styleFilter && STYLES.find((x) => x.id === styleFilter)?.name) || 'CUSTOM',
       context: occasionFilter || 'CASUAL',
       tone: i % 5,
       itemIds,
@@ -275,7 +276,7 @@ function SuggestSheet({
               <Tag size="sm" selected={styleFilter === null} onPress={() => setStyleFilter(null)}>{t('build_any')}</Tag>
               {STYLES.slice(0, 6).map((s) => (
                 <Tag key={s.id} size="sm" selected={styleFilter === s.id} onPress={() => setStyleFilter(s.id)}>
-                  {s.name.toUpperCase()}
+                  {styleName(s.id, s.name, t).toUpperCase()}
                 </Tag>
               ))}
             </View>

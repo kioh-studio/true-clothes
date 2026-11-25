@@ -22,6 +22,7 @@ import {
   fetchInteractions, fetchWornCooldownIds,
 } from '../services/outfitInteractionService';
 import { fetchCurrentWeather } from '../services/weatherService';
+import { searchCities } from '../services/locationService';
 import {
   logWear, unlogWear, fetchWearStats, itemIdsFromOutfitId,
   type WearStats,
@@ -109,6 +110,17 @@ export interface NotificationPrefs {
   wardrobe: boolean;
   marketing: boolean;
 }
+export interface WeatherLocation {
+  latitude: number;
+  longitude: number;
+  label: string;
+  countryCode: string | null;
+}
+
+export interface WeatherAlertRecord { forDate: string; at: string }
+
+export const DEFAULT_REMINDER_TIME = '07:30';
+
 const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   dailyOutfit: true, weather: true, wardrobe: true, marketing: false,
 };
@@ -210,6 +222,17 @@ interface AppState {
   weatherContext: WeatherContext | null;
   weatherLastFetched: string | null;
   refreshWeather: () => Promise<void>;
+  // Device-local only (never sent to Supabase): coordinates used for weather.
+  weatherLocation: WeatherLocation | null;
+  setWeatherLocation: (loc: WeatherLocation | null) => void;
+  weatherAwareSuggestions: boolean;
+  setWeatherAwareSuggestions: (v: boolean) => void;
+  // "HH:MM" local time for daily/weather reminders.
+  reminderTime: string;
+  setReminderTime: (v: string) => void;
+  // Last evening weather alert scheduled (dedupe: never a second one for the same date once fired).
+  weatherAlertScheduled: WeatherAlertRecord | null;
+  setWeatherAlertScheduled: (v: WeatherAlertRecord | null) => void;
 
   // ── Language (persisted) ─────────────────────────────────────────────────
   language: 'en' | 'vi';
@@ -252,6 +275,10 @@ interface Persisted {
   weatherLastFetched?: string | null;
   language?: 'en' | 'vi';
   notificationPrefs?: NotificationPrefs;
+  weatherLocation?: WeatherLocation | null;
+  weatherAwareSuggestions?: boolean;
+  reminderTime?: string;
+  weatherAlertScheduled?: WeatherAlertRecord | null;
 }
 
 function save(s: {
@@ -271,6 +298,10 @@ function save(s: {
   weatherLastFetched: string | null;
   language: 'en' | 'vi';
   notificationPrefs: NotificationPrefs;
+  weatherLocation: WeatherLocation | null;
+  weatherAwareSuggestions: boolean;
+  reminderTime: string;
+  weatherAlertScheduled: WeatherAlertRecord | null;
 }) {
   const data: Persisted = {
     savedSet: [...s.savedSet],
@@ -289,6 +320,10 @@ function save(s: {
     weatherLastFetched: s.weatherLastFetched,
     language: s.language,
     notificationPrefs: s.notificationPrefs,
+    weatherLocation: s.weatherLocation,
+    weatherAwareSuggestions: s.weatherAwareSuggestions,
+    reminderTime: s.reminderTime,
+    weatherAlertScheduled: s.weatherAlertScheduled,
   };
   AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data)).catch(() => {});
 }
@@ -681,23 +716,59 @@ export const useAppStore = create<AppState>((set, get) => ({
   weatherContext: null,
   weatherLastFetched: null,
 
+  weatherLocation: null,
+  setWeatherLocation: (loc) => {
+    // New place => old weather is wrong: invalidate cache, then refetch.
+    set(s => {
+      const next = { weatherLocation: loc, weatherContext: null, weatherLastFetched: null };
+      save({ ...s, ...next });
+      return next;
+    });
+    // null => refreshWeather re-geocodes the profile's location string.
+    get().refreshWeather().catch(() => {});
+  },
+  weatherAwareSuggestions: true,
+  setWeatherAwareSuggestions: (v) => set(s => {
+    save({ ...s, weatherAwareSuggestions: v });
+    return { weatherAwareSuggestions: v };
+  }),
+  weatherAlertScheduled: null,
+  setWeatherAlertScheduled: (v) => set(s => {
+    save({ ...s, weatherAlertScheduled: v });
+    return { weatherAlertScheduled: v };
+  }),
+  reminderTime: DEFAULT_REMINDER_TIME,
+  setReminderTime: (v) => set(s => {
+    save({ ...s, reminderTime: v });
+    return { reminderTime: v };
+  }),
+
   refreshWeather: async () => {
     const { weatherContext, weatherLastFetched } = get();
     const TTL_MS = 30 * 60 * 1000;
     const lastFetched = weatherLastFetched ? new Date(weatherLastFetched).getTime() : 0;
     if (Date.now() - lastFetched < TTL_MS && weatherContext) return;
 
-    // Location coords are not currently stored in authStore (location is a string).
-    // Skip silently — weather will work once coords are available.
-    const authState = useAuthStore.getState() as { profile?: { location?: { coords?: { latitude: number; longitude: number } } } };
-    const coords = authState.profile?.location?.coords;
-    if (!coords) return;
-
     try {
-      const ctx = await fetchCurrentWeather(coords);
-      set(s => ({ weatherContext: ctx, weatherLastFetched: ctx.fetchedAt }));
-      const s = get();
-      save({ ...s });
+      let loc = get().weatherLocation;
+      if (!loc) {
+        // Profile stores only a "City, Country" string — geocode it once.
+        const label = useAuthStore.getState().location;
+        if (!label) return;
+        const hit = (await searchCities(label.split(',')[0] ?? label, get().language))[0];
+        if (!hit) return;
+        const resolved: WeatherLocation = {
+          latitude: hit.latitude, longitude: hit.longitude, label: hit.label, countryCode: hit.countryCode,
+        };
+        loc = resolved;
+        set(s => { save({ ...s, weatherLocation: resolved }); return { weatherLocation: resolved }; });
+      }
+      const requested = loc;
+      const ctx = await fetchCurrentWeather(requested, requested.label);
+      // Location changed while fetching -> this result is stale, drop it.
+      if (get().weatherLocation !== requested) return;
+      set({ weatherContext: ctx, weatherLastFetched: ctx.fetchedAt });
+      save({ ...get() });
     } catch {
       // Retain existing weatherContext on failure — weather is non-blocking
     }
@@ -774,6 +845,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       collections:        COLLECTIONS,
       weatherContext:     null as WeatherContext | null,
       weatherLastFetched: null as string | null,
+      weatherLocation:    null as WeatherLocation | null,
     };
     save({ ...s, ...next });
     return next;
@@ -850,6 +922,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           weatherLastFetched:  data.weatherLastFetched ?? null,
           language,
           notificationPrefs:   data.notificationPrefs ?? DEFAULT_NOTIFICATION_PREFS,
+          weatherLocation:     data.weatherLocation ?? null,
+          weatherAwareSuggestions: data.weatherAwareSuggestions ?? true,
+          reminderTime:        data.reminderTime ?? DEFAULT_REMINDER_TIME,
+          weatherAlertScheduled: data.weatherAlertScheduled ?? null,
         });
         i18n.changeLanguage(language);
       } else {

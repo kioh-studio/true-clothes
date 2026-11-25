@@ -1,6 +1,6 @@
 // Home — Outfit Feed (TikTok-style vertical pager)
 import React, { useRef, useState, useCallback, useEffect } from 'react';
-import { weatherExtras } from '../../src/services/weatherService';
+import { weatherExtras, formatTemp, toUnit } from '../../src/services/weatherService';
 import {
   View, Text, StyleSheet, FlatList, Pressable, useWindowDimensions, Share,
   Animated, PanResponder, findNodeHandle,
@@ -23,6 +23,7 @@ import {
   IconHeart, IconCalendar, IconSparkle, IconShare, IconThermometer, IconMenu, IconBook,
 } from '../../src/components/icons';
 import { useTranslation } from '../../src/i18n';
+import { styleLabelFromAny } from '../../src/features/styles/styleLabel';
 import { CONTENT_MAX } from '../../src/design/layout';
 
 // Feed-signals (2026-08-07): one-time swipe-hint caption, shown until the
@@ -125,7 +126,7 @@ export default function HomeScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
   const listRef = useRef<FlatList<Outfit>>(null);
 
-  const { savedSet, toggleSave, toggleSchedule, items, wardrobeItems, weatherContext } = useAppStore();
+  const { savedSet, toggleSave, toggleSchedule, items, wardrobeItems, weatherContext, unitPreference } = useAppStore();
   const { logout } = useAuthStore();
   const {
     feedError, fetchOutfits, fetchMoreOutfits, isFetchingMore, styleFallback,
@@ -218,8 +219,8 @@ export default function HomeScreen() {
     ? (() => {
         const x = weatherExtras(weatherContext);
         return [
-          `${Math.round(weatherContext.temperatureCelsius)}°C`,
-          x.feelsLike !== undefined ? t('tabs_home_feelsLike', { temp: x.feelsLike }) : null,
+          formatTemp(weatherContext.temperatureCelsius, unitPreference),
+          x.feelsLike !== undefined ? t('tabs_home_feelsLike', { temp: toUnit(x.feelsLike, unitPreference) }) : null,
           x.rainPct !== undefined ? t('tabs_home_rain', { pct: x.rainPct }) : null,
         ].filter(Boolean).join(' · ');
       })()
@@ -280,7 +281,7 @@ export default function HomeScreen() {
             pointerEvents="auto"
           >
             <Text style={styles.styleFallbackHintText} numberOfLines={1}>
-              {t('tabs_home_styleFallbackHint')} — {styleFallback.map(s => s.name).join(' · ')}
+              {t('tabs_home_styleFallbackHint')} — {styleFallback.map(s => styleLabelFromAny(s.name, t)).join(' · ')}
             </Text>
           </Pressable>
         )}
@@ -407,7 +408,7 @@ function FeedCardInner({ outfit, index, active, cardH, saved, isDemo, topInset, 
   const colorToneTag = colorToneMetaLabel(t, outfit.colorTone);
   // Wardrobe-affinity style fallback (2026-08-02) — proper-noun style name,
   // no i18n lookup; uppercased to match the other tags on this meta line.
-  const styleTag = outfit.styleTag ? outfit.styleTag.toUpperCase() : undefined;
+  const styleTag = outfit.styleTag ? styleLabelFromAny(outfit.styleTag, t).toUpperCase() : undefined;
 
   // Feed-signals (2026-08-07): swipe-left `dismissed` gesture. translateX
   // tracks the live drag (only leftward — rightward drags are ignored, there
@@ -490,7 +491,7 @@ function FeedCardInner({ outfit, index, active, cardH, saved, isDemo, topInset, 
             onPress={() => {
               const anchor = findNodeHandle(shareBtnRef.current);
               Share.share(
-                { message: t('tabs_home_shareMessage', { style: outfit.style, title: outfit.title }) },
+                { message: t('tabs_home_shareMessage', { style: styleLabelFromAny(outfit.style, t), title: outfit.title }) },
                 anchor != null ? { anchor } : undefined,
               );
             }}
@@ -517,7 +518,7 @@ function FeedCardInner({ outfit, index, active, cardH, saved, isDemo, topInset, 
           ) : null}
           <View style={styles.metaTop}>
             <Text style={styles.metaStyle}>
-              {outfit.style} · {outfit.weather}
+              {styleLabelFromAny(outfit.style, t).toUpperCase()} · {outfit.weather}
               {styleTag ? ` · ${styleTag}` : ''}
               {silhouetteTag ? ` · ${silhouetteTag}` : ''}
               {silhouetteShapeTag ? ` · ${silhouetteShapeTag}` : ''}

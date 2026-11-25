@@ -10,6 +10,7 @@ import { OUTFITS } from '../src/data';
 import { useGridCardWidth, useGridColumns } from '../src/design/layout';
 import { useFitFeed } from '../src/features/feed/useFitFeed';
 import { useTranslation } from '../src/i18n';
+import { styleLabelFromAny } from '../src/features/styles/styleLabel';
 
 export default function SavedOutfitsScreen() {
   const cols = useGridColumns();
@@ -72,7 +73,7 @@ export default function SavedOutfitsScreen() {
                   </View>
                   <View style={styles.cardGradient} />
                   <View style={styles.cardLabel}>
-                    <Text style={styles.cardStyle}>{o.style}</Text>
+                    <Text style={styles.cardStyle}>{styleLabelFromAny(o.style, t).toUpperCase()}</Text>
                     <Text style={styles.cardTitle} numberOfLines={1}>{o.title}</Text>
                   </View>
                   <Pressable

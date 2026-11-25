@@ -14,6 +14,7 @@ import type { PhotoInput } from '../../src/features/wardrobe-photos/types';
 import type { WardrobeItem } from '../../src/types/fitEngine';
 import { warmthLabel } from '../../src/features/wardrobe-add/vocab';
 import i18n, { useTranslation } from '../../src/i18n';
+import { styleLabelFromAny } from '../../src/features/styles/styleLabel';
 import { localDateKey } from '../../src/utils/localDateKey';
 import { parsePrice } from '../../src/features/wishlist/parsePrice';
 
@@ -438,7 +439,7 @@ export default function ItemDetailScreen() {
                   <View style={styles.miniThumb}>
                     <Photo src={o.img} label={o.title} tone={o.tone} />
                   </View>
-                  <Text style={{ ...type.ui, fontSize: 9, color: T.color.tertiary, marginTop: 10 }}>{o.style}</Text>
+                  <Text style={{ ...type.ui, fontSize: 9, color: T.color.tertiary, marginTop: 10 }}>{styleLabelFromAny(o.style, t).toUpperCase()}</Text>
                   <Text style={{ fontFamily: T.font.serif, fontSize: 14, color: T.color.primary, marginTop: 2 }}>{o.title}</Text>
                 </Pressable>
               ))}

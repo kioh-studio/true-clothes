@@ -12,6 +12,7 @@ import { Outfit } from '../src/data';
 import { useFitFeed } from '../src/features/feed/useFitFeed';
 import { useGridCardWidth, useGridColumns } from '../src/design/layout';
 import i18n, { useTranslation } from '../src/i18n';
+import { styleLabelFromAny } from '../src/features/styles/styleLabel';
 
 // Mock/demo forecast copy — cycles regardless of the actual scheduled day;
 // real weather integration is a future enhancement (see CLAUDE.md feature flags).
@@ -75,7 +76,7 @@ function DayCard({
             <View style={styles.outfitInfo}>
               <Pressable onPress={onOpen}>
                 {snapshot.styleTag ? (
-                  <Text style={styles.outfitStyle}>{snapshot.styleTag}</Text>
+                  <Text style={styles.outfitStyle}>{styleLabelFromAny(snapshot.styleTag, t).toUpperCase()}</Text>
                 ) : null}
                 <Text style={styles.outfitTitle} numberOfLines={2}>{snapshot.title}</Text>
               </Pressable>
@@ -138,7 +139,7 @@ function OutfitPickerSheet({
             </View>
             <View style={styles.pickerGradient} />
             <View style={styles.pickerLabel}>
-              <Text style={styles.pickerOutfitStyle}>{o.style}</Text>
+              <Text style={styles.pickerOutfitStyle}>{styleLabelFromAny(o.style, t).toUpperCase()}</Text>
               <Text style={styles.pickerOutfitTitle} numberOfLines={1}>{o.title}</Text>
               {o.scores && scorePercent(o) !== null && (
                 <Text style={styles.pickerOutfitScore}>{t('schedule_matchPercent', { percent: scorePercent(o) })}</Text>

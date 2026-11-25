@@ -12,6 +12,7 @@ import { useAppStore } from '../../src/stores/appStore';
 import { useOutfitDescription } from '../../src/features/outfit/useOutfitDescription';
 import type { DescribeItem } from '../../src/services/outfitDescriptionService';
 import i18n, { useTranslation } from '../../src/i18n';
+import { styleLabelFromAny } from '../../src/features/styles/styleLabel';
 
 // View-model for the "ITEMS IN THIS OUTFIT" row — normalizes demo catalogue
 // items (ClothingItem) and real cloud wardrobe items (WardrobeItem) to one shape.
@@ -127,7 +128,7 @@ export default function OutfitDetailScreen() {
   const shareOutfit = () => {
     if (!outfit) return;
     const itemNames = items.slice(0, 3).map(i => i.name).join(', ');
-    const message = `${outfit.style} look — ${itemNames} | MIEN`;
+    const message = `${styleLabelFromAny(outfit.style, t)} look — ${itemNames} | MIEN`;
     const anchor = findNodeHandle(shareBtnRef.current);
     Share.share({ message }, anchor != null ? { anchor } : undefined);
   };
@@ -189,7 +190,7 @@ export default function OutfitDetailScreen() {
 
         {/* Metadata */}
         <View style={{ paddingHorizontal: 24 }}>
-          <Text style={styles.context}>{outfit.style} · {outfit.context}</Text>
+          <Text style={styles.context}>{styleLabelFromAny(outfit.style, t).toUpperCase()} · {outfit.context}</Text>
           <View style={{ height: 8 }} />
           <Text style={styles.h1}>{outfit.title}</Text>
           <View style={{ height: 16 }} />

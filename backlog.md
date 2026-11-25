@@ -432,11 +432,6 @@ trong plan.md changelog); còn lại phân nhóm theo lý do chưa làm.
 
 ## C. Hoãn có chủ đích (đã quyết không làm bây giờ)
 
-- [ ] **Live weather/temperature API**: season theo ngày+bán cầu đã đủ tốt; nhiệt độ thật
-  là tier chính xác kế tiếp. Tiền đề: lưu GPS lat/lng (mục dưới). Hook sẵn: `EngineContext`
-  đã có `weatherSeason`, fetch sẽ nằm ở generate-outfits + evaluate-item index.
-- [ ] **Persist GPS lat/lng**: chính xác hemisphere cho nước xích đạo + unblock weather API.
-  Cột mới + capture trong `locationService` (đã có GPS fix trong tay). Làm cùng weather API.
 - [ ] **B-full — vision-camera realtime overlay** (~15fps): 4 native deps mới + rủi ro
   16 KB alignment; chỉ làm nếu B-lite (~1.2s poll) lag thật ngoài đời.
 - [ ] **Branding 0b**: `MIEN-icon-dark` làm iOS dark/tinted icon; wordmark trên header
@@ -513,15 +508,10 @@ edge functions / chưa chạy eas build — chờ anh Khôi duyệt riêng.
   `contourShoulderInset` vs số thước dây thật của anh Khôi (shoulder thật, waist thật).
 ## G. Profile wiring — Subscription/Notifications (2026-07-07)
 
-- [ ] **Push notification DELIVERY infrastructure not implemented** (2026-07-07,
-  wiring the Profile "Notifications" row): expo-notifications registration,
-  permission request, scheduling, and server-side triggers. The new
-  `app/notifications.tsx` screen currently only persists preferences locally
-  (`appStore.notificationPrefs`) — toggling a switch there does not cause any
-  notification to actually be sent.
-- [ ] **Profile rows "Location & weather" and "Connected accounts" are still
-  unwired (no route)** (2026-07-07, same session as Subscription/Notifications
-  wiring in `app/(tabs)/profile.tsx` SECTIONS) — tapping them still does nothing.
+- [ ] **Remote push notifications (server-triggered) not built** (2026-11-26): local reminders
+  ship via `expo-notifications` (see plan.md 2026-11-26). A push server/token registration is only
+  needed for marketing/news; the `marketing` pref is kept but unused. Profile row "Connected accounts"
+  is still unwired (no route).
 
 ## H. Silhouette-first resolution (2026-07-12)
 
@@ -619,15 +609,6 @@ of scope"/"Do NOT run the app").
   blocked on external account setup (App Store Connect + Google Play + RevenueCat dashboard)
   which only anh Khôi can do, plus a public SDK API key. Code+deploy is ~half a day once
   keys/products exist. PLAN ONLY per anh Khôi (2026-07-23) — no code yet.
-- [ ] **Notifications row hidden — needs real delivery before re-enabling.** The Profile
-  "Notifications" row was commented out (2026-07-23) because `app/notifications.tsx` is
-  prefs-only: the 4 switches persist to `appStore` but there is NO delivery infra (no
-  `expo-notifications`, no push token, no scheduling). To bring it back, wire real local
-  reminders (`expo-notifications`) and/or a push server, then uncomment the `SECTIONS` row.
-- [ ] **Profile rows "Location & weather" and "Connected accounts" hidden** (2026-07-23) —
-  commented out in `app/(tabs)/profile.tsx` because they had no destination screen. Build
-  the screens (or wire existing flows) then re-enable. "Location & weather" overlaps with the
-  deferred live-weather/GPS work in section C.
 ## H. App identifier rename follow-ups (2026-07-31)
 
 Rename `com.briank.mien` -> `tech.kioh.mien` done this session (see plan.md changelog
@@ -897,20 +878,6 @@ trước đó (những mục đã có — rate-limit tryon, model hardcode, gemi
   R8 warning khi build release. Nhiều khả năng do RevenueCat kéo transitive (hỗ trợ Amazon
   Appstore). MIEN chỉ phát hành Play + App Store → nhiều khả năng loại được để giảm dex.
   Chưa đụng vì chưa verify RevenueCat có gọi tới nó vô điều kiện lúc init không. (2026-08-09)
-- [ ] **Style catalog (22 style, 2026-08-10): toàn bộ `image_url` là null, kể cả 14 style
-  mới** — DB `public.styles.image_url` null cho cả 22 row (đúng như 8 style cũ trước đây).
-  8 style cũ còn có ảnh Unsplash qua fallback tĩnh `src/data/index.ts` `STYLES[].img`; 14
-  style mới KHÔNG có ảnh thật nào (client dùng `img: ''` → `Photo` render tile màu +
-  label, không phải ảnh thật). Cần ảnh đại diện thật cho `feminine`, `officechic`,
-  `parisian`, `coquette`, `cleangirl`, `darkacademia`, `cottagecore`, `grunge`, `athflow`,
-  `elegant`, `kfashion`, `vintage`, `resort`, `artsy` — cả ở DB (`image_url`) lẫn client
-  fallback. (2026-08-10)
-- [ ] **Tên/mô tả style KHÔNG có đường dịch tiếng Việt** — xác nhận trước khi làm gì
-  (2026-08-10): style name/description luôn đến từ `public.styles` (tiếng Anh) hoặc
-  fallback tĩnh `src/data/index.ts` `STYLES` (cũng tiếng Anh); `src/i18n/locales/
-  {en,vi}.json` không có key nào cho tên style — kể cả 8 style cũ. Giữ nguyên cơ chế này
-  cho 14 style mới (không tự chế hệ dịch mới), nhưng đây là gap có thật nếu app cần hiển
-  thị tên style bằng tiếng Việt.
 - [ ] **`modest` — style bị DỪNG, chưa ship, thiếu attribute "độ phủ da"** — yêu cầu đợt 2
   có `modest`, nhưng ràng buộc định danh của style này (tay/chân dài, cổ kín) không có trục
   nào trong `StyleConfig`/`FitItem` diễn tả được. `filterByStyle` chỉ kiểm 5-6 trục hiện có:
@@ -1358,11 +1325,9 @@ code KHÔNG phải thứ đang chặn release.
 > Kết luận report: lợi thế MIEN = số đo on-device + verdict trung lập tại điểm mua, KHÔNG phải
 > AI try-on (ChatGPT Try On toàn cầu 2026-10-01; Google Photos Wardrobe đã ra ở US/IN/BR).
 
-- [ ] **Quyết định mô hình giá: freemium AI-credit → hard paywall / trial ngắn cho verdict,
-  try-on, Critic?** (2026-10-10, trade-off — anh Khôi quyết). Benchmark RevenueCat 2026:
-  trial→paid 10.7% hard paywall vs 2.1% freemium; revenue/install D60 $3.09 vs $0.38.
-  Rủi ro hiện tại: 3 lượt try-on Pro miễn phí ≈ $0.40/install, hơn nửa LTV trung vị Lifestyle
-  ($0.70). Nếu giữ free credit thì phải dùng Flash hoặc on-device, Pro Image chỉ cho paid.
+- [ ] **Theo dõi chi phí tier free sau launch** (2026-11-26) — anh Khôi chốt freemium, GIỮ Pro Image cho
+  free, `FREE_LIMITS = { ai_extraction: 2, try_on: 2 }` (~$0.40/user free/tháng tối đa). Xem lại sau
+  4–6 tuần dữ liệu thật: nếu chi phí/install vượt doanh thu thì hạ free xuống Flash hoặc 1 try-on.
 - [ ] **PDPL cho try-on cloud — nghiên cứu xong, cần luật sư chốt 3 điểm** (2026-10-11, từ
   `docs/compliance-pdpl-appstore-tax-2026-10.md`). Kết luận sơ bộ: cần 2 hồ sơ (DPIA + chuyển dữ
   liệu ra nước ngoài, Mẫu 09 + 01a) nộp A05 trong 60 ngày kể từ khi bắt đầu xử lý — không bắt
@@ -1390,7 +1355,7 @@ code KHÔNG phải thứ đang chặn release.
 
 ## AJ. Quyết định ship-or-kill MIEN (2026-11-05)
 
-- [ ] **Chốt: ship bản thu hẹp trong 2–3 tuần hay đóng băng MIEN** (2026-11-05, đề xuất chưa duyệt — anh Khôi quyết). Bối cảnh: dev từ 2026-03 (8 tháng, 87 commit) chưa lên store; commit cuối 2026-10-11; Supabase đang pause; backlog ~163 mục mở. Đề xuất: (1) restore Supabase + deploy 4 edge fn đang chờ; (2) cắt scope còn đúng 1 lời hứa "quét món đồ → có vừa người + hợp tủ đồ không" + personal color làm mồi; (3) chốt giá (hard paywall/trial cho verdict + try-on); (4) bật Sentry + PostHog (làm delete-person trước); (5) submit iOS + Android VN; (6) đo 6–8 tuần với ngưỡng kill: D30 < 5% hoặc chuyển đổi trả phí < 2% người đã dùng verdict → đóng băng, chuyển sức sang MedSkin. Đóng băng mọi việc tinh chỉnh engine (layering, opacity, body-shape) cho tới khi có user thật.
+> **ĐÃ CHỐT 2026-11-26 (anh Khôi):** SHIP MIEN, mô hình **freemium**, giữ scope **đầy đủ nhất có thể** (không cắt còn 1 lời hứa).
 
 ## AK. Đề xuất từ research lời chê đối thủ (2026-11-05)
 
@@ -1399,6 +1364,14 @@ code KHÔNG phải thứ đang chặn release.
 
 - [ ] **Thời tiết phase 2: độ ẩm / hourly / feels-like vào ranking** (2026-11-05) — phase 1 đã xong (band từ feels-like max cả ngày + chip Home). Còn: độ ẩm, hourly cho user buổi tối, và đưa mưa/feels-like vào ranking engine (đụng ranking → phải A/B sweep known-good trước deploy, bài học mục AH). Làm SAU launch.
 - [ ] **Export dữ liệu tủ đồ** (2026-11-05) — quota rõ ràng đã xong (không có cap số món; note quota ở ScanScreen + onboarding). Còn: cân nhắc export dữ liệu để không giữ dữ liệu làm con tin.
+
+## AM. Launch hoàn thiện (2026-11-26)
+
+- [ ] **Ảnh cho 10 style còn thiếu** (2026-11-26): glam, businessformal, gothic, utility, sporty, normcore,
+  retro70s, pinup, whimsigoth, mobwife — cùng pipeline Unsplash → bucket `style-images`.
+- [ ] **Device-verify notifications + location/weather** (2026-11-26) — cần native rebuild (thêm
+  `expo-notifications`): delivery daily/weather 20:00/weekly, quyền Android 13+, tap routing cold start,
+  GPS + tìm thành phố, Home đổi nhiệt độ khi đổi location, logout huỷ reminder.
 
 ## AL. Stylist tỉ lệ — phần còn thiếu (cập nhật 2026-11-21, chờ anh Khôi chọn)
 

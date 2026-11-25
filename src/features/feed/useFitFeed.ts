@@ -5,6 +5,7 @@ import { ScoredOutfit, OutfitSlots } from '../../types/fitEngine';
 import { useAppStore } from '../../stores/appStore';
 import { usePremium } from '../monetization/usePremium';
 import i18n from '../../i18n';
+import { styleName, styleLabelFromAny } from '../styles/styleLabel';
 
 // Stable deep-comparison hook
 function useStableValue<T>(value: T): T {
@@ -52,7 +53,7 @@ function scoredToOutfit(scored: ScoredOutfit, items: ReturnType<typeof useAppSto
   // Story-aware subtitle (S3): the engine groups the feed into story briefs
   // (REFINED / EVERYDAY / OFF DUTY); the card kicker reads "story · style".
   // Older responses without a story fall back to the static style subtitle.
-  const styleLabel = (SUBTITLES[dominantStyle] ?? dominantStyle).split(' · ')[0];
+  const styleLabel = styleName(dominantStyle, (SUBTITLES[dominantStyle] ?? dominantStyle).split(' · ')[0], i18n.t.bind(i18n)).toLowerCase();
   const subtitle = scored.story
     ? `${scored.story.toLowerCase()} · ${styleLabel}`
     : SUBTITLES[dominantStyle] ?? dominantStyle;
@@ -106,7 +107,7 @@ function scoredToOutfit(scored: ScoredOutfit, items: ReturnType<typeof useAppSto
   // Wardrobe-affinity style fallback (2026-08-02) — display-only, no i18n (a
   // proper noun style name), only present when the server's style fallback
   // fired. Style identity outranks silhouette, so it sorts before it below.
-  const styleTag = scored.styleTag?.toUpperCase();
+  const styleTag = scored.styleTag ? styleLabelFromAny(scored.styleTag, i18n.t.bind(i18n)).toUpperCase() : undefined;
 
   return {
     id: `gen_${fullKey}`,

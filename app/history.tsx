@@ -12,6 +12,7 @@ import { useAppStore } from '../src/stores/appStore';
 import { useFitFeed } from '../src/features/feed/useFitFeed';
 import { useGridCardWidth, useGridColumns } from '../src/design/layout';
 import i18n, { useTranslation } from '../src/i18n';
+import { styleLabelFromAny } from '../src/features/styles/styleLabel';
 
 function formatDate(iso: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const d = new Date(iso + 'T00:00:00');
@@ -96,7 +97,7 @@ export default function HistoryScreen() {
                         <OutfitCollage outfit={outfit} compact containerHeight={CARD_W * 1.3} />
                       </View>
                       <View style={{ padding: 4, paddingTop: 10 }}>
-                        <Text style={styles.cardStyle}>{outfit.style}</Text>
+                        <Text style={styles.cardStyle}>{styleLabelFromAny(outfit.style, t).toUpperCase()}</Text>
                         <Text style={styles.cardTitle} numberOfLines={1}>{outfit.title}</Text>
                         <Text style={styles.cardMeta}>{t('history_cardItemsCount', { count: outfit.itemIds.length, weather: outfit.weather })}</Text>
                       </View>

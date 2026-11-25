@@ -15,18 +15,22 @@ import {
 } from '../src/services/stylesCatalogService';
 import { useGridCardWidth, useGridColumns } from '../src/design/layout';
 import { useTranslation } from '../src/i18n';
+import { styleName, styleDesc } from '../src/features/styles/styleLabel';
 
 function StyleCard({ s, selected, onPress }: { s: typeof STYLES[number]; selected: boolean; onPress: () => void }) {
+  const { t } = useTranslation();
+  // DB image_url (public style-images bucket) wins over the static fallback.
+  const dbImg = useFitEngineStore(st => st.styles.find(x => x.id === s.id)?.imageUrl);
   const cols = useGridColumns();
   const CARD_W = useGridCardWidth(cols);
   const h = CARD_W * (4 / 3);
   return (
     <Pressable onPress={onPress} style={[styles.card, { width: CARD_W, height: h }]}>
-      <Photo src={s.img} label={s.name} tone={selected ? 0 : 2} style={StyleSheet.absoluteFillObject} />
+      <Photo src={dbImg || s.img} label={styleName(s.id, s.name, t)} tone={selected ? 0 : 2} style={StyleSheet.absoluteFillObject} />
       <View style={styles.cardGradient} />
       <View style={styles.cardLabel}>
-        <Text style={styles.cardName}>{s.name}</Text>
-        <Text style={styles.cardDesc}>{s.desc}</Text>
+        <Text style={styles.cardName}>{styleName(s.id, s.name, t)}</Text>
+        <Text style={styles.cardDesc}>{styleDesc(s.id, s.desc, t)}</Text>
       </View>
       {selected && (
         <>
@@ -229,7 +233,7 @@ export default function StylesEditScreen() {
                 <View style={styles.nicheHeader}>
                   <View>
                     <Text style={styles.nicheLabel}>{t('stylesEdit_becauseYouLikeLabel')}</Text>
-                    <Text style={styles.nicheParent}>{parent.name}</Text>
+                    <Text style={styles.nicheParent}>{styleName(parent.id, parent.name, t)}</Text>
                   </View>
                   <Text style={styles.stepCount}>{parentNicheCount} / {list.length}</Text>
                 </View>

@@ -44,8 +44,10 @@ const BAND_TO_SEASON: Record<string, 'winter' | 'fall' | 'spring' | 'summer'> = 
   cold: 'winter', mild: 'fall', warm: 'spring', hot: 'summer',
 };
 
-function weatherIntent(intent?: IntentContext): IntentContext | undefined {
-  const band = useAppStore.getState().weatherContext?.temperatureBand;
+export function weatherIntent(intent?: IntentContext): IntentContext | undefined {
+  const app = useAppStore.getState();
+  if (app.weatherAwareSuggestions === false) return intent;
+  const band = app.weatherContext?.temperatureBand;
   const season = band ? BAND_TO_SEASON[band] : undefined;
   if (!season) return intent;
   return { ...intent, seasonOverride: intent?.seasonOverride ?? season };
