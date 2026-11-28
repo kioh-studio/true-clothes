@@ -1321,6 +1321,8 @@ code KHÔNG phải thứ đang chặn release.
   do `posthog-react-native` cần) — build hiện tại (nếu có) không có 2 module này, phải rebuild
   native trước khi analytics chạy thật trên device.
 
+- [ ] **Proxy PostHog qua Supabase edge function NẾU bị spam event** (2026-11-29) — key `phc_` nằm trong app (public, chỉ ghi được event, không đọc được data); rủi ro: event rác / ăn hết quota free 1M/tháng. Chỉ làm khi thấy event rác sau launch: fn nhận JWT + rate limit, giữ key ở secret, đổi `host` trong `src/services/analytics.ts`. Lưu ý event trước login (onboarding trước bước auth) không có JWT. Tạm thời nếu bị spam: rotate key trong PostHog Settings + rebuild.
+
 ## AI. Việc phát sinh từ research thị trường MIEN (2026-10-10)
 
 > Nguồn: `reports/MIEN khả thi thị trường 2026.md` + `research_notes/MIEN khả thi thị trường 2026/`.
