@@ -45,6 +45,7 @@ export type AnalyticsEvent =
   | 'try_on_completed'
   | 'try_on_failed'
   | 'wardrobe_report_opened'
+  | 'verdict_viewed'
   | 'paywall_viewed'
   | 'purchase_completed'
   | 'feedback_submitted';

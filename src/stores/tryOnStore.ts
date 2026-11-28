@@ -21,6 +21,7 @@ import { checkCredit, isCreditExhausted } from '../services/usageCreditService';
 import { hasPremiumAccountType } from '../services/profileService';
 import { evaluateItem } from '../services/tryOnService';
 import i18n from '../i18n';
+import { track } from '../services/analytics';
 import { scannedItemToAddInput } from '../features/try-on/scannedItemToAddInput';
 import { dominantHexesFromUri } from '../features/wardrobe-add/colorClusterUri';
 import { useFitEngineStore } from './fitEngineStore';
@@ -337,7 +338,10 @@ export const useTryOnStore = create<TryOnState>((set, get) => {
     try {
       const locale = i18n.language?.startsWith('vi') ? 'vi' : 'en';
       const verdict = await evaluateItem(scannedItem, locale);
-      if (!isStale()) set({ status: 'result', verdict });
+      if (!isStale()) {
+        set({ status: 'result', verdict });
+        track('verdict_viewed', { recommendation: verdict.recommendation ?? 'unscored' });
+      }
     } catch (err) {
       // Recoverable: user stays on result screen and can retry
       if (!isStale()) {

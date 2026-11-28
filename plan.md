@@ -8989,3 +8989,13 @@ Source: `reports/anthro-fit-ansur.md` (ANSUR II Asian-weighted + AIST Japan mean
 ### 2026-11-26 — Style catalog i18n and images
 Style names/descriptions localized via `style_<id>_name|desc` keys (en+vi, all 31 styles), rendered through `src/features/styles/styleLabel.ts` (`styleName`, `styleDesc`, `styleLabelFromAny`) with DB/static fallback; stored/sent values unchanged. 14 styles got Unsplash photos in the new public bucket `style-images` with `public.styles.image_url` set (migration `20261126000001_style_images_bucket.sql`); `styles-edit` now prefers DB `imageUrl`. Styles cache is 24h, so existing installs see new images after expiry.
 Follow-up same day: remaining 10 styles got images (migration `20261126000002_style_images_more.sql`); vintage/parisian swapped for text-free photos. All 31 styles now have an image.
+
+## 2026-11-28 - demo OTP reverted to 000000
+
+- `DEMO_WHITELIST` set back to static `000000` for both demo accounts by owner decision (rotation of 2026-11-25 undone); verify-otp returns 200 for both. Change again with `npx supabase secrets set DEMO_WHITELIST=...`.
+
+## 2026-11-28 - analytics: launch decision metrics
+
+- D7/D30 retention: already covered. `identify(userId)` (Supabase uuid) runs in `app/_layout.tsx` on login, and `captureAppLifecycleEvents: true` is set in `src/services/analytics.ts` init, so PostHog's built-in "Application Opened" is the app-open signal. No custom event added.
+- First-10-items: `item_added` now carries `wardrobe_count` (wardrobe size after the add, `appStore.addWardrobeItem`).
+- Purchase rate after verdict: new event `verdict_viewed { recommendation }` (great/worth_it/maybe/skip/unscored), fired in `tryOnStore.evaluate()` when a fresh verdict lands (not for wishlist re-opens). Funnel: users with `verdict_viewed` -> `purchase_completed`. No measurements/photos/PII in props.

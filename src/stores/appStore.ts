@@ -369,7 +369,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         const tier = useFitEngineStore.getState().premium ? 'premium' : 'free';
         const item = await addItem(input, tier);
         set(s => ({ wardrobeItems: [item, ...s.wardrobeItems] }));
-        track('item_added', { method: input.source ?? 'manual' });
+        track('item_added', { method: input.source ?? 'manual', wardrobe_count: get().wardrobeItems.length });
       } catch (err) {
         if (err instanceof WardrobeStorageError) {
           set({ wardrobeError: i18n.t('wardrobeStore_photoUploadFailed') });
