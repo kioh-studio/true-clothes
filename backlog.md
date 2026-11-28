@@ -1374,6 +1374,14 @@ code KHÔNG phải thứ đang chặn release.
   `expo-notifications`): delivery daily/weather 20:00/weekly, quyền Android 13+, tap routing cold start,
   GPS + tìm thành phố, Home đổi nhiệt độ khi đổi location, logout huỷ reminder.
 
+## AN. Phát hành — việc mở ra sau khi có DUNS (2026-11-27)
+
+> 2026-11-28: anh Khôi đã nộp DUNS cho cả Apple và Google Play — đang chờ duyệt / làm tiếp các bước dưới.
+
+- [ ] **Chuyển Apple Developer team `ZXWAPGR9XP` từ Individual → Organization bằng DUNS** (2026-11-27) — liên hệ Apple Developer Support xin migrate (giữ team ID + ASC record `tech.kioh.mien`), KHÔNG enroll account mới (sẽ phải tạo lại app record + IAP). Tên pháp nhân trên D&B phải khớp chính xác tên đăng ký kinh doanh; seller name trên App Store sẽ đổi thành tên công ty. Chờ Apple duyệt có thể vài ngày–2 tuần → làm TRƯỚC khi submit.
+- [ ] **Google Play: dùng account Organization (DUNS) để né yêu cầu closed test 12 tester × 14 ngày của account cá nhân** (2026-11-27) — cần xác định account Play hiện tại là personal hay org; nếu personal thì cân nhắc tạo org account mới (app chưa publish nên chuyển app chỉ tốn công tạo lại listing).
+- [ ] **Cập nhật thuế / PDPL theo tư cách pháp nhân** (2026-11-27) — bảng phân tích thuế Apple (2% TNCN + 5% nhà thầu) và miễn trừ NĐ 356 Đ.41 trong `docs/compliance-pdpl-appstore-tax-2026-10.md` đang viết cho dev CÁ NHÂN; nếu publish dưới công ty thì phải hỏi lại kế toán + cập nhật tax info / bank account trong ASC Agreements.
+
 ## AL. Stylist tỉ lệ — phần còn thiếu (cập nhật 2026-11-21, chờ anh Khôi chọn)
 
 > 2026-11-06: phần lõi ĐÃ CÓ — đo cơ thể on-device (`src/features/measurements/silhouette.ts`), bodyShapeClassifier, `shape_goal` + `app/shape-goal-edit.tsx`, engine chấm silhouette/proportion theo goal, chip dáng trên thẻ outfit, verdict tính form theo dáng. Câu giải thích hiệu ứng từng outfit đã xong 2026-11-21 (`proportionNotes`). Chỉ còn 2 khoảng trống dưới.
@@ -1410,4 +1418,4 @@ Steps 1-2 (RAM frames, `rgbaImage.ts`/`stillToRgba.ts`) done, see plan.md. Left:
 - [ ] **LT7: remove the old expo-camera path + `storageIsLow` guard + `'storage'` retake reason** (2026-11-20) — after LT6 passes.
 - [ ] **LT8: iOS** (2026-11-20) — needs a Mac for the VisionCamera build.
 - [ ] **Inseam MAE +0.35 cm after RAM migration (>0.3 bar)** (2026-11-20) — likely noise (integer-rounded, <=1 cm shifts, 20 bodies, known run-to-run instability); recheck on the physical-phone A/B before blaming the resampler.
-- [ ] **Cập nhật App Review notes trên ASC với OTP demo mới** (2026-11-25) — `DEMO_WHITELIST` đã rotate; mã nằm ở file scratchpad `demo-otp.txt` (không commit). Cũ `000000` đã vô hiệu. Verify RLS: tài khoản demo không đọc được dữ liệu user khác.
+- [ ] **Điền OTP demo `000000` vào App Review notes trên ASC** (2026-11-28) — anh Khôi quyết định quay về `000000` cho cả `demo@mien.app` và `demo-woman@mien.app` (chấp nhận rủi ro mã dễ đoán, sẽ tự đổi sau; đổi bằng `npx supabase secrets set DEMO_WHITELIST=...`). Còn: điền vào ASC notes + verify RLS: tài khoản demo không đọc được dữ liệu user khác.
