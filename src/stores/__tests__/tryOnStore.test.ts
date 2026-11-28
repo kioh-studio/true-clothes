@@ -37,6 +37,7 @@ jest.mock('../../i18n', () => ({ __esModule: true, default: { language: 'en' } }
 
 // Shared stores + vocab the store now depends on (US2/US3).
 const mockFetchMixMatchOutfits = jest.fn(async () => []);
+jest.mock('../consentStore', () => ({ requireAiPhotoConsent: jest.fn(async () => true) }));
 jest.mock('../fitEngineStore', () => ({
   useFitEngineStore: { getState: () => ({ fetchMixMatchOutfits: mockFetchMixMatchOutfits }) },
 }));

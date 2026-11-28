@@ -1387,5 +1387,21 @@
   "wardrobeStats_cpwHint": "Add a price on an item to see this.",
   "itemDetail_priceLabel": "PRICE PAID",
   "itemDetail_pricePlaceholder": "Optional",
-  "itemDetail_costPerWear": "≈ {{amount}} per wear"
+  "itemDetail_costPerWear": "≈ {{amount}} per wear",
+  "consent_title": "Your photo, your call.",
+  "consent_body": "MIEN sends your photos to Google (Gemini), which processes them on servers outside Vietnam. This covers two features: (1) try-on, which uses your full-body photo, and (2) recognizing clothing items from your photos when you add to your wardrobe.\n\nYour photos may be treated as sensitive personal data, including biometric data. They are used only to create your result. Google does not use your photos to train its AI models, and they are not shared with anyone else.\n\nMIEN does not keep the photos you send on our servers, and generated images are saved only on your device. Clothing images you add to your wardrobe are stored privately in your account, visible only to you, and deleted when you delete your account.\n\nYou can withdraw consent anytime in Settings. If you decline, these two features stay unavailable; everything else in MIEN works as before.",
+  "consent_checkbox": "I agree to send my photos to Google, outside Vietnam, for these purposes.",
+  "consent_agree": "AGREE AND CONTINUE",
+  "consent_decline": "NOT NOW",
+  "consent_privacyLink": "Privacy Policy",
+  "consent_error": "Couldn't save your choice. Please try again.",
+  "consent_settingsLabel": "AI photo consent",
+  "consent_settingsGranted": "Granted. Photos may be sent to Google (Gemini) for try-on and item recognition.",
+  "consent_settingsNotGranted": "Not granted. You will be asked before any photo is sent.",
+  "consent_settingsWithdraw": "Withdraw consent",
+  "consent_withdrawTitle": "Withdraw consent?",
+  "consent_withdrawMessage": "Try-on and item recognition from photos will stay unavailable until you agree again.",
+  "consent_withdrawConfirm": "Withdraw",
+  "consent_withdrawCancel": "Cancel",
+  "consent_withdrawError": "Couldn't withdraw consent. Please try again."
 }

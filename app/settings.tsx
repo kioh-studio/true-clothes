@@ -11,6 +11,7 @@ import { Bounded } from '../src/components/ui';
 import { useAuthStore } from '../src/stores/authStore';
 import { useAppStore } from '../src/stores/appStore';
 import { useFitEngineStore } from '../src/stores/fitEngineStore';
+import { useAiPhotoConsent } from '../src/features/consent/useAiPhotoConsent';
 import { useTranslation } from '../src/i18n';
 
 const APP_VERSION = '1.0.0';
@@ -30,6 +31,7 @@ export default function SettingsScreen() {
     setSuggestionToggles,
   } = useFitEngineStore();
 
+  const consent = useAiPhotoConsent();
   const [units, setUnits] = useState<'metric' | 'imperial'>(unitPreference);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -38,6 +40,19 @@ export default function SettingsScreen() {
     const next: 'metric' | 'imperial' = val ? 'imperial' : 'metric';
     setUnits(next);
     setUnitPreference(next);
+  };
+
+  const handleWithdrawConsent = () => {
+    Alert.alert(t('consent_withdrawTitle'), t('consent_withdrawMessage'), [
+      { text: t('consent_withdrawCancel'), style: 'cancel' },
+      {
+        text: t('consent_withdrawConfirm'),
+        style: 'destructive',
+        onPress: () => {
+          consent.withdraw().catch(() => Alert.alert(t('consent_settingsLabel'), t('consent_withdrawError')));
+        },
+      },
+    ]);
   };
 
   const handleDeleteAccount = () => {
@@ -200,6 +215,23 @@ export default function SettingsScreen() {
             </View>
             {language === 'vi' && <View style={styles.selectedDot} />}
           </Pressable>
+        </View>
+
+        {/* AI photo consent (5.1.2(i)) */}
+        <Text style={[styles.sectionLabel, { marginTop: 32 }]}>{t('consent_settingsLabel')}</Text>
+        <View style={styles.section}>
+          <View style={styles.row}>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowDesc}>
+                {consent.granted ? t('consent_settingsGranted') : t('consent_settingsNotGranted')}
+              </Text>
+            </View>
+          </View>
+          {consent.granted && (
+            <Pressable style={styles.row} onPress={handleWithdrawConsent}>
+              <Text style={styles.rowTitle}>{t('consent_settingsWithdraw')}</Text>
+            </Pressable>
+          )}
         </View>
 
         {/* Account */}

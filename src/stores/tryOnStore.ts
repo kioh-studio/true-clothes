@@ -17,6 +17,7 @@ import { ScoredOutfit, WardrobeItem, MKey } from '../types/fitEngine';
 import { GarmentMetadata } from '../services/imageGenerationService';
 import { cutoutOnDevice } from '../services/extractByItemService';
 import { extractItemsWithImages } from '../services/imageGenerationService';
+import { requireAiPhotoConsent } from './consentStore';
 import { checkCredit, isCreditExhausted } from '../services/usageCreditService';
 import { hasPremiumAccountType } from '../services/profileService';
 import { evaluateItem } from '../services/tryOnService';
@@ -221,6 +222,8 @@ export const useTryOnStore = create<TryOnState>((set, get) => {
   // ── T013: scan ─────────────────────────────────────────────────────────────
 
   scan: async (photoUri: string, _method: ExtractMethod) => {
+    // Consent gate (5.1.2(i)): scan always sends the photo to Gemini. Declined → quiet no-op.
+    if (!(await requireAiPhotoConsent())) return;
     const myGeneration = ++scanGeneration;
     const isStale = () => myGeneration !== scanGeneration;
     set({ status: 'scanning', error: null, needsUpgrade: false, scannedItem: null, verdict: null, wishlistSaved: false });

@@ -53,6 +53,7 @@ jest.mock('../../services/profileService', () => ({ hasPremiumAccountType: jest.
 jest.mock('../../services/tryOnService', () => ({ evaluateItem: jest.fn(async () => null) }));
 
 const mockFetchMixMatchOutfits = jest.fn(async () => []);
+jest.mock('../consentStore', () => ({ requireAiPhotoConsent: jest.fn(async () => true) }));
 jest.mock('../fitEngineStore', () => ({
   useFitEngineStore: { getState: () => ({ fetchMixMatchOutfits: mockFetchMixMatchOutfits }) },
 }));

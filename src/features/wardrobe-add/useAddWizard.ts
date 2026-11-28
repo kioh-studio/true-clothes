@@ -3,7 +3,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useAppStore } from '../../stores/appStore';
 import { AddItemInput } from '../../services/wardrobeService';
-import { extractItemsWithImages, ExtractedItemWithImage } from '../../services/imageGenerationService';
+import { requireAiPhotoConsent } from '../../stores/consentStore';
+import { extractItemsWithImages,ExtractedItemWithImage } from '../../services/imageGenerationService';
 import { extractItemOnDevice, isExtractByItemAvailable, cutoutOnDevice } from '../../services/extractByItemService';
 import { checkCredit, CreditStatus, isCreditExhausted } from '../../services/usageCreditService';
 import { usePremium } from '../monetization/usePremium';
@@ -132,6 +133,8 @@ export function useAddWizard() {
   // ── Analyse ──────────────────────────────────────────────────────────────────
   const analyse = useCallback(async () => {
     if (photos.length === 0) return;
+    // Consent gate (5.1.2(i)): AI recognition sends photos to Gemini. Declined → stay on this step, send nothing.
+    if (photos.some((p) => p.method === 'ai') && !(await requireAiPhotoConsent())) return;
     setError(null);
     setUpgrade(false);
     setProcessingIndex(0);

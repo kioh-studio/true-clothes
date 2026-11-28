@@ -28,4 +28,5 @@ Microphone is not used.
 
 PRIVACY
 Body measurement (the body scan) runs fully on-device; body-scan photos are not uploaded. Separately, the optional virtual try-on feature sends a full-body photo and the garment image to Google Gemini for image generation.
+Before the first AI photo feature (try-on, or AI item recognition when adding clothing) the app shows an explicit consent screen naming Google (Gemini), servers outside Vietnam, and that photos are not used to train AI models; the checkbox is unticked by default, consent is stored server-side, and it can be withdrawn in Settings -> AI photo consent.
 ```

@@ -1387,5 +1387,21 @@
   "wardrobeStats_cpwHint": "Nhập giá ở trang chi tiết món đồ để xem.",
   "itemDetail_priceLabel": "GIÁ MUA",
   "itemDetail_pricePlaceholder": "Tuỳ chọn",
-  "itemDetail_costPerWear": "≈ {{amount}} / lần mặc"
+  "itemDetail_costPerWear": "≈ {{amount}} / lần mặc",
+  "consent_title": "Ảnh của bạn, bạn quyết định.",
+  "consent_body": "MIEN gửi ảnh của bạn tới Google (Gemini), xử lý trên máy chủ ngoài Việt Nam. Việc này áp dụng cho hai tính năng: (1) thử đồ, dùng ảnh toàn thân của bạn, và (2) nhận diện món đồ từ ảnh khi bạn thêm vào tủ đồ.\n\nẢnh của bạn có thể được xem là dữ liệu cá nhân nhạy cảm, gồm cả dữ liệu sinh trắc học. Ảnh chỉ dùng để tạo kết quả cho bạn. Google không dùng ảnh của bạn để huấn luyện mô hình AI, và ảnh không được chia sẻ cho ai khác.\n\nMIEN không lưu lại ảnh bạn gửi trên máy chủ của chúng tôi, và ảnh được tạo ra chỉ lưu trên thiết bị của bạn. Ảnh món đồ bạn thêm vào tủ đồ được lưu riêng tư trong tài khoản, chỉ bạn xem được, và được xoá khi bạn xoá tài khoản.\n\nBạn có thể rút đồng ý bất cứ lúc nào trong Cài đặt. Nếu từ chối, hai tính năng này sẽ không dùng được; các phần còn lại của MIEN vẫn hoạt động bình thường.",
+  "consent_checkbox": "Tôi đồng ý gửi ảnh của mình tới Google, ngoài Việt Nam, cho các mục đích này.",
+  "consent_agree": "ĐỒNG Ý VÀ TIẾP TỤC",
+  "consent_decline": "ĐỂ SAU",
+  "consent_privacyLink": "Chính sách quyền riêng tư",
+  "consent_error": "Không lưu được lựa chọn của bạn. Vui lòng thử lại.",
+  "consent_settingsLabel": "Đồng ý dùng ảnh với AI",
+  "consent_settingsGranted": "Đã đồng ý. Ảnh có thể được gửi tới Google (Gemini) để thử đồ và nhận diện món đồ.",
+  "consent_settingsNotGranted": "Chưa đồng ý. Bạn sẽ được hỏi trước khi bất kỳ ảnh nào được gửi đi.",
+  "consent_settingsWithdraw": "Rút đồng ý",
+  "consent_withdrawTitle": "Rút đồng ý?",
+  "consent_withdrawMessage": "Thử đồ và nhận diện món đồ từ ảnh sẽ không dùng được cho tới khi bạn đồng ý lại.",
+  "consent_withdrawConfirm": "Rút đồng ý",
+  "consent_withdrawCancel": "Huỷ",
+  "consent_withdrawError": "Không rút được đồng ý. Vui lòng thử lại."
 }

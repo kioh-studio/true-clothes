@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { validatePersonPhoto, generateWearOn, classifyTryOnFailure } from '../../services/tryOnWearService';
+import { requireAiPhotoConsent } from '../../stores/consentStore';
 import { checkCredit, isCreditExhausted } from '../../services/usageCreditService';
 import { useCreditQuota } from '../monetization/useCreditQuota';
 import { hasPremiumAccountType } from '../../services/profileService';
@@ -130,6 +131,8 @@ export function useWearOnYou({ garments, profile, context, outfitItemIds }: UseW
   const generating = useRef(false);
 
   const runValidation = useCallback(async (uri: string) => {
+    // Consent gate (5.1.2(i)): nothing is sent to Gemini unless the user agreed. Declined → quiet no-op.
+    if (!(await requireAiPhotoConsent())) return;
     const id = ++runId.current;
     setPhotoUri(uri);
     setReason('');
@@ -195,6 +198,8 @@ export function useWearOnYou({ garments, profile, context, outfitItemIds }: UseW
     setFaceReason(null);
 
     try {
+      // Consent gate (consent may have been withdrawn since the photo was validated).
+      if (!(await requireAiPhotoConsent())) return;
       // Credit gate (skip for premium).
       try {
         const premium = await hasPremiumAccountType();

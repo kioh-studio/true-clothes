@@ -21,6 +21,7 @@ import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { useAppStore } from '../src/stores/appStore';
 import { useWardrobeCriticStore } from '../src/stores/wardrobeCriticStore';
 import { OfflineBanner } from '../src/components/ui';
+import { AiPhotoConsentHost } from '../src/features/consent/AiPhotoConsentModal';
 import { getCurrentUserId } from '../src/services/authService';
 import { identify, screen as screenTrack } from '../src/services/analytics';
 import { useTranslation } from '../src/i18n';
@@ -196,6 +197,7 @@ function RootLayout() {
     <SafeAreaProvider>
       <StatusBar style="dark" />
       <OfflineBanner />
+      <AiPhotoConsentHost />
       {/* The navigator mounts as soon as fonts are ready (the redirect effect
           waits on navReady, which only flips once Stack has mounted, so this
           is safe). It must NOT mount before fonts load: on the New
