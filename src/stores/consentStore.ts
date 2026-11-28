@@ -1,29 +1,31 @@
-// AI photo consent store — caches the per-user consent state and drives the consent modal.
+// Consent store — caches per-consent state (keyed by ConsentId) and drives the consent modal.
 // Every flow that sends a photo to Gemini must `await requireAiPhotoConsent()` first.
 import { create } from 'zustand';
 import { sb } from '../services/supabase';
-import {
-  getAiPhotoConsent, grantAiPhotoConsent, withdrawAiPhotoConsent,
-} from '../services/consentService';
+import { getConsent, grant, withdraw } from '../services/consentService';
 import { isConsentValid } from '../features/consent/consentLogic';
+import type { ConsentId } from '../types/consent';
 
 // Register the auth listener once per process (same pattern as fitEngineStore).
 let _listenerRegistered = false;
 // Callers waiting on the open modal (concurrent flows share one prompt).
 let _waiters: Array<(ok: boolean) => void> = [];
 
+type ByConsent<T> = Partial<Record<ConsentId, T>>;
+
 interface ConsentState {
-  granted: boolean;
-  loaded: boolean;
+  granted: ByConsent<boolean>;
+  loaded: ByConsent<boolean>;
+  pending: ConsentId | null; // consent the open modal is asking for
   modalOpen: boolean;
   submitting: boolean;
   submitError: boolean;
 
-  refresh: () => Promise<void>;
-  require: () => Promise<boolean>;
+  refresh: (id: ConsentId) => Promise<void>;
+  require: (id: ConsentId) => Promise<boolean>;
   accept: () => Promise<void>;
   decline: () => void;
-  withdraw: () => Promise<void>;
+  withdraw: (id: ConsentId) => Promise<void>;
 }
 
 function settle(ok: boolean) {
@@ -42,45 +44,56 @@ export const useConsentStore = create<ConsentState>((set, get) => {
       if (uid === lastUid) return; // token refresh etc.
       lastUid = uid;
       // Another account / signed out: drop the cache; next require()/refresh() re-reads the server.
-      set({ granted: false, loaded: false, modalOpen: false, submitting: false, submitError: false });
+      set({ granted: {}, loaded: {}, pending: null, modalOpen: false, submitting: false, submitError: false });
       settle(false);
     });
   }
 
   return {
-    granted: false,
-    loaded: false,
+    granted: {},
+    loaded: {},
+    pending: null,
     modalOpen: false,
     submitting: false,
     submitError: false,
 
-    refresh: async () => {
+    refresh: async (id) => {
       ensureAuthListener();
       try {
-        const row = await getAiPhotoConsent();
-        set({ granted: isConsentValid(row), loaded: true });
+        const row = await getConsent(id);
+        set((st) => ({
+          granted: { ...st.granted, [id]: isConsentValid(row, id) },
+          loaded: { ...st.loaded, [id]: true },
+        }));
       } catch (err) {
         // Fail closed: unknown state counts as not consented.
         console.warn('[consentStore] refresh failed:', err);
-        set({ granted: false, loaded: false });
+        set((st) => ({ granted: { ...st.granted, [id]: false }, loaded: { ...st.loaded, [id]: false } }));
       }
     },
 
-    require: async () => {
-      if (!get().loaded) await get().refresh();
-      if (get().granted) return true;
+    require: async (id) => {
+      if (!get().loaded[id]) await get().refresh(id);
+      if (get().granted[id]) return true;
       return new Promise<boolean>((resolve) => {
         _waiters.push(resolve);
-        set({ modalOpen: true, submitError: false });
+        set({ modalOpen: true, pending: id, submitError: false });
       });
     },
 
     accept: async () => {
-      if (get().submitting) return;
+      const id = get().pending;
+      if (!id || get().submitting) return;
       set({ submitting: true, submitError: false });
       try {
-        await grantAiPhotoConsent();
-        set({ granted: true, loaded: true, modalOpen: false, submitting: false });
+        await grant(id);
+        set((st) => ({
+          granted: { ...st.granted, [id]: true },
+          loaded: { ...st.loaded, [id]: true },
+          modalOpen: false,
+          pending: null,
+          submitting: false,
+        }));
         settle(true);
       } catch (err) {
         console.warn('[consentStore] grant failed:', err);
@@ -89,18 +102,18 @@ export const useConsentStore = create<ConsentState>((set, get) => {
     },
 
     decline: () => {
-      set({ modalOpen: false, submitError: false });
+      set({ modalOpen: false, pending: null, submitError: false });
       settle(false);
     },
 
-    withdraw: async () => {
-      await withdrawAiPhotoConsent();
-      set({ granted: false, loaded: true });
+    withdraw: async (id) => {
+      await withdraw(id);
+      set((st) => ({ granted: { ...st.granted, [id]: false }, loaded: { ...st.loaded, [id]: true } }));
     },
   };
 });
 
 /** The single gate. Resolves true only when valid consent exists (asks once if not). */
 export function requireAiPhotoConsent(): Promise<boolean> {
-  return useConsentStore.getState().require();
+  return useConsentStore.getState().require('ai_photo');
 }

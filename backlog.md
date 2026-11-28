@@ -1296,7 +1296,7 @@ code KHÔNG phải thứ đang chặn release.
   will see "This account cannot be deleted". Explain this in the ASC App Review notes (or give them
   a way to create a fresh account) before submitting.
 
-- [ ] **Consent ảnh Gemini: còn lại** (2026-11-29) — (a) luật sư duyệt copy `consent_*` (en/vi) trước khi tăng/giữ `AI_PHOTO_CONSENT_VERSION`; (b) chưa enforce phía server: edge functions `tryon-validate`/`tryon-generate`/`generate-item-image` chưa kiểm tra bảng `ai_photo_consents`; (c) `generate-outfits`/`backfill-item-metadata` gửi ảnh món đồ (không phải ảnh người) lên Gemini mà không gate, cân nhắc nêu trong chính sách; (d) chưa test trên thiết bị.
+- [ ] **Consent ảnh Gemini: còn lại** (2026-11-29) — (a) luật sư duyệt copy `consent_*` (en/vi) trước khi tăng/giữ `AI_PHOTO_CONSENT_VERSION`; (b) chưa enforce phía server: edge functions `tryon-validate`/`tryon-generate`/`generate-item-image` chưa kiểm tra bảng `user_consents`; (c) `generate-outfits`/`backfill-item-metadata` gửi ảnh món đồ (không phải ảnh người) lên Gemini mà không gate, cân nhắc nêu trong chính sách; (d) chưa test trên thiết bị.
 
 ## Pre-submission review findings (2026-09-20)
 
