@@ -1296,6 +1296,8 @@ code KHÔNG phải thứ đang chặn release.
   will see "This account cannot be deleted". Explain this in the ASC App Review notes (or give them
   a way to create a fresh account) before submitting.
 
+- [ ] **🔴 CHẶN SUBMIT: thiếu màn consent trước khi gửi ảnh lên Gemini (try-on + AI extraction)** (2026-11-28) — grep `app/`+`src/` không có UI consent/nhắc tên bên thứ ba; App Store guideline 5.1.2(i) (bản 11/2025) bắt nêu rõ dữ liệu cá nhân gửi cho AI bên thứ ba + xin đồng ý trước, PDPL cũng cần. Copy EN/VI đã có ở `docs/tryon-consent-copy.md` (2 chỗ `[xác minh]`). `docs/asc-review-notes.md` hiện KHÔNG claim có consent — sửa lại sau khi làm.
+
 ## Pre-submission review findings (2026-09-20)
 
 - [ ] **LOW — `@react-navigation/native@^7.2.4` ahead of SDK-expected `^7.1.8`** (rà 2026-09-21:
