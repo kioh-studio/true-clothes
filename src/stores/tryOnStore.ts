@@ -368,7 +368,10 @@ export const useTryOnStore = create<TryOnState>((set, get) => {
 
     try {
       const outfits = await useFitEngineStore.getState().fetchMixMatchOutfits(scannedItem);
-      if (!isStale()) set({ mixMatchOutfits: outfits, status: 'mixMatch', mixMatchLoading: false });
+      if (!isStale()) {
+        set({ mixMatchOutfits: outfits, status: 'mixMatch', mixMatchLoading: false });
+        if (outfits.length > 0) track('mix_match_used', { outfit_count: outfits.length });
+      }
     } catch (err) {
       // Recoverable: the feed shows a retry; the scanned item stays unsaved.
       if (!isStale()) {
@@ -421,6 +424,7 @@ export const useTryOnStore = create<TryOnState>((set, get) => {
       });
       // If the user left meanwhile, reset() already ran and skipped cleanup
       // (upload was in flight) — drop the temp file now.
+      track('wishlist_item_added');
       if (myGeneration !== scanGeneration) {
         if (!scannedItem.keepImage) await cleanupTempImage(scannedItem.localImageUri);
         set({ wishlistSaving: false });

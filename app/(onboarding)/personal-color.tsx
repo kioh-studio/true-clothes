@@ -18,6 +18,7 @@ import {
 import { DrapeSession } from '../../src/features/personal-color/components/DrapeSession';
 import { ResultView } from '../../src/features/personal-color/components/ResultView';
 import { useTranslation } from '../../src/i18n';
+import { track } from '../../src/services/analytics';
 
 const PAD = 24;
 
@@ -46,7 +47,7 @@ export default function PersonalColorScreen() {
     setSkin, setHair, setEye, setMetal,
     next, back, canAdvance, save,
     stepIndex,
-  } = usePersonalColorDetection();
+  } = usePersonalColorDetection('onboarding');
 
   const [permission, requestPermission] = useCameraPermissions();
   const [draping, setDraping] = useState(false);
@@ -57,7 +58,10 @@ export default function PersonalColorScreen() {
 
   const handleSaveAndContinue = async () => {
     const ok = await save();
-    if (ok) router.back();
+    if (ok) {
+      track('onboarding_step_completed', { step: 'personal_color' });
+      router.back();
+    }
   };
 
   const handleSkip = () => router.back();

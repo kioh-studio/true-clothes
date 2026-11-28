@@ -4,6 +4,7 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
+import { track } from './analytics';
 import type { PlannedReminder } from '../features/notifications/planReminders';
 import { REMINDER_IDS } from '../features/notifications/planReminders';
 
@@ -74,6 +75,9 @@ export async function scheduleReminder(r: PlannedReminder): Promise<void> {
 function routeFrom(resp: Notifications.NotificationResponse | null): void {
   const route = resp?.notification.request.content.data?.['route'];
   if (typeof route !== 'string') return;
+  const id = resp?.notification.request.identifier;
+  const type = id === 'mien.daily' ? 'daily' : id === 'mien.weather' ? 'weather' : id === 'mien.wardrobe' ? 'weekly' : 'other';
+  track('notification_opened', { type });
   router.push((route === '/' ? '/(tabs)' : route) as never);
 }
 

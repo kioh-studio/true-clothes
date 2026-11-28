@@ -24,7 +24,7 @@ export default function MeasurementsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
-  const { values, setField, applyEstimate, bodyShape, bodyShapeOverride, setBodyShapeOverride, consentGiven, setConsentGiven, save, saving, error } = useMeasurements();
+  const { values, setField, applyEstimate, bodyShape, bodyShapeOverride, setBodyShapeOverride, consentGiven, setConsentGiven, save, saving, error, poseEstimated } = useMeasurements();
 
   const [heightUnit, setHeightUnit] = React.useState('CM');
 
@@ -81,7 +81,7 @@ export default function MeasurementsScreen() {
       if (result.message) Alert.alert(t('onboardingMeasurements_invalidAlertTitle'), result.message);
       return;
     }
-    track('onboarding_step_completed', { step: 'measurements' });
+    track('onboarding_step_completed', { step: 'measurements', method: poseEstimated ? 'scan' : 'manual' });
     router.push('/(onboarding)/styles');
   };
 

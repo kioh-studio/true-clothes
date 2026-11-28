@@ -8,6 +8,7 @@ import { PrimaryButton, TextLink, Bounded } from '../../src/components/ui';
 import { useAuthStore } from '../../src/stores/authStore';
 import { FREE_LIMITS } from '../../src/services/usageCreditService';
 import { useTranslation } from '../../src/i18n';
+import { track } from '../../src/services/analytics';
 
 export default function WardrobeIntroScreen() {
   const router = useRouter();
@@ -39,6 +40,7 @@ export default function WardrobeIntroScreen() {
         Alert.alert(t('onboardingCommon_couldNotFinishSetupAlertTitle'), res.message ?? t('onboardingCommon_pleaseTryAgain'));
         return;
       }
+      track('onboarding_step_completed', { step: 'wardrobe_intro' });
       if (replace) router.replace(dest as never); else router.push(dest as never);
     } catch {
       Alert.alert(t('onboardingCommon_couldNotFinishSetupAlertTitle'), t('onboardingCommon_pleaseTryAgain'));

@@ -8,6 +8,7 @@ import { T, type } from '../../src/design/tokens';
 import { useAuthStore } from '../../src/stores/authStore';
 import { sanitizeDigit, digitAction } from '../../src/utils/otpInput';
 import { useTranslation } from '../../src/i18n';
+import { track } from '../../src/services/analytics';
 
 export default function OTPScreen() {
   const router = useRouter();
@@ -65,6 +66,7 @@ export default function OTPScreen() {
       }
       // Demo account has onboarding pre-seeded — go straight to the app.
       const { onboardingComplete } = useAuthStore.getState();
+      if (!onboardingComplete) track('onboarding_step_completed', { step: 'auth' });
       router.replace(onboardingComplete ? '/(tabs)' : '/(onboarding)/basics');
     } finally {
       setVerifying(false);

@@ -109,7 +109,7 @@ export function UploadStep({
         {/* upgrade notice */}
         {upgrade && (
           <Pressable
-            onPress={() => router.push('/paywall')}
+            onPress={() => router.push({ pathname: '/paywall', params: { source: 'extraction_limit' } })}
             style={styles.upgradeBanner}
           >
             <Text style={styles.upgradeText}>

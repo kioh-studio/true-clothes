@@ -54,7 +54,7 @@ export default function PersonalColorEditScreen() {
     setSkin, setHair, setEye, setMetal,
     next, back, canAdvance, save,
     stepIndex,
-  } = usePersonalColorDetection();
+  } = usePersonalColorDetection('profile');
   const [permission, requestPermission] = useCameraPermissions();
   const [draping, setDraping] = useState(false);
   const [drapeStartAtGrid, setDrapeStartAtGrid] = useState(false);

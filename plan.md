@@ -8804,9 +8804,16 @@ placeholder in `.env` + every `eas.json` build profile today, alongside
 `EXPO_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com`), everything else a silent no-op. Session
 replay is hard-disabled (`enableSessionReplay: false`); touch/text autocapture never runs because
 `PostHogProvider` is never mounted anywhere in the app. Event catalog (string-literal union,
-`AnalyticsEvent`): `onboarding_step_completed`, `onboarding_completed`, `item_added`,
-`outfit_saved`, `outfit_worn`, `try_on_started`, `try_on_completed`, `try_on_failed`,
-`wardrobe_report_opened`, `paywall_viewed`, `purchase_completed`, `feedback_submitted`. Every
+`AnalyticsEvent`; updated 2026-11-28 to the full list): `onboarding_step_completed {step: auth|personal_info|location|measurements|style_quiz|color_palette|personal_color|wardrobe_intro; method?: scan|manual (measurements only)}`,
+`onboarding_completed`, `item_added {method, wardrobe_count}`, `item_deleted {wardrobe_count}`,
+`outfit_saved`, `outfit_worn`, `outfit_built {item_count}`, `outfit_scheduled`,
+`try_on_started`, `try_on_completed`, `try_on_failed {kind}`, `mix_match_used {outfit_count}`,
+`wardrobe_report_opened`, `verdict_viewed {recommendation}`, `wishlist_item_added`,
+`collection_created`, `measurements_updated {method: scan|manual}`,
+`personal_color_completed {source: onboarding|profile}`,
+`notification_opened {type: daily|weather|weekly|other}`,
+`paywall_viewed {source: profile|try_on_limit|extraction_limit|other}`,
+`purchase_completed {product}`, `feedback_submitted {kind}`. Every
 export (`track`, `screen`, `identify`, `resetAnalytics`) is wrapped in try/catch and never throws.
 
 **Privacy scrubber (hard constraint — body data never leaves the device).** `scrubProps()` drops
@@ -8999,3 +9006,10 @@ Follow-up same day: remaining 10 styles got images (migration `20261126000002_st
 - D7/D30 retention: already covered. `identify(userId)` (Supabase uuid) runs in `app/_layout.tsx` on login, and `captureAppLifecycleEvents: true` is set in `src/services/analytics.ts` init, so PostHog's built-in "Application Opened" is the app-open signal. No custom event added.
 - First-10-items: `item_added` now carries `wardrobe_count` (wardrobe size after the add, `appStore.addWardrobeItem`).
 - Purchase rate after verdict: new event `verdict_viewed { recommendation }` (great/worth_it/maybe/skip/unscored), fired in `tryOnStore.evaluate()` when a fresh verdict lands (not for wishlist re-opens). Funnel: users with `verdict_viewed` -> `purchase_completed`. No measurements/photos/PII in props.
+
+## 2026-11-28 - analytics: feature-usage events
+
+- Fixed gaps: `onboarding_step_completed` now also fires for `auth` (OTP verified, only when onboarding is not yet complete), `personal_color` (save succeeded) and `wardrobe_intro` (completeOnboarding ok); `measurements` carries `method` (scan if `poseEstimated`). `paywall_viewed` carries `source` via route param (validated, fallback `other`); `purchase_completed` carries `product` (RevenueCat `pkg.product.identifier`).
+- New events: outfit_built, mix_match_used, outfit_scheduled, wishlist_item_added, collection_created, item_deleted, measurements_updated, personal_color_completed (hook takes `source`), notification_opened (from request identifier). Full catalog in the 2026-09-22 section. All fired at the success point (store/hook where one exists). No per-swipe feed events.
+- Not added: `outfit_restyled` (no "style it differently"/swap exists on outfit detail; it is commented out as unimplemented) and `feed_filter_changed` (the feed filter bar was removed; no filter UI exists).
+- Note: the outfit builder saves as a collection, so one build fires both `outfit_built` and `collection_created`; filter by event when counting collections.

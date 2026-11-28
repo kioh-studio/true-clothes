@@ -107,7 +107,8 @@ export default function ProfileScreen() {
         {SECTIONS.map((s, i) => (
           <Pressable
             key={s.id}
-            onPress={() => { if (s.route) router.push(s.route as any); }}
+            onPress={() => { if (s.id === 'subscription') router.push({ pathname: '/paywall', params: { source: 'profile' } });
+              else if (s.route) router.push(s.route as any); }}
             style={[styles.sectionRow, { borderBottomWidth: i === SECTIONS.length - 1 ? 0 : 0.5, borderBottomColor: T.color.hairline }]}
           >
             <Text style={styles.sectionText}>{t(s.labelKey)}</Text>

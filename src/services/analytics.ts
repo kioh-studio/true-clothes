@@ -48,7 +48,16 @@ export type AnalyticsEvent =
   | 'verdict_viewed'
   | 'paywall_viewed'
   | 'purchase_completed'
-  | 'feedback_submitted';
+  | 'feedback_submitted'
+  | 'outfit_built'
+  | 'mix_match_used'
+  | 'outfit_scheduled'
+  | 'wishlist_item_added'
+  | 'collection_created'
+  | 'item_deleted'
+  | 'measurements_updated'
+  | 'personal_color_completed'
+  | 'notification_opened';
 
 export type AnalyticsProps = Record<string, string | number | boolean>;
 

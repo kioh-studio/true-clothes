@@ -390,6 +390,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await deleteItem(id);
       set(s => ({ wardrobeItems: s.wardrobeItems.filter(i => i.id !== id) }));
+      track('item_deleted', { wardrobe_count: get().wardrobeItems.length });
     } catch (err) {
       if (err instanceof WardrobeDbError) {
         set({ wardrobeError: i18n.t('wardrobeStore_deleteItemFailed') });
@@ -470,6 +471,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const wasScheduled = scheduledSet.has(id);
       wasScheduled ? scheduledSet.delete(id) : scheduledSet.add(id);
       save({ ...s, scheduledSet });
+      if (!wasScheduled) track('outfit_scheduled');
       _interactionWritesInFlight++;
       const writeP = wasScheduled
         ? unscheduleOutfit(id)
@@ -551,6 +553,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setScheduleOutfit: (dateKey, outfitId) => set((s) => {
     const scheduleMap = { ...s.scheduleMap, [dateKey]: outfitId };
     save({ ...s, scheduleMap });
+    track('outfit_scheduled');
     return { scheduleMap };
   }),
 
@@ -600,6 +603,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         save({ ...s, collections });
         return { collections };
       });
+      track('collection_created');
       return col;
     } catch {
       set({ collectionsError: i18n.t('collectionsStore_createFailed') });

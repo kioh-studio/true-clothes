@@ -67,7 +67,7 @@ export function usePremium(): PremiumState {
       const active = !!customerInfo.entitlements.active['premium'];
       setIsPremium(active);
       setActiveProductId(customerInfo.entitlements.active['premium']?.productIdentifier ?? null);
-      if (active) track('purchase_completed');
+      if (active) track('purchase_completed', { product: pkg.product.identifier });
       return active ? 'success' : 'error';
     } catch (err) {
       // RevenueCat SDK marks a user-dismissed purchase sheet with

@@ -179,7 +179,7 @@ export function ScanScreen() {
 
       {needsUpgrade ? (
         <Pressable
-          onPress={() => router.push('/paywall')}
+          onPress={() => router.push({ pathname: '/paywall', params: { source: 'try_on_limit' } })}
           style={styles.upgradeBanner}
         >
           <Text style={styles.upgradeText}>

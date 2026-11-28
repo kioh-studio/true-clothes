@@ -12,6 +12,7 @@ import {
   IconSparkle, IconX,
 } from '../src/components/icons';
 import { useAppStore } from '../src/stores/appStore';
+import { track } from '../src/services/analytics';
 import { STYLES, COLORS, OCCASIONS } from '../src/data';
 import { OutfitCollage } from '../src/components/outfit/Collage';
 import { useTranslation } from '../src/i18n';
@@ -661,6 +662,7 @@ export default function OutfitBuilderScreen() {
                     return;
                   }
                 }
+                track('outfit_built', { item_count: selectedIds.length });
                 setNameOpen(false);
                 setName('');
                 router.back();

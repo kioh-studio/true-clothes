@@ -13,7 +13,7 @@ import {
   Linking,
 } from 'react-native';
 import type { PurchasesPackage } from 'react-native-purchases';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, type } from '../src/design/tokens';
 import { PrimaryButton, TextLink, Bounded } from '../src/components/ui';
@@ -22,6 +22,8 @@ import { usePremium } from '../src/features/monetization/usePremium';
 import { track } from '../src/services/analytics';
 import { useTranslation } from '../src/i18n';
 import { TERMS_URL, PRIVACY_URL } from '../src/config/legal';
+
+const PAYWALL_SOURCES = ['profile', 'try_on_limit', 'extraction_limit', 'other'] as const;
 
 export default function PaywallScreen() {
   const insets = useSafeAreaInsets();
@@ -41,11 +43,12 @@ export default function PaywallScreen() {
     if (backTimeoutRef.current) clearTimeout(backTimeoutRef.current);
   }, []);
 
-  // No route param carries a "source" today (every caller does a bare
-  // router.push('/paywall')) — tracked without that prop rather than
-  // inventing one nobody passes.
+  // Callers pass ?source=...; anything unexpected falls back to 'other'.
+  const { source: rawSource } = useLocalSearchParams<{ source?: string }>();
+  const source = (PAYWALL_SOURCES as readonly string[]).includes(rawSource ?? '') ? rawSource! : 'other';
   useEffect(() => {
-    track('paywall_viewed');
+    track('paywall_viewed', { source });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Render every package RevenueCat returns for the current offering — never

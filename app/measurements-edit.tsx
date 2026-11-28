@@ -9,6 +9,7 @@ import { useFitEngineStore } from '../src/stores/fitEngineStore';
 import { validateMeasurements } from '../src/features/measurements/useMeasurements';
 import { computeBodyShape, computeBodyShapeLegacy, stabilizeBodyShape, type BodyShape } from '../src/types/measurements';
 import { useTranslation } from '../src/i18n';
+import { track } from '../src/services/analytics';
 
 import type { PreferredFit, BodyMeasurements } from '../src/types/fitEngine';
 
@@ -239,6 +240,7 @@ export default function MeasurementsEditScreen() {
         preferredFit: v.fit as PreferredFit,
         poseEstimated,
       });
+      track('measurements_updated', { method: poseEstimated ? 'scan' : 'manual' });
       router.back();
     } catch (err) {
       const msg = err instanceof Error ? err.message : t('measurements_errSaveFailed');

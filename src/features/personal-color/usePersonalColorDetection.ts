@@ -9,6 +9,7 @@ import {
 import { applyDrapePick, nudgeTowardTone, type ToneAxes, type DrapeAxis, type ColorTone12 } from './tone12';
 import { classifyUndertone, type LAB } from './colorMath';
 import { useAuthStore } from '../../stores/authStore';
+import { track } from '../../services/analytics';
 import { analyzeWristUndertone, analyzeFace } from './analyzePhoto';
 
 // ─── Step types ────────────────────────────────────────────────────────────
@@ -124,7 +125,7 @@ function skinReadFromWrist(wrist: WristAnalysis): SkinRead | null {
 
 // ─── Hook ──────────────────────────────────────────────────────────────────
 
-export function usePersonalColorDetection() {
+export function usePersonalColorDetection(source: 'onboarding' | 'profile' = 'profile') {
   const savePersonalColor = useAuthStore(s => s.savePersonalColor);
 
   const [state, setState] = useState<DetectionState>({
@@ -358,12 +359,13 @@ export function usePersonalColorDetection() {
     try {
       await savePersonalColor({ season: result.season, palette: result.palette, tone12: result.tone12 });
       setState(s => ({ ...s, saving: false }));
+      track('personal_color_completed', { source }); // never the result
       return true;
     } catch (err) {
       setState(s => ({ ...s, saving: false, error: err instanceof Error ? err.message : 'Failed to save' }));
       return false;
     }
-  }, [result, savePersonalColor]);
+  }, [result, savePersonalColor, source]);
 
   // ── Step progress (excludes intro + result + camera-only scan steps from
   //     dots; screens only render dots on the manual path) ─────────────────
